@@ -1,6 +1,6 @@
 # apps/fiscal/utils/crypto.py
 import os
-from cryptography.fernet import Fernet, InvalidToken
+from cryptography.fernet import Fernet, InvalidToken #eliminar
 from django.conf import settings
 
 FERNET_KEY = os.getenv('ASSINATURA_FERNET_KEY') or getattr(settings, 'ASSINATURA_FERNET_KEY', None)

@@ -172,8 +172,6 @@ DATABASES = {
     )
 }
 
-print("Conectando ao banco remoto:", DATABASES["default"]["NAME"])
-
 # =========================================
 # Cloudinary
 # =========================================
@@ -215,41 +213,39 @@ CELERY_BEAT_SCHEDULE = {
     },
 }
 
-
-# =========================================
-# Caches (Redis + BI)
-# =========================================
-
-# forneceido pelo upstash e adicionado no render em enviroments
-REDIS_URL="rediss://default:AXYnAAIncDI1ZDc0MWE5MzkzNGU0NDVhOWI2NzMxYTc4NTgyNjg0ZXAyMzAyNDc@welcomed-jaguar-30247.upstash.io:6379"
-
-CACHES = {
-    "default": {
-        "BACKEND": "django_redis.cache.RedisCache",
-        "LOCATION": REDIS_URL,
-        "OPTIONS": {
-            "ssl_cert_reqs": None,  # SSL sem validação de certificado (necessário no Upstash)
-        },
-        "TIMEOUT": 60 * 15,
-    },
-    "B_I": {
-        "BACKEND": "django_redis.cache.RedisCache",
-        "LOCATION": REDIS_URL,
-        "OPTIONS": {
-            "ssl_cert_reqs": None,
-        },
-        "TIMEOUT": 60 * 60 * 2,
-    },
-}
-
-
-
+# Redis (via Upstash)
+REDIS_URL = os.getenv("REDIS_URL")
+if not REDIS_URL:
+    raise RuntimeError("REDIS_URL não definido")
 
 # Celery
 CELERY_BROKER_URL = REDIS_URL
 CELERY_RESULT_BACKEND = REDIS_URL
-CELERY_BROKER_USE_SSL = {"ssl_cert_reqs": None}
-CELERY_RESULT_BACKEND_USE_SSL = {"ssl_cert_reqs": None}
+CELERY_ACCEPT_CONTENT = ['json']
+CELERY_TASK_SERIALIZER = 'json'
+CELERY_RESULT_SERIALIZER = 'json'
+CELERY_TIMEZONE = 'Africa/Luanda'
+CELERY_ENABLE_UTC = False
+
+# Scheduler de tarefas (Celery Beat)
+from celery.schedules import crontab
+from datetime import timedelta
+
+CELERY_BEAT_SCHEDULE = {
+    'backup_diario': {
+        'task': 'apps.configuracoes.tasks.backup_automatico_diario',
+        'schedule': crontab(hour=2, minute=0),
+    },
+    'verificar_margem_critica_diaria': {
+        'task': 'apps.vendas.tasks.verificar_margem_critica',
+        'schedule': timedelta(days=1),
+    },
+    'verificar_stock_critico_horario': {
+        'task': 'apps.vendas.tasks.verificar_stock_critico',
+        'schedule': timedelta(hours=1),
+    },
+}
+
 
 
 # =========================================
@@ -311,7 +307,7 @@ else:
 # Email
 # =========================================
 EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
-EMAIL_HOST = 'smtp.exemplo.com'
+EMAIL_HOST = 'smtp.hostinger.com'
 EMAIL_PORT = 465
 EMAIL_USE_SSL = True
 EMAIL_HOST_USER = 'geral@vistogest.pro'
@@ -368,7 +364,6 @@ ERP_PRODUCT_ID = "SOTARQ SOFTWARE ERP"  # Ex: "MeuERP/MinhaEmpresa Lda"
 ERP_PRODUCT_VERSION = "1.0.0"
 
 
-ASSINATURA_FERNET_KEY = os.environ.get('ASSINATURA_FERNET_KEY')  # obrigatória
 ASSINATURA_REGENERATE_COOLDOWN_MINUTES = int(os.environ.get('ASSINATURA_REGENERATE_COOLDOWN_MINUTES', '60'))
 
 # =========================================
