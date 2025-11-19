@@ -1,3 +1,4 @@
+# apps/fiscal/services.py
 import logging
 import hashlib
 import json
@@ -17,8 +18,6 @@ import hashlib
 import json
 from typing import Dict
 
-from django.db import transaction
-from django.utils import timezone
 
 from cryptography.hazmat.primitives.asymmetric import rsa, padding
 from cryptography.hazmat.primitives import serialization, hashes
@@ -33,20 +32,43 @@ from .models import TaxaIVAAGT, AssinaturaDigital, RetencaoFonte
 from apps.core.models import Empresa
 from apps.financeiro.models import LancamentoFinanceiro, PlanoContas
 from apps.vendas.models import Venda
-from django.db import transaction
 from apps.fiscal.models import DocumentoFiscal, DocumentoFiscalLinha
 from django.core.exceptions import ValidationError
-
-
-logger = logging.getLogger('fiscais')
-
-
+import os
+import hashlib
+import zipfile
+import xml.etree.ElementTree as ET
+from datetime import date
 from decimal import Decimal
-from django.db import transaction
+from pathlib import Path
+from django.conf import settings
+from django.utils import timezone
+from lxml import etree
+import logging
+
+logger = logging.getLogger(__name__)
+
+import os
+import zipfile
+import hashlib
+import logging
+from pathlib import Path
+import xml.etree.ElementTree as ET
+from datetime import date
+from django.conf import settings
+from django.utils import timezone
+from lxml import etree
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.asymmetric import padding
 from apps.fiscal.models import DocumentoFiscal, DocumentoFiscalLinha, TaxaIVAAGT
 
 import hashlib
 from django.utils.encoding import force_bytes
+
+
+# apps/fiscal/services.py
+
+logger = logging.getLogger('fiscal')
 
 
 class DocumentoFiscalService:
@@ -236,7 +258,7 @@ class TaxaIVAService:
         """Obtém todas as taxas ativas de uma empresa"""
         return TaxaIVAAGT.objects.filter(
             empresa=empresa,
-            ativo=True
+            ativa=True
         ).order_by('tax_type', '-tax_percentage')
     
     @staticmethod
@@ -270,7 +292,6 @@ class FiscalServiceError(Exception):
     pass
 
 
-
 logger = logging.getLogger(__name__)
 
 
@@ -290,42 +311,33 @@ class AssinaturaDigitalService:
     @staticmethod
     def gerar_chaves_rsa(empresa: Empresa, tamanho_chave: int = 2048) -> AssinaturaDigital:
         try:
-            # gerar chaves
             private_key = rsa.generate_private_key(
                 public_exponent=65537,
                 key_size=tamanho_chave,
-                #backend=default_backend() Isso elimina qualquer tentativa de conexão externa.
             )
-
             private_pem = private_key.private_bytes(
                 encoding=serialization.Encoding.PEM,
                 format=serialization.PrivateFormat.PKCS8,
                 encryption_algorithm=serialization.NoEncryption()
             )
-
             public_pem = private_key.public_key().public_bytes(
                 encoding=serialization.Encoding.PEM,
                 format=serialization.PublicFormat.SubjectPublicKeyInfo
             )
 
-            # encriptar chave privada antes de guardar
-            chave_privada_segura = AESService.encrypt(private_pem.decode("utf-8"))
+        except Exception:  # 👉 Se falhar, GERAR LOCALMENTE
+            private_pem, public_pem = gerar_rsa_local()
 
-            with transaction.atomic():
-                assinatura, _ = AssinaturaDigital.objects.update_or_create(
-                    empresa=empresa,
-                    defaults={
-                        "chave_privada": chave_privada_segura,
-                        "chave_publica": public_pem.decode("utf-8"),
-                        "data_geracao": timezone.now(),
-                    },
-                )
-
-            return assinatura
-
-        except Exception as e:
-            logger.exception("Erro ao gerar RSA")
-            raise FiscalServiceError(f"Falha na geração de chaves RSA: {e}")
+        # Guardar na DB (sempre aqui, independente da origem)
+        assinatura = AssinaturaDigital.objects.update_or_create(
+            empresa=empresa,
+            defaults={
+                "chave_privada": AESService.encrypt(private_pem.decode()),
+                "chave_publica": public_pem.decode(),
+                "data_geracao": timezone.now(),
+            },
+        )
+        return assinatura[0]
 
     # ----------------------------------------------------------------------
     # 2) EXPORTA CHAVE PÚBLICA (ENTREGUE À AGT)
@@ -543,40 +555,8 @@ class RetencaoFonteService:
             raise FiscalServiceError(f"Erro no processamento: {e}")
 
 
-import os
-import zipfile
-import hashlib
-import logging
-from pathlib import Path
-import xml.etree.ElementTree as ET
-from datetime import date
-from decimal import Decimal
-from django.conf import settings
-from django.utils import timezone
-from lxml import etree
-from cryptography.hazmat.primitives import hashes
-from cryptography.hazmat.primitives.asymmetric import padding
-
-logger = logging.getLogger(__name__)
-
 class FiscalServiceError(Exception):
     pass
-
-
-import os
-import hashlib
-import zipfile
-import xml.etree.ElementTree as ET
-from datetime import date
-from decimal import Decimal
-from pathlib import Path
-from django.conf import settings
-from django.utils import timezone
-from lxml import etree
-import logging
-
-logger = logging.getLogger(__name__)
-
 
 
 
