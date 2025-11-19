@@ -3,6 +3,17 @@ import logging
 from datetime import datetime, date
 from decimal import Decimal
 from typing import Dict, Any
+from django.contrib.auth.decorators import login_required, permission_required
+from django.http import HttpResponse, HttpResponseForbidden
+from django.shortcuts import get_object_or_404
+
+from django.contrib.admin.views.decorators import staff_member_required
+from django.http import HttpResponse, Http404
+from django.shortcuts import get_object_or_404
+from django.views.decorators.http import require_http_methods
+from apps.core.models import Empresa
+from django.http import FileResponse
+from django.contrib.admin.views.decorators import staff_member_required
 
 from django.http import JsonResponse, HttpResponse
 from django.shortcuts import get_object_or_404
@@ -19,10 +30,15 @@ from rest_framework import status, viewsets, permissions
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.views import APIView
-
-from apps.fiscal.signals import gerar_backup_fiscal
+from django.http import HttpResponse, Http404
+from django.contrib.auth.decorators import login_required, user_passes_test
+from .models import AssinaturaDigital
+from django.shortcuts import get_object_or_404
+from apps.fiscal.servicos.audit_service import AuditLogService
+from apps.fiscal.signals import gerar_backup_fiscal, gerar_relatorio_retencoes, gerar_relatorio_taxas
+from apps.fiscal.utility.pdf import gerar_pdf_submissao_agt
+from apps.fiscal.utility.pdf_agt_service import PDFAGTService
 from apps.fiscal.utils import validar_documentos_fiscais
-
 from .models import SAFTExport, TaxaIVAAGT, AssinaturaDigital, RetencaoFonte
 from .services import (
     TaxaIVAService, AssinaturaDigitalService, RetencaoFonteService,
@@ -1950,127 +1966,7 @@ def webhook_agt_notification(request):
         return JsonResponse({"success": False, "error": str(e)}, status=400)
 
 
-# ---------------------------------------------------------
-# 🔹 INTEGRAÇÕES – APIs internas/externas
-# ---------------------------------------------------------
 
-@csrf_exempt
-def integracao_agt_validar(request):
-    """
-    Endpoint para validação de documentos fiscais pela AGT.
-    Envia dados do documento e retorna resposta da AGT simulada.
-    """
-    if request.method != 'POST':
-        return HttpResponseBadRequest("Método não permitido")
-
-    try:
-        data = json.loads(request.body.decode('utf-8'))
-        numero_documento = data.get('numero_documento')
-        nif_cliente = data.get('nif_cliente')
-
-        logger.info(f"Validando fatura AGT: Nº {numero_documento} | NIF {nif_cliente}")
-
-        # Aqui podes chamar a API real da AGT, se tiveres integração
-        # resposta = requests.post("https://api.agt.gov.ao/validar", json=data)
-        # return JsonResponse(resposta.json())
-
-        # Simulação de resposta
-        return JsonResponse({
-            "numero_documento": numero_documento,
-            "nif_cliente": nif_cliente,
-            "status": "válido",
-            "mensagem": "Documento validado com sucesso pela AGT."
-        })
-    except Exception as e:
-        logger.exception("Erro na integração com AGT")
-        return JsonResponse({"success": False, "error": str(e)}, status=400)
-
-
-@csrf_exempt
-def integracao_saft_submit(request):
-    """
-    Submissão de ficheiro SAFT para validação ou arquivo fiscal.
-    """
-    if request.method != 'POST':
-        return HttpResponseBadRequest("Método não permitido")
-
-    try:
-        ficheiro = request.FILES.get('ficheiro')
-        if not ficheiro:
-            return JsonResponse({"success": False, "error": "Ficheiro SAFT não enviado"}, status=400)
-
-        logger.info(f"Submissão SAFT recebida: {ficheiro.name} ({ficheiro.size} bytes)")
-
-        # Aqui poderias guardar o ficheiro localmente ou enviar para a AGT
-        # with open(f"/var/saft/{ficheiro.name}", "wb+") as destino:
-        #     for chunk in ficheiro.chunks():
-        #         destino.write(chunk)
-
-        # Simulação de resposta
-        return JsonResponse({
-            "ficheiro": ficheiro.name,
-            "status": "submetido",
-            "mensagem": "Ficheiro SAFT recebido e processado com sucesso."
-        })
-    except Exception as e:
-        logger.exception("Erro ao submeter ficheiro SAFT")
-        return JsonResponse({"success": False, "error": str(e)}, status=400)
-
-
-logger = logging.getLogger('fiscal.debug')
-
-
-# -------------------------
-# 🔹 DEBUG: Gerar Dados de Teste
-# -------------------------
-@login_required
-#@empresa_required
-@require_POST
-@transaction.atomic
-def debug_gerar_dados_teste(request):
-    """
-    Gera dados de teste para desenvolvimento e debugging.
-    Apenas disponível em ambiente de DEBUG.
-    """
-    if not settings.DEBUG:
-        return JsonResponse({"success": False, "message": "Acesso restrito ao modo de debug."}, status=403)
-
-    try:
-        empresa = request.user.empresa
-
-        # Criar fornecedores fake
-        for i in range(3):
-            Fornecedor.objects.get_or_create(
-                empresa=empresa,
-                nome=f"Fornecedor Teste {i+1}",
-                nif=f"50000000{i+1}",
-            )
-
-        # Criar taxas de IVA
-        for perc in [7, 14, 23]:
-            TaxaIVAAGT.objects.get_or_create(
-                empresa=empresa,
-                tax_percentage=Decimal(perc),
-                defaults={"descricao": f"IVA {perc}% (teste)", "ativo": True}
-            )
-
-        # Criar retenções fake
-        for i in range(3):
-            RetencaoFonte.objects.create(
-                empresa=empresa,
-                descricao=f"Retenção {i+1}",
-                valor_retido=Decimal("100.00") * (i+1),
-                data_retencao=datetime.now()
-            )
-
-        return JsonResponse({
-            "success": True,
-            "message": "Dados de teste gerados com sucesso."
-        }, status=201)
-
-    except Exception as e:
-        logger.exception("Erro ao gerar dados de teste.")
-        return JsonResponse({"success": False, "message": "Erro ao gerar dados de teste.", "error": str(e)}, status=500)
 
 
 # -------------------------
@@ -2122,61 +2018,52 @@ def debug_info_sistema(request):
         return JsonResponse({"success": False, "message": "Erro ao obter informações do sistema.", "error": str(e)}, status=500)
 
 
-# -------------------------
-# 🔹 DEBUG: Testar Assinatura Digital
-# -------------------------
+
+
+def has_permission_agt(user):
+    return user.has_perm('fiscal.can_download_agt_keys')
+
+
+
+
+
 @login_required
-#@empresa_required
-@require_POST
-def debug_testar_assinatura(request):
-    """Executa um teste de validação da assinatura digital."""
-    if not settings.DEBUG:
-        return JsonResponse({"success": False, "message": "Acesso restrito ao modo de debug."}, status=403)
+@user_passes_test(has_permission_agt)
+def baixar_chave_publica(request, empresa_id):
+    assinatura = get_object_or_404(AssinaturaDigital, empresa__id=empresa_id)
+    
+    # LOG da tentativa
+    AuditLogService.registrar(
+        user=request.user,
+        acao="DOWNLOAD_CHAVE_PUBLICA",
+        empresa_id=empresa_id,
+        ip=request.META.get('REMOTE_ADDR')
+    )
 
-    try:
-        empresa = request.user.empresa
-        assinatura = AssinaturaDigital.objects.filter(empresa=empresa).first()
-
-        if not assinatura:
-            return JsonResponse({"success": False, "message": "Assinatura digital não configurada."}, status=404)
-
-        hash_teste = "TESTE_HASH_12345"
-        assinatura.ultimo_hash = hash_teste
-        assinatura.save()
-
-        return JsonResponse({
-            "success": True,
-            "message": "Assinatura digital testada com sucesso.",
-            "hash": hash_teste
-        })
-    except Exception as e:
-        logger.exception("Erro ao testar assinatura digital.")
-        return JsonResponse({"success": False, "message": "Erro ao testar assinatura digital.", "error": str(e)}, status=500)
+    response = HttpResponse(assinatura.chave_publica, content_type='text/plain')
+    response['Content-Disposition'] = f'attachment; filename=chave_publica_{empresa_id}.pem'
+    return response
 
 
-# -------------------------
-# 🔹 DEBUG: Simular Comunicação com AGT
-# -------------------------
 @login_required
-#@empresa_required
-@require_GET
-def debug_simular_agt(request):
-    """Simula uma comunicação com o servidor da AGT para teste de integração."""
-    if not settings.DEBUG:
-        return JsonResponse({"success": False, "message": "Acesso restrito ao modo de debug."}, status=403)
+@user_passes_test(has_permission_agt)  # Só ADMIN MASTER
+def baixar_pdf_submissao(request, empresa_id):
+    empresa = get_object_or_404(Empresa, pk=empresa_id)
+    assinatura = getattr(empresa, 'assinatura_fiscal', None)
+    if not assinatura:
+        raise Http404("Assinatura não encontrada.")
+    buf = gerar_pdf_submissao_agt(empresa, assinatura)
+    return FileResponse(buf, as_attachment=True, filename=f"submissao_agt_{empresa.nif or empresa.id}.pdf")
 
-    try:
-        resposta_fake = {
-            "status": "success",
-            "mensagem": "Conexão simulada com sucesso.",
-            "codigo_resposta": "AGT-TEST-200",
-            "timestamp": datetime.now().isoformat()
-        }
 
-        return JsonResponse({"success": True, "data": resposta_fake}, status=200)
-    except Exception as e:
-        logger.exception("Erro ao simular comunicação com AGT.")
-        return JsonResponse({"success": False, "message": "Erro na simulação AGT.", "error": str(e)}, status=500)
 
+
+@login_required
+@user_passes_test(has_permission_agt)  # Só ADMIN MASTER
+def download_pdf_agt(request, empresa_id):
+    empresa = get_object_or_404(Empresa, id=empresa_id)
+    assinatura = get_object_or_404(AssinaturaDigital, empresa=empresa)
+
+    return PDFAGTService.gerar_pdf_declaracao(empresa, assinatura)
 
 

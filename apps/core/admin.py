@@ -2,9 +2,13 @@
 
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
+from django.urls import reverse
 from django.utils.html import format_html
 from django.contrib.auth.admin import UserAdmin
 from django.utils import timezone
+
+from apps.fiscal.models import AssinaturaDigital
+from apps.fiscal.services import AssinaturaDigitalService
 from .models import Empresa, Loja, Usuario, Categoria
 from apps.licenca.models import Licenca 
 
@@ -78,6 +82,8 @@ class CategoriaAdmin(admin.ModelAdmin):
 @admin.register(Empresa)
 class EmpresaAdmin(admin.ModelAdmin):
     list_display = ['nome', 'nif', 'cidade', 'status_licenca', 'ativa', 'total_usuarios']
+    actions = ['action_gerar_chaves']
+
     list_filter = ['ativa', 'provincia', 'licenca__status', 'licenca__plano']
     search_fields = ['nome', 'nif', 'cidade']
     
@@ -266,6 +272,24 @@ class EmpresaAdmin(admin.ModelAdmin):
             count = queryset.update(ativa=False)
             self.message_user(request, f'{count} empresas desativadas.')
         desativar_empresas.short_description = "Desativar empresas selecionadas"
+
+    def acoes_assinatura(self, obj):
+        if hasattr(obj, 'assinatura_fiscal'):
+            url = reverse('fiscal:baixar_chave_publica', args=[obj.id])
+            return format_html('<a class="button" href="{}">Baixar Chave Pública</a>', url)
+        return format_html('<span style="color: #999">—</span>')
+    acoes_assinatura.short_description = "Assinatura"
+
+    def action_gerar_chaves(self, request, queryset):
+        # Só superusers podem regenerar — verifica request.user.is_superuser
+        if not request.user.is_superuser:
+            self.message_user(request, "Somente superusers podem regenerar chaves.", level='error')
+            return
+        for empresa in queryset:
+            AssinaturaDigitalService.gerar_chaves_rsa(empresa)
+        self.message_user(request, "Chaves geradas/regeneradas com sucesso.")
+    action_gerar_chaves.short_description = "Gerar/Regenerar chaves RSA"
+
 
 
 @admin.register(Usuario)

@@ -101,6 +101,13 @@ web_urlpatterns = [
     path('configuracoes/', views.ConfiguracoesFiscaisView.as_view(), name='configuracoes'),
     path('configuracoes/empresa/', views.ConfiguracaoEmpresaView.as_view(), name='configuracao-empresa'),
     path('configuracoes/backup/', views.BackupFiscalView.as_view(), name='backup-fiscal'),
+
+    #endpoint para baixar a chave pública no formato .pem e em pdf para submeter a agt
+    path('assinatura/baixar-publica/<int:empresa_id>/', views.baixar_chave_publica, name='baixar_chave_publica'),
+    path('assinatura/pdf-submissao/<int:empresa_id>/', views.baixar_pdf_submissao, name='baixar_pdf_submissao'),
+    path('assinatura/download-pdf-agt/<int:empresa_id>/', views.download_pdf_agt, name='download_pdf_agt'),
+
+
 ]
 
 # =====================================
@@ -154,9 +161,6 @@ download_urlpatterns = [
 webhook_urlpatterns = [
     # Webhooks para integrações externas
     path('webhook/agt-notification/', views.webhook_agt_notification, name='webhook-agt'),   
-    # APIs para integrações de terceiros
-    path('integracoes/agt/validar/', views.integracao_agt_validar, name='integracao-agt-validar'),
-    path('integracoes/saft/submit/', views.integracao_saft_submit, name='integracao-saft-submit'),
 ]
 
 # =====================================
@@ -190,72 +194,8 @@ from django.conf import settings
 if settings.DEBUG:
     debug_urlpatterns = [
         # URLs para testes e desenvolvimento
-        path('debug/gerar-dados-teste/', views.debug_gerar_dados_teste, name='debug-gerar-dados'),
         path('debug/limpar-cache/', views.debug_limpar_cache, name='debug-limpar-cache'),
         path('debug/info-sistema/', views.debug_info_sistema, name='debug-info-sistema'),
-        path('debug/testar-assinatura/', views.debug_testar_assinatura, name='debug-testar-assinatura'),
-        path('debug/simular-agt/', views.debug_simular_agt, name='debug-simular-agt'),
     ]
     
     urlpatterns += debug_urlpatterns
-
-# =====================================
-# Documentação das URLs
-# =====================================
-
-"""
-Documentação das URLs do app Fiscais:
-
-=== API REST ===
-GET    /fiscais/api/taxas-iva/                    - Lista taxas de IVA
-POST   /fiscais/api/taxas-iva/                    - Cria nova taxa de IVA
-GET    /fiscais/api/taxas-iva/{id}/               - Detalhes de uma taxa
-PUT    /fiscais/api/taxas-iva/{id}/               - Atualiza taxa
-DELETE /fiscais/api/taxas-iva/{id}/               - Remove taxa
-GET    /fiscais/api/taxas-iva/ativas/             - Lista apenas taxas ativas
-POST   /fiscais/api/taxas-iva/{id}/calcular/      - Calcula IVA para valor
-GET    /fiscais/api/taxas-iva/export-saft/        - Exporta taxas em formato SAF-T
-
-GET    /fiscais/api/assinatura-digital/           - Info da assinatura digital
-POST   /fiscais/api/assinatura/gerar-chaves/      - Gera novas chaves RSA
-POST   /fiscais/api/assinatura/assinar-documento/ - Assina um documento
-GET    /fiscais/api/assinatura/status-cadeia/     - Status da cadeia de integridade
-
-GET    /fiscais/api/retencoes-fonte/              - Lista retenções na fonte
-POST   /fiscais/api/retencoes-fonte/              - Cria nova retenção
-GET    /fiscais/api/retencoes-fonte/{id}/         - Detalhes de uma retenção
-PUT    /fiscais/api/retencoes-fonte/{id}/         - Atualiza retenção
-DELETE /fiscais/api/retencoes-fonte/{id}/         - Remove retenção
-POST   /fiscais/api/retencoes/{id}/marcar-paga/   - Marca retenção como paga
-GET    /fiscais/api/retencoes/relatorio-mensal/   - Relatório mensal de retenções
-
-POST   /fiscais/api/saft/export/                  - Exporta arquivo SAF-T AO completo
-GET    /fiscais/api/dashboard/                    - Dados do dashboard fiscal
-POST   /fiscais/api/validar-documento/            - Valida documento fiscal
-GET    /fiscais/api/verificar-integridade/        - Verifica integridade da cadeia
-
-=== URLs Web ===
-GET    /fiscais/                                  - Dashboard principal
-GET    /fiscais/taxas-iva/                        - Lista taxas de IVA (web)
-GET    /fiscais/retencoes/                        - Lista retenções (web)
-GET    /fiscais/saft/                             - Interface SAF-T
-GET    /fiscais/relatorios/                       - Relatórios fiscais
-GET    /fiscais/configuracoes/                    - Configurações fiscais
-
-=== Downloads ===
-GET    /fiscais/download/relatorio-retencoes/pdf/ - Download relatório PDF
-GET    /fiscais/download/saft/{id}/               - Download arquivo SAF-T
-GET    /fiscais/download/chave-publica/           - Download chave pública
-
-=== AJAX ===
-POST   /fiscais/ajax/calcular-iva/                - Cálculo IVA via AJAX
-GET    /fiscais/ajax/dados-dashboard/             - Dados dashboard via AJAX
-POST   /fiscais/ajax/verificar-documento/         - Verificação documento via AJAX
-
-=== Webhooks ===
-POST   /fiscais/webhook/agt-notification/         - Webhook notificações AGT
-POST   /fiscais/integracoes/agt/validar/          - Integração validação AGT
-
-Todas as URLs requerem autenticação exceto webhooks.
-URLs da API retornam JSON, URLs web retornam HTML.
-"""

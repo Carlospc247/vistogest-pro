@@ -124,3 +124,5 @@ def gerar_atcud(documento):
 
     return f"{codigo_validacao}-{numero_documento}"
 
+
+

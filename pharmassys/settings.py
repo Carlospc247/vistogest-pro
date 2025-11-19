@@ -396,6 +396,10 @@ SOFTWARE_VALIDATION_NUMBER = "123/AGT/2019"  # Número de validação AGT (ex: "
 ERP_PRODUCT_ID = "SOTARQ SOFTWARE ERP"  # Ex: "MeuERP/MinhaEmpresa Lda"
 ERP_PRODUCT_VERSION = "1.0.0"
 
+
+ASSINATURA_FERNET_KEY = os.environ.get('ASSINATURA_FERNET_KEY')  # obrigatória
+ASSINATURA_REGENERATE_COOLDOWN_MINUTES = int(os.environ.get('ASSINATURA_REGENERATE_COOLDOWN_MINUTES', '60'))
+
 # =========================================
 # Configuração padrão de PK
 # =========================================

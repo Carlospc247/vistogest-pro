@@ -12,6 +12,23 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import rsa, padding
 from cryptography.hazmat.backends import default_backend
 import base64
+import base64
+import hashlib
+import json
+from typing import Dict
+
+from django.db import transaction
+from django.utils import timezone
+
+from cryptography.hazmat.primitives.asymmetric import rsa, padding
+from cryptography.hazmat.primitives import serialization, hashes
+from cryptography.hazmat.backends import default_backend
+
+from apps.core.models import Empresa
+from .models import AssinaturaDigital
+
+import logging
+from apps.fiscal.utility.crypto import AESService
 from .models import TaxaIVAAGT, AssinaturaDigital, RetencaoFonte
 from apps.core.models import Empresa
 from apps.financeiro.models import LancamentoFinanceiro, PlanoContas
@@ -84,7 +101,7 @@ class DocumentoFiscalService:
 
         # ====== GERAÇÃO DE HASH E ATCUD ======
         # Importar função utilitária do SAF-T se existir
-        from apps.fiscal.utils import gerar_hash_documento
+        from apps.fiscal.utility import gerar_hash_documento
 
         # Se o hash não foi definido ainda
         if not documento.hash_documento:
@@ -140,9 +157,6 @@ class DocumentoFiscalService:
 
 
 
-class FiscalServiceError(Exception):
-    """Exceção personalizada para erros nos serviços fiscais"""
-    pass
 
 class TaxaIVAService:
     """
@@ -252,201 +266,171 @@ class TaxaIVAService:
             'taxa_aplicada': taxa.tax_percentage
         }
 
+class FiscalServiceError(Exception):
+    pass
+
+
+
+logger = logging.getLogger(__name__)
+
+
 class AssinaturaDigitalService:
     """
-    Serviço para gestão de assinatura digital e hash de documentos SAF-T
+    Serviço oficial (modelo AGT) para:
+    - Gerar par RSA por empresa;
+    - Guardar chave privada ENCRIPTADA;
+    - Exportar chave pública;
+    - Assinar documentos com cadeia HASH por série;
+    - Gerar ATCUD.
     """
-    
+
+    # ----------------------------------------------------------------------
+    # 1) GERA PAR RSA POR EMPRESA
+    # ----------------------------------------------------------------------
     @staticmethod
     def gerar_chaves_rsa(empresa: Empresa, tamanho_chave: int = 2048) -> AssinaturaDigital:
-        """
-        Gera um par de chaves RSA para a empresa
-        
-        Args:
-            empresa: Empresa proprietária das chaves
-            tamanho_chave: Tamanho da chave RSA em bits
-            
-        Returns:
-            AssinaturaDigital: Objeto com chaves geradas
-        """
         try:
-            # Gerar chave privada
+            # gerar chaves
             private_key = rsa.generate_private_key(
                 public_exponent=65537,
                 key_size=tamanho_chave,
-                backend=default_backend()
+                #backend=default_backend() Isso elimina qualquer tentativa de conexão externa.
             )
-            
-            # Serializar chave privada
+
             private_pem = private_key.private_bytes(
                 encoding=serialization.Encoding.PEM,
                 format=serialization.PrivateFormat.PKCS8,
                 encryption_algorithm=serialization.NoEncryption()
             )
-            
-            # Obter chave pública
-            public_key = private_key.public_key()
-            public_pem = public_key.public_bytes(
+
+            public_pem = private_key.public_key().public_bytes(
                 encoding=serialization.Encoding.PEM,
                 format=serialization.PublicFormat.SubjectPublicKeyInfo
             )
-            
-            # Criar ou atualizar assinatura digital
-            assinatura, created = AssinaturaDigital.objects.get_or_create(
-                empresa=empresa,
-                defaults={
-                    'chave_privada': private_pem.decode('utf-8'),
-                    'chave_publica': public_pem.decode('utf-8'),
-                    'dados_series_fiscais': {}
-                }
-            )
-            
-            if not created:
-                assinatura.chave_privada = private_pem.decode('utf-8')
-                assinatura.chave_publica = public_pem.decode('utf-8')
-                assinatura.save()
-            
-            logger.info(
-                f"Chaves RSA geradas para empresa {empresa.nome}",
-                extra={
-                    'empresa_id': empresa.id,
-                    'tamanho_chave': tamanho_chave,
-                    'created': created
-                }
-            )
-            
+
+            # encriptar chave privada antes de guardar
+            chave_privada_segura = AESService.encrypt(private_pem.decode("utf-8"))
+
+            with transaction.atomic():
+                assinatura, _ = AssinaturaDigital.objects.update_or_create(
+                    empresa=empresa,
+                    defaults={
+                        "chave_privada": chave_privada_segura,
+                        "chave_publica": public_pem.decode("utf-8"),
+                        "data_geracao": timezone.now(),
+                    },
+                )
+
             return assinatura
-            
+
         except Exception as e:
-            logger.error(f"Erro ao gerar chaves RSA: {e}")
-            raise FiscalServiceError(f"Erro na geração de chaves: {e}")
-    
+            logger.exception("Erro ao gerar RSA")
+            raise FiscalServiceError(f"Falha na geração de chaves RSA: {e}")
+
+    # ----------------------------------------------------------------------
+    # 2) EXPORTA CHAVE PÚBLICA (ENTREGUE À AGT)
+    # ----------------------------------------------------------------------
     @staticmethod
-    def calcular_hash_documento(dados_documento: Dict, hash_anterior: str = "") -> str:
-        """
-        Calcula o hash de um documento para cadeia de integridade SAF-T
-        
-        Args:
-            dados_documento: Dados do documento a ser assinado
-            hash_anterior: Hash do documento anterior na cadeia
-            
-        Returns:
-            str: Hash SHA-256 em base64
-        """
-        try:
-            # Preparar dados para hash conforme SAF-T AO
-            dados_ordenados = {
-                'data': dados_documento.get('data', ''),
-                'tipo_documento': dados_documento.get('tipo_documento', ''),
-                'serie': dados_documento.get('serie', ''),
-                'numero': dados_documento.get('numero', ''),
-                'valor_total': str(dados_documento.get('valor_total', '0.00')),
-                'hash_anterior': hash_anterior
-            }
-            
-            # Criar string ordenada para hash
-            string_hash = ';'.join([
-                f"{k}:{v}" for k, v in sorted(dados_ordenados.items())
-            ])
-            
-            # Calcular hash SHA-256
-            hash_obj = hashlib.sha256(string_hash.encode('utf-8'))
-            hash_base64 = base64.b64encode(hash_obj.digest()).decode('utf-8')
-            
-            logger.debug(
-                f"Hash calculado para documento",
-                extra={
-                    'tipo_documento': dados_documento.get('tipo_documento'),
-                    'numero': dados_documento.get('numero'),
-                    'hash_length': len(hash_base64)
-                }
-            )
-            
-            return hash_base64
-            
-        except Exception as e:
-            logger.error(f"Erro ao calcular hash: {e}")
-            raise FiscalServiceError(f"Erro no cálculo de hash: {e}")
-    
+    def exportar_chave_publica_pem(empresa: Empresa) -> bytes:
+        assinatura = AssinaturaDigital.objects.filter(empresa=empresa).first()
+        if not assinatura or not assinatura.chave_publica:
+            raise FiscalServiceError("Chave pública inexistente.")
+        return assinatura.chave_publica.encode("utf-8")
+
+    # ----------------------------------------------------------------------
+    # 3) HASH DETERMINÍSTICO (cadeia AGT)
+    # ----------------------------------------------------------------------
     @staticmethod
-    def assinar_documento(empresa: Empresa, dados_documento: Dict) -> Dict[str, str]:
-        """
-        Assina um documento digitalmente e atualiza a cadeia de hash
-        
-        Args:
-            empresa: Empresa proprietária do documento
-            dados_documento: Dados do documento
-            
-        Returns:
-            Dict com hash e assinatura do documento
-        """
+    def calcular_hash_documento(doc: Dict, hash_anterior: str = "") -> str:
+        ordenado = {
+            "data": doc.get("data", ""),
+            "tipo": doc.get("tipo_documento", ""),
+            "serie": doc.get("serie", ""),
+            "numero": doc.get("numero", ""),
+            "total": str(doc.get("valor_total", "0.00")),
+            "hash_anterior": hash_anterior,
+        }
+
+        texto = ";".join(f"{k}:{v}" for k, v in sorted(ordenado.items()))
+        digest = hashlib.sha256(texto.encode("utf-8")).digest()
+        return base64.b64encode(digest).decode("utf-8")
+
+    # ----------------------------------------------------------------------
+    # 4) GERA ATCUD
+    # ----------------------------------------------------------------------
+    @staticmethod
+    def gerar_atcud(empresa: Empresa, serie: str, numero: str, hash_: str) -> str:
+        nif = empresa.nif or empresa.numero_contribuinte or ""
+        base = f"{nif}|{serie}|{numero}|{hash_}"
+        return hashlib.sha256(base.encode("utf-8")).hexdigest().upper()
+
+    # ----------------------------------------------------------------------
+    # 5) ASSINA DOCUMENTO E ATUALIZA CADEIA POR SÉRIE
+    # ----------------------------------------------------------------------
+    @staticmethod
+    def assinar_documento(empresa: Empresa, doc: Dict) -> Dict[str, str]:
         try:
             with transaction.atomic():
-                assinatura_digital = AssinaturaDigital.objects.get(empresa=empresa)
-                
-                # Obter último hash da série
-                serie = dados_documento.get('serie', 'DEFAULT')
-                ultimo_hash = assinatura_digital.dados_series_fiscais.get(
-                    serie, {}).get('ultimo_hash', '')
-                
-                # Calcular novo hash
-                novo_hash = AssinaturaDigitalService.calcular_hash_documento(
-                    dados_documento, ultimo_hash
-                )
-                
-                # Assinar o hash
+                assinatura = AssinaturaDigital.objects.select_for_update().get(empresa=empresa)
+
+                serie = doc.get("serie", "DEFAULT")
+                numero = str(doc.get("numero", "0"))
+
+                meta = assinatura.dados_series_fiscais.get(serie, {})
+                hash_anterior = meta.get("ultimo_hash", "")
+
+                # gerar hash
+                novo_hash = AssinaturaDigitalService.calcular_hash_documento(doc, hash_anterior)
+
+                # carregar e desencriptar chave privada
+                if not assinatura.chave_privada:
+                    raise FiscalServiceError("Chave privada não configurada.")
+
+                chave_descodificada = AESService.decrypt(assinatura.chave_privada)
+
                 private_key = serialization.load_pem_private_key(
-                    assinatura_digital.chave_privada.encode('utf-8'),
+                    chave_descodificada.encode("utf-8"),
                     password=None,
-                    backend=default_backend()
+                    #backend=default_backend()
                 )
-                
-                signature = private_key.sign(
-                    novo_hash.encode('utf-8'),
+
+                assinatura_bin = private_key.sign(
+                    novo_hash.encode("utf-8"),
                     padding.PSS(
                         mgf=padding.MGF1(hashes.SHA256()),
                         salt_length=padding.PSS.MAX_LENGTH
                     ),
                     hashes.SHA256()
                 )
-                
-                assinatura_base64 = base64.b64encode(signature).decode('utf-8')
-                
-                # Atualizar série fiscal
-                if serie not in assinatura_digital.dados_series_fiscais:
-                    assinatura_digital.dados_series_fiscais[serie] = {}
-                
-                assinatura_digital.dados_series_fiscais[serie].update({
-                    'ultimo_hash': novo_hash,
-                    'ultimo_documento': dados_documento.get('numero'),
-                    'data_ultima_assinatura': timezone.now().isoformat()
+                assinatura_b64 = base64.b64encode(assinatura_bin).decode("utf-8")
+
+                # ATCUD
+                atcud = AssinaturaDigitalService.gerar_atcud(empresa, serie, numero, novo_hash)
+
+                # atualizar metadados da série
+                meta.update({
+                    "ultimo_hash": novo_hash,
+                    "ultimo_documento": numero,
+                    "data_ultima_assinatura": timezone.now().isoformat(),
+                    "ultimo_atcud": atcud,
                 })
-                
-                assinatura_digital.ultimo_hash = novo_hash
-                assinatura_digital.save()
-                
-                logger.info(
-                    f"Documento assinado digitalmente",
-                    extra={
-                        'empresa_id': empresa.id,
-                        'serie': serie,
-                        'numero': dados_documento.get('numero'),
-                        'tipo_documento': dados_documento.get('tipo_documento')
-                    }
-                )
-                
+
+                assinatura.dados_series_fiscais[serie] = meta
+                assinatura.ultimo_hash = novo_hash
+                assinatura.save()
+
                 return {
-                    'hash': novo_hash,
-                    'assinatura': assinatura_base64,
-                    'hash_anterior': ultimo_hash
+                    "hash": novo_hash,
+                    "assinatura": assinatura_b64,
+                    "hash_anterior": hash_anterior,
+                    "atcud": atcud,
                 }
-                
-        except AssinaturaDigital.DoesNotExist:
-            logger.error(f"Assinatura digital não encontrada para empresa {empresa.id}")
-            raise FiscalServiceError("Assinatura digital não configurada")
+
         except Exception as e:
-            logger.error(f"Erro ao assinar documento: {e}")
-            raise FiscalServiceError(f"Erro na assinatura: {e}")
+            logger.exception("Erro ao assinar documento")
+            raise FiscalServiceError(f"Erro ao assinar documento: {e}")
+
+
 
 class RetencaoFonteService:
     """
@@ -594,8 +578,6 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-class FiscalServiceError(Exception):
-    pass
 
 
 class SAFTExportService:

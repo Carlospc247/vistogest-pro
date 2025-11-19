@@ -19,6 +19,18 @@ from datetime import datetime
 from apps.core.models import Empresa, TimeStampedModel
 from apps.clientes.models import Cliente
 from apps.produtos.models import Produto
+from django.contrib.postgres.fields import JSONField
+
+
+#log de auditoria para tentativa de download das chaves públicas
+#Audit log para AGT
+class AuditLog(models.Model):
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True)
+    acao = models.CharField(max_length=50)
+    empresa_id = models.IntegerField()
+    timestamp = models.DateTimeField(auto_now_add=True)
+    ip_address = models.GenericIPAddressField()
+
 
 
 class TaxaIVAAGT(TimeStampedModel):
@@ -93,6 +105,28 @@ class TaxaIVAAGT(TimeStampedModel):
         return f"{self.nome} ({self.tax_type} - {self.exemption_reason})"
 
 
+# apps/fiscal/services/assinatura_service.py
+import base64
+import hashlib
+import json
+import logging
+from typing import Dict, Optional, Tuple
+
+from django.db import transaction
+from django.utils import timezone
+
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import padding, rsa
+from cryptography.hazmat.backends import default_backend
+
+from decimal import Decimal
+
+
+logger = logging.getLogger(__name__)
+
+
+
+
 class AssinaturaDigital(TimeStampedModel):
     """
     Armazena a chave pública/privada (RSA) ou apenas a chave de hash,
@@ -113,26 +147,22 @@ class AssinaturaDigital(TimeStampedModel):
         verbose_name="Último Hash em Cadeia (SAF-T)"
     )
     
-    chave_privada = models.TextField(
-        blank=True, 
-        null=True, 
-        help_text="Chave privada RSA para assinatura. Mantenha em segredo!"
-    )
-    chave_publica = models.TextField(
-        blank=True, 
-        null=True, 
-        help_text="Chave pública RSA."
-    )
+    chave_privada = models.TextField(blank=True, null=True, help_text="Chave privada RSA cifrada (Fernet). Mantenha em segredo")
+
+    chave_publica = models.TextField(blank=True, null=True, help_text="Chave pública RSA PEM.")
     
-    dados_series_fiscais = models.JSONField(
-        default=dict,
-        verbose_name="Dados de Hash e Código AGT por Série"
-    )
+    dados_series_fiscais = models.JSONField(default=dict, blank=True, verbose_name="Dados de Hash e Código AGT por Série")
     
     data_geracao = models.DateTimeField(auto_now_add=True)
     
+    class Meta:
+        verbose_name = "Assinatura Fiscal"
+        verbose_name_plural = "Assinaturas Fiscais"
+
     def __str__(self):
         return f"Assinatura Fiscal de {self.empresa.nome}"
+
+
 
 
 class RetencaoFonte(TimeStampedModel):

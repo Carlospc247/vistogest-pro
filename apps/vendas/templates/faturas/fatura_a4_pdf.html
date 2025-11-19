@@ -601,7 +601,16 @@
                 <p style="color: #718096; font-style: italic;">Não há dados bancários ou observações cadastradas para este documento.</p>
             </div>
             {% endif %}
+
+            <div class="clear"></div>
+            
+            {% if 'Proforma' in fatura.tipo_venda %}
+            <div class="details-proforma">
+                <p style="color: #03060a; font-style: italic;">Este documento não serve de fatura.</p>
+            </div>
+            {% endif %}
         </div>
+        
         
         <div class="clear"></div>
         
