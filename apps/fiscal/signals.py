@@ -522,7 +522,7 @@ def gerar_relatorio_retencoes(empresa, formato: str):
     formato = formato.lower().strip()
     qs = (
         RetencaoFonte.objects.filter(empresa=empresa)
-        .values("id", "fornecedor__nome", "valor_bruto", "valor_retido", "data_pagamento", "estado")
+        .values("id", "nome_exibicao", "valor_bruto", "valor_retido", "data_pagamento", "estado")
         .order_by("-data_pagamento")
     )
 
