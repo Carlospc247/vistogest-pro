@@ -502,28 +502,6 @@ function configuracoesPanel() {
             }
         },
 
-        async testarAssinatura() {
-            try {
-                const response = await fetch('{% url "fiscal:debug-testar-assinatura" %}', {
-                    method: 'POST',
-                    headers: {
-                        'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
-                    }
-                });
-
-                const data = await response.json();
-                
-                if (data.success) {
-                    this.showSuccessMessage('Assinatura digital testada com sucesso!');
-                } else {
-                    this.showErrorMessage(data.message || 'Erro no teste de assinatura');
-                }
-            } catch (error) {
-                console.error('Erro ao testar assinatura:', error);
-                this.showErrorMessage('Erro de conexão no teste');
-            }
-        },
-
         async exportarSAFT() {
             // Redirecionar para a página de exportação SAF-T
             window.location.href = '{% url "fiscal:saft" %}';

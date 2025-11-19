@@ -1,7 +1,7 @@
 import os
 from pathlib import Path
 import django
-from django.core.management.utils import get_random_secret_key
+#from django.core.management.utils import get_random_secret_key
 from celery.schedules import crontab
 from datetime import timedelta
 import cloudinary
@@ -25,32 +25,19 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # =========================================
 # Core
 # =========================================
-SECRET_KEY = os.getenv('SECRET_KEY', get_random_secret_key())
-#DEBUG = os.getenv("DEBUG", "False") == "True"
-print("DATABASE_URL:", os.getenv("DATABASE_URL"))
+SECRET_KEY = os.getenv('SECRET_KEY')
 
-#ALLOWED_HOSTS = [
-#    'localhost',
-#    '127.0.0.1',
-#    'vistogest.pro',
-#    'www.vistogest.pro',
-#    'vistogestpro.onrender.com',
-#    'www.vistogestpro.onrender.com',
-#]
-DEBUG = True
-ALLOWED_HOSTS = ['*']
 
-#LOGGING = {
-#    'version': 1,
-#    'disable_existing_loggers': False,
-#    'handlers': {
-#        'console': {'class': 'logging.StreamHandler'},
-#    },
-#    'root': {
-#        'handlers': ['console'],
-#        'level': 'ERROR',
-#    },
-#}
+DEBUG = os.getenv("DEBUG", "False") == "True"
+ALLOWED_HOSTS = [
+    'vistogest.pro',
+    'www.vistogest.pro',
+    'vistogestpro.onrender.com',
+]
+
+#DEBUG = True
+#ALLOWED_HOSTS = ['*']
+
 
 LOGGING = {
     "version": 1,
@@ -74,7 +61,7 @@ LOGGING = {
     },
     "root": {
         "handlers": ["console"],
-        "level": "INFO",  # <--- ESSENCIAL: mostra logger.info()
+        "level": "INFO",  # <--- ESSENCIAL: mostra logger.info() # 'ERROR' para erros apenas
     },
     "loggers": {
         "django": {
@@ -99,7 +86,6 @@ INSTALLED_APPS = [
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
-    'whitenoise.runserver_nostatic',
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
@@ -148,9 +134,9 @@ INSTALLED_APPS = [
 # =========================================
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    "whitenoise.middleware.WhiteNoiseMiddleware",
     'corsheaders.middleware.CorsMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
-    'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
@@ -164,22 +150,6 @@ ROOT_URLCONF = 'pharmassys.urls'
 WSGI_APPLICATION = 'pharmassys.wsgi.application'
 
 
-# =========================================
-# Database (Render - PostgreSQL)
-# =========================================
-
-#DATABASE_URL = os.getenv("DATABASE_URL")
-
-#if not DATABASE_URL:
-#    raise Exception("❌ Variável DATABASE_URL não encontrada no ambiente Render!")
-
-#DATABASES = {
-#    'default': dj_database_url.parse(
-#        DATABASE_URL,
-#        conn_max_age=600,
-#        ssl_require=True
-#    )
-#}
 import os
 import dj_database_url
 from pathlib import Path
@@ -189,10 +159,10 @@ from pathlib import Path
 # Banco de dados remoto
 # ========================
 # Defina diretamente a URL do banco remoto do Render
-DATABASE_URL = os.getenv("DATABASE_URL", "postgres://admin_master:YX3R9ZL8MBjzhTXqgHHZmauckw79zQMB@dpg-d46fc1fdiees739q5nvg-a.oregon-postgres.render.com:5432/vistogestpro")
+DATABASE_URL = os.getenv("DATABASE_URL")
+if not DATABASE_URL:
+    raise RuntimeError("DATABASE_URL não definido — abortando startup.")
 
-if not DATABASE_URL or DATABASE_URL.strip() == "":
-    raise Exception("❌ DATABASE_URL não encontrada ou vazia!")
 
 DATABASES = {
     "default": dj_database_url.parse(
@@ -219,7 +189,8 @@ CLOUDINARY_STORAGE = {
 
 # Media e Static files
 DEFAULT_FILE_STORAGE = 'cloudinary_storage.storage.MediaCloudinaryStorage'
-STATICFILES_STORAGE = 'cloudinary_storage.storage.StaticHashedCloudinaryStorage'
+STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
+#STATICFILES_STORAGE = 'cloudinary_storage.storage.StaticHashedCloudinaryStorage' #Anteroior
 
 MEDIA_URL = '/media/'
 STATIC_URL = '/static/'
