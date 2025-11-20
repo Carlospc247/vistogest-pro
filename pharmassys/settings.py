@@ -218,8 +218,9 @@ CELERY_REDIS_MAX_CONNECTIONS = 50
 
 # SSL obrigatório para rediss://
 CELERY_BROKER_USE_SSL = {
-    'ssl_cert_reqs': ssl.CERT_REQUIRED  # ou CERT_OPTIONAL / CERT_NONE para testes
+    'ssl_cert_reqs': ssl.CERT_NONE  # ou ssl.CERT_NONE
 }
+
 
 # ============================
 # Scheduler de tarefas (Celery Beat)
@@ -250,7 +251,7 @@ CACHES = {
         "LOCATION": REDIS_URL,
         "OPTIONS": {
             "CLIENT_CLASS": "django_redis.client.DefaultClient",
-            "SSL_CERT_REQS": ssl.CERT_REQUIRED,
+            "SSL_CERT_REQS": ssl.CERT_NONE,
         }
     },
     "B_I": {
@@ -258,7 +259,7 @@ CACHES = {
         "LOCATION": os.getenv("REDIS_BI_URL", REDIS_URL),
         "OPTIONS": {
             "CLIENT_CLASS": "django_redis.client.DefaultClient",
-            "SSL_CERT_REQS": ssl.CERT_REQUIRED,
+            "SSL_CERT_REQS": ssl.CERT_NONE,
         }
     },
 }
