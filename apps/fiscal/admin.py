@@ -1,19 +1,34 @@
 # apps/fiscal/admin.py
+# apps/fiscal/admin.py
 from django.contrib import admin
 from django.utils.html import format_html
 from django.urls import reverse
 from django import forms
+from django.core.exceptions import ValidationError
 
 from .models import AssinaturaDigital
 from apps.fiscal.services import AssinaturaDigitalService
 
+
+# FORM COM VALIDAÇÃO DE DUPLICAÇÃO
 class AssinaturaDigitalForm(forms.ModelForm):
     class Meta:
         model = AssinaturaDigital
         fields = '__all__'
 
+    def clean(self):
+        cleaned_data = super().clean()
+        empresa = cleaned_data.get('empresa')
+
+        # Bloqueia se já existir outra assinatura para esta empresa
+        if empresa and AssinaturaDigital.objects.filter(empresa=empresa).exists() and not self.instance.pk:
+            raise ValidationError("⚠️ Já existe uma assinatura para esta empresa. Não é permitido duplicar.")
+
+        return cleaned_data
+
     def clean_dados_series_fiscais(self):
         return self.cleaned_data.get('dados_series_fiscais') or {}
+
 
 @admin.register(AssinaturaDigital)
 class AssinaturaDigitalAdmin(admin.ModelAdmin):
@@ -24,13 +39,13 @@ class AssinaturaDigitalAdmin(admin.ModelAdmin):
     # Salva e delega geração de chaves ao serviço
     def save_model(self, request, obj, form, change):
         if not obj.pk:
-            # Novo registro → usar serviço para criar assinatura completa
             assinatura = AssinaturaDigitalService.gerar_chaves_rsa(obj.empresa)
             obj.chave_publica = assinatura.chave_publica
             obj.chave_privada = assinatura.chave_privada
             obj.data_geracao = assinatura.data_geracao
             obj.ultimo_hash = assinatura.ultimo_hash
             obj.dados_series_fiscais = assinatura.dados_series_fiscais
+
         super().save_model(request, obj, form, change)
 
     # Botões de ações no admin
