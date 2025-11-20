@@ -11,10 +11,11 @@ from cloudinary_storage.storage import RawMediaCloudinaryStorage
 from cloudinary_storage.storage import MediaCloudinaryStorage
 from cloudinary_storage.storage import StaticHashedCloudinaryStorage
 import dj_database_url
-import dj_database_url
 import os
 import logging
 import sys
+import ssl
+
 
 
 # =========================================
@@ -196,28 +197,14 @@ STATIC_URL = '/static/'
 STATIC_ROOT = BASE_DIR / "staticfiles"
 
 
-# =========================================
-# Celery (tarefas agendadas)
-# =========================================
-CELERY_BEAT_SCHEDULE = {
-    'backup_diario': {
-        'task': 'apps.configuracoes.tasks.backup_automatico_diario',
-        'schedule': crontab(hour=2, minute=0),
-    },
-    'check_critical_margin_daily': {
-        'task': 'apps.vendas.tasks.verificar_margem_critica',
-        'schedule': timedelta(days=1),
-    },
-    'check_critical_stock_hourly': {
-        'task': 'apps.vendas.tasks.verificar_stock_critico',
-        'schedule': timedelta(hours=1),
-    },
-}
 
-# Redis (via Upstash)
+
+# ============================
+# Redis / Celery
+# ============================
 REDIS_URL = os.getenv("REDIS_URL")
 if not REDIS_URL:
-    raise RuntimeError("REDIS_URL não definido")
+    raise RuntimeError("REDIS_URL não definido — abortando startup.")
 
 # Celery
 CELERY_BROKER_URL = REDIS_URL
@@ -227,11 +214,16 @@ CELERY_TASK_SERIALIZER = 'json'
 CELERY_RESULT_SERIALIZER = 'json'
 CELERY_TIMEZONE = 'Africa/Luanda'
 CELERY_ENABLE_UTC = False
+CELERY_REDIS_MAX_CONNECTIONS = 50
 
+# SSL obrigatório para rediss://
+CELERY_BROKER_USE_SSL = {
+    'ssl_cert_reqs': ssl.CERT_REQUIRED  # ou CERT_OPTIONAL / CERT_NONE para testes
+}
+
+# ============================
 # Scheduler de tarefas (Celery Beat)
-from celery.schedules import crontab
-from datetime import timedelta
-
+# ============================
 CELERY_BEAT_SCHEDULE = {
     'backup_diario': {
         'task': 'apps.configuracoes.tasks.backup_automatico_diario',
@@ -247,14 +239,27 @@ CELERY_BEAT_SCHEDULE = {
     },
 }
 
+# ============================
+# Cache Redis (SSL)
+# ============================
+from django.core.cache import caches
+
 CACHES = {
     "default": {
         "BACKEND": "django.core.cache.backends.redis.RedisCache",
         "LOCATION": REDIS_URL,
+        "OPTIONS": {
+            "CLIENT_CLASS": "django_redis.client.DefaultClient",
+            "SSL_CERT_REQS": ssl.CERT_REQUIRED,
+        }
     },
     "B_I": {
         "BACKEND": "django.core.cache.backends.redis.RedisCache",
         "LOCATION": os.getenv("REDIS_BI_URL", REDIS_URL),
+        "OPTIONS": {
+            "CLIENT_CLASS": "django_redis.client.DefaultClient",
+            "SSL_CERT_REQS": ssl.CERT_REQUIRED,
+        }
     },
 }
 
