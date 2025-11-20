@@ -78,7 +78,9 @@ from django.utils import timezone
 from datetime import datetime, timedelta, date
 from decimal import Decimal
 import json
-
+from django.core.cache import caches
+from rest_framework import generics, status
+from rest_framework.response import Response
 from .models import *
 from .forms import *
 from apps.clientes.models import Cliente, EnderecoCliente, Ponto
@@ -5363,13 +5365,13 @@ class VendaViewSet(viewsets.ModelViewSet):
         }, status=status.HTTP_201_CREATED, headers=headers)
 
 
-
+"""
 bi_cache = caches["B_I"]
 class VendaCreateAPIView(generics.CreateAPIView):
-    """
-    Endpoint para criar uma nova venda e gerar o documento fiscal (HASH, ATCUD).
-    Esta API é chamada pelo JavaScript do frontend (venda_form.html).
-    """
+    
+    # Endpoint para criar uma nova venda e gerar o documento fiscal (HASH, ATCUD).
+    # Esta API é chamada pelo JavaScript do frontend (venda_form.html).
+    
     # Use o Serializer que criámos anteriormente que contém a lógica fiscal
     serializer_class = VendaSerializer 
     # queryset = Venda.objects.all() # Não estritamente necessário para Create
@@ -5434,7 +5436,49 @@ class VendaCreateAPIView(generics.CreateAPIView):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
+"""
 
+
+
+class VendaCreateAPIView(generics.CreateAPIView):
+    """
+    Endpoint para criar uma nova venda e gerar o documento fiscal (HASH, ATCUD).
+    """
+    serializer_class = VendaSerializer 
+
+    def perform_create(self, serializer):
+        with transaction.atomic():
+            venda_instance = serializer.save()
+            return venda_instance
+
+    def create(self, request, *args, **kwargs):
+        # ✅ Inicializa a cache aqui, dentro do método
+        bi_cache = caches["B_I"]
+
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        
+        try:
+            with transaction.atomic():
+                # 1. Criação da Venda e Lógica Fiscal
+                self.perform_create(serializer) 
+                
+                # 2. Disparar Tarefas Assíncronas
+                verificar_margem_critica.delay() 
+                
+                # 3. Invalidar cache de B.I.
+                bi_cache.clear()
+                print("CACHE DE B.I. INVALIDADA: Nova venda registrada. Forçando recálculo do Dashboard.")
+            
+            headers = self.get_success_headers(serializer.data)
+            return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
+        
+        except Exception as e:
+            print(f"ALERTA DE FALHA: {e}")
+            return Response(
+                {"message": "Erro de processamento interno. O administrador foi alertado.", "detail": str(e)}, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
 
 

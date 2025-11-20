@@ -5,7 +5,7 @@ __pycache__/
 *.pyd
 
 # Configurações sensíveis
-pharmassys/settings.py
+#*settings.py
 .env
 
 # Environments
