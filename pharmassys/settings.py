@@ -197,31 +197,6 @@ STATIC_URL = '/static/'
 STATIC_ROOT = BASE_DIR / "staticfiles"
 
 
-
-
-# ============================
-# Redis / Celery
-# ============================
-REDIS_URL = os.getenv("REDIS_URL")
-if not REDIS_URL:
-    raise RuntimeError("REDIS_URL não definido — abortando startup.")
-
-# Celery
-CELERY_BROKER_URL = REDIS_URL
-CELERY_RESULT_BACKEND = REDIS_URL
-CELERY_ACCEPT_CONTENT = ['json']
-CELERY_TASK_SERIALIZER = 'json'
-CELERY_RESULT_SERIALIZER = 'json'
-CELERY_TIMEZONE = 'Africa/Luanda'
-CELERY_ENABLE_UTC = False
-CELERY_REDIS_MAX_CONNECTIONS = 50
-
-# SSL obrigatório para rediss://
-CELERY_BROKER_USE_SSL = {
-    'ssl_cert_reqs': ssl.CERT_NONE  # ou ssl.CERT_NONE
-}
-
-
 # ============================
 # Scheduler de tarefas (Celery Beat)
 # ============================
@@ -240,30 +215,55 @@ CELERY_BEAT_SCHEDULE = {
     },
 }
 
+import ssl
+
+broker_use_ssl = {
+    "ssl_cert_reqs": ssl.CERT_REQUIRED   # obrigatório
+}
+
+
 # ============================
 # Cache Redis (SSL)
 # ============================
 from django.core.cache import caches
+
+
+import ssl
+import os
+
+REDIS_URL = os.getenv("REDIS_URL")  # VAR na Render (SEM ?ssl_cert_reqs na URL!)
 
 CACHES = {
     "default": {
         "BACKEND": "django.core.cache.backends.redis.RedisCache",
         "LOCATION": REDIS_URL,
         "OPTIONS": {
-            "CLIENT_CLASS": "django_redis.client.DefaultClient",
-            "SSL_CERT_REQS": ssl.CERT_NONE,
-        }
+            "ssl_cert_reqs": ssl.CERT_REQUIRED,
+            "ssl_ca_certs": "/etc/ssl/certs/ca-certificates.crt",  # Ubuntu padrão
+        },
+        "TIMEOUT": 60 * 15,  # 15 min
     },
-    "B_I": {
+
+    "B_I": {  # dashboard BI que usas nas views
         "BACKEND": "django.core.cache.backends.redis.RedisCache",
-        "LOCATION": os.getenv("REDIS_BI_URL", REDIS_URL),
+        "LOCATION": REDIS_URL,
         "OPTIONS": {
-            "CLIENT_CLASS": "django_redis.client.DefaultClient",
-            "SSL_CERT_REQS": ssl.CERT_NONE,
-        }
-    },
+            "ssl_cert_reqs": ssl.CERT_REQUIRED,
+        },
+        "TIMEOUT": 60 * 5,  # mais curto, BI deve ser fresco
+    }
 }
 
+
+# Celery
+CELERY_BROKER_URL = REDIS_URL
+CELERY_RESULT_BACKEND = REDIS_URL
+CELERY_ACCEPT_CONTENT = ['json']
+CELERY_TASK_SERIALIZER = 'json'
+CELERY_RESULT_SERIALIZER = 'json'
+CELERY_TIMEZONE = 'Africa/Luanda'
+CELERY_ENABLE_UTC = False
+CELERY_REDIS_MAX_CONNECTIONS = 50
 
 # =========================================
 # Templates

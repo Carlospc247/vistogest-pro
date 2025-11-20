@@ -1,18 +1,18 @@
-#vistogest-pro/pharmassys/task_celery.py
-import os
+#vistogest-pro/pharmassys/tasks_celery.py
+import ssl, os
 from celery import Celery
-from django.conf import settings
 
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "pharmassys.settings")
 
 app = Celery("pharmassys")
 app.config_from_object("django.conf:settings", namespace="CELERY")
-app.autodiscover_tasks(lambda: settings.INSTALLED_APPS)
+app.autodiscover_tasks()
 
-app.conf.broker_url = os.environ.get("REDIS_URL")
-app.conf.result_backend = os.environ.get("REDIS_URL")
-app.conf.accept_content = ["json"]
-app.conf.task_serializer = "json"
-app.conf.result_serializer = "json"
-app.conf.timezone = "Africa/Luanda"
-app.conf.enable_utc = False
+# -- SSL obrigatório no Render:
+app.conf.broker_use_ssl = {
+    "ssl_cert_reqs": ssl.CERT_REQUIRED,
+}
+
+app.conf.redis_backend_use_ssl = {
+    "ssl_cert_reqs": ssl.CERT_REQUIRED,
+}
