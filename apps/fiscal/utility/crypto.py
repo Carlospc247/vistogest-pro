@@ -1,30 +1,28 @@
 # apps/fiscal/utils/crypto.py
-import os
-from cryptography.fernet import Fernet, InvalidToken #eliminar
-from django.conf import settings
+from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+import base64, os
 
-FERNET_KEY = os.getenv('ASSINATURA_FERNET_KEY') or getattr(settings, 'ASSINATURA_FERNET_KEY', None)
-if not FERNET_KEY:
-    raise RuntimeError("ASSINATURA_FERNET_KEY is not set in environment")
+AES_KEY = os.getenv("AES_KEY")
+if not AES_KEY:
+    raise RuntimeError("AES_KEY não está definido no ambiente")
 
-fernet = Fernet(FERNET_KEY.encode() if isinstance(FERNET_KEY, str) else FERNET_KEY)
-
-def encrypt_bytes(data: bytes) -> bytes:
-    return fernet.encrypt(data)
-
-def decrypt_bytes(token: bytes) -> bytes:
-    try:
-        return fernet.decrypt(token)
-    except InvalidToken as e:
-        raise ValueError("Invalid encryption token") from e
-
+# Garantir 32 bytes para AES-256
+key = AES_KEY.encode()[:32].ljust(32, b'0')
 
 class AESService:
     @staticmethod
     def encrypt(text: str) -> str:
-        return encrypt_bytes(text.encode()).decode()
+        iv = os.urandom(16)
+        cipher = Cipher(algorithms.AES(key), modes.CFB(iv))
+        encryptor = cipher.encryptor()
+        ct = encryptor.update(text.encode()) + encryptor.finalize()
+        return base64.b64encode(iv + ct).decode()
 
     @staticmethod
     def decrypt(token: str) -> str:
-        return decrypt_bytes(token.encode()).decode()
+        raw = base64.b64decode(token)
+        iv, ct = raw[:16], raw[16:]
+        cipher = Cipher(algorithms.AES(key), modes.CFB(iv))
+        decryptor = cipher.decryptor()
+        return (decryptor.update(ct) + decryptor.finalize()).decode()
 

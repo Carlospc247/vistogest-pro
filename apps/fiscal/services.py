@@ -24,6 +24,7 @@ from cryptography.hazmat.primitives import serialization, hashes
 from cryptography.hazmat.backends import default_backend
 
 from apps.core.models import Empresa
+from apps.fiscal.servicos.utils import gerar_rsa_local
 from .models import AssinaturaDigital
 
 import logging
