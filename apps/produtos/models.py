@@ -8,6 +8,7 @@ from django.db import models
 from apps.core.models import Empresa, TimeStampedModel, Categoria
 from cloudinary.models import CloudinaryField
 from apps.core.models import TimeStampedModel
+from decimal import Decimal, ROUND_HALF_UP
 
 
 
@@ -81,16 +82,28 @@ class Produto(TimeStampedModel):
     # Status
     ativo = models.BooleanField(default=True)
 
+
     def save(self, *args, **kwargs):
-        # Converte a margem de lucro de percentual para decimal
-        if self.margem_lucro is not None and self.preco_custo is not None:
-            margem_decimal = self.margem_lucro / Decimal('100.00')
-            
-            # Recalcula o preço de venda e a margem de lucro
-            self.preco_venda = self.preco_custo + (self.preco_custo * margem_decimal)
-            self.margem_lucro = (self.preco_venda - self.preco_custo) / self.preco_custo * Decimal('100.00')
+        # Só faz cálculos se preco_custo e preco_venda não forem None
+        if self.preco_custo is not None:
+            # Se o usuário forneceu a margem, calcula preco_venda
+            if self.margem_lucro not in (None, Decimal('0.00')):
+                margem_decimal = self.margem_lucro / Decimal('100.00')
+                self.preco_venda = (self.preco_custo * (Decimal('1.00') + margem_decimal)).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+                # Recalcula margem para garantir consistência
+                self.margem_lucro = ((self.preco_venda - self.preco_custo) / self.preco_custo * Decimal('100.00')).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+
+            # Se o usuário forneceu preco_venda e não a margem, calcula automaticamente a margem
+            elif self.preco_venda is not None:
+                self.margem_lucro = ((self.preco_venda - self.preco_custo) / self.preco_custo * Decimal('100.00')).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+
+            # Caso só forneça preco_custo, preco_venda = preco_custo e margem = 0
+            else:
+                self.preco_venda = self.preco_custo
+                self.margem_lucro = Decimal('0.00')
 
         super().save(*args, **kwargs)
+
     
     class Meta:
         verbose_name = 'Produto'

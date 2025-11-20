@@ -261,17 +261,17 @@ class EmpresaAdmin(admin.ModelAdmin):
             )
 
 
-        total_usuarios.short_description = 'Usuários (Atual/Limite)'
+    total_usuarios.short_description = 'Usuários (Atual/Limite)'
 
-        def ativar_empresas(self, request, queryset):
-            count = queryset.update(ativa=True)
-            self.message_user(request, f'{count} empresas ativadas.')
-        ativar_empresas.short_description = "Ativar empresas selecionadas"
+    def ativar_empresas(self, request, queryset):
+        count = queryset.update(ativa=True)
+        self.message_user(request, f'{count} empresas ativadas.')
+    ativar_empresas.short_description = "Ativar empresas selecionadas"
 
-        def desativar_empresas(self, request, queryset):
-            count = queryset.update(ativa=False)
-            self.message_user(request, f'{count} empresas desativadas.')
-        desativar_empresas.short_description = "Desativar empresas selecionadas"
+    def desativar_empresas(self, request, queryset):
+        count = queryset.update(ativa=False)
+        self.message_user(request, f'{count} empresas desativadas.')
+    desativar_empresas.short_description = "Desativar empresas selecionadas"
 
     def acoes_assinatura(self, obj):
         if hasattr(obj, 'assinatura_fiscal'):
