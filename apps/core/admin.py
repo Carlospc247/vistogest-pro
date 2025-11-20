@@ -1,384 +1,337 @@
-import os
-from pathlib import Path
-import django
-#from django.core.management.utils import get_random_secret_key
-from celery.schedules import crontab
-from datetime import timedelta
-import cloudinary
-import cloudinary.uploader
-import cloudinary.api
-from cloudinary_storage.storage import RawMediaCloudinaryStorage
-from cloudinary_storage.storage import MediaCloudinaryStorage
-from cloudinary_storage.storage import StaticHashedCloudinaryStorage
-import dj_database_url
-import dj_database_url
-import os
-import logging
-import sys
+# Em apps/core/admin.py
+
+from django.contrib import admin
+from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
+from django.urls import reverse
+from django.utils.html import format_html
+from django.contrib.auth.admin import UserAdmin
+from django.utils import timezone
+
+from apps.fiscal.models import AssinaturaDigital
+from apps.fiscal.services import AssinaturaDigitalService
+from .models import Empresa, Loja, Usuario, Categoria
+from apps.licenca.models import Licenca 
+
+# =============================================================================
+# DEFINIÇÃO DOS INLINES (AQUI, NO MESMO FICHEIRO)
+# =============================================================================
+
+class LojaInline(admin.TabularInline):
+    model = Loja
+    extra = 0
 
 
-# =========================================
-# Diretórios base
-# =========================================
-BASE_DIR = Path(__file__).resolve().parent.parent
-
-# =========================================
-# Core
-# =========================================
-SECRET_KEY = os.getenv('SECRET_KEY')
+class LicencaInline(admin.TabularInline):
+    model = Licenca
+    extra = 0
 
 
-DEBUG = os.getenv("DEBUG", "False") == "True"
-ALLOWED_HOSTS = [
-    'vistogest.pro',
-    'www.vistogest.pro',
-    'vistogestpro.onrender.com',
-]
-
-#DEBUG = True
-#ALLOWED_HOSTS = ['*']
-
-
-LOGGING = {
-    "version": 1,
-    "disable_existing_loggers": False,
-    "formatters": {
-        "verbose": {
-            "format": "[{asctime}] {levelname} {name}: {message}",
-            "style": "{",
-        },
-        "simple": {
-            "format": "{levelname}: {message}",
-            "style": "{",
-        },
-    },
-    "handlers": {
-        "console": {
-            "class": "logging.StreamHandler",
-            "stream": sys.stdout,
-            "formatter": "verbose",
-        },
-    },
-    "root": {
-        "handlers": ["console"],
-        "level": "INFO",  # <--- ESSENCIAL: mostra logger.info() # 'ERROR' para erros apenas
-    },
-    "loggers": {
-        "django": {
-            "handlers": ["console"],
-            "level": "INFO",
-            "propagate": True,
-        },
-        "produtos": {  # substitui pelo nome do teu app se for outro
-            "handlers": ["console"],
-            "level": "DEBUG",
-            "propagate": False,
-        },
-    },
-}
-
-
-# =========================================
-# Aplicações
-# =========================================
-INSTALLED_APPS = [
-    # Django
-    'django.contrib.admin',
-    'django.contrib.auth',
-    'django.contrib.contenttypes',
-    'django.contrib.sessions',
-    'django.contrib.messages',
-    'django.contrib.staticfiles',
-    'django.contrib.sites',
-    'django.contrib.humanize',
-    'cloudinary',
-    'cloudinary_storage',
-
-    # Terceiros
-    'rest_framework',
-    'rest_framework.authtoken',
-    'rest_framework_simplejwt',
-    'corsheaders',
-    'allauth',
-    'allauth.account',
-    'allauth.socialaccount',
-    'crispy_forms',
-    'crispy_tailwind',
-    'widget_tweaks',
-    'django_filters',
-    'django_celery_beat',
-
-    # Apps internos
-    'apps.core',
-    'apps.produtos',
-    'apps.licenca',
-    'apps.fornecedores',
-    'apps.estoque',
-    'apps.clientes',
-    'apps.analytics',
-    'apps.vendas',
-    'apps.funcionarios',
-    'apps.servicos',
-    'apps.comandas',
-    'apps.financeiro',
-    'apps.relatorios',
-    'apps.configuracoes',
-    'apps.fiscal',
-    'apps.saft',
-    'apps.compras',
-]
-
-
-
-# =========================================
-# Middleware
-# =========================================
-MIDDLEWARE = [
-    'django.middleware.security.SecurityMiddleware',
-    "whitenoise.middleware.WhiteNoiseMiddleware",
-    'corsheaders.middleware.CorsMiddleware',
-    'django.contrib.sessions.middleware.SessionMiddleware',
-    'django.middleware.common.CommonMiddleware',
-    'django.middleware.csrf.CsrfViewMiddleware',
-    'django.contrib.auth.middleware.AuthenticationMiddleware',
-    'django.contrib.messages.middleware.MessageMiddleware',
-    'django.middleware.clickjacking.XFrameOptionsMiddleware',
-    'allauth.account.middleware.AccountMiddleware',
-    'apps.core.middleware.AccountsProfileRedirectMiddleware',
-]
-
-ROOT_URLCONF = 'pharmassys.urls'
-WSGI_APPLICATION = 'pharmassys.wsgi.application'
-
-
-import os
-import dj_database_url
-from pathlib import Path
-
-
-# ========================
-# Banco de dados remoto
-# ========================
-# Defina diretamente a URL do banco remoto do Render
-DATABASE_URL = os.getenv("DATABASE_URL")
-if not DATABASE_URL:
-    raise RuntimeError("DATABASE_URL não definido — abortando startup.")
-
-
-DATABASES = {
-    "default": dj_database_url.parse(
-        DATABASE_URL,
-        conn_max_age=600,
-        ssl_require=True  # necessário no Render
+@admin.register(Categoria)
+class CategoriaAdmin(admin.ModelAdmin):
+    """
+    Interface de administração para o modelo Categoria.
+    """
+    
+    # Campos a serem exibidos na lista
+    list_display = (
+        'nome', 
+        'empresa',
+        'codigo', 
+        'ativa'
     )
-}
+    
+    # Campos que podem ser editados diretamente na lista
+    list_editable = (
+        'ativa',
+    )
+    
+    # Opções de filtro na barra lateral
+    list_filter = (
+        'ativa', 
+        'empresa' # Essencial para sistemas multi-empresa
+    )
+    
+    # Campos pelos quais se pode pesquisar
+    search_fields = (
+        'nome', 
+        'codigo', 
+        'empresa__nome' # Permite pesquisar pelo nome da empresa
+    )
+    
+    # Otimiza a seleção de 'empresa' se houver muitas
+    autocomplete_fields = (
+        'empresa',
+    )
 
-# =========================================
-# Cloudinary
-# =========================================
-
-
-CLOUDINARY_STORAGE = {
-    'CLOUD_NAME': os.getenv('CLOUDINARY_CLOUD_NAME'),
-    'API_KEY': os.getenv('CLOUDINARY_API_KEY'),
-    'API_SECRET': os.getenv('CLOUDINARY_API_SECRET'),
-    'SECURE': True,
-}
-
-
-# Media e Static files
-DEFAULT_FILE_STORAGE = 'cloudinary_storage.storage.MediaCloudinaryStorage'
-STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
-#STATICFILES_STORAGE = 'cloudinary_storage.storage.StaticHashedCloudinaryStorage' #Anteroior
-
-MEDIA_URL = '/media/'
-STATIC_URL = '/static/'
-STATIC_ROOT = BASE_DIR / "staticfiles"
-
-
-# =========================================
-# Celery (tarefas agendadas)
-# =========================================
-CELERY_BEAT_SCHEDULE = {
-    'backup_diario': {
-        'task': 'apps.configuracoes.tasks.backup_automatico_diario',
-        'schedule': crontab(hour=2, minute=0),
-    },
-    'check_critical_margin_daily': {
-        'task': 'apps.vendas.tasks.verificar_margem_critica',
-        'schedule': timedelta(days=1),
-    },
-    'check_critical_stock_hourly': {
-        'task': 'apps.vendas.tasks.verificar_stock_critico',
-        'schedule': timedelta(hours=1),
-    },
-}
-
-# Redis (via Upstash)
-REDIS_URL = os.getenv("REDIS_URL")
-if not REDIS_URL:
-    raise RuntimeError("REDIS_URL não definido")
-
-# Celery
-CELERY_BROKER_URL = REDIS_URL
-CELERY_RESULT_BACKEND = REDIS_URL
-CELERY_ACCEPT_CONTENT = ['json']
-CELERY_TASK_SERIALIZER = 'json'
-CELERY_RESULT_SERIALIZER = 'json'
-CELERY_TIMEZONE = 'Africa/Luanda'
-CELERY_ENABLE_UTC = False
-
-# Scheduler de tarefas (Celery Beat)
-from celery.schedules import crontab
-from datetime import timedelta
-
-CELERY_BEAT_SCHEDULE = {
-    'backup_diario': {
-        'task': 'apps.configuracoes.tasks.backup_automatico_diario',
-        'schedule': crontab(hour=2, minute=0),
-    },
-    'verificar_margem_critica_diaria': {
-        'task': 'apps.vendas.tasks.verificar_margem_critica',
-        'schedule': timedelta(days=1),
-    },
-    'verificar_stock_critico_horario': {
-        'task': 'apps.vendas.tasks.verificar_stock_critico',
-        'schedule': timedelta(hours=1),
-    },
-}
-
-CACHES = {
-    "default": {
-        "BACKEND": "django.core.cache.backends.redis.RedisCache",
-        "LOCATION": REDIS_URL,
-    },
-    "B_I": {
-        "BACKEND": "django.core.cache.backends.redis.RedisCache",
-        "LOCATION": os.getenv("REDIS_BI_URL", REDIS_URL),
-    },
-}
+    # Organização do formulário de edição/criação
+    fieldsets = (
+        (None, {
+            'fields': ('empresa', ('nome', 'codigo'), 'ativa')
+        }),
+        ('Detalhes Adicionais', {
+            'classes': ('collapse',),
+            'fields': ('descricao',)
+        }),
+    )
 
 
-# =========================================
-# Templates
-# =========================================
-TEMPLATES = [
-    {
-        'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [BASE_DIR / 'templates'],
-        'APP_DIRS': True,
-        'OPTIONS': {
-            'context_processors': [
-                'django.template.context_processors.debug',
-                'django.template.context_processors.request',
-                'django.contrib.auth.context_processors.auth',
-                'django.contrib.messages.context_processors.messages',
-                'apps.core.context_processors.notifications_context',
-                'django.template.context_processors.media',
-                'django.template.context_processors.static',
-                'django.template.context_processors.i18n',
-                'apps.core.context_processors.dashboard_data',
-            ],
-        },
-    },
-]
+# =============================================================================
+# ADMINS DOS MODELOS
+# =============================================================================
 
-# =========================================
-# Password validation
-# =========================================
-AUTH_PASSWORD_VALIDATORS = [
-    {'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator'},
-    {'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator', 'OPTIONS': {'min_length': 8}},
-    {'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator'},
-    {'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator'},
-]
+@admin.register(Empresa)
+class EmpresaAdmin(admin.ModelAdmin):
+    list_display = ['nome', 'nif', 'cidade', 'status_licenca', 'ativa', 'total_usuarios']
+    actions = ['action_gerar_chaves']
 
-# =========================================
-# Internacionalização
-# =========================================
-LANGUAGE_CODE = 'pt-pt'
-TIME_ZONE = 'Africa/Luanda'
-USE_I18N = True
-USE_TZ = True
+    list_filter = ['ativa', 'provincia', 'licenca__status', 'licenca__plano']
+    search_fields = ['nome', 'nif', 'cidade']
+    
+    # Use os inlines definidos localmente
+    inlines = [LicencaInline, LojaInline]
+    
+    fieldsets = (
+        ('Dados Básicos', {'fields': ('nome', 'nome_fantasia', 'codigo_validacao', 'nif')}),
+        ('Endereço', {'fields': (('endereco', 'numero'), ('bairro', 'cidade'), ('provincia', 'postal'))}),
+        ('Contato', {'fields': ('telefone', 'email')}),
+        ('Status', {'fields': ('ativa',)}),
+    )
+    actions = ['ativar_empresas', 'desativar_empresas']
 
-# =========================================
-# Segurança dinâmica
-# =========================================
-if not DEBUG:
-    SECURE_SSL_REDIRECT = True
-    CSRF_COOKIE_SECURE = True
-    SESSION_COOKIE_SECURE = True
-else:
-    SECURE_SSL_REDIRECT = False
-    CSRF_COOKIE_SECURE = False
-    SESSION_COOKIE_SECURE = False
+    def status_licenca(self, obj):
+        """Exibe status da licença com cores e informações detalhadas"""
+        try:
+            licenca = obj.licenca
+            
+            # Verificar se está vencida
+            if licenca.esta_vencida:
+                return format_html(
+                    '<div style="text-align: center;">'
+                    '<span style="background-color: #dc2626; color: white; padding: 3px 8px; border-radius: 4px; font-weight: bold; display: block; margin-bottom: 2px;">❌ VENCIDA</span>'
+                    '<small style="color: #dc2626; font-weight: bold;">Há {} dias</small>'
+                    '</div>',
+                    abs(licenca.dias_para_vencer)
+                )
+            
+            # Status baseado no campo status da licença
+            if licenca.status == 'ativa':
+                dias = licenca.dias_para_vencer
+                
+                if dias <= 7:  # Prestes a vencer
+                    cor_fundo = '#f59e0b'
+                    icone = '⚠️'
+                    texto_status = 'EXPIRA EM BREVE'
+                    cor_texto = '#f59e0b'
+                elif dias <= 30:  # Vencimento próximo
+                    cor_fundo = '#3b82f6'
+                    icone = '🔵'
+                    texto_status = 'ATIVA'
+                    cor_texto = '#3b82f6'
+                else:  # Tudo OK
+                    cor_fundo = '#10b981'
+                    icone = '✅'
+                    texto_status = 'ATIVA'
+                    cor_texto = '#10b981'
+                
+                return format_html(
+                    '<div style="text-align: center;">'
+                    '<span style="background-color: {}; color: white; padding: 3px 8px; border-radius: 4px; font-weight: bold; display: block; margin-bottom: 2px;">{} {}</span>'
+                    '<small style="color: {};">Vence em {} dias</small><br>'
+                    '<small style="color: #6b7280;">Plano: {}</small>'
+                    '</div>',
+                    cor_fundo,
+                    icone,
+                    texto_status,
+                    cor_texto,
+                    dias,
+                    licenca.plano.nome
+                )
+            
+            elif licenca.status == 'suspensa':
+                return format_html(
+                    '<div style="text-align: center;">'
+                    '<span style="background-color: #f59e0b; color: white; padding: 3px 8px; border-radius: 4px; font-weight: bold; display: block; margin-bottom: 2px;">⏸️ SUSPENSA</span>'
+                    '<small style="color: #f59e0b;">Verificar pagamento</small>'
+                    '</div>'
+                )
+            
+            elif licenca.status == 'cancelada':
+                return format_html(
+                    '<div style="text-align: center;">'
+                    '<span style="background-color: #6b7280; color: white; padding: 3px 8px; border-radius: 4px; font-weight: bold; display: block; margin-bottom: 2px;">❌ CANCELADA</span>'
+                    '<small style="color: #6b7280;">Licença cancelada</small>'
+                    '</div>'
+                )
+            
+            else:  # Status desconhecido
+                return format_html(
+                    '<div style="text-align: center;">'
+                    '<span style="background-color: #6b7280; color: white; padding: 3px 8px; border-radius: 4px; font-weight: bold;">{}</span>'
+                    '</div>',
+                    licenca.get_status_display()
+                )
+                
+        except Licenca.DoesNotExist:
+            return format_html(
+                '<div style="text-align: center;">'
+                '<span style="background-color: #ef4444; color: white; padding: 3px 8px; border-radius: 4px; font-weight: bold; display: block; margin-bottom: 2px;">❌ SEM LICENÇA</span>'
+                '<small style="color: #ef4444;">Licença não encontrada</small>'
+                '</div>'
+            )
+        except Exception as e:
+            return format_html(
+                '<span style="color: #ef4444;">Erro: {}</span>',
+                str(e)
+            )
+    
+    status_licenca.short_description = 'Status da Licença'
+
+    def total_usuarios(self, obj):
+        """Exibe total de usuários atual vs limite do plano"""
+        try:
+            licenca = obj.licenca
+            
+            # Contar usuários ativos da empresa
+            usuarios_atual = obj.usuarios.filter(is_active=True).count()
+            
+            # Obter limite do plano
+            limite_usuarios = licenca.plano.limite_usuarios
+            
+            # Calcular percentual de uso
+            percentual_uso = (usuarios_atual / limite_usuarios) * 100 if limite_usuarios > 0 else 0
+            percentual_str = f"{percentual_uso:.1f}"  # ✅ já formatado como string
+            
+            # Definir cor e status
+            if percentual_uso >= 100:
+                cor = '#dc2626'
+                icone = '❌'
+                status_texto = 'LIMITE EXCEDIDO'
+            elif percentual_uso >= 90:
+                cor = '#f59e0b'
+                icone = '⚠️'
+                status_texto = 'PRÓXIMO DO LIMITE'
+            elif percentual_uso >= 70:
+                cor = '#3b82f6'
+                icone = '🔵'
+                status_texto = 'USO ALTO'
+            else:
+                cor = '#10b981'
+                icone = '✅'
+                status_texto = 'OK'
+            
+            return format_html(
+                '<div style="text-align: center; font-family: monospace;">'
+                '<div style="font-size: 14px; font-weight: bold; color: {};">'
+                '{} <span style="font-size: 18px;">{}</span> / {}'
+                '</div>'
+                '<div style="margin-top: 2px;">'
+                '<span style="background-color: {}; color: white; padding: 1px 6px; border-radius: 3px; font-size: 10px; font-weight: bold;">{} {}</span>'
+                '</div>'
+                '<div style="margin-top: 2px;">'
+                '<small style="color: #6b7280;">({}% usado)</small>'
+                '</div>'
+                '</div>',
+                cor,
+                icone,
+                usuarios_atual,
+                limite_usuarios,
+                cor,
+                icone,
+                status_texto,
+                percentual_str  # ✅ valor já seguro
+            )
+                
+        except Licenca.DoesNotExist:
+            usuarios_atual = obj.usuarios.filter(is_active=True).count()
+            return format_html(
+                '<div style="text-align: center; font-family: monospace;">'
+                '<div style="font-size: 14px; font-weight: bold; color: #ef4444;">'
+                '❌ {} / ?'
+                '</div>'
+                '<div style="margin-top: 2px;">'
+                '<span style="background-color: #ef4444; color: white; padding: 1px 6px; border-radius: 3px; font-size: 10px; font-weight: bold;">SEM LICENÇA</span>'
+                '</div>'
+                '</div>',
+                usuarios_atual
+            )
+        except Exception as e:
+            return format_html(
+                '<span style="color: #ef4444; font-family: monospace;">Erro: {}</span>',
+                str(e)
+            )
 
 
-# =========================================
-# Email
-# =========================================
-EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
-EMAIL_HOST = 'smtp.hostinger.com'
-EMAIL_PORT = 465
-EMAIL_USE_SSL = True
-EMAIL_HOST_USER = 'geral@vistogest.pro'
-EMAIL_HOST_PASSWORD = os.getenv('EMAIL_HOST_PASSWORD')
-DEFAULT_FROM_EMAIL="VistoGest <geral@vistogest.pro>"
-SUPPORT_EMAIL='suporte@vistogest.pro'
-#DEFAULT_FROM_EMAIL = 'no-reply@example.com
-# =========================================
-# Allauth (versão atualizada e sem warnings)
-# =========================================
-SITE_ID = 1
-AUTHENTICATION_BACKENDS = [
-    'django.contrib.auth.backends.ModelBackend',
-    'allauth.account.auth_backends.AuthenticationBackend',
-]
+        total_usuarios.short_description = 'Usuários (Atual/Limite)'
 
-# Novo formato (Allauth >= 0.63)
-ACCOUNT_LOGIN_METHODS = {"email"}  # apenas login via email
-ACCOUNT_SIGNUP_FIELDS = ["email*", "password1*", "password2*"]
-ACCOUNT_EMAIL_VERIFICATION = "mandatory"  # exige verificação por email
+        def ativar_empresas(self, request, queryset):
+            count = queryset.update(ativa=True)
+            self.message_user(request, f'{count} empresas ativadas.')
+        ativar_empresas.short_description = "Ativar empresas selecionadas"
 
-# =========================================
-# CORS
-# =========================================
-CSRF_TRUSTED_ORIGINS = [
-    'https://vistogest.pro',
-    'https://www.vistogest.pro',
-    'https://vistogestpro.onrender.com',
-]
+        def desativar_empresas(self, request, queryset):
+            count = queryset.update(ativa=False)
+            self.message_user(request, f'{count} empresas desativadas.')
+        desativar_empresas.short_description = "Desativar empresas selecionadas"
 
+    def acoes_assinatura(self, obj):
+        if hasattr(obj, 'assinatura_fiscal'):
+            url = reverse('fiscal:baixar_chave_publica', args=[obj.id])
+            return format_html('<a class="button" href="{}">Baixar Chave Pública</a>', url)
+        return format_html('<span style="color: #999">—</span>')
+    acoes_assinatura.short_description = "Assinatura"
 
-# =========================================
-# REST Framework / JWT
-# =========================================
-REST_FRAMEWORK = {
-    'DEFAULT_AUTHENTICATION_CLASSES': [
-        'rest_framework_simplejwt.authentication.JWTAuthentication',
-        'rest_framework.authentication.SessionAuthentication',
-        'rest_framework.authentication.TokenAuthentication',
-    ],
-    'DEFAULT_PERMISSION_CLASSES': ['rest_framework.permissions.IsAuthenticated'],
-}
-
-# Crispy Forms
-CRISPY_ALLOWED_TEMPLATE_PACKS = "tailwind"  # se estiveres a usar tailwind
-CRISPY_TEMPLATE_PACK = "tailwind"
-#CRISPY_TEMPLATE_PACK = "bootstrap5"
+    def action_gerar_chaves(self, request, queryset):
+        # Só superusers podem regenerar — verifica request.user.is_superuser
+        if not request.user.is_superuser:
+            self.message_user(request, "Somente superusers podem regenerar chaves.", level='error')
+            return
+        for empresa in queryset:
+            AssinaturaDigitalService.gerar_chaves_rsa(empresa)
+        self.message_user(request, "Chaves geradas/regeneradas com sucesso.")
+    action_gerar_chaves.short_description = "Gerar/Regenerar chaves RSA"
 
 
 
-PRODUCT_COMPANY_TAX_ID = "5002764377"  # NIF da empresa produtora do software
-SOFTWARE_VALIDATION_NUMBER = "123/AGT/2019"  # Número de validação AGT (ex: "123/AGT/2024")
-ERP_PRODUCT_ID = "SOTARQ SOFTWARE ERP"  # Ex: "MeuERP/MinhaEmpresa Lda"
-ERP_PRODUCT_VERSION = "1.0.0"
+@admin.register(Usuario)
+class UsuarioAdmin(UserAdmin):
+    """
+    Define a interface de administração para o modelo de Utilizador personalizado.
+    """
+    # 1. CAMPOS A EXIBIR NA LISTA DE UTILIZADORES
+    # Adicionamos 'empresa' e 'e_administrador_empresa' à lista.
+    list_display = (
+        'username', 
+        'email', 
+        'first_name', 
+        'last_name', 
+        'empresa', 
+        'e_administrador_empresa', 
+        'is_staff'
+    )
+
+    # 2. FILTROS DA BARRA LATERAL
+    # Adicionamos 'empresa' como uma opção de filtro.
+    list_filter = ('is_staff', 'is_superuser', 'groups', 'empresa')
+
+    search_fields = ('username', 'first_name', 'last_name', 'email', 'empresa__nome')
+    
+    fieldsets = (
+
+        *UserAdmin.fieldsets,
+
+        ('Perfil Profissional e Vínculos', {
+            'fields': (
+                'empresa', 
+                'loja', 
+                'telefone', 
+                'e_administrador_empresa'
+            ),
+        }),
+    )
 
 
-ASSINATURA_REGENERATE_COOLDOWN_MINUTES = int(os.environ.get('ASSINATURA_REGENERATE_COOLDOWN_MINUTES', '60'))
-
-# =========================================
-# Configuração padrão de PK
-# =========================================
-DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
-AUTH_USER_MODEL = 'core.Usuario'
+@admin.register(Loja)
+class LojaAdmin(admin.ModelAdmin):
+    list_display = ['nome', 'empresa', 'codigo', 'cidade', 'eh_matriz', 'ativa']
+    list_filter = ['ativa', 'eh_matriz', 'empresa']
+    search_fields = ['nome', 'codigo', 'cidade']  # ✅ OBRIGATÓRIO para autocomplete
