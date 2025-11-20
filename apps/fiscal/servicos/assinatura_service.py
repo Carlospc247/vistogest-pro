@@ -159,3 +159,6 @@ class AssinaturaDigitalService:
         except Exception as e:
             logger.exception("Erro ao assinar documento")
             raise FiscalServiceError(f"Erro ao assinar documento: {e}")
+
+
+

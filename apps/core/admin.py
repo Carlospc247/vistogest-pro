@@ -274,11 +274,13 @@ class EmpresaAdmin(admin.ModelAdmin):
     desativar_empresas.short_description = "Desativar empresas selecionadas"
 
     def acoes_assinatura(self, obj):
-        if hasattr(obj, 'assinatura_fiscal'):
-            url = reverse('fiscal:baixar_chave_publica', args=[obj.id])
+        try:
+            assinatura = AssinaturaDigital.objects.get(empresa=obj)
+            url = reverse('fiscal:baixar_chave_publica', args=[assinatura.empresa.id])
             return format_html('<a class="button" href="{}">Baixar Chave Pública</a>', url)
-        return format_html('<span style="color: #999">—</span>')
-    acoes_assinatura.short_description = "Assinatura"
+        except AssinaturaDigital.DoesNotExist:
+            return format_html('<span style="color: #999">—</span>')
+
 
     def action_gerar_chaves(self, request, queryset):
         # Só superusers podem regenerar — verifica request.user.is_superuser
