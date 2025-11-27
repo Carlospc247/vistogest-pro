@@ -1484,249 +1484,230 @@
 
     <!-- Scripts -->
     <script>
-        // Função principal do Alpine.js para gerenciar estado da aplicação
-        function appData(initialTheme = 'light') {
-            return {
-                // Estados da aplicação
-                loading: true,
-                darkMode: initialTheme === 'dark',
-                sidebarOpen: true, // Desktop: aberto por padrão
-                isMobile: false,
+    // Função principal do Alpine.js para gerenciar estado da aplicação
+    function appData(initialTheme = 'light') {
+        return {
+            // Estados da aplicação
+            loading: true,
+            darkMode: initialTheme === 'dark',
+            sidebarOpen: true, // Desktop: aberto por padrão
+            isMobile: false,
 
-                // Inicialização da aplicação
-                initApp() {
-                    // Detectar se é mobile
+            // Inicialização da aplicação
+            initApp() {
+                // Detectar se é mobile
+                this.checkIfMobile();
+                
+                // No mobile, sidebar começa fechado
+                if (this.isMobile) {
+                    this.sidebarOpen = false;
+                }
+
+                // Listener para resize da janela
+                window.addEventListener('resize', () => {
+                    const wasMobile = this.isMobile;
                     this.checkIfMobile();
                     
-                    // No mobile, sidebar começa fechado
-                    if (this.isMobile) {
+                    if (wasMobile && !this.isMobile && !this.sidebarOpen) {
+                        this.sidebarOpen = true;
+                    } else if (!wasMobile && this.isMobile && this.sidebarOpen) {
                         this.sidebarOpen = false;
                     }
+                });
 
-                    // Listener para resize da janela
-                    window.addEventListener('resize', () => {
-                        const wasMobile = this.isMobile;
-                        this.checkIfMobile();
-                        
-                        // Se mudou de mobile para desktop e sidebar estava fechado, abrir
-                        if (wasMobile && !this.isMobile && !this.sidebarOpen) {
-                            this.sidebarOpen = true;
-                        }
-                        // Se mudou de desktop para mobile e sidebar estava aberto, fechar
-                        else if (!wasMobile && this.isMobile && this.sidebarOpen) {
-                            this.sidebarOpen = false;
-                        }
-                    });
+                // Aplicar tema inicial
+                this.applyTheme();
 
-                    // Aplicar tema inicial
-                    this.applyTheme();
-
-                    // Simular carregamento sobrepor
+                // ---- LÓGICA DE LOADING OTIMIZADA ----
+                requestAnimationFrame(() => {
+                    this.loading = true;
                     setTimeout(() => {
                         this.loading = false;
-                    }, 500);
-
-                    // Carregar preferências do localStorage
-                    this.loadPreferences();
-                },
-
-                // Detectar se é dispositivo mobile
-                checkIfMobile() {
-                    this.isMobile = window.innerWidth < 1024; // lg breakpoint do Tailwind
-                },
-
-                // Toggle do sidebar com comportamento diferente para mobile/desktop
-                toggleSidebar() {
-                    this.sidebarOpen = !this.sidebarOpen;
-                    this.savePreferences();
-                },
-
-                // Fechar sidebar (usado principalmente no mobile)
-                closeSidebar() {
-                    this.sidebarOpen = false;
-                    this.savePreferences();
-                },
-
-                // Abrir sidebar
-                openSidebar() {
-                    this.sidebarOpen = true;
-                    this.savePreferences();
-                },
-
-                // Toggle do modo escuro
-                toggleDarkMode() {
-                    this.darkMode = !this.darkMode;
-                    this.applyTheme();
-                    this.savePreferences();
-                },
-
-                // Aplicar tema
-                applyTheme() {
-                    if (this.darkMode) {
-                        document.documentElement.classList.add('dark');
-                        document.documentElement.setAttribute('data-theme', 'dark');
-                    } else {
-                        document.documentElement.classList.remove('dark');
-                        document.documentElement.setAttribute('data-theme', 'light');
-                    }
-                },
-
-                // Salvar preferências no localStorage
-                savePreferences() {
-                    // No mobile, não salvar estado do sidebar pois sempre deve começar fechado
-                    const prefsToSave = {
-                        darkMode: this.darkMode,
-                    };
-                    
-                    // Só salvar estado do sidebar se for desktop
-                    if (!this.isMobile) {
-                        prefsToSave.sidebarOpen = this.sidebarOpen;
-                    }
-                    
-                    localStorage.setItem('app-preferences', JSON.stringify(prefsToSave));
-                },
+                    }, 10); // 10–30ms = experiência profissional
+                });
+                // --------------------------------------
 
                 // Carregar preferências do localStorage
-                loadPreferences() {
-                    try {
-                        const saved = localStorage.getItem('app-preferences');
-                        if (saved) {
-                            const preferences = JSON.parse(saved);
-                            this.darkMode = preferences.darkMode || false;
-                            
-                            // Só restaurar sidebar se não for mobile
-                            if (!this.isMobile && preferences.sidebarOpen !== undefined) {
-                                this.sidebarOpen = preferences.sidebarOpen;
-                            }
-                            
-                            this.applyTheme();
-                        }
-                    } catch (error) {
-                        console.warn('Erro ao carregar preferências:', error);
-                    }
-                },
+                this.loadPreferences();
+            },
 
-                // Utilitários para componentes
-                formatCurrency(value) {
-                    return new Intl.NumberFormat('pt-AO', {
-                        style: 'currency',
-                        currency: 'AOA'
-                    }).format(value);
-                },
+            // Detectar se é dispositivo mobile
+            checkIfMobile() {
+                this.isMobile = window.innerWidth < 1024; // lg breakpoint do Tailwind
+            },
 
-                formatDate(date) {
-                    return new Intl.DateTimeFormat('pt-AO').format(new Date(date));
-                },
+            // Toggle do sidebar
+            toggleSidebar() {
+                this.sidebarOpen = !this.sidebarOpen;
+                this.savePreferences();
+            },
 
-                // Navegação programática
-                navigateTo(url) {
-                    if (this.isMobile) {
-                        this.closeSidebar();
-                    }
-                    window.location.href = url;
-                },
+            // Fechar sidebar (usado principalmente no mobile)
+            closeSidebar() {
+                this.sidebarOpen = false;
+                this.savePreferences();
+            },
 
-                // Funções de feedback visual
-                showSuccess(message) {
-                    this.showToast(message, 'success');
-                },
+            // Abrir sidebar
+            openSidebar() {
+                this.sidebarOpen = true;
+                this.savePreferences();
+            },
 
-                showError(message) {
-                    this.showToast(message, 'error');
-                },
+            // Toggle do modo escuro
+            toggleDarkMode() {
+                this.darkMode = !this.darkMode;
+                this.applyTheme();
+                this.savePreferences();
+            },
 
-                showToast(message, type = 'info') {
-                    // Implementação básica de toast
-                    const toast = document.createElement('div');
-                    toast.className = `fixed top-4 right-4 z-50 p-4 rounded-md shadow-lg transition-all duration-300 ${
-                        type === 'success' ? 'bg-green-500' : 
-                        type === 'error' ? 'bg-red-500' : 'bg-blue-500'
-                    } text-white`;
-                    toast.textContent = message;
-                    
-                    document.body.appendChild(toast);
-                    
-                    setTimeout(() => {
-                        toast.style.opacity = '0';
-                        toast.style.transform = 'translateX(100%)';
-                        setTimeout(() => toast.remove(), 300);
-                    }, 3000);
+            // Aplicar tema
+            applyTheme() {
+                if (this.darkMode) {
+                    document.documentElement.classList.add('dark');
+                    document.documentElement.setAttribute('data-theme', 'dark');
+                } else {
+                    document.documentElement.classList.remove('dark');
+                    document.documentElement.setAttribute('data-theme', 'light');
                 }
+            },
+
+            // Salvar preferências no localStorage
+            savePreferences() {
+                const prefsToSave = { darkMode: this.darkMode };
+                if (!this.isMobile) {
+                    prefsToSave.sidebarOpen = this.sidebarOpen;
+                }
+                localStorage.setItem('app-preferences', JSON.stringify(prefsToSave));
+            },
+
+            // Carregar preferências do localStorage
+            loadPreferences() {
+                try {
+                    const saved = localStorage.getItem('app-preferences');
+                    if (saved) {
+                        const preferences = JSON.parse(saved);
+                        this.darkMode = preferences.darkMode || false;
+                        
+                        if (!this.isMobile && preferences.sidebarOpen !== undefined) {
+                            this.sidebarOpen = preferences.sidebarOpen;
+                        }
+                        this.applyTheme();
+                    }
+                } catch (error) {
+                    console.warn('Erro ao carregar preferências:', error);
+                }
+            },
+
+            // Utilitários
+            formatCurrency(value) {
+                return new Intl.NumberFormat('pt-AO', {
+                    style: 'currency',
+                    currency: 'AOA'
+                }).format(value);
+            },
+
+            formatDate(date) {
+                return new Intl.DateTimeFormat('pt-AO').format(new Date(date));
+            },
+
+            // Navegação programática
+            navigateTo(url) {
+                if (this.isMobile) {
+                    this.closeSidebar();
+                }
+                window.location.href = url;
+            },
+
+            // Feedback visual
+            showSuccess(message) {
+                this.showToast(message, 'success');
+            },
+
+            showError(message) {
+                this.showToast(message, 'error');
+            },
+
+            showToast(message, type = 'info') {
+                const toast = document.createElement('div');
+                toast.className = `fixed top-4 right-4 z-50 p-4 rounded-md shadow-lg transition-all duration-300 ${
+                    type === 'success' ? 'bg-green-500' : 
+                    type === 'error' ? 'bg-red-500' : 'bg-blue-500'
+                } text-white`;
+                toast.textContent = message;
+                
+                document.body.appendChild(toast);
+                
+                setTimeout(() => {
+                    toast.style.opacity = '0';
+                    toast.style.transform = 'translateX(100%)';
+                    setTimeout(() => toast.remove(), 300);
+                }, 3000);
             }
         }
+    }
 
-        // Funções globais para compatibilidade
-        window.toggleSidebar = () => {
-            const appInstance = window.Alpine?.store?.('app');
-            if (appInstance) {
-                appInstance.toggleSidebar();
-            }
-        };
+    // Funções globais para compatibilidade
+    window.toggleSidebar = () => {
+        const appInstance = window.Alpine?.store?.('app');
+        if (appInstance) appInstance.toggleSidebar();
+    };
 
-        window.toggleDarkMode = () => {
-            const appInstance = window.Alpine?.store?.('app');
-            if (appInstance) {
-                appInstance.toggleDarkMode();
-            }
-        };
+    window.toggleDarkMode = () => {
+        const appInstance = window.Alpine?.store?.('app');
+        if (appInstance) appInstance.toggleDarkMode();
+    };
 
-        // Event listeners adicionais
-        document.addEventListener('DOMContentLoaded', function() {
-            // Fechar dropdowns ao clicar fora (fallback)
-            document.addEventListener('click', function(event) {
-                const dropdowns = document.querySelectorAll('[x-data*="open"]');
-                dropdowns.forEach(dropdown => {
-                    if (!dropdown.contains(event.target)) {
-                        // Despachar evento para fechar dropdown
-                        dropdown.dispatchEvent(new CustomEvent('click-away'));
-                    }
-                });
-            });
-
-            // Atalhos de teclado
-            document.addEventListener('keydown', function(event) {
-                // Ctrl/Cmd + B para toggle sidebar
-                if ((event.ctrlKey || event.metaKey) && event.key === 'b') {
-                    event.preventDefault();
-                    window.toggleSidebar();
-                }
-
-                // Ctrl/Cmd + D para toggle dark mode
-                if ((event.ctrlKey || event.metaKey) && event.key === 'd') {
-                    event.preventDefault();
-                    window.toggleDarkMode();
-                }
-
-                // ESC para fechar sidebar no mobile
-                if (event.key === 'Escape') {
-                    // Acessar instância Alpine via evento customizado
-                    document.dispatchEvent(new CustomEvent('closeSidebar'));
-                }
-            });
-
-            // Listener para evento customizado de fechar sidebar
-            document.addEventListener('closeSidebar', function() {
-                const sidebarElements = document.querySelectorAll('[x-data*="appData"]');
-                sidebarElements.forEach(el => {
-                    const alpineData = el._x_dataStack?.[0];
-                    if (alpineData && alpineData.isMobile && alpineData.sidebarOpen) {
-                        alpineData.closeSidebar();
-                    }
-                });
-            });
-        });
-
-        // Interceptar navegação para fechar sidebar no mobile
+    // Event listeners adicionais
+    document.addEventListener('DOMContentLoaded', function() {
+        // Fechar dropdowns ao clicar fora
         document.addEventListener('click', function(event) {
-            const link = event.target.closest('a[href]');
-            if (link && link.getAttribute('href').startsWith('/')) {
-                // É um link interno - verificar se é mobile via mídia query
-                if (window.matchMedia('(max-width: 1023px)').matches) {
-                    document.dispatchEvent(new CustomEvent('closeSidebar'));
+            const dropdowns = document.querySelectorAll('[x-data*="open"]');
+            dropdowns.forEach(dropdown => {
+                if (!dropdown.contains(event.target)) {
+                    dropdown.dispatchEvent(new CustomEvent('click-away'));
                 }
+            });
+        });
+
+        // Atalhos de teclado
+        document.addEventListener('keydown', function(event) {
+            if ((event.ctrlKey || event.metaKey) && event.key === 'b') {
+                event.preventDefault();
+                window.toggleSidebar();
+            }
+            if ((event.ctrlKey || event.metaKey) && event.key === 'd') {
+                event.preventDefault();
+                window.toggleDarkMode();
+            }
+            if (event.key === 'Escape') {
+                document.dispatchEvent(new CustomEvent('closeSidebar'));
             }
         });
-    </script>
+
+        // Fechar sidebar no mobile
+        document.addEventListener('closeSidebar', function() {
+            const sidebarElements = document.querySelectorAll('[x-data*="appData"]');
+            sidebarElements.forEach(el => {
+                const alpineData = el._x_dataStack?.[0];
+                if (alpineData && alpineData.isMobile && alpineData.sidebarOpen) {
+                    alpineData.closeSidebar();
+                }
+            });
+        });
+    });
+
+    // Interceptar navegação para mobile
+    document.addEventListener('click', function(event) {
+        const link = event.target.closest('a[href]');
+        if (link && link.getAttribute('href').startsWith('/')) {
+            if (window.matchMedia('(max-width: 1023px)').matches) {
+                document.dispatchEvent(new CustomEvent('closeSidebar'));
+            }
+        }
+    });
+</script>
+
 
     {% block extra_js %}{% endblock %}
 </body>

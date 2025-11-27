@@ -66,7 +66,7 @@
                 <select id="categoria" name="categoria" class="mt-1 block w-full rounded-md border-gray-300 py-2 pl-3 pr-10 text-base dark:border-gray-600 dark:bg-gray-700 dark:text-white sm:text-sm">
                     <option value="">Todas</option>
                     {% for cat in categorias %}
-                        <option value="{{ cat.id }}" {% if request.GET.categoria|add:"0" == cat.id %}selected{% endif %}>{{ cat.nome }}</option>
+                        <option value="{{ cat.id }}" {% if request.GET.categoria|stringformat:"s" == cat.id|stringformat:"s" %}selected{% endif %}>{{ cat.nome }}</option>
                     {% endfor %}
                 </select>
             </div>
@@ -103,7 +103,7 @@
                     <th scope="col" class="relative py-3.5 pl-3 pr-4 sm:pr-6"><span class="sr-only">Ações</span></th>
                 </tr>
             </thead>
-            <tbody class="divide-y divide-indigo-200 bg-white dark:divide-gray-700 dark:bg-gray-800">
+            <tbody id="tabelaProdutos" class="divide-y divide-indigo-200 bg-white dark:divide-gray-700 dark:bg-gray-800">
                 {% for produto in produtos %}
                 <tr class="hover:bg-orange-100 hover:text-indigo-700 transition-colors duration-200">
                     <td class="whitespace-nowrap py-4 pl-4 pr-3 text-sm sm:pl-6">
@@ -150,7 +150,7 @@
                 </tr>
                 {% empty %}
                 <tr>
-                    <td colspan="7" class="text-center py-12 text-gray-500 dark:text-gray-400">
+                    <td colspan="8" class="text-center py-12 text-gray-500 dark:text-gray-400">
                         <i class="fas fa-box-open text-4xl mb-4"></i>
                         <p>Nenhum produto encontrado. <a href="{% url 'produtos:criar' %}" class="text-blue-500 font-semibold hover:underline">Adicionar o primeiro?</a></p>
                     </td>
@@ -165,59 +165,88 @@
 
 {% block scripts %}
 <script>
-    function openAddStockModal(productId, productName) {
-        document.getElementById('addStockModal').classList.remove('hidden');
-        document.getElementById('modalProductName').innerText = productName;
-        document.getElementById('addStockForm').action = `/estoque/entrada/${productId}/`;
-        document.getElementById('id_quantidade').focus();
-    }
+document.addEventListener('DOMContentLoaded', function () {
+    const searchInput = document.getElementById('search');
+    const tabela = document.getElementById('tabelaProdutos');
+    let timeout = null;
 
-    function closeAddStockModal() {
-        document.getElementById('addStockModal').classList.add('hidden');
-    }
+    function renderTabela(produtos) {
+        tabela.innerHTML = '';
 
+        if (produtos.length === 0) {
+            tabela.innerHTML = `
+                <tr>
+                    <td colspan="8" class="text-center py-12 text-gray-500 dark:text-gray-400">
+                        Nenhum produto encontrado.
+                    </td>
+                </tr>`;
+            return;
+        }
 
-    document.addEventListener('DOMContentLoaded', function() {
-        const searchInput = document.getElementById('search');
-        const resultsDiv = document.getElementById('searchResults');
-        
-        let timeout = null;
-
-        searchInput.addEventListener('input', function() {
-            clearTimeout(timeout);
-            const query = this.value.trim();
-
-            if (query.length < 2) {
-                resultsDiv.innerHTML = ''; // limpar resultados
-                return;
-            }
-
-            timeout = setTimeout(() => {
-                fetch(`/produtos/api/buscar/?q=${encodeURIComponent(query)}`)
-                    .then(response => response.json())
-                    .then(data => {
-                        resultsDiv.innerHTML = '';
-                        if (data.success && data.produtos.length > 0) {
-                            data.produtos.forEach(produto => {
-                                const item = document.createElement('div');
-                                item.classList.add('p-2', 'bg-gray-100', 'dark:bg-gray-700', 'rounded-md', 'hover:bg-gray-200', 'cursor-pointer');
-                                item.innerHTML = `
-                                    <strong>${produto.nome_produto}</strong> - ${produto.codigo_barras} 
-                                    <span class="text-sm text-gray-500 dark:text-gray-400">(${produto.categoria})</span>
-                                `;
-                                resultsDiv.appendChild(item);
-                            });
-                        } else {
-                            resultsDiv.innerHTML = '<p class="text-sm text-gray-500 dark:text-gray-400">Nenhum produto encontrado.</p>';
-                        }
-                    })
-                    .catch(err => console.error(err));
-            }, 300); // espera 300ms após digitação
+        produtos.forEach(produto => {
+            const linha = document.createElement('tr');
+            linha.classList.add('hover:bg-orange-100', 'hover:text-indigo-700', 'transition-colors', 'duration-200');
+            linha.innerHTML = `
+                <td class="whitespace-nowrap py-4 pl-4 pr-3 text-sm sm:pl-6">
+                    <div class="font-medium text-gray-900 dark:text-white">${produto.nome_produto}</div>
+                    <div class="text-gray-500 dark:text-gray-400">${produto.codigo_barras}</div>
+                </td>
+                <td class="whitespace-nowrap px-3 py-4 text-sm text-gray-500 dark:text-gray-400">
+                    ${produto.categoria || '-'}
+                </td>
+                <td class="whitespace-nowrap px-3 py-4 text-sm text-center font-semibold">
+                    ${produto.estoque_atual}
+                </td>
+                <td class="whitespace-nowrap px-3 py-4 text-sm text-center">
+                    ${produto.iva_percentual ? produto.iva_percentual + '%' : 'N/A'}
+                </td>
+                <td class="whitespace-nowrap px-3 py-4 text-sm text-center">
+                    ${produto.desconto_percentual ? produto.desconto_percentual + '%' : 'N/A'}
+                </td>
+                <td class="whitespace-nowrap px-3 py-4 text-sm text-right">
+                    AKZ ${produto.preco_venda.toLocaleString('pt-PT')}
+                </td>
+                <td class="whitespace-nowrap px-3 py-4 text-sm text-center">
+                    <span class="inline-flex items-center rounded-md bg-green-50 px-2 py-1 text-xs font-medium text-green-700">
+                        ${produto.ativo ? 'Ativo' : 'Inativo'}
+                    </span>
+                </td>
+                <td class="whitespace-nowrap py-4 pl-3 pr-4 text-right text-sm font-medium sm:pr-6">
+                    <a href="/produtos/editar/${produto.id}/" class="text-blue-600 hover:text-blue-900">Editar</a>
+                </td>
+            `;
+            tabela.appendChild(linha);
         });
+    }
+
+    searchInput.addEventListener('input', function () {
+        clearTimeout(timeout);
+        const query = this.value.trim();
+
+        timeout = setTimeout(() => {
+            fetch(`/produtos/api/buscar/?q=${encodeURIComponent(query)}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        renderTabela(data.produtos);
+                    }
+                })
+                .catch(err => console.error(err));
+        }, 200);
     });
 
-
+    // Carregar todos os produtos ao abrir a página
+    fetch('/produtos/api/buscar/')
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                renderTabela(data.produtos);
+            }
+        })
+        .catch(err => console.error(err));
+});
 </script>
+
 {% endblock %}
 
 {% endblock %}
