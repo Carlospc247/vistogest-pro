@@ -66,7 +66,7 @@
                 <select id="categoria" name="categoria" class="mt-1 block w-full rounded-md border-gray-300 py-2 pl-3 pr-10 text-base dark:border-gray-600 dark:bg-gray-700 dark:text-white sm:text-sm">
                     <option value="">Todas</option>
                     {% for cat in categorias %}
-                        <option value="{{ cat.id }}" {% if request.GET.categoria|stringformat:"s" == cat.id|stringformat:"s" %}selected{% endif %}>{{ cat.nome }}</option>
+                        <option value="{{ cat.id }}" {% if request.GET.categoria|add:"0" == cat.id %}selected{% endif %}>{{ cat.nome }}</option>
                     {% endfor %}
                 </select>
             </div>
@@ -150,7 +150,7 @@
                 </tr>
                 {% empty %}
                 <tr>
-                    <td colspan="8" class="text-center py-12 text-gray-500 dark:text-gray-400">
+                    <td colspan="7" class="text-center py-12 text-gray-500 dark:text-gray-400">
                         <i class="fas fa-box-open text-4xl mb-4"></i>
                         <p>Nenhum produto encontrado. <a href="{% url 'produtos:criar' %}" class="text-blue-500 font-semibold hover:underline">Adicionar o primeiro?</a></p>
                     </td>
@@ -194,9 +194,10 @@ document.addEventListener('DOMContentLoaded', function () {
                 <td class="whitespace-nowrap px-3 py-4 text-sm text-gray-500 dark:text-gray-400">
                     ${produto.categoria || '-'}
                 </td>
-                <td class="whitespace-nowrap px-3 py-4 text-sm text-center font-semibold">
+                <td class="whitespace-nowrap px-3 py-4 text-sm text-center font-semibold ${produto.estoque_atual <= produto.estoque_minimo ? 'text-red-500' : 'text-gray-900 dark:text-white'}">
                     ${produto.estoque_atual}
                 </td>
+
                 <td class="whitespace-nowrap px-3 py-4 text-sm text-center">
                     ${produto.iva_percentual ? produto.iva_percentual + '%' : 'N/A'}
                 </td>
@@ -207,12 +208,14 @@ document.addEventListener('DOMContentLoaded', function () {
                     AKZ ${produto.preco_venda.toLocaleString('pt-PT')}
                 </td>
                 <td class="whitespace-nowrap px-3 py-4 text-sm text-center">
-                    <span class="inline-flex items-center rounded-md bg-green-50 px-2 py-1 text-xs font-medium text-green-700">
-                        ${produto.ativo ? 'Ativo' : 'Inativo'}
-                    </span>
+                    ${produto.ativo 
+                        ? '<span class="inline-flex items-center rounded-md bg-green-50 px-2 py-1 text-xs font-medium text-green-700">Ativo</span>' 
+                        : '<span class="inline-flex items-center rounded-md bg-gray-50 px-2 py-1 text-xs font-medium text-gray-600">Inativo</span>'
+                    }
                 </td>
+
                 <td class="whitespace-nowrap py-4 pl-3 pr-4 text-right text-sm font-medium sm:pr-6">
-                    <a href="/produtos/editar/${produto.id}/" class="text-blue-600 hover:text-blue-900">Editar</a>
+                    <a href="/produtos/${produto.id}/editar/" class="text-blue-600 hover:text-blue-900">Editar</a>
                 </td>
             `;
             tabela.appendChild(linha);
