@@ -140,51 +140,57 @@ import json
 
 
 
+import math
+from django.http import JsonResponse
+from django.db.models import Q
+from django.contrib.auth.decorators import login_required
+from django.views.decorators.http import require_http_methods
+
+
+
 @login_required
 @require_http_methods(["GET"])
 def buscar_produtos_api(request):
-    """
-    API para buscar produtos no PDV - agora suporta listar todos
-    """
     try:
-        busca = request.GET.get('q', '').strip()
+        busca = request.GET.get('search', '').strip()
         categoria_id = request.GET.get('categoria', '').strip()
+        status = request.GET.get('status', '').strip()
+        page = int(request.GET.get('page', 1))
+        per_page = int(request.GET.get('per_page', 50))
         
-        # Buscar produtos da empresa do usuário
+        # Empresa do usuário
         if hasattr(request.user, 'funcionario') and request.user.funcionario:
             empresa = request.user.funcionario.empresa
         else:
-            return JsonResponse({
-                'success': False,
-                'message': 'Empresa não encontrada'
-            }, status=400)
-        
-        # Query base
-        produtos = Produto.objects.filter(
-            empresa=empresa,
-            ativo=True
-        ).select_related('categoria', 'fornecedor', 'fabricante')
-        
-        # Filtrar por categoria se especificado
+            return JsonResponse({'success': False, 'message': 'Empresa não encontrada'}, status=400)
+
+        queryset = Produto.objects.filter(empresa=empresa).select_related('categoria', 'fornecedor', 'fabricante')
+
+        if status == 'ativo':
+            queryset = queryset.filter(ativo=True)
+        elif status == 'inativo':
+            queryset = queryset.filter(ativo=False)
+        elif status == 'estoque_baixo':
+            queryset = queryset.filter(estoque_atual__lte=F('estoque_minimo'))
+
+
         if categoria_id and categoria_id != 'todos':
-            produtos = produtos.filter(categoria_id=categoria_id)
-        
-        # Filtrar por busca se especificado
+            queryset = queryset.filter(categoria_id=categoria_id)
+
         if busca:
-            produtos = produtos.filter(
+            queryset = queryset.filter(
                 Q(codigo_barras__icontains=busca) |
                 Q(codigo_interno__icontains=busca) |
                 Q(nome_produto__icontains=busca)
             )
-        
-        # Limitar resultados apenas se houver busca específica
-        if busca:
-            produtos = produtos[:50]
-        else:
-            produtos = produtos[:300]  # Limite maior para listagem geral
-        
+
+        total_produtos = queryset.count()  # total antes de fatiar
+        start = (page - 1) * per_page
+        end = start + per_page
+        produtos_page = queryset[start:end]
+
         produtos_data = []
-        for produto in produtos:
+        for produto in produtos_page:  # <<<<<<<<<< usar produtos_page aqui
             produtos_data.append({
                 'id': produto.id,
                 'codigo_interno': produto.codigo_interno,
@@ -196,27 +202,32 @@ def buscar_produtos_api(request):
                 'fabricante': str(produto.fabricante) if produto.fabricante else '',
                 'estoque_atual': produto.estoque_atual,
                 'estoque_minimo': produto.estoque_minimo,
-                'preco_custo': float(produto.preco_custo),
-                'preco_venda': float(produto.preco_venda),
-                'margem_lucro': float(produto.margem_lucro),
+                'desconto_percentual': float(produto.desconto_percentual or 0),
+                'preco_custo': float(produto.preco_custo or 0),
+                'preco_venda': float(produto.preco_venda or 0),
+                'margem_lucro': float(produto.margem_lucro or 0),
                 'foto_url': produto.foto.url if produto.foto else None,
-                'valor_estoque': float(produto.valor_estoque),
+                'valor_estoque': float(produto.valor_estoque or 0),
                 'estoque_baixo': produto.estoque_atual <= produto.estoque_minimo,
                 'disponivel': produto.estoque_atual > 0,
                 'iva_percentual': getattr(produto, 'iva_percentual', 0)
             })
-        
+
         return JsonResponse({
             'success': True,
             'produtos': produtos_data,
-            'total_encontrados': len(produtos_data)
-        })
-        
+            'total_encontrados': total_produtos,
+            'page': page,
+            'per_page': per_page,
+            'total_paginas': math.ceil(total_produtos / per_page)
+        })   
+
     except Exception as e:
         return JsonResponse({
             'success': False,
             'message': f'Erro interno: {str(e)}'
         }, status=500)
+       
 
 
 
@@ -224,7 +235,7 @@ class ProdutosView(LoginRequiredMixin, ListView):
     template_name = 'produtos/produto_list.html'
     model = Produto
     context_object_name = 'produtos'
-    #paginate_by = 20
+    paginate_by = 200
 
     def get_empresa(self):
         """ Método seguro para obter a empresa do utilizador logado. """
