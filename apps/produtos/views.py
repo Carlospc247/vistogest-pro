@@ -545,32 +545,7 @@ class CategoriaDeleteView(CategoriaBaseView, DeleteView):
 
 
 #######################################
-class FabricanteListView(LoginRequiredMixin, ListView):
-    model = Fabricante
-    template_name = "produtos/fabricante_list.html"
-    context_object_name = "fabricantes"
-    ordering = ['nome']
 
-class FabricanteDetailView(LoginRequiredMixin, DetailView):
-    model = Fabricante
-    template_name = "produtos/fabricante_detail.html"
-
-class FabricanteCreateView(LoginRequiredMixin, CreateView):
-    model = Fabricante
-    fields = '__all__'
-    template_name = "produtos/form.html"
-    success_url = reverse_lazy("produtos:fabricante_list")
-
-class FabricanteUpdateView(LoginRequiredMixin, UpdateView):
-    model = Fabricante
-    fields = '__all__'
-    template_name = "produtos/form.html"
-    success_url = reverse_lazy("produtos:fabricante_list")
-
-class FabricanteDeleteView(LoginRequiredMixin, DeleteView):
-    model = Fabricante
-    template_name = "produtos/confirm_delete.html"
-    success_url = reverse_lazy("produtos:fabricante_list")
 
 
 # ===============================
@@ -1066,32 +1041,9 @@ class TemplateProdutosView(LoginRequiredMixin, View):
             return Empresa.objects.first()
         return None
 
-
-
-
-
-
 logger = logging.getLogger(__name__)
 
-   # apps/produtos/views.py
-import io
-import csv
-import uuid
-import logging
-import unicodedata
-import pandas as pd
-from decimal import Decimal
-from django.db.models import Q
-from django.contrib import messages
-from django.views.generic.edit import FormView
-from django.urls import reverse_lazy
-from django.contrib.auth.mixins import LoginRequiredMixin
-from apps.core.models import Categoria
-from apps.fornecedores.models import Fornecedor
-from .models import Produto, Fabricante
-from .forms import ImportarProdutosForm
 
-logger = logging.getLogger(__name__)
 
 
 class ImportarProdutosView(LoginRequiredMixin, FormView):
@@ -1296,4 +1248,125 @@ class ImportarProdutosView(LoginRequiredMixin, FormView):
             messages.error(self.request, f"Erro ao importar produtos: {e}")
 
         return super().form_valid(form)
+
+
+
+# ---- EXPORTAÇÃO XLSX ----
+class ExportarProdutosExcelView(LoginRequiredMixin, View):
+    def get(self, request):
+        empresa = self.get_empresa()
+        if not empresa:
+            return HttpResponseBadRequest("Empresa não encontrada")
+
+        produtos = Produto.objects.filter(empresa=empresa).select_related('categoria', 'fornecedor', 'fabricante')
+
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Produtos"
+
+        headers = [
+            'nome_produto', 'codigo_barras', 'categoria', 'preco_custo', 'preco_venda',
+            'nome_comercial', 'codigo_interno', 'fabricante', 'fornecedor',
+            'estoque_atual', 'ativo'
+        ]
+
+        ws.append(headers)
+
+        for p in produtos:
+            ws.append([
+                p.nome_produto,
+                p.codigo_barras,
+                p.categoria.nome if p.categoria else '-',
+                float(p.preco_custo),
+                float(p.preco_venda),
+                p.nome_comercial,
+                p.codigo_interno,
+                p.fabricante.nome if p.fabricante else '-',
+                p.fornecedor.nome_fantasia if p.fornecedor else '-',
+                float(p.estoque_atual),
+                'Ativo' if p.ativo else 'Inativo',
+            ])
+
+        buffer = io.BytesIO()
+        wb.save(buffer)
+        buffer.seek(0)
+
+        response = HttpResponse(
+            buffer.getvalue(),
+            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
+        response['Content-Disposition'] = f'attachment; filename="produtos_{empresa.nome}.xlsx"'
+        return response
+
+    def get_empresa(self):
+        user = self.request.user
+        if hasattr(user, 'funcionario') and user.funcionario.empresa:
+            return user.funcionario.empresa
+        return Empresa.objects.first() if user.is_superuser else None
+
+
+# ---- EXPORTAÇÃO PDF ----
+from reportlab.pdfgen import canvas
+from reportlab.lib.pagesizes import A4
+from django.http import HttpResponse, HttpResponseBadRequest
+import io, requests   # <--- IMPORTANTE
+
+class ExportarProdutosPDFView(LoginRequiredMixin, View):
+    def get(self, request):
+        empresa = self.get_empresa()
+        if not empresa:
+            return HttpResponseBadRequest("Empresa não encontrada")
+
+        produtos = Produto.objects.filter(empresa=empresa)
+
+        # ========== FOTO DA EMPRESA ==========
+        foto_path = None
+        if empresa.foto and hasattr(empresa.foto, 'url'):
+            try:
+                response = requests.get(empresa.foto.url)
+                if response.status_code == 200:
+                    foto_path = io.BytesIO(response.content)  # ARMAZENAMENTO TEMPORÁRIO
+            except:
+                foto_path = None
+        # =====================================
+
+        buffer = io.BytesIO()
+        p = canvas.Canvas(buffer, pagesize=A4)
+        largura, altura = A4
+        y = altura - 50
+
+        # Foto da empresa se existir:
+        if foto_path:
+            p.drawImage(foto_path, 50, y - 80, width=100, height=80, preserveAspectRatio=True, mask='auto')
+            y -= 100
+
+        p.setFont("Helvetica-Bold", 14)
+        p.drawString(50, y, f"Listagem de Produtos - {empresa.nome}")
+        y -= 30
+
+        p.setFont("Helvetica", 8)
+        p.drawString(50, y, f"Gerado em: {datetime.now().strftime('%d/%m/%Y %H:%M')}")
+        p.setFont("Helvetica", 10)
+        for produto in produtos:
+            if y < 50:
+                p.showPage()
+                y = altura - 50
+
+            linha = f"{produto.nome_produto} - AKZ {produto.preco_venda} - Estoque: {produto.estoque_atual}"
+            p.drawString(50, y, linha)
+            y -= 18
+
+        p.save()
+        buffer.seek(0)
+        response = HttpResponse(buffer, content_type='application/pdf')
+        response['Content-Disposition'] = f'attachment; filename="produtos_{empresa.nome}.pdf"'
+        return response
+
+    def get_empresa(self):
+        user = self.request.user
+        if hasattr(user, 'funcionario') and user.funcionario.empresa:
+            return user.funcionario.empresa
+        return Empresa.objects.first() if user.is_superuser else None
+
+
 
