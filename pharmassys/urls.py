@@ -38,7 +38,6 @@ urlpatterns = [
     path('suporte/', redirect_to_suporte),
 
     # Apps
-    path('', include('two_factor.urls', 'two_factor')),
     path('', include('apps.core.urls')),
     path('produtos/', include('apps.produtos.urls')),
     path('clientes/', include('apps.clientes.urls', namespace='clientes')), #Tenho que usar namespace='clientes' para possibilitar chamar qualquer url da app clientes no javascript. Ex: {% url 'clientes:api_buscar_clientes' %}
