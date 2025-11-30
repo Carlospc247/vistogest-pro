@@ -24,7 +24,7 @@ def redirect_to_suporte(request):
 
 urlpatterns = [
     # Admin
-    path('erp-admin-2901-super/', admin.site.urls),
+    path('admin/', admin.site.urls),
     
     
     # Autenticação
