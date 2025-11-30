@@ -1,0 +1,16 @@
++  1 User-agent: *
++  2 Disallow: /admin/
++  3 Disallow: /accounts/
++  4 Disallow: /api/
++  5 Disallow: /fiscal/
++  6 Disallow: /relatorios/
++  7 Disallow: /configuracoes/
++  8 
++  9 # Permitir acesso público
++ 10 Allow: /
++ 11 
++ 12 # Sitemap (opcional - crie se necessário)
++ 13 # Sitemap: https://vistogest.pro/sitemap.xml
++ 14 
++ 15 # Crawl-delay para bots mais agressivos
++ 16 Crawl-delay: 10

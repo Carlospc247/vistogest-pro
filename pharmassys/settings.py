@@ -29,15 +29,15 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = os.getenv('SECRET_KEY')
 
 
-DEBUG = os.getenv("DEBUG", "False") == "True"
-ALLOWED_HOSTS = [
-    'vistogest.pro',
-    'www.vistogest.pro',
-    'vistogestpro.onrender.com',
-]
+#DEBUG = os.getenv("DEBUG", "False") == "True"
+#ALLOWED_HOSTS = [
+#    'vistogest.pro',
+#    'www.vistogest.pro',
+#    'vistogestpro.onrender.com',
+#]
 
-#DEBUG = True
-#ALLOWED_HOSTS = ['*']
+DEBUG = True
+ALLOWED_HOSTS = ['*']
 
 
 LOGGING = {
@@ -134,6 +134,7 @@ INSTALLED_APPS = [
 # =========================================
 # Middleware
 # =========================================
+
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     "whitenoise.middleware.WhiteNoiseMiddleware",
@@ -265,6 +266,13 @@ CELERY_RESULT_SERIALIZER = 'json'
 CELERY_TIMEZONE = 'Africa/Luanda'
 CELERY_ENABLE_UTC = False
 CELERY_REDIS_MAX_CONNECTIONS = 50
+
+SECURE_HSTS_SECONDS = 31536000
+SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+SECURE_HSTS_PRELOAD = True
+SECURE_BROWSER_XSS_FILTER = True
+X_FRAME_OPTIONS = "DENY"
+REFERRER_POLICY = "same-origin"
 
 # =========================================
 # Templates

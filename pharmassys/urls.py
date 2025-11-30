@@ -1,5 +1,6 @@
 #pharmassys/urls.py
 from django.contrib import admin
+from django.http import HttpResponse
 from django.urls import path, include
 from django.conf import settings
 from django.conf.urls.static import static
@@ -23,7 +24,7 @@ def redirect_to_suporte(request):
 
 urlpatterns = [
     # Admin
-    path('admin/', admin.site.urls),
+    path('erp-admin-2901-super/', admin.site.urls),
     
     
     # Autenticação
@@ -37,6 +38,7 @@ urlpatterns = [
     path('suporte/', redirect_to_suporte),
 
     # Apps
+    path('', include('two_factor.urls', 'two_factor')),
     path('', include('apps.core.urls')),
     path('produtos/', include('apps.produtos.urls')),
     path('clientes/', include('apps.clientes.urls', namespace='clientes')), #Tenho que usar namespace='clientes' para possibilitar chamar qualquer url da app clientes no javascript. Ex: {% url 'clientes:api_buscar_clientes' %}
@@ -58,3 +60,14 @@ urlpatterns = [
     path('vendas-documentos/', include('apps.vendas.urls_documentos', namespace='vendas_documentos')),
     path('api/v1/vendas/', include('apps.vendas.urls', namespace='vendas_api')),
 ]
+
+
+def robots_txt(request):
+    content = "User-agent: *\nDisallow: /"
+    return HttpResponse(content, content_type="text/plain")
+
+urlpatterns += [
+    path("robots.txt", robots_txt, name="robots_txt"),
+]
+
+
