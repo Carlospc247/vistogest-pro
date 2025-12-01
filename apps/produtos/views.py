@@ -1438,11 +1438,12 @@ class ExportarProdutosPDFView(LoginRequiredMixin, View):
         # ==============================
 
         tabela_dados = [
-            ["Produto", "Preço de Venda (AKZ)", "Estoque"]
+            ["Nº", "Produto", "Preço de Venda (AKZ)", "Estoque"]
         ]
 
-        for p in produtos:
+        for i, p in enumerate(produtos, start=1):
             tabela_dados.append([
+                i,
                 p.nome_produto,
                 f"{p.preco_venda:.2f}",
                 p.estoque_atual
