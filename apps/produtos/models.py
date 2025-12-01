@@ -33,8 +33,6 @@ class Fabricante(TimeStampedModel):
         return self.nome
 
 
-
-
 class Produto(TimeStampedModel):
     """Produto do estoque"""
     empresa = models.ForeignKey(Empresa, on_delete=models.CASCADE, related_name='produtos')
@@ -183,7 +181,6 @@ class ControleVencimento(TimeStampedModel):
         return self.lote.esta_perto_do_vencimento(self.dias_para_alerta)
 
 
-
 class HistoricoPreco(models.Model):
    
     produto = models.ForeignKey(
@@ -232,7 +229,6 @@ class HistoricoPreco(models.Model):
         if self.preco_venda_anterior and self.preco_venda_anterior != 0:
             return ((self.preco_venda_novo - self.preco_venda_anterior) / self.preco_venda_anterior) * 100
         return Decimal("0")
-    
 
 
 class AlertaProdutoExpiracao(TimeStampedModel):

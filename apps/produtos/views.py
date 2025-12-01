@@ -1250,28 +1250,83 @@ class ImportarProdutosView(LoginRequiredMixin, FormView):
         return super().form_valid(form)
 
 
+from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
+from openpyxl.utils import get_column_letter
 
-# ---- EXPORTAÇÃO XLSX ----
+# ---- EXPORTAÇÃO XLSX ---- 
 class ExportarProdutosExcelView(LoginRequiredMixin, View):
     def get(self, request):
         empresa = self.get_empresa()
         if not empresa:
             return HttpResponseBadRequest("Empresa não encontrada")
 
-        produtos = Produto.objects.filter(empresa=empresa).select_related('categoria', 'fornecedor', 'fabricante')
+        produtos = Produto.objects.filter(empresa=empresa).select_related(
+            'categoria', 'fornecedor', 'fabricante'
+        )
+
+        # ===================================
+        # CÁLCULOS
+        # ===================================
+        total_investido = sum(float(p.preco_custo) * float(p.estoque_atual) for p in produtos)
+        total_esperado = sum(float(p.preco_venda) * float(p.estoque_atual) for p in produtos)
 
         wb = Workbook()
         ws = wb.active
         ws.title = "Produtos"
 
+        # ===================================
+        # ESTILOS
+        # ===================================
+        bold = Font(bold=True)
+        center = Alignment(horizontal="center", vertical="center")
+        left = Alignment(horizontal="left", vertical="center")
+        fill_header = PatternFill(start_color="DDDDDD", end_color="DDDDDD", fill_type="solid")
+
+        thin_border = Border(
+            left=Side(style="thin"),
+            right=Side(style="thin"),
+            top=Side(style="thin"),
+            bottom=Side(style="thin")
+        )
+
+        # ===================================
+        # CABEÇALHO SUPERIOR COM OS TOTAIS
+        # ===================================
+        ws.append(["Total Investido (Custo × Estoque):", float(total_investido)])
+        ws.append(["Total Esperado (Venda × Estoque):", float(total_esperado)])
+        ws.append([])
+
+        # Mesclar colunas A:B para títulos
+        ws.merge_cells("A1:B1")
+        ws.merge_cells("A2:B2")
+
+        # Estilo dos totais
+        ws["A1"].font = bold
+        ws["A2"].font = bold
+        ws["A1"].alignment = left
+        ws["A2"].alignment = left
+
+        # ===================================
+        # TABELA PRINCIPAL
+        # ===================================
         headers = [
             'nome_produto', 'codigo_barras', 'categoria', 'preco_custo', 'preco_venda',
             'nome_comercial', 'codigo_interno', 'fabricante', 'fornecedor',
             'estoque_atual', 'ativo'
         ]
-
         ws.append(headers)
 
+        header_row = ws.max_row
+        for col_num, _ in enumerate(headers, 1):
+            cell = ws.cell(row=header_row, column=col_num)
+            cell.font = bold
+            cell.fill = fill_header
+            cell.alignment = center
+            cell.border = thin_border
+
+        # ===================================
+        # DADOS DOS PRODUTOS
+        # ===================================
         for p in produtos:
             ws.append([
                 p.nome_produto,
@@ -1287,6 +1342,29 @@ class ExportarProdutosExcelView(LoginRequiredMixin, View):
                 'Ativo' if p.ativo else 'Inativo',
             ])
 
+        # Aplicar bordas e alinhamento nas linhas de dados
+        for row in ws.iter_rows(min_row=header_row + 1, max_row=ws.max_row):
+            for cell in row:
+                cell.border = thin_border
+                if isinstance(cell.value, (int, float)):
+                    cell.alignment = center
+                else:
+                    cell.alignment = left
+
+        # ===================================
+        # AJUSTE DE LARGURA DAS COLUNAS
+        # ===================================
+        for col in ws.columns:
+            max_length = 0
+            column = col[0].column_letter
+            for cell in col:
+                val = str(cell.value) if cell.value is not None else ""
+                max_length = max(max_length, len(val))
+            ws.column_dimensions[column].width = max_length + 2
+
+        # ===================================
+        # EXPORTAÇÃO
+        # ===================================
         buffer = io.BytesIO()
         wb.save(buffer)
         buffer.seek(0)
@@ -1306,10 +1384,14 @@ class ExportarProdutosExcelView(LoginRequiredMixin, View):
 
 
 # ---- EXPORTAÇÃO PDF ----
-from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import A4
+from reportlab.lib import colors
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Image, Spacer
+from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.lib.units import cm
 from django.http import HttpResponse, HttpResponseBadRequest
-import io, requests   # <--- IMPORTANTE
+import io, requests
+from datetime import datetime
 
 class ExportarProdutosPDFView(LoginRequiredMixin, View):
     def get(self, request):
@@ -1319,54 +1401,82 @@ class ExportarProdutosPDFView(LoginRequiredMixin, View):
 
         produtos = Produto.objects.filter(empresa=empresa)
 
-        # ========== FOTO DA EMPRESA ==========
-        foto_path = None
+        buffer = io.BytesIO()
+        pdf = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=30, leftMargin=30, topMargin=40, bottomMargin=30)
+
+        elementos = []
+        styles = getSampleStyleSheet()
+
+        # ==============================
+        # LOGOTIPO DA EMPRESA
+        # ==============================
         if empresa.foto and hasattr(empresa.foto, 'url'):
             try:
-                response = requests.get(empresa.foto.url)
-                if response.status_code == 200:
-                    foto_path = io.BytesIO(response.content)  # ARMAZENAMENTO TEMPORÁRIO
+                resp = requests.get(empresa.foto.url)
+                if resp.status_code == 200:
+                    logo_stream = io.BytesIO(resp.content)
+                    img = Image(logo_stream, width=4*cm, height=4*cm)
+                    elementos.append(img)
+                    elementos.append(Spacer(1, 12))
             except:
-                foto_path = None
-        # =====================================
+                pass
 
-        buffer = io.BytesIO()
-        p = canvas.Canvas(buffer, pagesize=A4)
-        largura, altura = A4
-        y = altura - 50
+        # ==============================
+        # CABEÇALHO
+        # ==============================
+        titulo = Paragraph(f"<b>Listagem de Produtos – {empresa.nome}</b>", styles["Title"])
+        data_geracao = Paragraph(
+            f"<font size=8>Gerado em: {datetime.now().strftime('%d/%m/%Y %H:%M')}</font>",
+            styles["Normal"]
+        )
+        elementos.append(titulo)
+        elementos.append(data_geracao)
+        elementos.append(Spacer(1, 20))
 
-        # Foto da empresa se existir:
-        if foto_path:
-            p.drawImage(foto_path, 50, y - 80, width=100, height=80, preserveAspectRatio=True, mask='auto')
-            y -= 100
+        # ==============================
+        # TABELA DE PRODUTOS
+        # ==============================
 
-        p.setFont("Helvetica-Bold", 14)
-        p.drawString(50, y, f"Listagem de Produtos - {empresa.nome}")
-        y -= 30
+        tabela_dados = [
+            ["Produto", "Preço de Venda (AKZ)", "Estoque"]
+        ]
 
-        p.setFont("Helvetica", 8)
-        p.drawString(50, y, f"Gerado em: {datetime.now().strftime('%d/%m/%Y %H:%M')}")
-        p.setFont("Helvetica", 10)
-        for produto in produtos:
-            if y < 50:
-                p.showPage()
-                y = altura - 50
+        for p in produtos:
+            tabela_dados.append([
+                p.nome_produto,
+                f"{p.preco_venda:.2f}",
+                p.estoque_atual
+            ])
 
-            linha = f"{produto.nome_produto} - AKZ {produto.preco_venda} - Estoque: {produto.estoque_atual}"
-            p.drawString(50, y, linha)
-            y -= 18
+        tabela = Table(tabela_dados, colWidths=[8*cm, 4*cm, 3*cm])
 
-        p.save()
+        # FORÇA PAGINAÇÃO AUTOMÁTICA + REPETIR CABEÇALHO
+        tabela.repeatRows = 1
+
+        tabela.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
+            ("TEXTCOLOR", (0, 0), (-1, 0), colors.black),
+            ("ALIGN", (1, 1), (-1, -1), "CENTER"),
+            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("FONTSIZE", (0, 0), (-1, -1), 9),
+            ("BOTTOMPADDING", (0, 0), (-1, 0), 8),
+            ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+        ]))
+
+        elementos.append(tabela)
+
+        # Construir PDF
+        pdf.build(elementos)
+
         buffer.seek(0)
-        response = HttpResponse(buffer, content_type='application/pdf')
-        response['Content-Disposition'] = f'attachment; filename="produtos_{empresa.nome}.pdf"'
+        response = HttpResponse(buffer, content_type="application/pdf")
+        response["Content-Disposition"] = f'attachment; filename="produtos_{empresa.nome}.pdf"'
         return response
 
     def get_empresa(self):
         user = self.request.user
-        if hasattr(user, 'funcionario') and user.funcionario.empresa:
+        if hasattr(user, "funcionario") and user.funcionario.empresa:
             return user.funcionario.empresa
         return Empresa.objects.first() if user.is_superuser else None
-
 
 

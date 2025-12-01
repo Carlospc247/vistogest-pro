@@ -36,7 +36,8 @@ SECRET_KEY = os.getenv('SECRET_KEY')
 #    'vistogestpro.onrender.com',
 #]
 
-DEBUG = True
+#DEBUG = os.getenv("DEBUG", "False") == "True"
+DEBUG = False
 ALLOWED_HOSTS = ['*']
 
 
