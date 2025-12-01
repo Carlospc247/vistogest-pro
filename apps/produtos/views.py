@@ -1354,13 +1354,21 @@ class ExportarProdutosExcelView(LoginRequiredMixin, View):
         # ===================================
         # AJUSTE DE LARGURA DAS COLUNAS
         # ===================================
-        for col in ws.columns:
+        from openpyxl.utils import get_column_letter
+
+        num_cols = ws.max_column
+
+        for col_idx in range(1, num_cols + 1):
             max_length = 0
-            column = col[0].column_letter
-            for cell in col:
+            col_letter = get_column_letter(col_idx)
+
+            for row in ws.iter_rows(min_row=1, max_row=ws.max_row, min_col=col_idx, max_col=col_idx):
+                cell = row[0]
                 val = str(cell.value) if cell.value is not None else ""
                 max_length = max(max_length, len(val))
-            ws.column_dimensions[column].width = max_length + 2
+
+            ws.column_dimensions[col_letter].width = max_length + 2
+
 
         # ===================================
         # EXPORTAÇÃO
@@ -1449,10 +1457,8 @@ class ExportarProdutosPDFView(LoginRequiredMixin, View):
                 p.estoque_atual
             ])
 
-        tabela = Table(tabela_dados, colWidths=[8*cm, 4*cm, 3*cm])
+        tabela = Table(tabela_dados, colWidths=[1.5*cm, 9*cm, 3*cm, 2.5*cm])
 
-        # FORÇA PAGINAÇÃO AUTOMÁTICA + REPETIR CABEÇALHO
-        tabela.repeatRows = 1
 
         tabela.setStyle(TableStyle([
             ("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
