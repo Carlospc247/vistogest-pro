@@ -1253,6 +1253,7 @@ class ImportarProdutosView(LoginRequiredMixin, FormView):
 from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
 from openpyxl.utils import get_column_letter
 
+
 # ---- EXPORTAÇÃO XLSX ---- 
 class ExportarProdutosExcelView(LoginRequiredMixin, View):
     def get(self, request):
@@ -1264,11 +1265,19 @@ class ExportarProdutosExcelView(LoginRequiredMixin, View):
             'categoria', 'fornecedor', 'fabricante'
         )
 
+        def to_float(v):
+            if v in (None, "", " ", "-"):
+                return 0.0
+            try:
+                return float(str(v).replace(",", "."))
+            except:
+                return 0.0
         # ===================================
         # CÁLCULOS
         # ===================================
-        total_investido = sum(float(p.preco_custo) * float(p.estoque_atual) for p in produtos)
-        total_esperado = sum(float(p.preco_venda) * float(p.estoque_atual) for p in produtos)
+        total_investido = sum(to_float(p.preco_custo) * to_float(p.estoque_atual) for p in produtos)
+        total_esperado = sum(to_float(p.preco_venda) * to_float(p.estoque_atual) for p in produtos)
+
 
         wb = Workbook()
         ws = wb.active
@@ -1332,13 +1341,13 @@ class ExportarProdutosExcelView(LoginRequiredMixin, View):
                 p.nome_produto,
                 p.codigo_barras,
                 p.categoria.nome if p.categoria else '-',
-                float(p.preco_custo),
-                float(p.preco_venda),
+                to_float(p.preco_custo),
+                to_float(p.preco_venda),
                 p.nome_comercial,
                 p.codigo_interno,
                 p.fabricante.nome if p.fabricante else '-',
                 p.fornecedor.nome_fantasia if p.fornecedor else '-',
-                float(p.estoque_atual),
+                to_float(p.estoque_atual),
                 'Ativo' if p.ativo else 'Inativo',
             ])
 
@@ -1461,14 +1470,17 @@ class ExportarProdutosPDFView(LoginRequiredMixin, View):
 
 
         tabela.setStyle(TableStyle([
-            ("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
-            ("TEXTCOLOR", (0, 0), (-1, 0), colors.black),
-            ("ALIGN", (1, 1), (-1, -1), "CENTER"),
+            ("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),  # Cabeçalho
+            ("TEXTCOLOR", (0, 0), (-1, 0), colors.black),       # Cabeçalho
+            ("ALIGN", (0, 1), (0, -1), "LEFT"),              # Coluna Nº centralizada
+            ("ALIGN", (1, 1), (1, -1), "LEFT"),               # Coluna Produto alinhada à esquerda
+            ("ALIGN", (2, 1), (-1, -1), "CENTER"),            # Demais colunas centralizadas
             ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
             ("FONTSIZE", (0, 0), (-1, -1), 9),
             ("BOTTOMPADDING", (0, 0), (-1, 0), 8),
             ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
         ]))
+
 
         elementos.append(tabela)
 
