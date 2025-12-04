@@ -12,6 +12,7 @@ from apps.fiscal.services import FiscalServiceError
 from apps.fiscal.utility.crypto import AESService
 from apps.core.models import Empresa
 from .utils import gerar_rsa_local
+from apps.fiscal.utility import calcular_hash_documento as calc_hash_util, gerar_atcud as gerar_atcud_util
 
 logger = logging.getLogger(__name__)
 
@@ -70,17 +71,7 @@ class AssinaturaDigitalService:
     @staticmethod
     def calcular_hash_documento(doc: Dict, hash_anterior: str = "") -> str:
         """Calcula hash base64 de um documento, usando hash anterior."""
-        ordenado = {
-            "data": doc.get("data", ""),
-            "tipo_documento": doc.get("tipo_documento", ""),
-            "serie": doc.get("serie", ""),
-            "numero": str(doc.get("numero", "")),
-            "valor_total": str(doc.get("valor_total", "0.00")),
-            "hash_anterior": hash_anterior,
-        }
-        texto = ";".join(f"{k}:{v}" for k, v in sorted(ordenado.items()))
-        digest = hashlib.sha256(texto.encode("utf-8")).digest()
-        return base64.b64encode(digest).decode("utf-8")
+        return calc_hash_util(doc, hash_anterior)
 
     # ----------------------------------------------------------------------
     # 4) GERA ATCUD
@@ -89,8 +80,7 @@ class AssinaturaDigitalService:
     def gerar_atcud(empresa: Empresa, serie: str, numero: str, hash_: str) -> str:
         """Gera ATCUD conforme padrão AGT (hash SHA256)."""
         nif = empresa.nif or empresa.numero_contribuinte or ""
-        base = f"{nif}|{serie}|{numero}|{hash_}"
-        return hashlib.sha256(base.encode("utf-8")).hexdigest().upper()
+        return gerar_atcud_util(nif, serie, numero, hash_)
 
     # ----------------------------------------------------------------------
     # 5) ASSINATURA DE DOCUMENTO

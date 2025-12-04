@@ -41,10 +41,31 @@ class SaftDocumentosService:
         # Este método seria responsável pela complexa extração de cabeçalho, linhas, totais e IVA.
         return {} 
 
+    def get_movement_of_goods(self) -> List[Dict]:
+        """
+        Extrai Guias de Transporte/Remessa (MovementOfGoods).
+        """
+        # Placeholder
+        return []
+
+    def get_working_documents(self) -> List[Dict]:
+        """
+        Extrai Documentos de Conferência/Proformas (WorkingDocuments).
+        """
+        # Placeholder
+        return []
+
+    def get_payments(self) -> List[Dict]:
+        """
+        Extrai Recibos (Payments).
+        """
+        # Placeholder
+        return []
+
     def calculate_global_totals(self) -> Dict[str, Decimal]:
         """
-        Calcula os totais globais necessários para o cabeçalho <Header> do SAF-T.
-        Isto é CRÍTICO para a validação.
+        Calcula os totais globais necessários para o cabeçalho <Header> do SAF-T
+        e para os sumários de cada secção.
         """
         # 🚨 Implementação de Produção:
         # total_faturacao = Venda.objects.filter(...).aggregate(total=Sum('valor_total'))['total']
@@ -56,7 +77,23 @@ class SaftDocumentosService:
             'TotalSalesInvoices': Decimal('1500000.00'),
             'TotalDebit': Decimal('5000000.00'), # Total de Débitos em GeneralLedgerEntries
             'TotalCredit': Decimal('5000000.00'), # Total de Créditos em GeneralLedgerEntries
-            # ... Mais totais
+            
+            # Totais para SourceDocuments
+            'SalesInvoices': {
+                'TotalDebit': Decimal('1000.00'),
+                'TotalCredit': Decimal('0.00')
+            },
+            'MovementOfGoods': {
+                'TotalQuantity': Decimal('100.00')
+            },
+            'WorkingDocuments': {
+                'TotalDebit': Decimal('500.00'),
+                'TotalCredit': Decimal('0.00')
+            },
+            'Payments': {
+                'TotalDebit': Decimal('0.00'),
+                'TotalCredit': Decimal('2000.00')
+            }
         }
         print("DocumentosService: Totais Globais Calculados.")
         return totals

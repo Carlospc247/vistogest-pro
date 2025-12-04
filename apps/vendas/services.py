@@ -5,7 +5,7 @@ from django.db import transaction
 from django.utils import timezone
 from decimal import Decimal
 from apps.core.services import gerar_numero_documento
-from apps.fiscal.utility import gerar_atcud, gerar_hash_anterior
+from apps.fiscal.utility import gerar_atcud_documento, gerar_hash_anterior
 from apps.vendas.models import FormaPagamento, Venda, ItemVenda
 from apps.fiscal.services import DocumentoFiscalService
 
@@ -109,7 +109,7 @@ def criar_venda(empresa, cliente, vendedor, itens_data, forma_pagamento=None):
 
         # 🔑 Atualiza venda com hash e ATCUD
         documento.hash_documento = gerar_hash_anterior(documento)
-        documento.atcud = gerar_atcud(documento)
+        documento.atcud = gerar_atcud_documento(documento)
         documento.save(update_fields=["hash_documento", "atcud"])
 
         return venda

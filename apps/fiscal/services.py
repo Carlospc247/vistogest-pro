@@ -1,4 +1,4 @@
-# apps/fiscal/services.py
+#apps/fiscal/services.py
 import logging
 import hashlib
 import json
@@ -124,7 +124,7 @@ class DocumentoFiscalService:
 
         # ====== GERAÇÃO DE HASH E ATCUD ======
         # Importar função utilitária do SAF-T se existir
-        from apps.fiscal.utility import gerar_hash_documento
+        from apps.fiscal.utility import gerar_hash_documento, gerar_atcud_documento
 
         # Se o hash não foi definido ainda
         if not documento.hash_documento:
@@ -132,7 +132,7 @@ class DocumentoFiscalService:
 
         # Gera ATCUD (código único do documento)
         if not documento.atcud:
-            documento.atcud = f"{documento.empresa.codigo_validacao}-{documento.numero}"
+            documento.atcud = gerar_atcud_documento(documento)
 
         # Salva com os novos campos
         documento.save(update_fields=["hash_documento", "atcud"])

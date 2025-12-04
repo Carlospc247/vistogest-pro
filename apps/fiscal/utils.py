@@ -70,59 +70,6 @@ def validar_documentos_fiscais(empresa):
 
 
 
-def gerar_hash_documento(documento):
-    """
-    Gera hash encadeado SAF-T AO com base no documento anterior.
-    """
-    from apps.fiscal.models import DocumentoFiscal
-
-    ultimo_doc = (
-        DocumentoFiscal.objects
-        .filter(empresa=documento.empresa)
-        .exclude(hash_documento=None)
-        .order_by("-id")
-        .first()
-    )
-
-    hash_anterior = ultimo_doc.hash_documento if ultimo_doc else ""
-    base_str = f"{hash_anterior}{documento.numero}{documento.data_emissao}{documento.valor_total or ''}"
-
-    return hashlib.sha1(force_bytes(base_str)).hexdigest().upper()
-
-import hashlib
-from apps.fiscal.models import DocumentoFiscal
-
-def gerar_hash_anterior(documento):
-    # Pega o último documento da mesma série e tipo
-    anterior = (
-        DocumentoFiscal.objects
-        .filter(empresa=documento.empresa, serie=documento.serie, tipo_documento=documento.tipo_documento)
-        .exclude(pk=documento.pk)
-        .order_by('-numero')
-        .first()
-    )
-    return anterior.hash_documento if anterior else ''
-
-def gerar_hash_documento(documento, hash_anterior=''):
-    base_str = f"{hash_anterior}{documento.numero}{documento.data_emissao}{getattr(documento, 'total_geral', '')}"
-    hash_result = hashlib.sha1(base_str.encode('utf-8')).hexdigest().upper()
-    return hash_result
-
-
-# apps/fiscal/utils.py
-def gerar_atcud(documento):
-    """
-    Gera o ATCUD para um documento fiscal.
-
-    ATCUD = <codigo_validacao_empresa>-<numero_documento>
-    """
-    if not hasattr(documento.empresa, 'codigo_validacao'):
-        raise ValueError("Empresa não possui 'codigo_validacao' definido para ATCUD.")
-    
-    codigo_validacao = documento.empresa.codigo_validacao
-    numero_documento = documento.numero_documento or documento.id
-
-    return f"{codigo_validacao}-{numero_documento}"
 
 
 
