@@ -51,7 +51,7 @@
         position: absolute;
         background-color: white;
         min-width: 160px;
-        box-shadow: 0px 8px 16px 0px rgba(0,0,0,0.2);
+        box-shadow: 0px 8px 16px 0px rgba(0, 0, 0, 0.2);
         z-index: 1;
         border-radius: 6px;
         border: 1px solid #e5e7eb;
@@ -99,8 +99,8 @@
         <h1 class="text-2xl font-bold text-gray-900 dark:text-white">
             <i class="fas fa-file-contract mr-2"></i>{{ title }}
         </h1>
-        <a href="{% url 'vendas:nova_proforma' %}" 
-           class="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg transition-all">
+        <a href="{% url 'vendas:nova_proforma' %}"
+            class="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg transition-all">
             <i class="fas fa-plus mr-2"></i>Nova Proforma
         </a>
     </div>
@@ -113,7 +113,8 @@
                     Proformas (Orçamentos)
                 </h3>
                 <p class="text-sm text-purple-700 dark:text-purple-300 mt-1">
-                    As proformas são orçamentos formais que podem ser convertidos em Fatura Recibo (venda à vista) ou Fatura a Crédito (venda a prazo).
+                    As proformas são orçamentos formais que podem ser convertidos em Fatura Recibo (venda à vista) ou
+                    Fatura a Crédito (venda a prazo).
                 </p>
             </div>
         </div>
@@ -150,7 +151,8 @@
                 {% for proforma in proformas %}
                 {% now "Y-m-d" as hoje %}
                 {% with validade=proforma.data_validade|date:"Y-m-d" %}
-                <tr class="hover:bg-gray-50 dark:hover:bg-gray-700 {% if validade < hoje and proforma.status == 'emitida' %}proforma-expirada{% endif %}">
+                <tr
+                    class="hover:bg-gray-50 dark:hover:bg-gray-700 {% if validade < hoje and proforma.status == 'emitida' %}proforma-expirada{% endif %}">
                     <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">
                         {{ proforma.numero_documento }}
                     </td>
@@ -161,84 +163,84 @@
                         {{ proforma.data_emissao|date:"d/m/Y" }}
                     </td>
                     <td class="px-6 py-4 whitespace-nowrap text-sm">
-                        {% if validade < hoje %}
-                            <span class="text-red-600 font-medium">{{ proforma.data_validade|date:"d/m/Y" }}</span>
+                        {% if validade < hoje %} <span class="text-red-600 font-medium">{{
+                            proforma.data_validade|date:"d/m/Y" }}</span>
                             <div class="text-xs text-red-500">Expirada</div>
-                        {% else %}
-                            <span class="text-gray-500 dark:text-gray-400">{{ proforma.data_validade|date:"d/m/Y" }}</span>
-                        {% endif %}
+                            {% else %}
+                            <span class="text-gray-500 dark:text-gray-400">{{ proforma.data_validade|date:"d/m/Y"
+                                }}</span>
+                            {% endif %}
                     </td>
                     <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white font-semibold">
                         {{ proforma.total|floatformat:2 }} Kz
                     </td>
                     <td class="px-6 py-4 whitespace-nowrap">
-                        <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full 
+                        <span
+                            class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full 
                             {% if proforma.status == 'convertida' %}bg-green-100 text-green-800 dark:bg-green-800 dark:text-green-100
                             {% elif proforma.status == 'aceite' %}bg-blue-100 text-blue-800 dark:bg-blue-800 dark:text-blue-100
                             {% elif proforma.status == 'rejeitada' %}bg-red-100 text-red-800 dark:bg-red-800 dark:text-red-100
                             {% elif validade < hoje and proforma.status == 'emitida' %}status-expirada
                             {% else %}bg-yellow-100 text-yellow-800 dark:bg-yellow-800 dark:text-yellow-100{% endif %}">
-                            {% if validade < hoje and proforma.status == 'emitida' %}
-                                Expirada
-                            {% else %}
-                                {{ proforma.get_status_display }}
-                            {% endif %}
-                        </span>
+                            {% if validade < hoje and proforma.status=='emitida' %} Expirada {% else %} {{
+                                proforma.get_status_display }} {% endif %} </span>
                     </td>
                     <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
                         <div class="flex items-center space-x-2">
                             <!-- PDF -->
-                            <a href="{% url 'vendas:proforma_pdf' proforma.id %}" 
-                               class="btn-pdf" target="_blank" title="Visualizar PDF">
+                            <a href="{% url 'vendas:proforma_pdf' proforma.id %}" class="btn-pdf" target="_blank"
+                                title="Visualizar PDF">
                                 <i class="fas fa-file-pdf"></i>
                             </a>
-                            
+
                             {% if proforma.status == 'emitida' and validade >= hoje %}
                             <!-- Dropdown de Conversão -->
                             <div class="dropdown">
-                                <button class="btn-converter" onclick="toggleDropdown({{ proforma.id }})" title="Converter Proforma">
+                                <button class="btn-converter" onclick="toggleDropdown({{ proforma.id }})"
+                                    title="Converter Proforma">
                                     <i class="fas fa-exchange-alt mr-1"></i>Converter
                                     <i class="fas fa-chevron-down ml-1"></i>
                                 </button>
                                 <div class="dropdown-content" id="dropdown-{{ proforma.id }}">
-                                    <a href="#" onclick="converterProforma({{ proforma.id }}, 'fatura_recibo')" class="text-green-600">
+                                    <a href="#" onclick="converterProforma({{ proforma.id }}, 'fatura_recibo')"
+                                        class="text-green-600">
                                         <i class="fas fa-receipt mr-2"></i>Para Fatura Recibo (FR)
                                     </a>
-                                    <a href="#" onclick="converterProforma({{ proforma.id }}, 'fatura_credito')" class="text-blue-600">
+                                    <a href="#" onclick="converterProforma({{ proforma.id }}, 'fatura_credito')"
+                                        class="text-blue-600">
                                         <i class="fas fa-file-invoice mr-2"></i>Para Fatura Crédito (FT)
                                     </a>
                                 </div>
                             </div>
-                            
+
                             <!-- Ações Adicionais -->
-                            <button onclick="marcarStatus({{ proforma.id }}, 'aceite')" 
-                                    class="text-blue-600 hover:text-blue-800 text-xs" title="Marcar como Aceita">
+                            <button onclick="marcarStatus({{ proforma.id }}, 'aceite')"
+                                class="text-blue-600 hover:text-blue-800 text-xs" title="Marcar como Aceita">
                                 <i class="fas fa-check"></i>
                             </button>
-                            <button onclick="marcarStatus({{ proforma.id }}, 'rejeitada')" 
-                                    class="text-red-600 hover:text-red-800 text-xs" title="Marcar como Rejeitada">
+                            <button onclick="marcarStatus({{ proforma.id }}, 'rejeitada')"
+                                class="text-red-600 hover:text-red-800 text-xs" title="Marcar como Rejeitada">
                                 <i class="fas fa-times"></i>
                             </button>
                             {% elif proforma.status == 'convertida' %}
                             <span class="text-green-600 text-xs font-medium">
                                 <i class="fas fa-check-circle mr-1"></i>Convertida
                             </span>
-                            {% elif validade < hoje %}
-                            <span class="text-gray-400 text-xs">
+                            {% elif validade < hoje %} <span class="text-gray-400 text-xs">
                                 <i class="fas fa-clock mr-1"></i>Expirada
-                            </span>
-                            {% else %}
-                            <span class="text-gray-600 text-xs">
-                                {% if proforma.status == 'aceite' %}
-                                    <i class="fas fa-check mr-1"></i>
-                                {% elif proforma.status == 'rejeitada' %}
-                                    <i class="fas fa-times mr-1"></i>
+                                </span>
                                 {% else %}
+                                <span class="text-gray-600 text-xs">
+                                    {% if proforma.status == 'aceite' %}
+                                    <i class="fas fa-check mr-1"></i>
+                                    {% elif proforma.status == 'rejeitada' %}
+                                    <i class="fas fa-times mr-1"></i>
+                                    {% else %}
                                     <i class="fas fa-clock mr-1"></i>
+                                    {% endif %}
+                                    {{ proforma.get_status_display }}
+                                </span>
                                 {% endif %}
-                                {{ proforma.get_status_display }}
-                            </span>
-                            {% endif %}
                         </div>
                     </td>
                 </tr>
@@ -250,8 +252,8 @@
                             <i class="fas fa-file-contract text-4xl text-gray-300 dark:text-gray-600 mb-3"></i>
                             <p class="text-lg font-medium">Nenhuma proforma encontrada</p>
                             <p class="text-sm">Comece criando seu primeiro orçamento</p>
-                            <a href="{% url 'vendas:nova_proforma' %}" 
-                               class="inline-block mt-4 bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg">
+                            <a href="{% url 'vendas:nova_proforma' %}"
+                                class="inline-block mt-4 bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg">
                                 <i class="fas fa-plus mr-2"></i>Criar Primeira Proforma
                             </a>
                         </div>
@@ -275,7 +277,7 @@
                 </div>
             </div>
         </div>
-        
+
         <div class="bg-blue-50 dark:bg-blue-900 rounded-lg p-4">
             <div class="flex items-center">
                 <i class="fas fa-check text-blue-500 mr-3"></i>
@@ -285,7 +287,7 @@
                 </div>
             </div>
         </div>
-        
+
         <div class="bg-green-50 dark:bg-green-900 rounded-lg p-4">
             <div class="flex items-center">
                 <i class="fas fa-exchange-alt text-green-500 mr-3"></i>
@@ -295,7 +297,7 @@
                 </div>
             </div>
         </div>
-        
+
         <div class="bg-red-50 dark:bg-red-900 rounded-lg p-4">
             <div class="flex items-center">
                 <i class="fas fa-times text-red-500 mr-3"></i>
@@ -311,7 +313,8 @@
     <div class="mt-6 bg-gray-50 dark:bg-gray-900 rounded-lg p-4">
         <div class="flex items-center text-sm text-gray-600 dark:text-gray-400">
             <i class="fas fa-info-circle mr-2"></i>
-            <span><strong>Sobre Proformas:</strong> São orçamentos formais enviados aos clientes. Podem ser aceitas, rejeitadas ou convertidas em vendas/faturas.</span>
+            <span><strong>Sobre Proformas:</strong> São orçamentos formais enviados aos clientes. Podem ser aceitas,
+                rejeitadas ou convertidas em vendas/faturas.</span>
         </div>
     </div>
 </div>
@@ -326,12 +329,12 @@
             Tem certeza que deseja converter esta proforma?
         </p>
         <div class="flex justify-end space-x-3">
-            <button onclick="closeModal()" 
-                    class="px-4 py-2 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded">
+            <button onclick="closeModal()"
+                class="px-4 py-2 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded">
                 Cancelar
             </button>
-            <button onclick="confirmarAcao()" 
-                    class="px-4 py-2 bg-purple-600 text-white hover:bg-purple-700 rounded" id="confirmBtn">
+            <button onclick="confirmarAcao()" class="px-4 py-2 bg-purple-600 text-white hover:bg-purple-700 rounded"
+                id="confirmBtn">
                 Confirmar
             </button>
         </div>
@@ -341,15 +344,7 @@
 <!-- Toast -->
 <div id="toast" class="hidden fixed top-4 right-4 bg-green-600 text-white px-4 py-2 rounded-lg shadow-lg z-50">
 </div>
-<div class="pagination">
-                {% for page in paginator.page_range %}
-                    {% if page == paginator.number %}
-                        <strong>{{ page }}</strong>
-                    {% else %}
-                        <a href="?page={{ page }}">{{ page }}</a>
-                    {% endif %}
-                {% endfor %}
-            </div>
+
 
 <script>
     let acaoAtual = null;
@@ -383,12 +378,12 @@
                 dropdown.classList.remove('show');
             }
         });
-        
+
         const dropdown = document.querySelector(`#dropdown-${proformaId}`).parentElement;
         dropdown.classList.toggle('show');
     }
 
-    document.addEventListener('click', function(event) {
+    document.addEventListener('click', function (event) {
         if (!event.target.matches('.btn-converter') && !event.target.closest('.btn-converter')) {
             document.querySelectorAll('.dropdown').forEach(dropdown => {
                 dropdown.classList.remove('show');
@@ -404,14 +399,14 @@
         };
 
         const tipoNome = tipoConversao === 'fatura_recibo' ? 'Fatura Recibo (FR) - Venda à Vista' : 'Fatura a Crédito (FT) - Venda a Prazo';
-        
+
         document.getElementById('modalTitle').textContent = 'Converter Proforma';
         document.getElementById('modalMessage').textContent = `Deseja converter esta proforma em ${tipoNome}?`;
         document.getElementById('confirmBtn').textContent = 'Converter';
         document.getElementById('confirmBtn').className = 'px-4 py-2 bg-green-600 text-white hover:bg-green-700 rounded';
-        
+
         document.getElementById('confirmModal').classList.remove('hidden');
-        
+
         document.querySelectorAll('.dropdown').forEach(dropdown => {
             dropdown.classList.remove('show');
         });
@@ -426,12 +421,12 @@
 
         const statusNome = novoStatus === 'aceite' ? 'Aceita' : 'Rejeitada';
         const cor = novoStatus === 'aceite' ? 'blue' : 'red';
-        
+
         document.getElementById('modalTitle').textContent = 'Alterar Status';
         document.getElementById('modalMessage').textContent = `Deseja marcar esta proforma como ${statusNome}?`;
         document.getElementById('confirmBtn').textContent = 'Confirmar';
         document.getElementById('confirmBtn').className = `px-4 py-2 bg-${cor}-600 text-white hover:bg-${cor}-700 rounded`;
-        
+
         document.getElementById('confirmModal').classList.remove('hidden');
     }
 
@@ -486,7 +481,7 @@
         acaoAtual = null;
     }
 
-    document.addEventListener('DOMContentLoaded', function() {
+    document.addEventListener('DOMContentLoaded', function () {
         calcularEstatisticas();
     });
 
@@ -496,7 +491,7 @@
 
         linhas.forEach(linha => {
             const status = linha.querySelector('td:nth-child(6) span').textContent.trim().toLowerCase();
-            
+
             if (status.includes('pendente') || status.includes('emitida')) {
                 pendentes++;
             } else if (status.includes('aceita')) {

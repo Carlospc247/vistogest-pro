@@ -46,7 +46,7 @@ urlpatterns = [
 
 
     path('api/categorias/', views.listar_categorias_api, name='listar_categorias_api'),
-    path('api/categorias/', api_views.categorias_api, name='categorias_api'),
+    # path('api/categorias/', api_views.categorias_api, name='categorias_api'), # DUPLICADO
 
 
 

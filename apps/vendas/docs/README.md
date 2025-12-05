@@ -35,7 +35,7 @@ O vistoGEST é um sistema completo de gestão farmacêutica desenvolvido em Djan
 ### Integrações
 - **WhatsApp Business API**
 - **Correios API**
-- **NFe Paulista**
+- **NFe**
 - **PagSeguro**
 - **Email Marketing**
 

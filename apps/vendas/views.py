@@ -2167,160 +2167,171 @@ def fatura_credito_pdf_view(request, fatura_id, tipo):
     Gera uma Fatura a Crédito (FT) em PDF para uma FaturaCredito específica.
     Reutiliza a estrutura de dados da fatura recibo (A4).
     """
-    
-    # 1. CONSULTA DE DADOS OTIMIZADA (FT)
-    fatura_credito = get_object_or_404(
-        FaturaCredito.objects.select_related(
-            'empresa__config_fiscal',
-            'cliente'
-        ).prefetch_related(
-            Prefetch('itens', queryset=ItemFatura.objects.select_related('produto', 'servico')), 
-            Prefetch('empresa__personalizacaointerface_set', queryset=PersonalizacaoInterface.objects.all()),
-            Prefetch('empresa__config_fiscal__dados_bancarios', queryset=DadosBancarios.objects.all()),
-            Prefetch('cliente__enderecos', queryset=EnderecoCliente.objects.filter(endereco_principal=True) or EnderecoCliente.objects.all()),
-        ), 
-        pk=fatura_id
-    )
+    try:
+        # 1. CONSULTA DE DADOS OTIMIZADA (FT)
+        fatura_credito = get_object_or_404(
+            FaturaCredito.objects.select_related(
+                'empresa__config_fiscal',
+                'cliente'
+            ).prefetch_related(
+                Prefetch('itens', queryset=ItemFatura.objects.select_related('produto', 'servico')), 
+                Prefetch('empresa__personalizacaointerface_set', queryset=PersonalizacaoInterface.objects.all()),
+                Prefetch('empresa__config_fiscal__dados_bancarios', queryset=DadosBancarios.objects.all()),
+                Prefetch('cliente__enderecos', queryset=EnderecoCliente.objects.filter(endereco_principal=True) or EnderecoCliente.objects.all()),
+            ), 
+            pk=fatura_id
+        )
 
-    # 2. CONSOLIDAÇÃO DE DADOS: Extração de informações da Empresa e Cliente
+        # 2. CONSOLIDAÇÃO DE DADOS: Extração de informações da Empresa e Cliente
 
-    empresa = fatura_credito.empresa
-    cliente = fatura_credito.cliente
+        empresa = fatura_credito.empresa
+        cliente = fatura_credito.cliente
 
-    # a) Informações da Empresa e Bancárias
-    empresa_info = {}
-    dados_bancarios = []
-    
-    if empresa:
-        config_fiscal = getattr(empresa, 'config_fiscal', None)
-        personalizacao = empresa.personalizacaointerface_set.first()
-        logo_url = request.build_absolute_uri(personalizacao.logo_principal.url) if personalizacao and personalizacao.logo_principal else None
+        # a) Informações da Empresa e Bancárias
+        empresa_info = {}
+        dados_bancarios = []
         
-        if config_fiscal:
-            empresa_info = {
-                'razao_social': config_fiscal.razao_social,
-                'nome_fantasia': config_fiscal.nome_fantasia,
-                'nif': config_fiscal.nif,
-                'email': config_fiscal.email,
-                'site': config_fiscal.site,
-                'telefone': config_fiscal.telefone,
-                'endereco': config_fiscal.endereco,
-                'logo_url': logo_url,
-            }
-        else:
-            empresa_info = {'logo_url': logo_url}
-
-        # Lógica Bancária
-        if config_fiscal:
-            for conta in config_fiscal.dados_bancarios.all():
-                dados_bancarios.append({
-                    'nome_banco': conta.nome_banco,
-                    'numero_conta': conta.numero_conta,
-                    'iban': conta.iban,
-                    'swift': conta.swift,
-                })
-
-    # b) Informações do Cliente
-    cliente_info = {}
-    if cliente:
-        nome_cliente = getattr(cliente, 'nome_exibicao', None) 
-        if not nome_cliente:
-            nome_cliente = cliente.razao_social or cliente.nome_fantasia if cliente.tipo_cliente == 'pessoa_juridica' else cliente.nome_completo
+        if empresa:
+            config_fiscal = getattr(empresa, 'config_fiscal', None)
+            personalizacao = empresa.personalizacaointerface_set.first()
             
-        nif_cliente = cliente.nif if cliente.tipo_cliente == 'pessoa_juridica' else (cliente.bi or 'N/A')
+            # Tratamento seguro para logo_url
+            logo_url = None
+            try:
+                if personalizacao and personalizacao.logo_principal:
+                    logo_url = request.build_absolute_uri(personalizacao.logo_principal.url)
+            except Exception as e:
+                logger.warning(f"Erro ao obter URL do logo: {e}")
+            
+            if config_fiscal:
+                empresa_info = {
+                    'razao_social': config_fiscal.razao_social,
+                    'nome_fantasia': config_fiscal.nome_fantasia,
+                    'nif': config_fiscal.nif,
+                    'email': config_fiscal.email,
+                    'site': config_fiscal.site,
+                    'telefone': config_fiscal.telefone,
+                    'endereco': config_fiscal.endereco,
+                    'logo_url': logo_url,
+                }
+            else:
+                empresa_info = {'logo_url': logo_url}
+
+            # Lógica Bancária
+            if config_fiscal:
+                for conta in config_fiscal.dados_bancarios.all():
+                    dados_bancarios.append({
+                        'nome_banco': conta.nome_banco,
+                        'numero_conta': conta.numero_conta,
+                        'iban': conta.iban,
+                        'swift': conta.swift,
+                    })
+
+        # b) Informações do Cliente
+        cliente_info = {}
+        if cliente:
+            nome_cliente = getattr(cliente, 'nome_exibicao', None) 
+            if not nome_cliente:
+                nome_cliente = cliente.razao_social or cliente.nome_fantasia if cliente.tipo_cliente == 'pessoa_juridica' else cliente.nome_completo
+                
+            nif_cliente = cliente.nif if cliente.tipo_cliente == 'pessoa_juridica' else (cliente.bi or 'N/A')
+            
+            endereco_principal = cliente.enderecos.first()
+            cliente_info = {
+                'nome': nome_cliente,
+                'nif': nif_cliente,
+                'telefone': cliente.telefone,
+                'email': cliente.email,
+                'endereco': endereco_principal.endereco_completo if endereco_principal else 'N/A',
+            }
+
+        # c) Informações da Fatura
+        fatura_info = {
+            'numero': fatura_credito.numero_documento, 
+            'data_emissao': fatura_credito.data_emissao,
+            'data_vencimento': fatura_credito.data_vencimento,
+            'observacoes': fatura_credito.observacoes,
+            'tipo_venda': "Fatura a Crédito (FT)", 
+            'forma_pagamento': 'Crédito', 
+            'status': fatura_credito.get_status_display(),
+        }
         
-        endereco_principal = cliente.enderecos.first()
-        cliente_info = {
-            'nome': nome_cliente,
-            'nif': nif_cliente,
-            'telefone': cliente.telefone,
-            'email': cliente.email,
-            'endereco': endereco_principal.endereco_completo if endereco_principal else 'N/A',
+        # d) Itens da Fatura - Alinhado com finalizar_venda_api
+        itens_fatura = []
+        desconto_total_itens = Decimal('0.00')
+
+        for item in fatura_credito.itens.all():
+            subtotal_item = item.preco_unitario * item.quantidade
+            desconto_percentual = (item.desconto_item / subtotal_item * Decimal('100.00')) if subtotal_item > Decimal('0.00') else Decimal('0.00')
+            desconto_total_itens += item.desconto_item
+
+            # Verificar se tem produto ou serviço
+            if item.produto_id and item.produto:
+                tipo_item = 'produto'
+                nome_item = item.nome_item or item.produto.nome_produto
+            elif item.servico_id and item.servico:
+                tipo_item = 'servico'
+                nome_item = item.nome_item or item.servico.nome
+            else:
+                tipo_item = 'item'
+                nome_item = item.nome_item or 'Item'
+
+            itens_fatura.append({
+                'tipo': tipo_item,
+                'produto': item.produto if item.produto_id else None,
+                'servico': item.servico if item.servico_id else None,
+                'nome': nome_item,
+                'quantidade': item.quantidade,
+                'preco_unitario': item.preco_unitario,
+                'desconto_valor': item.desconto_item,
+                'desconto_percentual': desconto_percentual,
+                'iva_percentual': item.iva_percentual,
+                'iva_valor': item.iva_valor,
+                'total': item.total,
+            })
+
+        # e) Totais da Fatura
+        totais = {
+            'subtotal': fatura_credito.subtotal,
+            'desconto_valor': desconto_total_itens,
+            'iva_valor': fatura_credito.iva_valor,
+            'total': fatura_credito.total_faturado, 
+            'valor_pago': Decimal('0.00'), 
+            'troco': Decimal('0.00'),
         }
 
-    # c) Informações da Fatura
-    fatura_info = {
-        'numero': fatura_credito.numero_documento, 
-        'data_emissao': fatura_credito.data_emissao,
-        'data_vencimento': fatura_credito.data_vencimento,
-        'observacoes': fatura_credito.observacoes,
-        'tipo_venda': "Fatura a Crédito (FT)", 
-        'forma_pagamento': 'Crédito', 
-        'status': fatura_credito.get_status_display(),
-    }
-    
-    # d) Itens da Fatura - Alinhado com finalizar_venda_api
-    itens_fatura = []
-    desconto_total_itens = Decimal('0.00')
+        # 3. ESCOLHA DO TEMPLATE E CONTEXTO
+        template_name = 'faturas/fatura_a4_pdf.html' 
+        filename = f'Fatura_Credito_FT_{fatura_credito.numero_documento}.pdf'
 
-    for item in fatura_credito.itens.all():
-        subtotal_item = item.preco_unitario * item.quantidade
-        desconto_percentual = (item.desconto_item / subtotal_item * Decimal('100.00')) if subtotal_item > Decimal('0.00') else Decimal('0.00')
-        desconto_total_itens += item.desconto_item
+        qr_code_base64 = gerar_qr_fatura(fatura_credito, request)
 
-        # Verificar se tem produto ou serviço
-        if item.produto_id and item.produto:
-            tipo_item = 'produto'
-            nome_item = item.nome_item or item.produto.nome_produto
-        elif item.servico_id and item.servico:
-            tipo_item = 'servico'
-            nome_item = item.nome_item or item.servico.nome
-        else:
-            tipo_item = 'item'
-            nome_item = item.nome_item or 'Item'
+        context = {
+            'empresa': empresa_info,
+            'cliente': cliente_info,
+            'fatura': fatura_info,
+            'itens_venda': itens_fatura, 
+            'totais': totais,
+            'dados_bancarios': dados_bancarios,
+            'qr_code_base64': qr_code_base64,
+            'request': request,
+        }
+        
+        # 4. GERAÇÃO DO PDF
+        html_string = render_to_string(template_name, context)
+        pdf = HTML(string=html_string, base_url=request.build_absolute_uri()).write_pdf()
+        
+        response = HttpResponse(pdf, content_type='application/pdf')
+        response['Content-Disposition'] = f'inline; filename="{filename}"'
+        return response
 
-        itens_fatura.append({
-            'tipo': tipo_item,
-            'produto': item.produto if item.produto_id else None,
-            'servico': item.servico if item.servico_id else None,
-            'nome': nome_item,
-            'quantidade': item.quantidade,
-            'preco_unitario': item.preco_unitario,
-            'desconto_valor': item.desconto_item,
-            'desconto_percentual': desconto_percentual,
-            'iva_percentual': item.iva_percentual,
-            'iva_valor': item.iva_valor,
-            'total': item.total,
-        })
-
-    # e) Totais da Fatura
-    totais = {
-        'subtotal': fatura_credito.subtotal,
-        'desconto_valor': desconto_total_itens,
-        'iva_valor': fatura_credito.iva_valor,
-        'total': fatura_credito.total_faturado, 
-        'valor_pago': Decimal('0.00'), 
-        'troco': Decimal('0.00'),
-    }
-
-    # 3. ESCOLHA DO TEMPLATE E CONTEXTO
-    template_name = 'faturas/fatura_a4_pdf.html' 
-    filename = f'Fatura_Credito_FT_{fatura_credito.numero_documento}.pdf'
-
-    qr_code_base64 = gerar_qr_fatura(fatura_credito, request)
-
-    context = {
-        'empresa': empresa_info,
-        'cliente': cliente_info,
-        'fatura': fatura_info,
-        'itens_venda': itens_fatura, 
-        'totais': totais,
-        'dados_bancarios': dados_bancarios,
-        'qr_code_base64': qr_code_base64,
-        'request': request,
-    }
-    
-    # 4. GERAÇÃO DO PDF
-    html_string = render_to_string(template_name, context)
-    pdf = HTML(string=html_string, base_url=request.build_absolute_uri()).write_pdf()
-    
-    response = HttpResponse(pdf, content_type='application/pdf')
-    response['Content-Disposition'] = f'inline; filename="{filename}"'
-    return response
+    except Exception as e:
+        logger.exception(f"Erro ao gerar PDF da Fatura de Crédito {fatura_id}: {e}")
+        return HttpResponse("Erro interno ao gerar o PDF. Por favor, contacte o suporte.", status=500)
 
 
 @require_GET
-@requer_permissao("acessar_proforma")
+@requer_permissao("emitir_proforma")
 def proforma_pdf_view(request, proforma_id):
     """
     Gera uma Proforma em PDF seguindo o padrão da fatura_pdf_view.
@@ -2799,11 +2810,11 @@ def contas_receber(request):
         
         # Adiciona saldo em cada fatura
         for f in faturas_pendentes:
-            f.saldo = (f.total_faturado or 0) - (f.valor_pago or 0)
+            f.saldo = (f.total or 0) - (f.valor_pago or 0)
         
         # Calcular totais
         total_pendente = faturas_pendentes.aggregate(
-            total=Sum('total_faturado'),
+            total=Sum('total'),
             total_pago=Sum('valor_pago')
         )
         

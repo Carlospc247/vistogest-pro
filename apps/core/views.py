@@ -572,3 +572,26 @@ class NotificationListView(LoginRequiredMixin, ListView):
         empresa = getattr(self.request.user, 'usuario', None) and self.request.user.usuario.empresa
         return NotificacaoAlerta.objects.filter(alerta__empresa=empresa).order_by('-id')
 
+
+import logging
+logger = logging.getLogger(__name__)
+
+@csrf_exempt
+def error_report(request):
+    """
+    Endpoint para receber relatórios de erro do frontend.
+    """
+    if request.method == 'POST':
+        try:
+            data = json.loads(request.body)
+            # Logar o erro com detalhes
+            logger.error(f"FRONTEND ERROR REPORT: {json.dumps(data, indent=2)}")
+            return JsonResponse({'status': 'success', 'message': 'Error reported'})
+        except json.JSONDecodeError:
+            return JsonResponse({'status': 'error', 'message': 'Invalid JSON'}, status=400)
+        except Exception as e:
+            logger.exception(f"Error processing error report: {e}")
+            return JsonResponse({'status': 'error', 'message': str(e)}, status=500)
+    
+    return JsonResponse({'status': 'error', 'message': 'Method not allowed'}, status=405)
+

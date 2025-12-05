@@ -4,58 +4,59 @@
 {% block content %}
 <style>
     /* static/css/styles.css */
-body {
-    font-family: 'Arial', sans-serif;
-    background-color: #f8f9fa;
-}
+    body {
+        font-family: 'Arial', sans-serif;
+        background-color: #f8f9fa;
+    }
 
-.container {
-    margin-top: 20px;
-}
+    .container {
+        margin-top: 20px;
+    }
 
-.card {
-    border-radius: 8px;
-    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
-}
+    .card {
+        border-radius: 8px;
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+    }
 
-.card-header {
-    background-color: #007bff;
-    color: white;
-    font-weight: bold;
-}
+    .card-header {
+        background-color: #007bff;
+        color: white;
+        font-weight: bold;
+    }
 
-.table {
-    margin-top: 20px;
-}
+    .table {
+        margin-top: 20px;
+    }
 
-.table th {
-    background-color: #007bff;
-    color: white;
-}
+    .table th {
+        background-color: #007bff;
+        color: white;
+    }
 
-.btn {
-    margin: 5px;
-}
+    .btn {
+        margin: 5px;
+    }
 
-.pagination {
-    margin-top: 20px;
-}
+    .pagination {
+        margin-top: 20px;
+    }
 
-.pagination a {
-    margin: 0 5px;
-    padding: 5px 10px;
-    border-radius: 5px;
-    background-color: #007bff;
-    color: white;
-    text-decoration: none;
-}
+    .pagination a {
+        margin: 0 5px;
+        padding: 5px 10px;
+        border-radius: 5px;
+        background-color: #007bff;
+        color: white;
+        text-decoration: none;
+    }
 </style>
 
 <div class="container">
     <h1 class="mt-4">Documentos de Transporte</h1>
     <div class="card mb-4">
         <div class="card-header">
-            <a href="{% url 'vendas:documento_transporte_create' %}" class="btn btn-primary">Novo Documento de Transporte</a>
+            <a href="{% url 'vendas:documento_transporte_create' %}" class="btn btn-primary">Novo Documento de
+                Transporte</a>
         </div>
         <div class="card-body">
             <table class="table table-striped">
@@ -74,8 +75,10 @@ body {
                         <td>{{ documento.destinatario_cliente.nome_completo }}</td>
                         <td>{{ documento.get_status_display }}</td>
                         <td>
-                            <a href="{% url 'vendas:documento_transporte_detail' documento.pk %}" class="btn btn-info">Ver</a>
-                            <a href="{% url 'vendas:documento_transporte_update' documento.pk %}" class="btn btn-warning">Editar</a>
+                            <a href="{% url 'vendas:documento_transporte_detail' documento.pk %}"
+                                class="btn btn-info">Ver</a>
+                            <a href="{% url 'vendas:documento_transporte_update' documento.pk %}"
+                                class="btn btn-warning">Editar</a>
                         </td>
                     </tr>
                     {% endfor %}
@@ -83,11 +86,11 @@ body {
             </table>
             <div class="pagination">
                 {% for page in paginator.page_range %}
-                    {% if page == paginator.number %}
-                        <strong>{{ page }}</strong>
-                    {% else %}
-                        <a href="?page={{ page }}">{{ page }}</a>
-                    {% endif %}
+                {% if page == page_obj.number %}
+                <strong>{{ page }}</strong>
+                {% else %}
+                <a href="?page={{ page }}">{{ page }}</a>
+                {% endif %}
                 {% endfor %}
             </div>
         </div>

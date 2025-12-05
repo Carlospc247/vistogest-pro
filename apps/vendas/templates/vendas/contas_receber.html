@@ -131,12 +131,12 @@
             </p>
         </div>
         <div class="flex space-x-3">
-            <button onclick="atualizarDados()" 
-                   class="bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded-lg transition-all">
+            <button onclick="atualizarDados()"
+                class="bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded-lg transition-all">
                 <i class="fas fa-sync-alt mr-2"></i>Atualizar
             </button>
-            <a href="{% url 'vendas:nova_fatura_credito' %}" 
-               class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition-all">
+            <a href="{% url 'vendas:nova_fatura_credito' %}"
+                class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition-all">
                 <i class="fas fa-plus mr-2"></i>Nova Fatura
             </a>
         </div>
@@ -204,8 +204,8 @@
         <div class="flex flex-wrap gap-4 items-center">
             <div>
                 <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Status:</label>
-                <select id="filtroStatus" onchange="filtrarFaturas()" 
-                        class="rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500">
+                <select id="filtroStatus" onchange="filtrarFaturas()"
+                    class="rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500">
                     <option value="">Todos</option>
                     <option value="vencida">Vencidas</option>
                     <option value="vencendo">Vencendo (7 dias)</option>
@@ -215,11 +215,10 @@
             <div>
                 <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Cliente:</label>
                 <input type="text" id="filtroCliente" placeholder="Nome do cliente" onkeyup="filtrarFaturas()"
-                       class="rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500">
+                    class="rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500">
             </div>
             <div class="flex items-end">
-                <button onclick="limparFiltros()" 
-                        class="bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded-md">
+                <button onclick="limparFiltros()" class="bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded-md">
                     <i class="fas fa-eraser mr-1"></i>Limpar
                 </button>
             </div>
@@ -239,38 +238,48 @@
             <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
                 <thead class="bg-gray-50 dark:bg-gray-900">
                     <tr>
-                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                        <th
+                            class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                             Fatura
                         </th>
-                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                        <th
+                            class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                             Cliente
                         </th>
-                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                        <th
+                            class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                             Emissão
                         </th>
-                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                        <th
+                            class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                             Vencimento
                         </th>
-                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                        <th
+                            class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                             Valor Total
                         </th>
-                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                        <th
+                            class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                             Valor Pago
                         </th>
-                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                        <th
+                            class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                             Saldo
                         </th>
-                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                        <th
+                            class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                             Status
                         </th>
-                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                        <th
+                            class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                             Ações
                         </th>
                     </tr>
                 </thead>
-                <tbody id="faturas-tbody" class="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
+                <tbody id="faturas-tbody"
+                    class="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
                     {% for fatura in faturas_pendentes %}
-                    <tr id="fatura-row-{{ fatura.id }}" class="hover:bg-gray-50 dark:hover:bg-gray-700 fatura-row" 
+                    <tr id="fatura-row-{{ fatura.id }}" class="hover:bg-gray-50 dark:hover:bg-gray-700 fatura-row"
                         data-cliente="{{ fatura.cliente.nome_exibicao }}"
                         data-vencimento="{{ fatura.data_vencimento|date:'Y-m-d' }}">
                         <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">
@@ -284,14 +293,15 @@
                         </td>
                         <td class="px-6 py-4 whitespace-nowrap text-sm">
                             {% now "Y-m-d" as hoje %}
-                            {% if fatura.data_vencimento|date:"Y-m-d" < hoje %}
-                                <span class="text-red-600 font-medium">{{ fatura.data_vencimento|date:"d/m/Y" }}</span>
-                            {% else %}
-                                <span class="text-gray-500 dark:text-gray-400">{{ fatura.data_vencimento|date:"d/m/Y" }}</span>
-                            {% endif %}
+                            {% if fatura.data_vencimento|date:"Y-m-d" < hoje %} <span class="text-red-600 font-medium">
+                                {{ fatura.data_vencimento|date:"d/m/Y" }}</span>
+                                {% else %}
+                                <span class="text-gray-500 dark:text-gray-400">{{ fatura.data_vencimento|date:"d/m/Y"
+                                    }}</span>
+                                {% endif %}
                         </td>
                         <td class="px-6 py-4 whitespace-nowrap text-sm font-semibold text-gray-900 dark:text-white">
-                            {{ fatura.total_faturado|floatformat:2 }} Kz
+                            {{ fatura.total|floatformat:2 }} Kz
                         </td>
                         <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
                             {{ fatura.valor_pago|floatformat:2 }} Kz
@@ -303,26 +313,26 @@
                         <td class="px-6 py-4 whitespace-nowrap">
                             {% now "Y-m-d" as hoje %}
                             {% with vencimento=fatura.data_vencimento|date:"Y-m-d" %}
-                                {% if vencimento < hoje %}
-                                    <span class="status-badge status-vencida">
-                                        <i class="fas fa-exclamation-triangle mr-1"></i>Vencida
+                            {% if vencimento < hoje %} <span class="status-badge status-vencida">
+                                <i class="fas fa-exclamation-triangle mr-1"></i>Vencida
+                                </span>
+                                {% elif vencimento|timeuntil|slice:":1" <= "7" %} <span
+                                    class="status-badge status-vencendo">
+                                    <i class="fas fa-clock mr-1"></i>Vencendo
                                     </span>
-                                {% elif vencimento|timeuntil|slice:":1" <= "7" %}
-                                    <span class="status-badge status-vencendo">
-                                        <i class="fas fa-clock mr-1"></i>Vencendo
-                                    </span>
-                                {% else %}
+                                    {% else %}
                                     <span class="status-badge status-futura">
                                         <i class="fas fa-calendar-check mr-1"></i>Futura
                                     </span>
-                                {% endif %}
-                            {% endwith %}
+                                    {% endif %}
+                                    {% endwith %}
                         </td>
                         <td class="px-6 py-4 whitespace-nowrap text-sm font-medium space-x-2">
                             <button onclick="liquidarFatura({{ fatura.id }})" class="btn-liquidar">
                                 <i class="fas fa-money-bill-wave mr-1"></i>Liquidar
                             </button>
-                            <a href="#" class="text-blue-600 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300">
+                            <a href="#"
+                                class="text-blue-600 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300">
                                 <i class="fas fa-eye"></i>
                             </a>
                         </td>
@@ -333,7 +343,8 @@
                             <div class="flex flex-col items-center">
                                 <i class="fas fa-smile text-4xl text-green-400 mb-3"></i>
                                 <p class="text-lg font-medium">Parabéns! Não há faturas pendentes</p>
-                                <p class="text-sm">Todas as faturas estão quitadas ou não há faturas a crédito criadas</p>
+                                <p class="text-sm">Todas as faturas estão quitadas ou não há faturas a crédito criadas
+                                </p>
                             </div>
                         </td>
                     </tr>
@@ -367,7 +378,7 @@
         const filtroCliente = document.getElementById('filtroCliente').value.toLowerCase();
         const hoje = new Date().toISOString().split('T')[0];
         const seteProximosDias = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-        
+
         const rows = document.querySelectorAll('.fatura-row');
         let vencidas = 0, vencendo = 0, futuras = 0;
 
@@ -375,7 +386,7 @@
             const clienteNome = row.getAttribute('data-cliente');
             const vencimento = row.getAttribute('data-vencimento');
             let statusFatura = '';
-            
+
             // Determinar status da fatura
             if (vencimento < hoje) {
                 statusFatura = 'vencida';
@@ -390,11 +401,11 @@
 
             // Aplicar filtros
             let mostrar = true;
-            
+
             if (filtroStatus && filtroStatus !== statusFatura) {
                 mostrar = false;
             }
-            
+
             if (filtroCliente && !clienteNome.includes(filtroCliente)) {
                 mostrar = false;
             }
@@ -415,68 +426,68 @@
     }
 
     // O CSRF Token é essencial para requisições POST seguras no Django
-function getCookie(name) {
-    let cookieValue = null;
-    if (document.cookie && document.cookie !== '') {
-        const cookies = document.cookie.split(';');
-        for (let i = 0; i < cookies.length; i++) {
-            const cookie = cookies[i].trim();
-            if (cookie.startsWith(name + '=')) {
-                cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
-                break;
+    function getCookie(name) {
+        let cookieValue = null;
+        if (document.cookie && document.cookie !== '') {
+            const cookies = document.cookie.split(';');
+            for (let i = 0; i < cookies.length; i++) {
+                const cookie = cookies[i].trim();
+                if (cookie.startsWith(name + '=')) {
+                    cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                    break;
+                }
             }
         }
+        return cookieValue;
     }
-    return cookieValue;
-}
 
-function liquidarFatura(faturaId) {
-    if (confirm('Deseja liquidar esta fatura? Esta ação criará um recibo de pagamento.')) {
-        
-        // 1. URL do Endpoint Django
-        const url = `/vendas/api/liquidar-fatura/${faturaId}/`;
-        const csrftoken = getCookie('csrftoken');
-        
-        showToast('Processando liquidação...', "#f59e0b");
+    function liquidarFatura(faturaId) {
+        if (confirm('Deseja liquidar esta fatura? Esta ação criará um recibo de pagamento.')) {
 
-        fetch(url, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-CSRFToken': csrftoken, // Incluir o token de segurança
-            },
-            // Não é necessário enviar dados adicionais, o faturaId está na URL.
-            // Se fosse um pagamento parcial, incluiríamos 'valor': X.XX
-        })
-        .then(response => {
-            if (!response.ok) {
-                // Se a resposta for um erro HTTP (4xx, 5xx), lançamos um erro.
-                throw new Error('Erro na liquidação. Verifique as permissões ou status da fatura.');
-            }
-            return response.json();
-        })
-        .then(data => {
-            if (data.success) {
-                showToast(`Fatura ${data.numero_documento} liquidada com sucesso! Recibo Nº ${data.numero_documento} criado.`, "#10b981");
-                // Remove a linha da tabela (ou atualiza o status)
-                document.getElementById(`fatura-row-${faturaId}`).remove();
-                // Opcional: Recarregue a página para recontar os cards
-                setTimeout(() => location.reload(), 2000); 
+            // 1. URL do Endpoint Django
+            const url = `/vendas/api/liquidar-fatura/${faturaId}/`;
+            const csrftoken = getCookie('csrftoken');
 
-            } else {
-                // Caso a View retorne success=false (ex: status inválido)
-                showToast(`Falha na liquidação: ${data.message}`, "#dc2626");
-            }
-        })
-        .catch(error => {
-            console.error('Erro de rede ou servidor:', error);
-            showToast(`ERRO: ${error.message}`, "#dc2626");
-        });
+            showToast('Processando liquidação...', "#f59e0b");
+
+            fetch(url, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': csrftoken, // Incluir o token de segurança
+                },
+                // Não é necessário enviar dados adicionais, o faturaId está na URL.
+                // Se fosse um pagamento parcial, incluiríamos 'valor': X.XX
+            })
+                .then(response => {
+                    if (!response.ok) {
+                        // Se a resposta for um erro HTTP (4xx, 5xx), lançamos um erro.
+                        throw new Error('Erro na liquidação. Verifique as permissões ou status da fatura.');
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    if (data.success) {
+                        showToast(`Fatura ${data.numero_documento} liquidada com sucesso! Recibo Nº ${data.numero_documento} criado.`, "#10b981");
+                        // Remove a linha da tabela (ou atualiza o status)
+                        document.getElementById(`fatura-row-${faturaId}`).remove();
+                        // Opcional: Recarregue a página para recontar os cards
+                        setTimeout(() => location.reload(), 2000);
+
+                    } else {
+                        // Caso a View retorne success=false (ex: status inválido)
+                        showToast(`Falha na liquidação: ${data.message}`, "#dc2626");
+                    }
+                })
+                .catch(error => {
+                    console.error('Erro de rede ou servidor:', error);
+                    showToast(`ERRO: ${error.message}`, "#dc2626");
+                });
+        }
     }
-}
 
     // Calcular estatísticas iniciais
-    document.addEventListener('DOMContentLoaded', function() {
+    document.addEventListener('DOMContentLoaded', function () {
         filtrarFaturas();
     });
 </script>

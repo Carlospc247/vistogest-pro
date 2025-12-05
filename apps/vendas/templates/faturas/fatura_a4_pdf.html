@@ -1,214 +1,63 @@
 <!DOCTYPE html>
-<html>
+<html lang="pt-ao">
 
 <head>
-    <meta charset="utf-8">
-    <title>{{ fatura.tipo_venda }} Nº {{ fatura.numero }}</title>
+    <meta charset="UTF-8">
+    <title>{{ fatura.tipo_venda }} {{ fatura.numero }}</title>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
 
-        /* ==================== Estilos Base ==================== */
+        :root {
+            --primary: #1a202c;
+            --secondary: #64748b;
+            --accent: #2563eb;
+            /* Royal Blue */
+            --border: #e2e8f0;
+            --bg-light: #f8fafc;
+            --danger: #ef4444;
+        }
+
+        @page {
+            size: A4;
+            margin: 1.5cm;
+
+            @bottom-left {
+                content: "Emitido por: {{ request.user.get_full_name|default:request.user.username }}";
+                font-size: 8px;
+                color: #94a3b8;
+                font-family: 'Inter', sans-serif;
+            }
+
+            @bottom-center {
+                content: "Processado por vistoGEST (Validado nº 96/AGT/2019) | Software Certificado";
+                font-size: 8px;
+                color: #94a3b8;
+                font-family: 'Inter', sans-serif;
+            }
+
+            @bottom-right {
+                content: "Pág. " counter(page) " / " counter(pages);
+                font-size: 8px;
+                color: #94a3b8;
+                font-family: 'Inter', sans-serif;
+            }
+        }
+
         * {
+            box-sizing: border-box;
             margin: 0;
             padding: 0;
-            box-sizing: border-box;
         }
 
         body {
             font-family: 'Inter', sans-serif;
-            font-size: 11px;
-            line-height: 1.6;
-            color: #2d3748;
-            background: #ffffff;
-        }
-
-        .container {
-            width: 100%;
-            padding: 0.5cm;
-        }
-
-        /* ==================== Paginação e Rodapé ==================== */
-        @page {
-            size: A4;
-            margin: 1cm;
-            margin-bottom: 3cm;
-
-            @bottom-left {
-                content: "Utilizador: {{ request.user.get_full_name|default:request.user.username|default:'Sistema' }}";
-                font-family: 'Inter', sans-serif;
-                font-size: 11px;
-                color: #718096;
-            }
-
-            @bottom-center {
-                content: "Os bens/serviços foram colocados a disposição do adquirente a data de emissão do documento \A_________________________________________________________________________________________ \A VSTG - Processado por programa validado n.º 96/AGT/2019 | vistoGEST v.1.0.0";
-                font-family: 'Inter', sans-serif;
-                font-size: 12px;
-                color: #2d3748;
-                white-space: pre;
-                font-weight: bold;
-            }
-
-            @bottom-right {
-                content: "Página " counter(page) " de " counter(pages);
-                font-family: 'Inter', sans-serif;
-                font-size: 12px;
-                color: #718096;
-            }
-        }
-
-        /* ==================== Layout Geral ==================== */
-        .invoice-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: flex-start;
-            margin-bottom: 40px;
-        }
-
-        .company-header-group {
-            display: flex;
-            align-items: flex-start;
-            gap: 20px;
-            flex: 1;
-        }
-
-        .company-logo {
-            width: 120px;
-            height: auto;
-        }
-
-        .company-logo img {
-            max-width: 100%;
-            height: auto;
-        }
-
-        .company-details {
-            text-align: left;
-            flex: 1;
-        }
-
-        .company-name {
-            font-size: 20px;
-            font-weight: 700;
-            color: #4299e1;
-            margin-bottom: 5px;
-        }
-
-        .company-info {
-            font-size: 11px;
-            color: #718096;
+            font-size: 9pt;
+            color: var(--primary);
             line-height: 1.5;
+            background: #fff;
         }
 
-        .invoice-number-header {
-            font-size: 16px;
-            color: #2d3748;
-            text-align: right;
-            font-weight: bold;
-            background: #f7fafc;
-            padding: 10px 15px;
-            border-radius: 8px;
-            border-left: 4px solid #4299e1;
-        }
-
-        /* Cores específicas por tipo de documento */
-        .documento-fr { border-left-color: #10b981; background: #f0fdf4; } /* Verde para Fatura Recibo */
-        .documento-ft { border-left-color: #f59e0b; background: #fffbeb; } /* Amarelo para Fatura Crédito */
-        .documento-proforma { border-left-color: #8b5cf6; background: #faf5ff; } /* Roxo para Proforma */
-        .documento-recibo { border-left-color: #06b6d4; background: #f0f9ff; } /* Azul para Recibo */
-
-        .info-section {
-            display: flex;
-            justify-content: space-between;
-            margin-bottom: 30px;
-            gap: 20px;
-        }
-
-        .invoice-info,
-        .client-info {
-            width: 48%;
-            background: #f7fafc;
-            border-radius: 8px;
-            padding: 15px;
-        }
-
-        .section-title {
-            font-size: 12px;
-            font-weight: 600;
-            color: #4a5568;
-            margin-bottom: 10px;
-            text-transform: uppercase;
-            border-bottom: 2px solid #e2e8f0;
-            padding-bottom: 5px;
-        }
-
-        .invoice-number {
-            font-size: 14px;
-            font-weight: 700;
-            color: #2d3748;
-            margin-bottom: 8px;
-        }
-
-        .details-item {
-            font-size: 11px;
-            margin-bottom: 6px;
-        }
-
-        .details-item strong {
-            color: #4a5568;
-            font-weight: 600;
-        }
-
-        .data-vencimento {
-            color: #dc2626;
-            font-weight: bold;
-            background: #fef2f2;
-            padding: 4px 8px;
-            border-radius: 4px;
-            border-left: 3px solid #dc2626;
-        }
-
-        /* ==================== Tabela de Itens ==================== */
-        .items-table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-bottom: 30px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-            border-radius: 8px;
-            overflow: hidden;
-        }
-
-        .items-table thead {
-            background: linear-gradient(135deg, #4299e1 0%, #3182ce 100%);
-            color: white;
-        }
-
-        .items-table th,
-        .items-table td {
-            padding: 12px 15px;
-            text-align: left;
-            border-bottom: 1px solid #e2e8f0;
-        }
-
-        .items-table th {
-            font-size: 10px;
-            font-weight: 600;
-            text-transform: uppercase;
-            color: white;
-        }
-
-        .items-table td {
-            font-size: 11px;
-        }
-
-        .items-table tbody tr:nth-child(even) {
-            background-color: #f8fafc;
-        }
-
-        .items-table tbody tr:hover {
-            background-color: #edf2f7;
-        }
-
+        /* Helpers */
         .text-right {
             text-align: right;
         }
@@ -217,411 +66,451 @@
             text-align: center;
         }
 
-        /* ==================== Tabela de Totais ==================== */
-        .totals-container {
-            width: 45%;
-            float: right;
-            margin-bottom: 30px;
-        }
-
-        .totals-table {
-            width: 100%;
-            border-collapse: collapse;
-            background: #f7fafc;
-            border-radius: 8px;
-            overflow: hidden;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        }
-
-        .totals-table td {
-            padding: 10px 15px;
-            font-size: 12px;
-            border-bottom: 1px solid #e2e8f0;
-        }
-
-        .totals-table .total-label {
-            font-weight: 500;
-            color: #4a5568;
-        }
-
-        .totals-table .total-value {
+        .font-bold {
             font-weight: 600;
-            text-align: right;
-            color: #2d3748;
         }
 
-        .grand-total {
-            background: linear-gradient(135deg, #4299e1 0%, #3182ce 100%);
-            color: white;
-            border-top: none !important;
+        .text-sm {
+            font-size: 8pt;
         }
 
-        .grand-total .total-label {
-            font-size: 14px;
-            font-weight: 700;
-            color: white;
+        .text-xs {
+            font-size: 7pt;
         }
 
-        .grand-total .total-value {
-            font-size: 16px;
-            font-weight: 700;
-            color: white;
+        .text-secondary {
+            color: var(--secondary);
         }
 
-        .clear {
-            clear: both;
+        .text-danger {
+            color: var(--danger);
         }
 
-        /* ==================== Seção de Detalhes ==================== */
-        .details-container {
+        .uppercase {
+            text-transform: uppercase;
+        }
+
+        .mb-1 {
+            margin-bottom: 0.25cm;
+        }
+
+        .mb-2 {
+            margin-bottom: 0.5cm;
+        }
+
+        .mb-4 {
+            margin-bottom: 1cm;
+        }
+
+        /* Header */
+        .header {
             display: flex;
             justify-content: space-between;
-            gap: 20px;
-            margin-top: 40px;
+            align-items: flex-start;
+            margin-bottom: 1.5cm;
+            border-bottom: 2px solid var(--border);
+            padding-bottom: 0.5cm;
         }
 
-        .details-box {
-            background: #f7fafc;
-            border-radius: 8px;
-            padding: 15px;
-            flex: 1;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        .logo-container {
+            width: 40%;
         }
 
-        .details-box .section-title {
-            margin-bottom: 10px;
+        .logo-container img {
+            max-width: 100%;
+            max-height: 80px;
+            object-fit: contain;
         }
 
-        .bank-details-container {
-            page-break-inside: avoid;
+        .company-info {
+            width: 55%;
+            text-align: right;
         }
 
-        .bank-accounts-table {
-            width: 100%;
-            border-collapse: collapse;
-        }
-
-        .bank-accounts-table th,
-        .bank-accounts-table td {
-            padding: 8px 10px;
-            text-align: left;
-            border-bottom: 1px solid #e2e8f0;
-            font-size: 10px;
-        }
-
-        .bank-accounts-table th {
-            font-weight: 600;
-            color: #4a5568;
-            text-transform: uppercase;
-            font-size: 9px;
-            background: #edf2f7;
-        }
-
-        .payment-info {
-            font-size: 12px;
-            margin-top: 15px;
-            padding: 10px;
-            border-radius: 6px;
-        }
-
-        .payment-info.fr-style {
-            background: #d1fae5; /* Verde claro para Fatura Recibo */
-            border: 1px solid #10b981;
-        }
-
-        .payment-info.ft-style {
-            background: #fef3c7; /* Amarelo claro para Fatura Crédito */
-            border: 1px solid #f59e0b;
-        }
-
-        .payment-info.proforma-style {
-            background: #e9d5ff; /* Roxo claro para Proforma */
-            border: 1px solid #8b5cf6;
-        }
-        
-        .payment-info .details-item {
+        .company-name {
+            font-size: 14pt;
+            font-weight: 700;
+            color: var(--accent);
             margin-bottom: 4px;
         }
 
-        /* ==================== Responsividade ==================== */
-        @media print {
-            .container {
-                padding: 0;
-            }
-            
-            body {
-                font-size: 10px;
-            }
+        /* Document Title */
+        .doc-title {
+            font-size: 18pt;
+            font-weight: 700;
+            color: var(--primary);
+            letter-spacing: -0.5px;
+        }
+
+        .doc-number {
+            font-size: 12pt;
+            color: var(--secondary);
+            font-weight: 400;
+        }
+
+        /* Info Grid */
+        .info-grid {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 1cm;
+            gap: 1cm;
+        }
+
+        .info-col {
+            width: 48%;
+            background: var(--bg-light);
+            padding: 15px;
+            border-radius: 6px;
+            border: 1px solid var(--border);
+        }
+
+        .info-label {
+            font-size: 7pt;
+            text-transform: uppercase;
+            color: var(--secondary);
+            font-weight: 700;
+            margin-bottom: 4px;
+            letter-spacing: 0.5px;
+        }
+
+        .info-value {
+            font-size: 10pt;
+            margin-bottom: 10px;
+            color: var(--primary);
+        }
+
+        .info-value:last-child {
+            margin-bottom: 0;
+        }
+
+        /* Table */
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 1cm;
+        }
+
+        th {
+            text-align: left;
+            font-size: 7pt;
+            text-transform: uppercase;
+            color: var(--secondary);
+            font-weight: 700;
+            border-bottom: 2px solid var(--border);
+            padding: 10px 8px;
+            background-color: #fff;
+        }
+
+        td {
+            padding: 10px 8px;
+            border-bottom: 1px solid var(--border);
+            font-size: 9pt;
+            vertical-align: middle;
+        }
+
+        tr:last-child td {
+            border-bottom: 1px solid var(--border);
+        }
+
+        /* Striped rows for better readability */
+        tbody tr:nth-child(even) {
+            background-color: #f9fafb;
+        }
+
+        /* Totals */
+        .totals-section {
+            display: flex;
+            justify-content: flex-end;
+            margin-bottom: 1cm;
+            page-break-inside: avoid;
+        }
+
+        .totals-table {
+            width: 45%;
+            border-collapse: collapse;
+        }
+
+        .totals-table td {
+            padding: 6px 8px;
+            border: none;
+            background: transparent;
+        }
+
+        .total-row-final {
+            font-size: 13pt;
+            font-weight: 700;
+            color: var(--accent);
+            border-top: 2px solid var(--border) !important;
+            padding-top: 12px !important;
+            margin-top: 5px;
+        }
+
+        /* Footer / Bank */
+        .footer-grid {
+            display: flex;
+            justify-content: space-between;
+            gap: 1cm;
+            font-size: 8pt;
+            border-top: 1px solid var(--border);
+            padding-top: 0.5cm;
+            page-break-inside: avoid;
+        }
+
+        .bank-details {
+            width: 65%;
+        }
+
+        .qr-section {
+            width: 30%;
+            text-align: center;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .qr-code {
+            width: 90px;
+            height: 90px;
+            border: 1px solid var(--border);
+            padding: 4px;
+            background: #fff;
+        }
+
+        .status-badge {
+            display: inline-block;
+            padding: 4px 10px;
+            border-radius: 999px;
+            font-size: 8pt;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .status-paid {
+            background: #dcfce7;
+            color: #15803d;
+            border: 1px solid #bbf7d0;
+        }
+
+        .status-pending {
+            background: #fef9c3;
+            color: #a16207;
+            border: 1px solid #fde047;
+        }
+
+        .status-cancelled {
+            background: #fee2e2;
+            color: #b91c1c;
+            border: 1px solid #fecaca;
         }
     </style>
 </head>
 
 <body>
-    <div class="container">
-        <!-- Header da Fatura -->
-        <div class="invoice-header">
-            <div class="company-header-group">
-                <div class="company-logo">
-                    {% if empresa.logo_url %}
-                    <img src="{{ empresa.logo_url }}" alt="Logo da Empresa">
-                    {% endif %}
-                </div>
-                <div class="company-details">
-                    <div class="company-name">{{ empresa.razao_social|default:empresa.nome_fantasia|default:"Empresa" }}</div>
-                    <div class="company-info">
-                        Endereço: {{ empresa.endereco|default:"N/A" }} | Angola<br>
-                        NIF: {{ empresa.nif|default:"N/A" }}<br>
-                        Telefone: {{ empresa.telefone|default:"N/A" }}<br>
-                        Website: {{ empresa.site|default:"N/A" }}<br>
-                        Email: {{ empresa.email|default:"N/A" }}
-                    </div>
-                </div>
-            </div>
-            <div class="invoice-number-header 
-                {% if 'Recibo' in fatura.tipo_venda %}documento-fr
-                {% elif 'Crédito' in fatura.tipo_venda %}documento-ft
-                {% elif 'Proforma' in fatura.tipo_venda %}documento-proforma
-                {% else %}documento-recibo{% endif %}">
-                {% comment %} Formatar o cabeçalho baseado no tipo {% endcomment %}
-                {% if 'Proforma' in fatura.tipo_venda %}
-                    FATURA PROFORMA<br>Nº {{ fatura.numero }}
-                {% elif 'Crédito' in fatura.tipo_venda %}
-                    FATURA<br>Nº {{ fatura.numero }}
-                {% elif 'Recibo' in fatura.tipo_venda and 'Fatura' not in fatura.tipo_venda %}
-                    RECIBO<br>Nº {{ fatura.numero }}
-                {% else %}
-                    FATURA RECIBO<br>Nº {{ fatura.numero }}
-                {% endif %}
-               
-            </div>
-            
-        </div>
-        
-    
 
-        <!-- Informações Cliente e Fatura -->
-        <div class="info-section">
-            <div class="client-info">
-                <div class="section-title">Dados do Cliente</div>
-                {% if cliente and cliente.nome %}
-                    <div class="details-item"><strong>Nome:</strong> {{ cliente.nome }}</div>
-                    <div class="details-item"><strong>NIF:</strong> {{ cliente.nif|default:"N/A" }}</div>
-                    <div class="details-item"><strong>Telefone:</strong> {{ cliente.telefone|default:"N/A" }}</div>
-                    <div class="details-item"><strong>Endereço:</strong> {{ cliente.endereco|default:"N/A" }}</div>
-                    <div class="details-item"><strong>Email:</strong> {{ cliente.email|default:"N/A" }}</div>
-                {% else %}
-                    <div class="details-item"><strong>Nome:</strong> Consumidor Final</div>
-                    <div class="details-item"><strong>NIF:</strong> 999999999</div>
-                    <div class="details-item"><strong>Telefone:</strong> N/A</div>
-                    <div class="details-item"><strong>Endereço:</strong> N/A</div>
-                    <div class="details-item"><strong>Email:</strong> N/A</div>
-                {% endif %}
-            </div>
-            
-            <div class="invoice-info">
-                <div class="section-title">Dados do Documento</div>
-                <div class="invoice-number">Nº {{ fatura.numero }}</div>
-                <div class="details-item"><strong>Data de Emissão:</strong> {{ fatura.data_emissao|date:"d/m/Y H:i" }}</div>
-                <div class="details-item"><strong>Tipo:</strong> {{ fatura.tipo_venda }}</div>
-                {% if fatura.data_vencimento %}
-                    <div class="details-item data-vencimento">
-                        <strong>{% if 'Proforma' in fatura.tipo_venda %}Validade{% else %}Vencimento{% endif %}:</strong> 
-                        {{ fatura.data_vencimento|date:"d/m/Y" }}
-                    </div>
-                {% endif %}
-                <div class="details-item"><strong>Status:</strong> {{ fatura.status }}</div>
-                {% if fatura.observacoes %}
-                    <div class="details-item"><strong>Observações:</strong> {{ fatura.observacoes|truncatechars:50 }}</div>
-                {% endif %}
-            </div>
-        </div>
-
-        <!-- Tabela de Itens -->
-        <div class="items-table-container">
-            <table class="items-table">
-                <thead>
-                    <tr>
-                        <th style="width: 12%;">Código</th>
-                        <th style="width: 35%;">Descrição</th>
-                        <th class="text-center" style="width: 8%;">Qtd</th>
-                        <th class="text-right" style="width: 15%;">Preço Unitário</th>
-                        <th class="text-center" style="width: 10%;">Desconto (%)</th>
-                        <th class="text-center" style="width: 10%;">Taxa (%)</th>
-                        <th class="text-right" style="width: 15%;">Total (AO)</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for item in itens_venda %}
-                    <tr>
-                        {% if item.tipo == "produto" and item.produto %}
-                            <td>{{ item.produto.codigo_barras|default:item.produto.codigo_interno|default:"N/A" }}</td>
-                            <td>{{ item.produto.nome_produto }}</td>
-                        {% elif item.tipo == "servico" and item.servico %}
-                            <td>N/A</td>
-                            <td>
-                                {{ item.servico.nome }}<br>
-                                <small style="color: #6b7280;">
-                                    {% if item.duracao %}Duração: {{ item.duracao.total_seconds|floatformat:0 }} min<br>{% endif %}
-                                    {% if item.instrucoes %}{{ item.instrucoes|truncatechars:50 }}{% endif %}
-                                </small>
-                            </td>
-                        {% else %}
-                            {% comment %} Fallback para itens sem relação ou campos diretos {% endcomment %}
-                            <td>{{ item.codigo|default:"N/A" }}</td>
-                            <td>{{ item.nome|default:item.nome_item|default:"Item" }}</td>
-                        {% endif %}
-                        <td class="text-center">{{ item.quantidade }}</td>
-                        <td class="text-right">{{ item.preco_unitario|floatformat:2 }} Kz</td>
-                        <td class="text-center">{{ item.desconto_percentual|floatformat:1 }}%</td>
-                        <td class="text-center">{{ item.taxa_iva.percentual|floatformat:1 }}%</td>
-                        <td class="text-right">{{ item.total|floatformat:2 }} Kz</td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
-
-        <!-- Tabela de Totais -->
-        <div class="totals-container">
-            <table class="totals-table">
-                {% comment %} Lógica de Subtotal e Desconto {% endcomment %}
-                {% if totais.desconto_valor and totais.desconto_valor > 0 %}
-                    <tr>
-                        <td class="total-label">Subtotal (sem desconto):</td>
-                        <td class="total-value">{{ totais.subtotal|add:totais.desconto_valor|floatformat:2 }} Kz</td>
-                    </tr>
-                    <tr>
-                        <td class="total-label">Desconto 
-                            {% if totais.subtotal > 0 %}
-                                {% widthratio totais.desconto_valor totais.subtotal|add:totais.desconto_valor 100 as desc_perc %}
-                                ({{ desc_perc|floatformat:1 }}%)
-                            {% endif %}:
-                        </td>
-                        <td class="total-value">-{{ totais.desconto_valor|floatformat:2 }} Kz</td>
-                    </tr>
-                    <tr>
-                        <td class="total-label">Subtotal (com desconto):</td>
-                        <td class="total-value">{{ totais.subtotal|floatformat:2 }} Kz</td>
-                    </tr>
-                {% else %}
-                    <tr>
-                        <td class="total-label">Subtotal:</td>
-                        <td class="total-value">{{ totais.subtotal|floatformat:2 }} Kz</td>
-                    </tr>
-                {% endif %}
-                <tr>
-                    <td class="total-label">TOTAL IMPOSTO (IVA):</td>
-                    <td class="total-value">{{ totais.iva_valor|floatformat:2 }} Kz</td>
-                </tr>
-                <tr class="grand-total">
-                    <td class="total-label">
-                        {% if 'Proforma' in fatura.tipo_venda %}TOTAL DO ORÇAMENTO:
-                        {% elif 'Crédito' in fatura.tipo_venda %}TOTAL A PAGAR:
-                        {% else %}TOTAL GERAL:{% endif %}
-                    </td>
-                    <td class="total-value">{{ totais.total|floatformat:2 }} Kz</td>
-                </tr>
-            </table>
-            
-            {% comment %} Informações de Pagamento Específicas por Tipo {% endcomment %}
-            {% if 'Recibo' in fatura.tipo_venda and 'Fatura' in fatura.tipo_venda %}
-                {% comment %} Fatura Recibo (PDV) {% endcomment %}
-                <div class="payment-info fr-style">
-                    <div class="details-item"><strong>Forma de Pagamento:</strong> {{ fatura.forma_pagamento|default:"N/A" }}</div>
-                    <div class="details-item"><strong>Valor Pago:</strong> {{ totais.valor_pago|floatformat:2 }} Kz</div>
-                    {% if totais.troco and totais.troco > 0 %}
-                        <div class="details-item"><strong>Troco:</strong> {{ totais.troco|floatformat:2 }} Kz</div>
-                    {% endif %}
-                </div>
-            {% elif 'Crédito' in fatura.tipo_venda %}
-                {% comment %} Fatura a Crédito {% endcomment %}
-                <div class="payment-info ft-style">
-                    {% if fatura.data_vencimento %}
-                        <div class="details-item"><strong>Vencimento:</strong> {{ fatura.data_vencimento|date:"d/m/Y" }}</div>
-                    {% endif %}
-                    <div class="details-item"><strong>Status da Dívida:</strong> {{ fatura.status|upper }}</div>
-                    <div class="details-item"><strong>Forma de Pagamento:</strong> A Crédito</div>
-                </div>
-            {% elif 'Proforma' in fatura.tipo_venda %}
-                {% comment %} Fatura Proforma {% endcomment %}
-                <div class="payment-info proforma-style">
-                    {% if fatura.data_vencimento %}
-                        <div class="details-item"><strong>Validade do Orçamento:</strong> {{ fatura.data_vencimento|date:"d/m/Y" }}</div>
-                    {% endif %}
-                    <div class="details-item"><strong>Status:</strong> {{ fatura.status|upper }}</div>
-                    <div class="details-item"><strong>Tipo:</strong> Orçamento</div>
-                </div>
+    <!-- Header -->
+    <div class="header">
+        <div class="logo-container">
+            {% if empresa.logo_url %}
+            <img src="{{ empresa.logo_url }}" alt="Logo">
+            {% else %}
+            <div class="company-name">{{ empresa.razao_social }}</div>
             {% endif %}
         </div>
+        <div class="company-info">
+            <div class="company-name">{{ empresa.razao_social|default:empresa.nome_fantasia }}</div>
+            <div class="text-sm text-secondary">
+                {{ empresa.endereco|default:"Endereço não informado" }}<br>
+                NIF: {{ empresa.nif|default:"N/A" }} | Tel: {{ empresa.telefone|default:"N/A" }}<br>
+                {{ empresa.email|default:"" }}<br>
+                {{ empresa.site|default:"" }}
+            </div>
+        </div>
+    </div>
 
-        <div class="clear"></div>
+    <!-- Title & Status -->
+    <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 0.8cm;">
+        <div>
+            <div class="doc-title">
+                {% if 'Proforma' in fatura.tipo_venda %}FATURA PROFORMA
+                {% elif 'Recibo' in fatura.tipo_venda and 'Fatura' not in fatura.tipo_venda %}RECIBO
+                {% elif 'Crédito' in fatura.tipo_venda %}FATURA
+                {% else %}FATURA RECIBO{% endif %}
+            </div>
+            <div class="doc-number">Nº {{ fatura.numero }}</div>
+        </div>
+        <div>
+            <span
+                class="status-badge {% if fatura.status == 'paga' or fatura.status == 'concluida' %}status-paid{% elif fatura.status == 'cancelada' %}status-cancelled{% else %}status-pending{% endif %}">
+                {{ fatura.status|default:"Emitido" }}
+            </span>
+        </div>
+    </div>
 
-        <!-- Seção de Detalhes Adicionais -->
-        <div class="details-container">
-            {% if dados_bancarios %}
-            <div class="details-box bank-details-container">
-                <div class="section-title">Informações Bancárias</div>
-                <div class="bank-accounts-table-wrapper">
-                    <table class="bank-accounts-table">
-                        <thead>
-                            <tr>
-                                <th>Banco</th>
-                                <th>Nº de Conta</th>
-                                <th>IBAN</th>
-                                <th>SWIFT</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% for conta in dados_bancarios %}
-                            <tr>
-                                <td>{{ conta.nome_banco }}</td>
-                                <td>{{ conta.numero_conta }}</td>
-                                <td>{{ conta.iban }}</td>
-                                <td>{{ conta.swift|default:"N/A" }}</td>
-                            </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
+    <!-- Info Grid -->
+    <div class="info-grid">
+        <!-- Client Column -->
+        <div class="info-col">
+            <div class="info-label">Exmo.(s) Sr.(s)</div>
+            <div class="info-value font-bold" style="font-size: 11pt;">{{ cliente.nome|default:"Consumidor Final" }}
+            </div>
+
+            <div style="margin-top: 8px;">
+                <div class="info-label">Detalhes do Cliente</div>
+                <div class="info-value text-sm">
+                    NIF: {{ cliente.nif|default:"999999999" }}<br>
+                    {% if cliente.endereco %}End: {{ cliente.endereco|truncatechars:40 }}<br>{% endif %}
+                    {% if cliente.telefone %}Tel: {{ cliente.telefone }}{% endif %}
                 </div>
+            </div>
+        </div>
+
+        <!-- Document Details Column -->
+        <div class="info-col">
+            <div class="info-label">Detalhes do Documento</div>
+
+            <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+                <span class="text-secondary text-sm">Data de Emissão:</span>
+                <span class="font-bold">{{ fatura.data_emissao|date:"d/m/Y H:i" }}</span>
+            </div>
+
+            {% if fatura.data_vencimento %}
+            <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+                <span class="text-secondary text-sm">Vencimento:</span>
+                <span class="font-bold {% if fatura.status != 'paga' %}text-danger{% endif %}">{{
+                    fatura.data_vencimento|date:"d/m/Y" }}</span>
+            </div>
+            {% endif %}
+
+            <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+                <span class="text-secondary text-sm">Moeda:</span>
+                <span>Kwanza (AOA)</span>
+            </div>
+
+            <div style="display: flex; justify-content: space-between;">
+                <span class="text-secondary text-sm">Forma Pagamento:</span>
+                <span>{{ fatura.forma_pagamento|default:"Outros" }}</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Items Table -->
+    <table>
+        <thead>
+            <tr>
+                <th style="width: 12%">Código</th>
+                <th style="width: 38%">Descrição</th>
+                <th class="text-center" style="width: 10%">Qtd</th>
+                <th class="text-right" style="width: 15%">Preço Unit.</th>
+                <th class="text-center" style="width: 10%">Desc.</th>
+                <th class="text-right" style="width: 15%">Total</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for item in itens_venda %}
+            <tr>
+                <td class="text-secondary">{{ item.produto.codigo_barras|default:item.produto.codigo_interno|default:"-"
+                    }}</td>
+                <td>
+                    <div class="font-bold">{{ item.nome }}</div>
+                    {% if item.servico and item.instrucoes %}
+                    <div class="text-xs text-secondary" style="margin-top: 2px;">{{ item.instrucoes|truncatechars:60 }}
+                    </div>
+                    {% endif %}
+                </td>
+                <td class="text-center">{{ item.quantidade }}</td>
+                <td class="text-right">{{ item.preco_unitario|floatformat:2 }}</td>
+                <td class="text-center text-secondary">
+                    {% if item.desconto_percentual > 0 %}{{ item.desconto_percentual|floatformat:0 }}%{% else %}-{%
+                    endif %}
+                </td>
+                <td class="text-right font-bold">{{ item.total|floatformat:2 }}</td>
+            </tr>
+            {% endfor %}
+
+            <!-- Fill empty rows if needed for layout, but usually not required in web-to-pdf -->
+        </tbody>
+    </table>
+
+    <!-- Totals -->
+    <div class="totals-section">
+        <table class="totals-table">
+            <tr>
+                <td class="text-right text-secondary">Subtotal</td>
+                <td class="text-right font-bold">{{ totais.subtotal|floatformat:2 }} Kz</td>
+            </tr>
+            {% if totais.desconto_valor > 0 %}
+            <tr>
+                <td class="text-right text-secondary">Desconto</td>
+                <td class="text-right text-danger">-{{ totais.desconto_valor|floatformat:2 }} Kz</td>
+            </tr>
+            {% endif %}
+            <tr>
+                <td class="text-right text-secondary">Imposto (IVA)</td>
+                <td class="text-right">{{ totais.iva_valor|floatformat:2 }} Kz</td>
+            </tr>
+            <tr>
+                <td class="text-right total-row-final">TOTAL A PAGAR</td>
+                <td class="text-right total-row-final">{{ totais.total|floatformat:2 }} Kz</td>
+            </tr>
+
+            {% if totais.valor_pago > 0 %}
+            <tr>
+                <td class="text-right text-secondary" style="padding-top: 10px;">Valor Pago</td>
+                <td class="text-right" style="padding-top: 10px;">{{ totais.valor_pago|floatformat:2 }} Kz</td>
+            </tr>
+            {% endif %}
+
+            {% if totais.troco > 0 %}
+            <tr>
+                <td class="text-right text-secondary">Troco</td>
+                <td class="text-right">{{ totais.troco|floatformat:2 }} Kz</td>
+            </tr>
+            {% endif %}
+        </table>
+    </div>
+
+    <!-- Footer / Bank Details -->
+    <div class="footer-grid">
+        <div class="bank-details">
+            {% if dados_bancarios %}
+            <div class="info-label mb-1">Coordenadas Bancárias</div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                {% for conta in dados_bancarios %}
+                <div class="text-sm"
+                    style="background: var(--bg-light); padding: 8px; border-radius: 4px; border: 1px solid var(--border);">
+                    <span class="font-bold">{{ conta.nome_banco }}</span><br>
+                    <span class="text-secondary">IBAN:</span> {{ conta.iban }} <br>
+                    {% if conta.swift %}<span class="text-secondary">SWIFT:</span> {{ conta.swift }}{% endif %}
+                </div>
+                {% endfor %}
             </div>
             {% endif %}
 
             {% if fatura.observacoes %}
-            <div class="details-box" style="{% if not dados_bancarios %}flex: 2;{% endif %}">
-                <div class="section-title">Observações</div>
-                <div class="details-item">
-                    {{ fatura.observacoes|linebreaks }}
-                </div>
-            </div>
-            {% endif %}
-            
-            {% if not dados_bancarios and not fatura.observacoes %}
-            <div class="details-box">
-                <div class="section-title">Informações Adicionais</div>
-                <p style="color: #718096; font-style: italic;">Não há dados bancários ou observações cadastradas para este documento.</p>
+            <div class="info-label mb-1" style="margin-top: 0.5cm;">Observações</div>
+            <div class="text-sm text-secondary"
+                style="background: #fffbeb; padding: 8px; border-radius: 4px; border: 1px solid #fef3c7;">
+                {{ fatura.observacoes|linebreaksbr }}
             </div>
             {% endif %}
 
-            <div class="clear"></div>
-            
             {% if 'Proforma' in fatura.tipo_venda %}
-            <div class="details-proforma">
-                <p style="color: #03060a; font-style: italic;">Este documento não serve de fatura.</p>
+            <div style="margin-top: 10px; font-style: italic; color: var(--secondary);">
+                Este documento não serve de fatura. Válido até {{ fatura.data_vencimento|date:"d/m/Y" }}.
             </div>
             {% endif %}
         </div>
-        
-        
-        <div class="clear"></div>
-        
 
-        <div class="qr-code-container" style="text-align: center;">
-            <p></p>
-        
-            <img src="{{ qr_code_base64 }}" alt="QR Code de Autenticação da Fatura" style="width: 150px; height: 150px;"
-                style="width: 100px; height: 100px;" />
-        
+        <div class="qr-section">
+            {% if qr_code_base64 %}
+            <img src="{{ qr_code_base64 }}" class="qr-code" alt="QR Code">
+            <div class="text-xs text-secondary" style="margin-top: 6px;">Digitalize para validar</div>
+            {% endif %}
         </div>
     </div>
+
 </body>
+
 </html>

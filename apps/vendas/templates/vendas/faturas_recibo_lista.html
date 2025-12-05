@@ -10,8 +10,7 @@
         <h1 class="text-2xl font-bold text-gray-900 dark:text-white">
             <i class="fas fa-receipt mr-2"></i>{{ title }}
         </h1>
-        <a href="{% url 'vendas:pdv' %}" 
-           class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg">
+        <a href="{% url 'vendas:pdv' %}" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg">
             <i class="fas fa-plus mr-2"></i>Nova Venda
         </a>
     </div>
@@ -48,9 +47,9 @@
                     </td>
                     <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
                         {% if venda.cliente %}
-                            {{ venda.cliente.nome }}
+                        {{ venda.cliente.nome_exibicao }}
                         {% else %}
-                            Consumidor Final
+                        Consumidor Final
                         {% endif %}
                     </td>
                     <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
@@ -60,14 +59,15 @@
                         {{ venda.total|floatformat:2 }} Kz
                     </td>
                     <td class="px-6 py-4 whitespace-nowrap">
-                        <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full 
+                        <span
+                            class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full 
                             {% if venda.status == 'finalizada' %}bg-green-100 text-green-800{% else %}bg-yellow-100 text-yellow-800{% endif %}">
                             {{ venda.get_status_display }}
                         </span>
                     </td>
                     <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                        <a href="{% url 'vendas:fatura_pdf_view' venda.id 'a4' %}" 
-                           class="text-blue-600 hover:text-blue-900" target="_blank">
+                        <a href="{% url 'vendas:fatura_pdf_view' venda.id 'a4' %}"
+                            class="text-blue-600 hover:text-blue-900" target="_blank">
                             <i class="fas fa-file-pdf"></i> PDF
                         </a>
                     </td>
@@ -81,15 +81,7 @@
                 {% endfor %}
             </tbody>
         </table>
-        <div class="pagination">
-                {% for page in paginator.page_range %}
-                    {% if page == paginator.number %}
-                        <strong>{{ page }}</strong>
-                    {% else %}
-                        <a href="?page={{ page }}">{{ page }}</a>
-                    {% endif %}
-                {% endfor %}
-            </div>
+
     </div>
 </div>
 {% endblock %}

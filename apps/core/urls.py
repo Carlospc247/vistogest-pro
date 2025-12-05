@@ -18,4 +18,5 @@ urlpatterns = [
     
     # APIs AJAX (para dados dinâmicos quando necessário)
     path('ajax/dashboard/stats/', views.DashboardStatsAPI.as_view(), name='dashboard_stats_api'),
+    path('api/error-report/', views.error_report, name='error_report'),
 ]
