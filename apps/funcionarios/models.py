@@ -1559,3 +1559,52 @@ class HistoricoSalarial(TimeStampedModel):
             return ((self.salario_novo - self.salario_anterior) / self.salario_anterior) * 100
         return 0
 
+
+class FechamentoTurno(TimeStampedModel):
+    """Registro de fechamento de turno do funcionário"""
+    funcionario = models.ForeignKey(Funcionario, on_delete=models.CASCADE, related_name='fechamentos_turno')
+    data_fechamento = models.DateTimeField(default=timezone.now)
+    
+    # Valores informados pelo usuário
+    valor_informado_caixa = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    valor_informado_tpa = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    valor_informado_transferencia = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    
+    # Valores calculados pelo sistema
+    valor_sistema_caixa = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    valor_sistema_tpa = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    valor_sistema_transferencia = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    
+    observacoes = models.TextField(blank=True)
+    
+    class Meta:
+        verbose_name = "Fechamento de Turno"
+        verbose_name_plural = "Fechamentos de Turno"
+        ordering = ['-data_fechamento']
+        
+    def __str__(self):
+        return f"Fechamento {self.funcionario.nome_exibicao} - {self.data_fechamento.strftime('%d/%m/%Y %H:%M')}"
+    
+    @property
+    def diferenca_caixa(self):
+        return self.valor_informado_caixa - self.valor_sistema_caixa
+        
+    @property
+    def diferenca_tpa(self):
+        return self.valor_informado_tpa - self.valor_sistema_tpa
+        
+    @property
+    def diferenca_transferencia(self):
+        return self.valor_informado_transferencia - self.valor_sistema_transferencia
+        
+    @property
+    def total_informado(self):
+        return self.valor_informado_caixa + self.valor_informado_tpa + self.valor_informado_transferencia
+        
+    @property
+    def total_sistema(self):
+        return self.valor_sistema_caixa + self.valor_sistema_tpa + self.valor_sistema_transferencia
+        
+    @property
+    def diferenca_total(self):
+        return self.total_informado - self.total_sistema

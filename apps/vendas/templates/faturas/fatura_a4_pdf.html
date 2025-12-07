@@ -4,9 +4,9 @@
 <head>
     <meta charset="UTF-8">
     <title>{{ fatura.tipo_venda }} {{ fatura.numero }}</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&amp;display=swap"
+        rel="stylesheet">
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
-
         :root {
             --primary: #1a202c;
             --secondary: #64748b;
@@ -19,28 +19,51 @@
 
         @page {
             size: A4;
-            margin: 1.5cm;
-
-            @bottom-left {
-                content: "Emitido por: {{ request.user.get_full_name|default:request.user.username }}";
-                font-size: 8px;
-                color: #94a3b8;
-                font-family: 'Inter', sans-serif;
-            }
+            margin: 1.5cm 1.5cm 4.5cm 1.5cm; /* Increased bottom margin for footer */
 
             @bottom-center {
-                content: "Processado por vistoGEST (Validado nº 96/AGT/2019) | Software Certificado";
-                font-size: 8px;
-                color: #94a3b8;
-                font-family: 'Inter', sans-serif;
+                content: element(page-footer);
             }
+        }
 
-            @bottom-right {
-                content: "Pág. " counter(page) " / " counter(pages);
-                font-size: 8px;
-                color: #94a3b8;
-                font-family: 'Inter', sans-serif;
-            }
+        /* Page Footer - Will be rendered at the bottom of each page */
+        .page-footer {
+            position: running(page-footer);
+            width: 100%;
+            font-size: 7pt;
+            color: #64748b;
+            font-family: 'Inter', sans-serif;
+            border-top: 1px solid #e2e8f0;
+            padding-top: 8px;
+        }
+
+        .page-footer-content {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 8px;
+        }
+
+        .footer-left {
+            width: 60%;
+            font-size: 7pt;
+            line-height: 1.4;
+        }
+
+        .footer-right {
+            width: 35%;
+            text-align: center;
+        }
+
+        .footer-pagination {
+            text-align: center;
+            font-size: 7pt;
+            margin-top: 5px;
+            color: #94a3b8;
+        }
+
+        .footer-pagination::before {
+            content: "Página " counter(page) " de " counter(pages);
         }
 
         * {
@@ -257,24 +280,7 @@
         }
 
         .bank-details {
-            width: 65%;
-        }
-
-        .qr-section {
-            width: 30%;
-            text-align: center;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-        }
-
-        .qr-code {
-            width: 90px;
-            height: 90px;
-            border: 1px solid var(--border);
-            padding: 4px;
-            background: #fff;
+            width: 100%;
         }
 
         .status-badge {
@@ -410,26 +416,33 @@
         <tbody>
             {% for item in itens_venda %}
             <tr>
-                <td class="text-secondary">{{ item.produto.codigo_barras|default:item.produto.codigo_interno|default:"-"
-                    }}</td>
+                <td class="text-secondary">
+                    {% if item.produto %}
+                        {{ item.produto.codigo_barras|default:item.produto.codigo_interno|default:"-" }}
+                    {% else %}
+                        -
+                    {% endif %}
+                </td>
                 <td>
                     <div class="font-bold">{{ item.nome }}</div>
-                    {% if item.servico and item.instrucoes %}
-                    <div class="text-xs text-secondary" style="margin-top: 2px;">{{ item.instrucoes|truncatechars:60 }}
+                    {% if item.tipo == 'servico' and item.instrucoes %}
+                    <div class="text-xs text-secondary" style="margin-top: 2px;">
+                        {{ item.instrucoes|truncatechars:60 }}
                     </div>
                     {% endif %}
                 </td>
                 <td class="text-center">{{ item.quantidade }}</td>
                 <td class="text-right">{{ item.preco_unitario|floatformat:2 }}</td>
                 <td class="text-center text-secondary">
-                    {% if item.desconto_percentual > 0 %}{{ item.desconto_percentual|floatformat:0 }}%{% else %}-{%
-                    endif %}
+                    {% if item.desconto_percentual > 0 %}
+                        {{ item.desconto_percentual|floatformat:0 }}%
+                    {% else %}
+                        -
+                    {% endif %}
                 </td>
                 <td class="text-right font-bold">{{ item.total|floatformat:2 }}</td>
             </tr>
             {% endfor %}
-
-            <!-- Fill empty rows if needed for layout, but usually not required in web-to-pdf -->
         </tbody>
     </table>
 
@@ -498,17 +511,32 @@
 
             {% if 'Proforma' in fatura.tipo_venda %}
             <div style="margin-top: 10px; font-style: italic; color: var(--secondary);">
-                Este documento não serve de fatura. Válido até {{ fatura.data_vencimento|date:"d/m/Y" }}.
+                Válido até {% if fatura.data_vencimento %}{{ fatura.data_vencimento|date:"d/m/Y" }}{% endif %}.
             </div>
             {% endif %}
         </div>
+    </div>
 
-        <div class="qr-section">
-            {% if qr_code_base64 %}
-            <img src="{{ qr_code_base64 }}" class="qr-code" alt="QR Code">
-            <div class="text-xs text-secondary" style="margin-top: 6px;">Digitalize para validar</div>
-            {% endif %}
+    <!-- Page Footer (will be rendered at the bottom of every page) -->
+    <div class="page-footer">
+        <div class="page-footer-content">
+            <div class="footer-left">
+                {% if 'Proforma' in fatura.tipo_venda %}
+                    <strong>Este documento não serve de fatura.</strong><br>
+                    Emitido por: {{ request.user.get_full_name|default:request.user.username }}<br>
+                {% else %}
+                    Os bens/serviços foram colocados à disposição do adquirente na data do documento.<br>
+                    {{ empresa.endereco|default:"" }}<br>
+                {% endif %}
+                <strong>Vs78</strong> - Processado por Programa Validado nº 567/AGT/2022
+            </div>
+            <div class="footer-right">
+                {% if qr_code_base64 %}
+                <img src="{{ qr_code_base64 }}" style="width: 60px; height: 60px; border: 1px solid #e2e8f0;" alt="QR Code">
+                {% endif %}
+            </div>
         </div>
+        <div class="footer-pagination"></div>
     </div>
 
 </body>

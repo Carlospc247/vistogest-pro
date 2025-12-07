@@ -2810,11 +2810,11 @@ def contas_receber(request):
         
         # Adiciona saldo em cada fatura
         for f in faturas_pendentes:
-            f.saldo = (f.total or 0) - (f.valor_pago or 0)
+            f.saldo = (f.total_faturado or 0) - (f.valor_pago or 0)
         
         # Calcular totais
         total_pendente = faturas_pendentes.aggregate(
-            total=Sum('total'),
+            total=Sum('total_faturado'),
             total_pago=Sum('valor_pago')
         )
         
@@ -3491,7 +3491,7 @@ def recibos_lista(request):
     try:
         recibos = Recibo.objects.filter(
             empresa=request.user.empresa
-        ).select_related('fatura__cliente').order_by('-data_recibo')
+        )..select_related('empresa', 'loja', 'cliente', 'vendedor', 'forma_pagamento').order_by('-data_recibo')  # ✅ CORRIGIDO
     except:
         recibos = []
     

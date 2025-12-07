@@ -228,6 +228,15 @@ class MeuTurnoView(LoginRequiredMixin, TemplateView):
             'total_faturado_credito_hoje': total_faturado_credito,
             'total_receita_bruta_hoje': total_venda_direta + total_faturado_credito,
             'vendas_diretas_count': vendas_diretas.count(),
+            
+            # Verificar se já fechou o turno hoje
+            'fechamento_hoje': FechamentoTurno.objects.filter(
+                funcionario=funcionario,
+                data_fechamento__date=hoje
+            ).first(),
+            
+            # Dados para o gráfico de vendas por hora
+            'sales_chart_data': json.dumps(list(vendas_diretas.extra({'hour': "EXTRACT(hour FROM data_venda)"}).values('hour').annotate(total=Sum('total')).order_by('hour')))
         })
         return context
     
@@ -1433,3 +1442,116 @@ class HorariosDisponiveisAPIView(LoginRequiredMixin, TemplateView):
             return JsonResponse({'horarios': horarios})
         return JsonResponse({'error': 'Data não especificada'})
 
+
+# =====================================
+# FECHAMENTO DE TURNO
+# =====================================
+
+class FecharTurnoView(LoginRequiredMixin, TemplateView):
+    template_name = 'funcionarios/meu_turno.html'
+
+    def post(self, request):
+        try:
+            funcionario = Funcionario.objects.get(usuario=request.user)
+            hoje = timezone.now().date()
+            
+            # Verificar se já existe fechamento hoje
+            if FechamentoTurno.objects.filter(funcionario=funcionario, data_fechamento__date=hoje).exists():
+                messages.error(request, 'O turno de hoje já foi fechado.')
+                return redirect('funcionarios:meuturno')
+
+            # Obter valores informados
+            valor_caixa = Decimal(request.POST.get('valor_caixa', '0').replace(',', '.'))
+            valor_tpa = Decimal(request.POST.get('valor_tpa', '0').replace(',', '.'))
+            valor_transferencia = Decimal(request.POST.get('valor_transferencia', '0').replace(',', '.'))
+            observacoes = request.POST.get('observacoes', '')
+
+            # Calcular valores do sistema (Vendas do dia do funcionário)
+            # Considerando apenas vendas finalizadas
+            vendas_dia = Venda.objects.filter(
+                vendedor=funcionario,
+                data_venda__date=hoje,
+                status='finalizada'
+            )
+            
+            # Calcular totais por forma de pagamento
+            # Nota: Isso depende de como os pagamentos são registrados no seu sistema.
+            # Assumindo que existe um modelo PagamentoVenda ou similar ligado à Venda.
+            # Se não existir, precisaremos ajustar essa lógica.
+            
+            # Exemplo genérico (ajuste conforme seus modelos reais):
+            from apps.vendas.models import PagamentoVenda
+            
+            pagamentos = PagamentoVenda.objects.filter(
+                venda__in=vendas_dia
+            )
+            
+            sistema_caixa = pagamentos.filter(forma_pagamento__codigo='numerario').aggregate(total=Sum('valor'))['total'] or Decimal('0')
+            sistema_tpa = pagamentos.filter(forma_pagamento__codigo='tpa').aggregate(total=Sum('valor'))['total'] or Decimal('0')
+            sistema_transferencia = pagamentos.filter(forma_pagamento__codigo='transferencia').aggregate(total=Sum('valor'))['total'] or Decimal('0')
+
+            # Criar registro de fechamento
+            fechamento = FechamentoTurno.objects.create(
+                funcionario=funcionario,
+                valor_informado_caixa=valor_caixa,
+                valor_informado_tpa=valor_tpa,
+                valor_informado_transferencia=valor_transferencia,
+                valor_sistema_caixa=sistema_caixa,
+                valor_sistema_tpa=sistema_tpa,
+                valor_sistema_transferencia=sistema_transferencia,
+                observacoes=observacoes
+            )
+
+            messages.success(request, 'Turno fechado com sucesso!')
+            return redirect('funcionarios:relatorio_fechamento', pk=fechamento.pk)
+
+        except Funcionario.DoesNotExist:
+            messages.error(request, 'Funcionário não encontrado.')
+            return redirect('core:dashboard')
+        except Exception as e:
+            messages.error(request, f'Erro ao fechar turno: {str(e)}')
+            return redirect('funcionarios:meuturno')
+
+class RelatorioFechamentoView(LoginRequiredMixin, DetailView):
+    model = FechamentoTurno
+    template_name = 'funcionarios/relatorio_fechamento.html'
+    context_object_name = 'fechamento'
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        fechamento = self.object
+        
+        # Buscar vendas relacionadas ao dia do fechamento
+        context['vendas'] = Venda.objects.filter(
+            vendedor=fechamento.funcionario,
+            data_venda__date=fechamento.data_fechamento.date(),
+            status='finalizada'
+        ).order_by('-data_venda')
+        
+        return context
+
+from django.template.loader import render_to_string
+from weasyprint import HTML
+
+class RelatorioFechamentoPDFView(LoginRequiredMixin, DetailView):
+    model = FechamentoTurno
+    
+    def get(self, request, *args, **kwargs):
+        fechamento = self.get_object()
+        vendas = Venda.objects.filter(
+            vendedor=fechamento.funcionario,
+            data_venda__date=fechamento.data_fechamento.date(),
+            status='finalizada'
+        ).order_by('-data_venda')
+        
+        html_string = render_to_string('funcionarios/relatorio_fechamento_pdf.html', {
+            'fechamento': fechamento,
+            'vendas': vendas,
+            'request': request,
+        })
+        
+        pdf = HTML(string=html_string, base_url=request.build_absolute_uri()).write_pdf()
+        
+        response = HttpResponse(pdf, content_type='application/pdf')
+        response['Content-Disposition'] = f'inline; filename="fechamento_turno_{fechamento.pk}.pdf"'
+        return response

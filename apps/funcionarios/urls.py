@@ -18,6 +18,9 @@ urlpatterns = [
     # =====================================
     path('funcionarios/', views.FuncionariosView.as_view(), name='funcionarios'),
     path('meu-turno/', views.MeuTurnoView.as_view(), name='meuturno'),
+    path('fechar-turno/', views.FecharTurnoView.as_view(), name='fechar_turno'),
+    path('relatorio-fechamento/<int:pk>/', views.RelatorioFechamentoView.as_view(), name='relatorio_fechamento'),
+    path('relatorio-fechamento/<int:pk>/pdf/', views.RelatorioFechamentoPDFView.as_view(), name='relatorio_fechamento_pdf'),
     path('dashboard/', views.FuncionarioDashboardView.as_view(), name='dashboard'),
     path('cargos/', views.CargoListView.as_view(), name='cargo_lista'),
     path('departamentos/', views.DepartamentoListView.as_view(), name='departamento_lista'),

@@ -128,7 +128,7 @@ urlpatterns = [
     # =====================================
     path('api/fatura/<int:venda_id>/<str:tipo>/', views.fatura_pdf_view, name='fatura_pdf_view'),
     path('api/fatura-credito/<int:fatura_id>/<str:tipo>/', views.fatura_credito_pdf_view, name='fatura_credito_pdf_view'),
-    path('fatura/<int:fatura_id>/pdf/', views.fatura_credito_pdf_view, name='fatura_pdf'),
+    path('fatura/<int:venda_id>/pdf/', views.fatura_pdf_view, {'tipo': 'a4'}, name='fatura_pdf'),
     path('recibo/<int:recibo_id>/pdf/', views.recibo_pdf_view, name='recibo_pdf'),
     path('proforma/<int:proforma_id>/pdf/', views.proforma_pdf_view, name='proforma_pdf'),
     path('api/liquidar-fatura/<int:fatura_id>/', views.liquidar_fatura_api, name='liquidar_fatura_api'),
