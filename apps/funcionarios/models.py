@@ -1565,9 +1565,6 @@ class HistoricoSalarial(TimeStampedModel):
         return 0
 
 
-from model_utils.models import TimeStampedModel
-
-
 class FechamentoTurno(TimeStampedModel):
     """Registro de fechamento de turno do funcionário"""
     funcionario = models.ForeignKey(Funcionario, on_delete=models.CASCADE, related_name='fechamentos_turno')
