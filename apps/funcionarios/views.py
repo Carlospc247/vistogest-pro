@@ -1513,9 +1513,9 @@ class FecharTurnoView(LoginRequiredMixin, TemplateView):
             return redirect('funcionarios:meuturno')
 
 class RelatorioFechamentoView(LoginRequiredMixin, DetailView):
-    model = FechamentoTurno
+    model = RegistroPonto
     template_name = 'funcionarios/relatorio_fechamento.html'
-    context_object_name = 'fechamento'
+    context_object_name = 'saida'
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
