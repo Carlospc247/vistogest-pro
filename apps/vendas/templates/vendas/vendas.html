@@ -87,10 +87,10 @@
             <tbody class="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
                 {% for venda in vendas %}
                 <tr class="hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
-                    <td class="px-4 sm:px-6 py-4 whitespace-nowrap text-gray-900 dark:text-white font-medium">{{
-                        venda.numero_documento }}</td>
-                    <td class="px-4 sm:px-6 py-4 whitespace-nowrap text-gray-700 dark:text-gray-300">Venda #{{ venda.id
-                        }}</td>
+                    <td class="px-4 sm:px-6 py-4 whitespace-nowrap text-gray-900 dark:text-white font-medium">
+                        {{ venda.numero_documento }}</td>
+                    <td class="px-4 sm:px-6 py-4 whitespace-nowrap text-gray-700 dark:text-gray-300">
+                        Venda #{{ venda.id }}</td>
                     <td class="px-4 sm:px-6 py-4 whitespace-nowrap text-gray-600 dark:text-gray-400">
                         {% if venda.cliente %}
                         {{ venda.cliente.nome_exibicao }}

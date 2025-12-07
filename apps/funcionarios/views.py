@@ -192,7 +192,7 @@ class MeuTurnoView(LoginRequiredMixin, TemplateView):
         # Assumindo uma correção: FaturaCredito.vendedor = models.ForeignKey('funcionarios.Funcionario', ...)
         try:
              faturas_emitidas = FaturaCredito.objects.filter(
-                 # vendedor=funcionario, # CAMPO A SER ADICIONADO PARA RASTREABILIDADE
+                 vendedor=funcionario, # CAMPO A SER ADICIONADO PARA RASTREABILIDADE
                  data_emissao__date=hoje
              )
              total_faturado_credito = faturas_emitidas.aggregate(
