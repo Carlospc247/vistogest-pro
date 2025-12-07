@@ -4,7 +4,7 @@ import django.utils.timezone
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('funcionarios', '0002_auto_20251206_1234'),  # <--- colocar a última migração real
+        ('funcionarios', '0002_cargo_selecionar_todos'),
     ]
 
     operations = [
@@ -22,7 +22,11 @@ class Migration(migrations.Migration):
                 ('valor_sistema_tpa', models.DecimalField(max_digits=10, decimal_places=2, default=0)),
                 ('valor_sistema_transferencia', models.DecimalField(max_digits=10, decimal_places=2, default=0)),
                 ('observacoes', models.TextField(blank=True)),
-                ('funcionario', models.ForeignKey(on_delete=models.CASCADE, to='funcionarios.funcionario', related_name='fechamentos_turno')),
+                ('funcionario', models.ForeignKey(
+                    on_delete=models.CASCADE, 
+                    to='funcionarios.funcionario', 
+                    related_name='fechamentos_turno'
+                )),
             ],
         ),
     ]
