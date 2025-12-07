@@ -600,6 +600,8 @@ class EscalaTrabalho(TimeStampedModel):
         
         return total.total_seconds() / 3600  # Retorna em horas
 
+
+
 class RegistroPonto(TimeStampedModel):
     """Registro de ponto dos funcionários"""
     TIPO_REGISTRO_CHOICES = [
@@ -642,6 +644,9 @@ class RegistroPonto(TimeStampedModel):
     
     def __str__(self):
         return f"{self.funcionario.nome_exibicao} - {self.data_registro} {self.hora_registro} ({self.get_tipo_registro_display()})"
+
+
+
 
 class Ferias(TimeStampedModel):
     """Férias dos funcionários"""

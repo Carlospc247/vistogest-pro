@@ -1447,6 +1447,24 @@ class HorariosDisponiveisAPIView(LoginRequiredMixin, TemplateView):
 # FECHAMENTO DE TURNO
 # =====================================
 
+from django.template.loader import render_to_string
+from weasyprint import HTML
+
+
+from django.shortcuts import redirect
+from django.contrib import messages
+from django.views.generic import DetailView, TemplateView
+from django.utils import timezone
+from decimal import Decimal
+from django.db.models import Sum
+from django.http import HttpResponse
+from django.template.loader import render_to_string
+from weasyprint import HTML
+
+
+# =====================================
+# FECHAR TURNO (usando RegistroPonto)
+# =====================================
 class FecharTurnoView(LoginRequiredMixin, TemplateView):
     template_name = 'funcionarios/meu_turno.html'
 
@@ -1455,97 +1473,54 @@ class FecharTurnoView(LoginRequiredMixin, TemplateView):
             funcionario = Funcionario.objects.get(usuario=request.user)
             hoje = timezone.now().date()
             
-            # Verificar se já existe fechamento hoje
-            if FechamentoTurno.objects.filter(funcionario=funcionario, data_fechamento__date=hoje).exists():
-                messages.error(request, 'O turno de hoje já foi fechado.')
+            # Verificar se já existe registro hoje
+            if RegistroPonto.objects.filter(funcionario=funcionario, data_registro=hoje).exists():
+                messages.error(request, 'O turno de hoje já foi registrado.')
                 return redirect('funcionarios:meuturno')
 
-            # Obter valores informados
+            # Obter valores informados (se necessário para relatórios, mas não será salvo em FechamentoTurno)
             valor_caixa = Decimal(request.POST.get('valor_caixa', '0').replace(',', '.'))
             valor_tpa = Decimal(request.POST.get('valor_tpa', '0').replace(',', '.'))
             valor_transferencia = Decimal(request.POST.get('valor_transferencia', '0').replace(',', '.'))
             observacoes = request.POST.get('observacoes', '')
 
-            # Calcular valores do sistema (Vendas do dia do funcionário)
-            # Considerando apenas vendas finalizadas
-            vendas_dia = Venda.objects.filter(
-                vendedor=funcionario,
-                data_venda__date=hoje,
-                status='finalizada'
-            )
-            
-            # Calcular totais por forma de pagamento
-            # Nota: Isso depende de como os pagamentos são registrados no seu sistema.
-            # Assumindo que existe um modelo PagamentoVenda ou similar ligado à Venda.
-            # Se não existir, precisaremos ajustar essa lógica.
-            
-            # Exemplo genérico (ajuste conforme seus modelos reais):
-            from apps.vendas.models import PagamentoVenda
-            
-            pagamentos = PagamentoVenda.objects.filter(
-                venda__in=vendas_dia
-            )
-            
-            sistema_caixa = pagamentos.filter(forma_pagamento__codigo='numerario').aggregate(total=Sum('valor'))['total'] or Decimal('0')
-            sistema_tpa = pagamentos.filter(forma_pagamento__codigo='tpa').aggregate(total=Sum('valor'))['total'] or Decimal('0')
-            sistema_transferencia = pagamentos.filter(forma_pagamento__codigo='transferencia').aggregate(total=Sum('valor'))['total'] or Decimal('0')
-
-            # Criar registro de fechamento
-            fechamento = FechamentoTurno.objects.create(
+            # Criar registro de ponto
+            registro = RegistroPonto.objects.create(
                 funcionario=funcionario,
-                valor_informado_caixa=valor_caixa,
-                valor_informado_tpa=valor_tpa,
-                valor_informado_transferencia=valor_transferencia,
-                valor_sistema_caixa=sistema_caixa,
-                valor_sistema_tpa=sistema_tpa,
-                valor_sistema_transferencia=sistema_transferencia,
+                data_registro=hoje,
+                hora_registro=timezone.now().time(),
+                tipo_registro='saida',  # ajuste conforme sua lógica
+                loja=funcionario.loja,
                 observacoes=observacoes
             )
 
-            messages.success(request, 'Turno fechado com sucesso!')
-            return redirect('funcionarios:relatorio_fechamento', pk=fechamento.pk)
+            messages.success(request, 'Turno registrado com sucesso!')
+            return redirect('funcionarios:relatorio_fechamento', pk=registro.pk)
 
         except Funcionario.DoesNotExist:
             messages.error(request, 'Funcionário não encontrado.')
             return redirect('core:dashboard')
         except Exception as e:
-            messages.error(request, f'Erro ao fechar turno: {str(e)}')
+            messages.error(request, f'Erro ao registrar turno: {str(e)}')
             return redirect('funcionarios:meuturno')
 
-class RelatorioFechamentoView(LoginRequiredMixin, DetailView):
-    model = RegistroPonto
-    template_name = 'funcionarios/relatorio_fechamento.html'
-    context_object_name = 'saida'
 
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        fechamento = self.object
-        
-        # Buscar vendas relacionadas ao dia do fechamento
-        context['vendas'] = Venda.objects.filter(
-            vendedor=fechamento.funcionario,
-            data_venda__date=fechamento.data_fechamento.date(),
-            status='finalizada'
-        ).order_by('-data_venda')
-        
-        return context
-
-from django.template.loader import render_to_string
-from weasyprint import HTML
-
+# =====================================
+# RELATÓRIO PDF
+# =====================================
 class RelatorioFechamentoPDFView(LoginRequiredMixin, DetailView):
-    model = FechamentoTurno
-    
+    model = RegistroPonto
+
     def get(self, request, *args, **kwargs):
-        fechamento = self.get_object()
+        registro = self.get_object()
         vendas = Venda.objects.filter(
-            vendedor=fechamento.funcionario,
-            data_venda__date=fechamento.data_fechamento.date(),
+            vendedor=registro.funcionario,
+            data_venda__date=registro.data_registro,
             status='finalizada'
         ).order_by('-data_venda')
         
         html_string = render_to_string('funcionarios/relatorio_fechamento_pdf.html', {
-            'fechamento': fechamento,
+            'registro': registro,
             'vendas': vendas,
             'request': request,
         })
@@ -1553,5 +1528,7 @@ class RelatorioFechamentoPDFView(LoginRequiredMixin, DetailView):
         pdf = HTML(string=html_string, base_url=request.build_absolute_uri()).write_pdf()
         
         response = HttpResponse(pdf, content_type='application/pdf')
-        response['Content-Disposition'] = f'inline; filename="fechamento_turno_{fechamento.pk}.pdf"'
+        response['Content-Disposition'] = f'inline; filename="fechamento_turno_{registro.pk}.pdf"'
         return response
+
+
