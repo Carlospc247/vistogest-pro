@@ -20,7 +20,7 @@ from .models import (
     Ferias, Capacitacao, AvaliacaoDesempenho, JornadaTrabalho,
     Afastamento, Beneficio, PontoEletronico, Formacao,
     ResponsabilidadeTecnica, Meta, ProcessoSeletivo, Candidato,
-    Comunicado, FolhaPagamento, ItemFolhaPagamento, EventoFolha,
+    Comunicado, FechamentoTurno, FolhaPagamento, ItemFolhaPagamento, EventoFolha,
     HistoricoSalarial
 )
 from django.contrib.auth.mixins import AccessMixin
@@ -1446,6 +1446,7 @@ class HorariosDisponiveisAPIView(LoginRequiredMixin, TemplateView):
 # =====================================
 # FECHAMENTO DE TURNO
 # =====================================
+
 
 class FecharTurnoView(LoginRequiredMixin, TemplateView):
     template_name = 'funcionarios/meu_turno.html'
