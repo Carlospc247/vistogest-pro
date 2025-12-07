@@ -3491,7 +3491,7 @@ def recibos_lista(request):
     try:
         recibos = Recibo.objects.filter(
             empresa=request.user.empresa
-        )..select_related('empresa', 'loja', 'cliente', 'vendedor', 'forma_pagamento').order_by('-data_recibo')  # ✅ CORRIGIDO
+        ).select_related('empresa', 'loja', 'cliente', 'vendedor', 'forma_pagamento').order_by('-data_recibo')  # ✅ CORRIGIDO
     except:
         recibos = []
     
