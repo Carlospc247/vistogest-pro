@@ -523,6 +523,8 @@ class Funcionario(TimeStampedModel):
         atributo = f'pode_{acao}'
         return getattr(self.cargo, atributo, False)
 
+
+
 class Equipe(models.Model):
     nome = models.CharField(max_length=100) 
 

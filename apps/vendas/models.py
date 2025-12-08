@@ -87,6 +87,8 @@ class FormaPagamento(models.Model):
     def __str__(self):
         return self.nome
 
+
+
 class Venda(TimeStampedModel):
     """Venda realizada"""
     TIPO_VENDA_CHOICES = [
@@ -203,6 +205,8 @@ class Venda(TimeStampedModel):
     def quantidade_itens(self):
         return self.itens.count()
     quantidade_itens.short_description = 'Qtd Itens'
+
+
 
 class ItemVenda(TimeStampedModel):
     """Item da venda"""

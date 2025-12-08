@@ -1133,8 +1133,8 @@ class FinanceiroDashboardView(LoginRequiredMixin, PermissaoAcaoMixin, TemplateVi
             empresa=empresa,
             data_venda__gte=inicio_mes,
             data_venda__lte=hoje,
-            status='confirmada'
-        ).aggregate(total=Sum('valor_total'))['total'] or Decimal('0.00')
+            status='finalizada'
+        ).aggregate(total=Sum('total'))['total'] or Decimal('0.00')
 
         # ====== CÁLCULOS ======
         context['lucro_mes'] = context['total_vendas_mes'] - context['despesas_mes']
