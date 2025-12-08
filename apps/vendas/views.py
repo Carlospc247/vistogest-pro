@@ -3468,7 +3468,7 @@ def faturas_credito_lista(request):
     
     faturas = FaturaCredito.objects.filter(
         empresa=request.user.empresa
-    ).select_related('cliente').order_by('-data_emissao')
+    ).select_related('cliente').order_by('-data_fatura')
     
     context = {
         'faturas': faturas,
@@ -3499,7 +3499,7 @@ def proformas_lista(request):
     
     proformas = FaturaProforma.objects.filter(
         empresa=request.user.empresa
-    ).select_related('cliente').order_by('-data_emissao')
+    ).select_related('cliente').order_by('-data_proforma')
     
     context = {
         'proformas': proformas,
