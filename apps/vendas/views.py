@@ -3542,7 +3542,7 @@ def proformas_lista(request):
         'title': 'Proformas'
     }
     return render(request, 'vendas/proformas_lista.html', context)
-#------------------------------------------------------
+#-----------------------------------------------------
 
 from django.shortcuts import render
 from django.contrib.auth.decorators import login_required
