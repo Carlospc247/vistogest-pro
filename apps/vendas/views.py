@@ -1135,7 +1135,38 @@ class FaturarConvenioView(BaseVendaView, TemplateView):
         return context
 
 
+# apps/vendas/views.py
 
+from django.shortcuts import render
+from .models import FaturaCredito
+
+def contas_receber(request):
+    # Filtering the invoices based on the company of the logged-in user
+    empresa = request.user.funcionario.empresa
+
+    # Fetching the relevant invoices
+    faturas_pendentes = FaturaCredito.objects.filter(
+        empresa=empresa,
+        status__in=['emitida', 'parcial'],  # Consider statuses you want to include
+        data_vencimento__gte=timezone.now()  # Ensure we only consider invoices still relevant
+    )
+
+    # Calculating totals
+    total_a_receber = sum(fatura.total for fatura in faturas_pendentes)
+    faturas_vencidas = faturas_pendentes.filter(data_vencimento__lt=timezone.now())
+    faturas_vencendo = faturas_pendentes.filter(data_vencimento__lte=timezone.now() + timedelta(days=7))
+    faturas_futuras = faturas_pendentes.filter(data_vencimento__gt=timezone.now() + timedelta(days=7))
+
+    context = {
+        'title': 'Contas a Receber',
+        'total_a_receber': total_a_receber,
+        'faturas_pendentes': faturas_pendentes,
+        'faturas_vencidas': faturas_vencidas.count(),
+        'faturas_vencendo': faturas_vencendo.count(),
+        'faturas_futuras': faturas_futuras.count(),
+    }
+
+    return render(request, 'your_template_path.html', context)
 
 
 # =====================================

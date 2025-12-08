@@ -148,9 +148,7 @@
             <div class="flex items-center justify-between">
                 <div>
                     <h3 class="text-lg font-semibold text-gray-900 dark:text-white">Total a Receber</h3>
-                    <p class="text-2xl font-bold text-red-600" id="totalReceber">
-                        {{ total_a_receber|floatformat:2 }} Kz
-                    </p>
+                    <p class="text-2xl font-bold text-red-600" id="totalReceber">{{ total_a_receber|floatformat:2 }} Kz</p>
                     <p class="text-sm text-gray-500 mt-1">Valor total pendente</p>
                 </div>
                 <div class="text-red-500">
@@ -163,7 +161,7 @@
             <div class="flex items-center justify-between">
                 <div>
                     <h3 class="text-lg font-semibold text-gray-900 dark:text-white">Vencidas</h3>
-                    <p class="text-2xl font-bold text-red-700" id="faturas-vencidas">0</p>
+                    <p class="text-2xl font-bold text-red-700" id="faturas-vencidas">{{ faturas_vencidas }}</p>
                     <p class="text-sm text-gray-500 mt-1">Faturas em atraso</p>
                 </div>
                 <div class="text-red-700">
@@ -176,7 +174,7 @@
             <div class="flex items-center justify-between">
                 <div>
                     <h3 class="text-lg font-semibold text-gray-900 dark:text-white">Vencendo (7 dias)</h3>
-                    <p class="text-2xl font-bold text-orange-600" id="faturas-vencendo">0</p>
+                    <p class="text-2xl font-bold text-orange-600" id="faturas-vencendo">{{ faturas_vencendo }}</p>
                     <p class="text-sm text-gray-500 mt-1">Próximas ao vencimento</p>
                 </div>
                 <div class="text-orange-600">
@@ -189,7 +187,7 @@
             <div class="flex items-center justify-between">
                 <div>
                     <h3 class="text-lg font-semibold text-gray-900 dark:text-white">Futuras</h3>
-                    <p class="text-2xl font-bold text-green-600" id="faturas-futuras">0</p>
+                    <p class="text-2xl font-bold text-green-600" id="faturas-futuras">{{ faturas_futuras }}</p>
                     <p class="text-sm text-gray-500 mt-1">Ainda não venceram</p>
                 </div>
                 <div class="text-green-600">
