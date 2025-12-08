@@ -3502,12 +3502,9 @@ def faturas_recibo_lista(request):
 @requer_permissao("acessar_documentos")
 def faturas_credito_lista(request):
     
-    try:
-        faturas = FaturaCredito.objects.filter(
-            empresa=request.user.empresa
-        ).select_related('cliente').order_by('-data_emissao')
-    except:
-        faturas = []
+    faturas = FaturaCredito.objects.filter(
+        empresa=request.user.empresa
+    ).select_related('cliente').order_by('-data_emissao')
     
     context = {
         'faturas': faturas,
@@ -3519,12 +3516,11 @@ def faturas_credito_lista(request):
 @requer_permissao("acessar_documentos")
 def recibos_lista(request):
     
-    try:
-        recibos = Recibo.objects.filter(
-            empresa=request.user.empresa
-        ).select_related('empresa', 'loja', 'cliente', 'vendedor', 'forma_pagamento').order_by('-data_recibo')  # ✅ CORRIGIDO
-    except:
-        recibos = []
+    
+    recibos = Recibo.objects.filter(
+        empresa=request.user.empresa
+    ).select_related('empresa', 'loja', 'cliente', 'vendedor', 'forma_pagamento').order_by('-data_recibo')  # ✅ CORRIGIDO
+
     
     context = {
         'recibos': recibos,
@@ -3536,12 +3532,10 @@ def recibos_lista(request):
 @requer_permissao("acessar_documentos")
 def proformas_lista(request):
     
-    try:
-        proformas = FaturaProforma.objects.filter(
-            empresa=request.user.empresa
-        ).select_related('cliente').order_by('-data_emissao')
-    except:
-        proformas = []
+    
+    proformas = FaturaProforma.objects.filter(
+        empresa=request.user.empresa
+    ).select_related('cliente').order_by('-data_emissao')
     
     context = {
         'proformas': proformas,
