@@ -1135,10 +1135,11 @@ class FaturarConvenioView(BaseVendaView, TemplateView):
         return context
 
 
-# apps/vendas/views.py
 
 from django.shortcuts import render
 from .models import FaturaCredito
+@login_required
+@requer_permissao("liquidar_faturacredito")
 
 def contas_receber(request):
     # Filtering the invoices based on the company of the logged-in user
@@ -1166,7 +1167,7 @@ def contas_receber(request):
         'faturas_futuras': faturas_futuras.count(),
     }
 
-    return render(request, 'your_template_path.html', context)
+    return render(request, 'contas_receber.html', context)
 
 
 # =====================================
@@ -2824,43 +2825,6 @@ def nova_proforma(request):
     }
     return render(request, 'vendas/nova_proforma.html', context)
 
-@login_required
-@requer_permissao("liquidar_faturacredito")
-def contas_receber(request):
-    
-    """Relatório de Contas a Receber (Faturas a Crédito pendentes)"""
-    try:
-        faturas_pendentes = (
-            FaturaCredito.objects.filter(
-                empresa=request.user.empresa,
-                status__in=['pendente', 'parcial']
-            )
-            .select_related('cliente')
-            .order_by('data_vencimento')
-        )
-        
-        # Adiciona saldo em cada fatura
-        for f in faturas_pendentes:
-            f.saldo = (f.total_faturado or 0) - (f.valor_pago or 0)
-        
-        # Calcular totais
-        total_pendente = faturas_pendentes.aggregate(
-            total=Sum('total_faturado'),
-            total_pago=Sum('valor_pago')
-        )
-        
-        total_a_receber = (total_pendente['total'] or 0) - (total_pendente['total_pago'] or 0)
-    
-    except Exception:
-        faturas_pendentes = []
-        total_a_receber = 0
-    
-    context = {
-        'title': 'Contas a Receber',
-        'faturas_pendentes': faturas_pendentes,
-        'total_a_receber': total_a_receber,
-    }
-    return render(request, 'vendas/contas_receber.html', context)
 
 from apps.core.services import gerar_numero_documento
 
