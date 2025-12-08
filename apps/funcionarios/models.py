@@ -1613,3 +1613,4 @@ class FechamentoTurno(TimeStampedModel):
     @property
     def diferenca_total(self):
         return self.total_informado - self.total_sistema
+

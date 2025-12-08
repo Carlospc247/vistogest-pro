@@ -2405,7 +2405,7 @@ def proforma_pdf_view(request, proforma_id):
     # Informações da Proforma
     fatura_info = {
         'numero': proforma.numero_documento,
-        'data_emissao': proforma.data_emissao,
+        'data_emissao': proforma.data_proforma,
         'data_vencimento': proforma.data_validade,
         'observacoes': proforma.observacoes,
         'tipo_venda': "Fatura Proforma",

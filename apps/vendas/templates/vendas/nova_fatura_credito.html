@@ -846,7 +846,7 @@
                 
                 setTimeout(() => {
                     if (confirm('Fatura criada com sucesso! Deseja visualizar o PDF?')) {
-                        window.open(`/vendas/faturas-credito/${faturaAtualId}/pdf/a4/`, '_blank');
+                        window.open(`/api/fatura-credito/${faturaAtualId}/a4/`, "_blank");
                     }
                 }, 1000);
             } else {

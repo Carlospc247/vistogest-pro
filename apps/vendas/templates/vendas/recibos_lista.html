@@ -1,125 +1,194 @@
-{% extends 'base.html' %}
+{% extends "base.html" %}
 {% load static %}
 
 {% block title %}{{ title }}{% endblock %}
-{% block page_title %}{{ title }}{% endblock %}
 
 {% block content %}
-<div class="bg-white dark:bg-gray-800 shadow rounded-lg p-6">
+<div class="container mx-auto px-4 py-6">
+    <!-- Header -->
     <div class="flex justify-between items-center mb-6">
-        <h1 class="text-2xl font-bold text-gray-900 dark:text-white">
-            <i class="fas fa-money-check-alt mr-2"></i>{{ title }}
-        </h1>
-        <a href="{% url 'vendas:nova_fatura_credito' %}"
-            class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg inline-flex items-center">
-            <i class="fas fa-plus mr-2"></i>
-            Nova Venda a Crédito
-        </a>
-    </div>
-
-    <div class="bg-blue-50 dark:bg-blue-900 border border-blue-200 dark:border-blue-800 rounded-lg p-4 mb-6">
-        <div class="flex">
-            <i class="fas fa-info-circle text-blue-400 mr-3 mt-1"></i>
-            <div>
-                <h3 class="text-sm font-medium text-blue-800 dark:text-blue-200">
-                    Recibos de Liquidação
-                </h3>
-                <p class="text-sm text-blue-700 dark:text-blue-300 mt-1">
-                    Os recibos servem para liquidar faturas a crédito. Esta funcionalidade será implementada junto com
-                    as faturas a crédito.
-                </p>
-            </div>
+        <div>
+            <h1 class="text-3xl font-bold text-gray-900 dark:text-white">{{ title }}</h1>
+            <p class="text-gray-600 dark:text-gray-400 mt-1">Recibos de liquidação de faturas a crédito</p>
         </div>
     </div>
 
-    <div class="overflow-x-auto">
-        <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-            <thead class="bg-gray-50 dark:bg-gray-900">
-                <tr>
-                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
-                        Número REC
-                    </th>
-                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
-                        Fatura
-                    </th>
-                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
-                        Cliente
-                    </th>
-                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
-                        Data Recibo
-                    </th>
-                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
-                        Valor Recebido
-                    </th>
-                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
-                        Forma Pagamento
-                    </th>
-                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
-                        Ações
-                    </th>
-                </tr>
-            </thead>
-            <tbody class="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
-                {% for recibo in recibos %}
-                <tr class="hover:bg-gray-50 dark:hover:bg-gray-700">
-                    <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">
-                        {{ recibo.numero_documento }}
-                    </td>
-                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                        {{ recibo.fatura.numero_documento }}
-                    </td>
-                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                        {{ recibo.fatura.cliente.nome_exibicao }}
-                    </td>
-                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                        {{ recibo.data_recibo|date:"d/m/Y H:i" }}
-                    </td>
-                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white font-semibold">
-                        {{ recibo.valor_recebido|floatformat:2 }} Kz
-                    </td>
-                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                        {{ recibo.forma_pagamento.nome }}
-                    </td>
-                    <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                        <div class="flex space-x-2">
-                            <a href="{% url 'vendas:recibo_pdf' recibo.id %}"
-                                class="text-blue-600 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300"
-                                target="_blank" title="Visualizar PDF A4">
-                                <i class="fas fa-file-pdf"></i>
-                            </a>
-                            <a href="{% url 'vendas:recibo_pdf' recibo.id %}"
-                                class="text-green-600 hover:text-green-900 dark:text-green-400 dark:hover:text-green-300"
-                                target="_blank" title="Imprimir 80mm">
-                                <i class="fas fa-receipt"></i>
-                            </a>
-                        </div>
-                    </td>
-                </tr>
-                {% empty %}
-                <tr>
-                    <td colspan="7" class="px-6 py-4 text-center text-gray-500 dark:text-gray-400">
-                        <div class="py-8">
-                            <i class="fas fa-money-check-alt text-4xl text-gray-300 dark:text-gray-600 mb-3"></i>
-                            <p class="text-lg font-medium">Nenhum recibo encontrado</p>
-                            <p class="text-sm">Esta funcionalidade está sendo desenvolvida</p>
-                            <p class="text-xs text-gray-400 mt-2">Os recibos são emitidos para liquidar faturas a
-                                crédito</p>
-                        </div>
-                    </td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-
+    <!-- Filtros -->
+    <div class="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-4 mb-6">
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <input type="text" id="searchInput" placeholder="Buscar por nº recibo ou cliente..."
+                   class="border border-gray-300 dark:border-gray-600 rounded-lg px-4 py-2 dark:bg-gray-700 dark:text-white focus:ring-2 focus:ring-blue-500">
+            <select id="statusFilter" class="border border-gray-300 dark:border-gray-600 rounded-lg px-4 py-2 dark:bg-gray-700 dark:text-white">
+                <option value="">Todos os Status</option>
+                <option value="emitido">Emitido</option>
+                <option value="cancelado">Cancelado</option>
+                <option value="pendente">Pendente</option>
+            </select>
+            <input type="date" id="dataInicio" class="border border-gray-300 dark:border-gray-600 rounded-lg px-4 py-2 dark:bg-gray-700 dark:text-white">
+            <input type="date" id="dataFim" class="border border-gray-300 dark:border-gray-600 rounded-lg px-4 py-2 dark:bg-gray-700 dark:text-white">
+        </div>
     </div>
 
-    <!-- Informações adicionais -->
-    <div class="mt-6 bg-gray-50 dark:bg-gray-900 rounded-lg p-4">
-        <div class="flex items-center text-sm text-gray-600 dark:text-gray-400">
-            <i class="fas fa-lightbulb mr-2"></i>
-            <span><strong>Dica:</strong> Os recibos (REC) são documentos que comprovam o pagamento de faturas a crédito
-                (FT).</span>
+    <!-- Tabela -->
+    <div class="bg-white dark:bg-gray-800 rounded-lg shadow-sm overflow-hidden">
+        <div class="overflow-x-auto">
+            <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700" id="recibosTable">
+                <thead class="bg-gray-50 dark:bg-gray-900">
+                    <tr>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                            Nº Recibo
+                        </th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                            Data Emissão
+                        </th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                            Cliente
+                        </th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                            Forma Pagamento
+                        </th>
+                        <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                            Valor Recebido
+                        </th>
+                        <th class="px-6 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                            Status
+                        </th>
+                        <th class="px-6 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                            Ações
+                        </th>
+                    </tr>
+                </thead>
+                <tbody class="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
+                    {% for recibo in recibos %}
+                    <tr class="hover:bg-gray-50 dark:hover:bg-gray-700 transition">
+                        <td class="px-6 py-4 whitespace-nowrap">
+                            <div class="text-sm font-semibold text-gray-900 dark:text-white">{{ recibo.numero_recibo }}</div>
+                            <div class="text-xs text-gray-500 dark:text-gray-400">REC</div>
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap">
+                            <div class="text-sm text-gray-900 dark:text-white">{{ recibo.data_recibo|date:"d/m/Y" }}</div>
+                            <div class="text-xs text-gray-500 dark:text-gray-400">{{ recibo.data_recibo|date:"H:i" }}</div>
+                        </td>
+                        <td class="px-6 py-4">
+                            <div class="text-sm text-gray-900 dark:text-white">
+                                {% if recibo.cliente %}
+                                    {{ recibo.cliente.nome_completo|default:recibo.cliente.razao_social|truncatechars:30 }}
+                                {% else %}
+                                    <span class="text-gray-400 dark:text-gray-500">Sem Cliente</span>
+                                {% endif %}
+                            </div>
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap">
+                            <div class="text-sm text-gray-900 dark:text-white">
+                                {{ recibo.forma_pagamento.nome|default:"N/A" }}
+                            </div>
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap text-right">
+                            <div class="text-sm font-semibold text-green-600 dark:text-green-400">
+                                {{ recibo.total|floatformat:2 }} Kz
+                            </div>
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap text-center">
+                            {% if recibo.status == 'emitido' %}
+                                <span class="px-2 py-1 text-xs font-semibold rounded-full bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200">
+                                    Emitido
+                                </span>
+                            {% elif recibo.status == 'cancelado' %}
+                                <span class="px-2 py-1 text-xs font-semibold rounded-full bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200">
+                                    Cancelado
+                                </span>
+                            {% elif recibo.status == 'pendente' %}
+                                <span class="px-2 py-1 text-xs font-semibold rounded-full bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200">
+                                    Pendente
+                                </span>
+                            {% else %}
+                                <span class="px-2 py-1 text-xs font-semibold rounded-full bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-200">
+                                    {{ recibo.get_status_display }}
+                                </span>
+                            {% endif %}
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap text-center">
+                            <div class="flex items-center justify-center gap-3">
+                                <a href="{% url 'vendas:recibo_pdf' recibo.id %}"
+                                   class="text-blue-600 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300"
+                                   target="_blank" title="Visualizar PDF">
+                                    <i class="fas fa-file-pdf text-lg"></i>
+                                </a>
+                                <a href="#"
+                                   class="text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-300"
+                                   title="Detalhes">
+                                    <i class="fas fa-eye text-lg"></i>
+                                </a>
+                            </div>
+                        </td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="7" class="px-6 py-12 text-center">
+                            <div class="text-gray-400 dark:text-gray-500">
+                                <i class="fas fa-inbox text-4xl mb-3"></i>
+                                <p class="text-lg">Nenhum recibo encontrado</p>
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
         </div>
     </div>
 </div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const searchInput = document.getElementById('searchInput');
+    const statusFilter = document.getElementById('statusFilter');
+    const dataInicio = document.getElementById('dataInicio');
+    const dataFim = document.getElementById('dataFim');
+    const table = document.getElementById('recibosTable');
+    const rows = table.querySelectorAll('tbody tr');
+
+    function filterTable() {
+        const searchTerm = searchInput.value.toLowerCase();
+        const statusValue = statusFilter.value.toLowerCase();
+        const startDate = dataInicio.value ? new Date(dataInicio.value) : null;
+        const endDate = dataFim.value ? new Date(dataFim.value) : null;
+
+        rows.forEach(row => {
+            if (row.cells.length === 1) return;
+
+            const recibo = row.cells[0].textContent.toLowerCase();
+            const cliente = row.cells[2].textContent.toLowerCase();
+            const status = row.querySelector('.px-2')?.textContent.toLowerCase() || '';
+            const dataText = row.cells[1].querySelector('div').textContent;
+            const dateParts = dataText.split('/');
+            const rowDate = new Date(dateParts[2], dateParts[1] - 1, dateParts[0]);
+
+            let show = true;
+
+            if (searchTerm && !recibo.includes(searchTerm) && !cliente.includes(searchTerm)) {
+                show = false;
+            }
+
+            if (statusValue && !status.includes(statusValue)) {
+                show = false;
+            }
+
+            if (startDate && rowDate < startDate) {
+                show = false;
+            }
+
+            if (endDate && rowDate > endDate) {
+                show = false;
+            }
+
+            row.style.display = show ? '' : 'none';
+        });
+    }
+
+    searchInput.addEventListener('input', filterTable);
+    statusFilter.addEventListener('change', filterTable);
+    dataInicio.addEventListener('change', filterTable);
+    dataFim.addEventListener('change', filterTable);
+});
+</script>
 {% endblock %}

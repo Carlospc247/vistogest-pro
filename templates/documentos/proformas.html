@@ -42,7 +42,7 @@
                     <tr>
                         <td class="fw-bold">{{ proforma.numero_documento }}</td>
                         <td>{{ proforma.venda.cliente.nome_completo|default:"Consumidor Final" }}</td>
-                        <td>{{ proforma.data_emissao|date:"d/m/Y" }}</td>
+                        <td>{{ proforma.data_proforma|date:"d/m/Y" }}</td>
                         <td class="text-center">
                              {% if proforma.status == 'emitido' %}
                                 <span class="badge bg-primary">Enviado</span>

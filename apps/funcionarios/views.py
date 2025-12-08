@@ -1448,6 +1448,15 @@ class HorariosDisponiveisAPIView(LoginRequiredMixin, TemplateView):
 # =====================================
 
 
+from decimal import Decimal, InvalidOperation
+from django.contrib import messages
+from django.shortcuts import redirect
+from django.utils import timezone
+from django.views.generic import TemplateView
+from django.db.models import Sum
+import logging
+
+
 class FecharTurnoView(LoginRequiredMixin, TemplateView):
     template_name = 'funcionarios/meu_turno.html'
 
@@ -1455,41 +1464,54 @@ class FecharTurnoView(LoginRequiredMixin, TemplateView):
         try:
             funcionario = Funcionario.objects.get(usuario=request.user)
             hoje = timezone.now().date()
-            
+
             # Verificar se já existe fechamento hoje
             if FechamentoTurno.objects.filter(funcionario=funcionario, data_fechamento__date=hoje).exists():
                 messages.error(request, 'O turno de hoje já foi fechado.')
                 return redirect('funcionarios:meuturno')
 
-            # Obter valores informados
-            valor_caixa = Decimal(request.POST.get('valor_caixa', '0').replace(',', '.'))
-            valor_tpa = Decimal(request.POST.get('valor_tpa', '0').replace(',', '.'))
-            valor_transferencia = Decimal(request.POST.get('valor_transferencia', '0').replace(',', '.'))
-            observacoes = request.POST.get('observacoes', '')
+            # Função para converter valor informado pelo usuário
+            def parse_decimal(value):
+                try:
+                    return Decimal(value.replace(',', '.')) if value else Decimal('0')
+                except (InvalidOperation, AttributeError):
+                    return Decimal('0')
 
-            # Calcular valores do sistema (Vendas do dia do funcionário)
-            # Considerando apenas vendas finalizadas
+            valor_caixa = parse_decimal(request.POST.get('valor_caixa'))
+            valor_tpa = parse_decimal(request.POST.get('valor_tpa'))
+            valor_transferencia = parse_decimal(request.POST.get('valor_transferencia'))
+            observacoes = (request.POST.get('observacoes') or '').strip()
+
+            # Buscar vendas finalizadas do dia
             vendas_dia = Venda.objects.filter(
                 vendedor=funcionario,
                 data_venda__date=hoje,
                 status='finalizada'
             )
-            
-            # Calcular totais por forma de pagamento
-            # Nota: Isso depende de como os pagamentos são registrados no seu sistema.
-            # Assumindo que existe um modelo PagamentoVenda ou similar ligado à Venda.
-            # Se não existir, precisaremos ajustar essa lógica.
-            
-            # Exemplo genérico (ajuste conforme seus modelos reais):
-            from apps.vendas.models import PagamentoVenda
-            
-            pagamentos = PagamentoVenda.objects.filter(
-                venda__in=vendas_dia
-            )
-            
-            sistema_caixa = pagamentos.filter(forma_pagamento__codigo='numerario').aggregate(total=Sum('valor'))['total'] or Decimal('0')
-            sistema_tpa = pagamentos.filter(forma_pagamento__codigo='tpa').aggregate(total=Sum('valor'))['total'] or Decimal('0')
-            sistema_transferencia = pagamentos.filter(forma_pagamento__codigo='transferencia').aggregate(total=Sum('valor'))['total'] or Decimal('0')
+
+            # Buscar pagamentos relacionados
+            pagamentos = PagamentoVenda.objects.filter(venda__in=vendas_dia)
+
+            # Função para somar valores de acordo com a forma de pagamento
+            def total_por_forma(codigo):
+                result = pagamentos.filter(forma_pagamento__codigo=codigo).aggregate(total=Sum('valor_pago'))['total']
+                return Decimal(result or 0)
+
+            sistema_caixa = total_por_forma('numerario')
+            sistema_tpa = total_por_forma('tpa')
+            sistema_transferencia = total_por_forma('transferencia')
+
+            # Garantir valores não negativos
+            sistema_caixa = max(sistema_caixa, Decimal('0'))
+            sistema_tpa = max(sistema_tpa, Decimal('0'))
+            sistema_transferencia = max(sistema_transferencia, Decimal('0'))
+
+            # Validar se há diferença significativa antes de salvar (opcional)
+            total_informado = valor_caixa + valor_tpa + valor_transferencia
+            total_sistema = sistema_caixa + sistema_tpa + sistema_transferencia
+            diferenca = abs(total_informado - total_sistema)
+            if diferenca > Decimal('0.01'):  # tolerância de 1 centavo
+                messages.warning(request, f'Diferença detectada: {diferenca:.2f}. Fechamento registrado, mas verifique.')
 
             # Criar registro de fechamento
             fechamento = FechamentoTurno.objects.create(
@@ -1510,8 +1532,10 @@ class FecharTurnoView(LoginRequiredMixin, TemplateView):
             messages.error(request, 'Funcionário não encontrado.')
             return redirect('core:dashboard')
         except Exception as e:
-            messages.error(request, f'Erro ao fechar turno: {str(e)}')
+            logging.exception("Erro ao fechar turno")
+            messages.error(request, 'Erro ao fechar turno. Verifique os valores e tente novamente.')
             return redirect('funcionarios:meuturno')
+
 
 class RelatorioFechamentoView(LoginRequiredMixin, DetailView):
     model = FechamentoTurno

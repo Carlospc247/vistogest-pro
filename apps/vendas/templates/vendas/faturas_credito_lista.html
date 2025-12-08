@@ -1,121 +1,301 @@
-{% extends 'base.html' %}
+{% extends "base.html" %}
 {% load static %}
 
 {% block title %}{{ title }}{% endblock %}
-{% block page_title %}{{ title }}{% endblock %}
 
 {% block content %}
-<div class="bg-white dark:bg-gray-800 shadow rounded-lg p-6">
+<div class="container mx-auto px-4 py-6">
+    <!-- Header -->
     <div class="flex justify-between items-center mb-6">
-        <h1 class="text-2xl font-bold text-gray-900 dark:text-white">
-            <i class="fas fa-file-invoice mr-2"></i>{{ title }}
-        </h1>
+        <div>
+            <h1 class="text-3xl font-bold text-gray-900 dark:text-white">{{ title }}</h1>
+            <p class="text-gray-600 dark:text-gray-400 mt-1">Faturas a crédito emitidas para clientes</p>
+        </div>
         <a href="{% url 'vendas:nova_fatura_credito' %}"
-            class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg inline-flex items-center">
-            <i class="fas fa-plus mr-2"></i>
-            Nova Fatura Crédito
+           class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition">
+            <i class="fas fa-plus"></i>
+            <span>Nova Fatura Crédito</span>
         </a>
-
     </div>
 
-    <div class="bg-yellow-50 dark:bg-yellow-900 border border-yellow-200 dark:border-yellow-800 rounded-lg p-4 mb-6">
-        <div class="flex">
-            <i class="fas fa-exclamation-triangle text-yellow-400 mr-3 mt-1"></i>
-            <div>
-                <h3 class="text-sm font-medium text-yellow-800 dark:text-yellow-200">
-                    Funcionalidade em Desenvolvimento
-                </h3>
-                <p class="text-sm text-yellow-700 dark:text-yellow-300 mt-1">
-                    A listagem de Faturas a Crédito será implementada em breve. Por enquanto, use o PDV para vendas à
-                    vista.
-                </p>
-            </div>
+    <!-- Filtros -->
+    <div class="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-4 mb-6">
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <input type="text" id="searchInput" placeholder="Buscar por nº documento ou cliente..."
+                   class="border border-gray-300 dark:border-gray-600 rounded-lg px-4 py-2 dark:bg-gray-700 dark:text-white focus:ring-2 focus:ring-blue-500">
+            <select id="statusFilter" class="border border-gray-300 dark:border-gray-600 rounded-lg px-4 py-2 dark:bg-gray-700 dark:text-white">
+                <option value="">Todos os Status</option>
+                <option value="emitida">Emitida</option>
+                <option value="parcial">Pago Parcialmente</option>
+                <option value="liquidada">Liquidada</option>
+                <option value="vencida">Vencida</option>
+                <option value="cancelada">Cancelada</option>
+            </select>
+            <input type="date" id="dataInicio" class="border border-gray-300 dark:border-gray-600 rounded-lg px-4 py-2 dark:bg-gray-700 dark:text-white">
+            <input type="date" id="dataFim" class="border border-gray-300 dark:border-gray-600 rounded-lg px-4 py-2 dark:bg-gray-700 dark:text-white">
         </div>
     </div>
 
-    <div class="overflow-x-auto">
-        <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-            <thead class="bg-gray-50 dark:bg-gray-900">
-                <tr>
-                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
-                        Número FT
-                    </th>
-                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
-                        Cliente
-                    </th>
-                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
-                        Data Emissão
-                    </th>
-                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
-                        Vencimento
-                    </th>
-                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
-                        Total
-                    </th>
-                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
-                        Status
-                    </th>
-                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
-                        Ações
-                    </th>
-                </tr>
-            </thead>
-            <tbody class="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
-                {% for fatura in faturas %}
-                <tr class="hover:bg-gray-50 dark:hover:bg-gray-700">
-                    <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">
-                        {{ fatura.numero_documento }}
-                    </td>
-                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                        {{ fatura.cliente.nome_exibicao }}
-                    </td>
-                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                        {{ fatura.data_emissao|date:"d/m/Y H:i" }}
-                    </td>
-                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                        {{ fatura.data_vencimento|date:"d/m/Y" }}
-                    </td>
-                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white font-semibold">
-                        {{ fatura.total|floatformat:2 }} Kz
-                    </td>
-                    <td class="px-6 py-4 whitespace-nowrap">
-                        <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full 
-                            {% if fatura.status == 'liquidada' %}bg-green-100 text-green-800 dark:bg-green-800 dark:text-green-100
-                            {% elif fatura.status == 'parcial' %}bg-yellow-100 text-yellow-800 dark:bg-yellow-800 dark:text-yellow-100
-                            {% elif fatura.status == 'pendente' %}bg-red-100 text-red-800 dark:bg-red-800 dark:text-red-100
-                            {% else %}bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-100{% endif %}">
-                            {{ fatura.get_status_display }}
-                        </span>
-                    </td>
-                    <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                        <div class="flex space-x-2">
-                            <a href="{% url 'vendas:fatura_credito_pdf_view' fatura.id 'a4' %}"
-                                class="text-blue-600 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300"
-                                target="_blank" title="Visualizar PDF A4">
-                                <i class="fas fa-file-pdf"></i>
-                            </a>
-                            <a href="{% url 'vendas:fatura_credito_pdf_view' fatura.id '80mm' %}"
-                                class="text-green-600 hover:text-green-900 dark:text-green-400 dark:hover:text-green-300"
-                                target="_blank" title="Imprimir 80mm">
-                                <i class="fas fa-receipt"></i>
-                            </a>
-                        </div>
-                    </td>
-                </tr>
-                {% empty %}
-                <tr>
-                    <td colspan="7" class="px-6 py-4 text-center text-gray-500 dark:text-gray-400">
-                        <div class="py-8">
-                            <i class="fas fa-file-invoice text-4xl text-gray-300 dark:text-gray-600 mb-3"></i>
-                            <p class="text-lg font-medium">Nenhuma fatura a crédito encontrada</p>
-                            <p class="text-sm">Esta funcionalidade está em desenvolvimento</p>
-                        </div>
-                    </td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-
+    <!-- Tabela -->
+    <div class="bg-white dark:bg-gray-800 rounded-lg shadow-sm overflow-hidden">
+        <div class="overflow-x-auto">
+            <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700" id="faturasTable">
+                <thead class="bg-gray-50 dark:bg-gray-900">
+                    <tr>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                            Documento
+                        </th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                            Data Emissão
+                        </th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                            Vencimento
+                        </th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                            Cliente
+                        </th>
+                        <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                            Total
+                        </th>
+                        <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                            Pendente
+                        </th>
+                        <th class="px-6 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                            Status
+                        </th>
+                        <th class="px-6 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                            Ações
+                        </th>
+                    </tr>
+                </thead>
+                <tbody class="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
+                    {% for fatura in faturas %}
+                    <tr class="hover:bg-gray-50 dark:hover:bg-gray-700 transition">
+                        <td class="px-6 py-4 whitespace-nowrap">
+                            <div class="text-sm font-semibold text-gray-900 dark:text-white">{{ fatura.numero_documento }}</div>
+                            <div class="text-xs text-gray-500 dark:text-gray-400">FT</div>
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap">
+                            <div class="text-sm text-gray-900 dark:text-white">{{ fatura.data_fatura|date:"d/m/Y" }}</div>
+                            <div class="text-xs text-gray-500 dark:text-gray-400">{{ fatura.data_fatura|date:"H:i" }}</div>
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap">
+                            <div class="text-sm text-gray-900 dark:text-white">{{ fatura.data_vencimento|date:"d/m/Y" }}</div>
+                        </td>
+                        <td class="px-6 py-4">
+                            <div class="text-sm text-gray-900 dark:text-white">
+                                {% if fatura.cliente %}
+                                    {{ fatura.cliente.nome_completo|default:fatura.cliente.razao_social|truncatechars:30 }}
+                                {% else %}
+                                    <span class="text-gray-400 dark:text-gray-500">Sem Cliente</span>
+                                {% endif %}
+                            </div>
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap text-right">
+                            <div class="text-sm font-semibold text-gray-900 dark:text-white">
+                                {{ fatura.total|floatformat:2 }} Kz
+                            </div>
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap text-right">
+                            <div class="text-sm font-semibold {% if fatura.valor_pendente > 0 %}text-red-600 dark:text-red-400{% else %}text-green-600 dark:text-green-400{% endif %}">
+                                {{ fatura.valor_pendente|floatformat:2 }} Kz
+                            </div>
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap text-center">
+                            {% if fatura.status == 'liquidada' %}
+                                <span class="px-2 py-1 text-xs font-semibold rounded-full bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200">
+                                    Liquidada
+                                </span>
+                            {% elif fatura.status == 'emitida' %}
+                                <span class="px-2 py-1 text-xs font-semibold rounded-full bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200">
+                                    Emitida
+                                </span>
+                            {% elif fatura.status == 'parcial' %}
+                                <span class="px-2 py-1 text-xs font-semibold rounded-full bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200">
+                                    Parcial
+                                </span>
+                            {% elif fatura.status == 'vencida' %}
+                                <span class="px-2 py-1 text-xs font-semibold rounded-full bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200">
+                                    Vencida
+                                </span>
+                            {% elif fatura.status == 'cancelada' %}
+                                <span class="px-2 py-1 text-xs font-semibold rounded-full bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-200">
+                                    Cancelada
+                                </span>
+                            {% else %}
+                                <span class="px-2 py-1 text-xs font-semibold rounded-full bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-200">
+                                    {{ fatura.get_status_display }}
+                                </span>
+                            {% endif %}
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap text-center">
+                            <div class="flex items-center justify-center gap-3">
+                                <a href="{% url 'vendas:fatura_credito_pdf_view' fatura.id 'a4' %}"
+                                   class="text-blue-600 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300"
+                                   target="_blank" title="Visualizar PDF">
+                                    <i class="fas fa-file-pdf text-lg"></i>
+                                </a>
+                                {% if fatura.status != 'liquidada' and fatura.status != 'cancelada' %}
+                                <button onclick="liquidarFatura({{ fatura.id }}, '{{ fatura.numero_documento }}')"
+                                        class="text-green-600 hover:text-green-900 dark:text-green-400 dark:hover:text-green-300"
+                                        title="Liquidar Fatura">
+                                    <i class="fas fa-money-check-alt text-lg"></i>
+                                </button>
+                                {% endif %}
+                                <a href="#"
+                                   class="text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-300"
+                                   title="Detalhes">
+                                    <i class="fas fa-eye text-lg"></i>
+                                </a>
+                            </div>
+                        </td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="8" class="px-6 py-12 text-center">
+                            <div class="text-gray-400 dark:text-gray-500">
+                                <i class="fas fa-inbox text-4xl mb-3"></i>
+                                <p class="text-lg">Nenhuma fatura a crédito encontrada</p>
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
     </div>
 </div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const searchInput = document.getElementById('searchInput');
+    const statusFilter = document.getElementById('statusFilter');
+    const dataInicio = document.getElementById('dataInicio');
+    const dataFim = document.getElementById('dataFim');
+    const table = document.getElementById('faturasTable');
+    const rows = table.querySelectorAll('tbody tr');
+
+    function filterTable() {
+        const searchTerm = searchInput.value.toLowerCase();
+        const statusValue = statusFilter.value.toLowerCase();
+        const startDate = dataInicio.value ? new Date(dataInicio.value) : null;
+        const endDate = dataFim.value ? new Date(dataFim.value) : null;
+
+        rows.forEach(row => {
+            if (row.cells.length === 1) return;
+
+            const documento = row.cells[0].textContent.toLowerCase();
+            const cliente = row.cells[3].textContent.toLowerCase();
+            const status = row.querySelector('.px-2')?.textContent.toLowerCase() || '';
+            const dataText = row.cells[1].querySelector('div').textContent;
+            const dateParts = dataText.split('/');
+            const rowDate = new Date(dateParts[2], dateParts[1] - 1, dateParts[0]);
+
+            let show = true;
+
+            if (searchTerm && !documento.includes(searchTerm) && !cliente.includes(searchTerm)) {
+                show = false;
+            }
+
+            if (statusValue && !status.includes(statusValue)) {
+                show = false;
+            }
+
+            if (startDate && rowDate < startDate) {
+                show = false;
+            }
+
+            if (endDate && rowDate > endDate) {
+                show = false;
+            }
+
+            row.style.display = show ? '' : 'none';
+        });
+    }
+
+    searchInput.addEventListener('input', filterTable);
+    statusFilter.addEventListener('change', filterTable);
+    dataInicio.addEventListener('change', filterTable);
+    dataFim.addEventListener('change', filterTable);
+});
+
+function showConfirmDialog(message, onConfirm) {
+    const modal = document.createElement('div');
+    modal.className = 'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50';
+    modal.innerHTML = `
+        <div class="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-lg max-w-md w-full mx-4">
+            <h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">Confirmar Liquidação</h3>
+            <p class="text-gray-700 dark:text-gray-300 mb-4 whitespace-pre-line">${message}</p>
+            <div class="flex justify-end space-x-3">
+                <button class="px-4 py-2 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded" onclick="this.closest('.fixed').remove()">Cancelar</button>
+                <button class="px-4 py-2 bg-green-600 text-white hover:bg-green-700 rounded" onclick="this.closest('.fixed').remove(); (${onConfirm})()">Confirmar</button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(modal);
+}
+
+function showAlert(message, type = 'info') {
+    const modal = document.createElement('div');
+    modal.className = 'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50';
+    const bgColor = type === 'error' ? 'bg-red-600' : type === 'success' ? 'bg-green-600' : 'bg-blue-600';
+    modal.innerHTML = `
+        <div class="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-lg max-w-md w-full mx-4">
+            <div class="flex items-center mb-4">
+                <div class="${bgColor} text-white p-2 rounded-full mr-3">
+                    <i class="fas fa-${type === 'error' ? 'exclamation-triangle' : type === 'success' ? 'check' : 'info-circle'}"></i>
+                </div>
+                <h3 class="text-lg font-semibold text-gray-900 dark:text-white">${type === 'error' ? 'Erro' : type === 'success' ? 'Sucesso' : 'Informação'}</h3>
+            </div>
+            <p class="text-gray-700 dark:text-gray-300 mb-4">${message}</p>
+            <div class="flex justify-end">
+                <button class="px-4 py-2 ${bgColor} text-white hover:opacity-90 rounded" onclick="this.closest('.fixed').remove()">OK</button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(modal);
+}
+
+function liquidarFatura(faturaId, numeroDocumento) {
+    const message = `Confirma a liquidação da Fatura ${numeroDocumento}?\n\nEsta ação irá:\n- Marcar a fatura como liquidada\n- Criar um recibo de pagamento\n- Registrar a movimentação financeira\n- Atualizar o estoque dos produtos`;
+
+    showConfirmDialog(message, function() {
+        fetch(`/vendas/api/liquidar-fatura/${faturaId}/`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': getCookie('csrftoken')
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                showAlert(data.message, 'success');
+                setTimeout(() => location.reload(), 1500);
+            } else {
+                showAlert(data.message, 'error');
+            }
+        })
+        .catch(error => {
+            console.error('Erro:', error);
+            showAlert('Erro ao liquidar fatura. Por favor, tente novamente.', 'error');
+        });
+    });
+}
+
+function getCookie(name) {
+    let cookieValue = null;
+    if (document.cookie && document.cookie !== '') {
+        const cookies = document.cookie.split(';');
+        for (let i = 0; i < cookies.length; i++) {
+            const cookie = cookies[i].trim();
+            if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                break;
+            }
+        }
+    }
+    return cookieValue;
+}
+</script>
 {% endblock %}
