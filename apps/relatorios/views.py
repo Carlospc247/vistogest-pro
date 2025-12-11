@@ -995,7 +995,7 @@ class CompartilharTemplateView(BaseViewMixin, TemplateView):
             Para acessar o template, faça login no sistema e vá para a seção de Relatórios.
             
             Atenciosamente,
-            Sistema BizFlow
+            Sistema VistoGEST
             """
             
             send_mail(

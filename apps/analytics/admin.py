@@ -365,7 +365,7 @@ class DashboardPersonalizadoAdmin(admin.ModelAdmin):
 
 
 # Configurações gerais do admin
-admin.site.site_header = 'BizFlow Analytics'
+admin.site.site_header = 'VistoGEST Analytics'
 admin.site.site_title = 'Analytics'
 admin.site.index_title = 'Painel de Analytics'
 

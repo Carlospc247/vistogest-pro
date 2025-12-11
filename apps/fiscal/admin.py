@@ -104,6 +104,24 @@ class AssinaturaDigitalAdmin(admin.ModelAdmin):
 
         return HttpResponseRedirect(reverse('admin:fiscal_assinaturadigital_change', args=[pk]))
 
+    def acoes_download(self, obj):
+        if not obj.chave_publica:
+            return "-"
+            
+        url_base = reverse("fiscal:baixar_chave_publica", args=[obj.empresa.id])
+        
+        botoes = [
+            f'<div style="margin-bottom: 5px;"><strong>Chave Pública:</strong></div>',
+            f'<a class="button" href="{url_base}?formato=pem" title="Formato PEM (Padrão)">PEM</a>',
+            f'<a class="button" href="{url_base}?formato=txt" title="Formato Texto">TXT</a>',
+            f'<a class="button" href="{url_base}?formato=pdf" title="Documento PDF">PDF</a>',
+            f'<br><div style="margin-top: 8px; margin-bottom: 5px;"><strong>Documentos Fiscais:</strong></div>',
+            f'<a class="button" href="{reverse("fiscal:baixar_pdf_submissao", args=[obj.empresa.id])}">📄 PDF AGT</a>',
+            f'<a class="button" href="{reverse("fiscal:download_pdf_agt", args=[obj.empresa.id])}">⚙️ Fluxo ATCUD</a>',
+        ]
+        return format_html(" ".join(botoes))
+    acoes_download.short_description = "Downloads & Fluxo Fiscal"
+
     def gerar_chaves_btn(self, obj):
         if not obj.pk:
             return "Salve a empresa primeiro para gerar as chaves."

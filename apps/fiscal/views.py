@@ -2034,18 +2034,54 @@ def has_permission_agt(user):
 @user_passes_test(has_permission_agt)
 def baixar_chave_publica(request, empresa_id):
     assinatura = get_object_or_404(AssinaturaDigital, empresa__id=empresa_id)
+    formato = request.GET.get('formato', 'pem').lower()
     
     # LOG da tentativa
     AuditLogService.registrar(
         user=request.user,
-        acao="DOWNLOAD_CHAVE_PUBLICA",
+        acao=f"DOWNLOAD_CHAVE_PUBLICA_{formato.upper()}",
         empresa_id=empresa_id,
         ip=request.META.get('REMOTE_ADDR')
     )
 
-    response = HttpResponse(assinatura.chave_publica, content_type='text/plain')
-    response['Content-Disposition'] = f'attachment; filename=chave_publica_{empresa_id}.pem'
-    return response
+    if formato == 'pdf':
+        buffer = io.BytesIO()
+        p = canvas.Canvas(buffer, pagesize=A4)
+        p.setTitle(f"Chave Pública - {assinatura.empresa.nome}")
+        
+        # Cabeçalho
+        p.setFont("Helvetica-Bold", 14)
+        p.drawString(50, 800, f"Chave Pública RSA - {assinatura.empresa.nome}")
+        p.setFont("Helvetica", 10)
+        p.drawString(50, 785, f"Gerada em: {assinatura.data_geracao.strftime('%d/%m/%Y %H:%M:%S')}")
+        p.drawString(50, 770, f"NIF: {assinatura.empresa.nif}")
+
+        # Corpo da Chave
+        p.setFont("Courier", 9)
+        text_object = p.beginText(50, 740)
+        
+        # Quebrar linhas para caber na página
+        chave_lines = assinatura.chave_publica.split('\n')
+        for line in chave_lines:
+            text_object.textLine(line)
+            
+        p.drawText(text_object)
+        p.showPage()
+        p.save()
+        
+        buffer.seek(0)
+        return FileResponse(buffer, as_attachment=True, filename=f"chave_publica_{empresa_id}.pdf")
+
+    elif formato == 'txt':
+        response = HttpResponse(assinatura.chave_publica, content_type='text/plain')
+        response['Content-Disposition'] = f'attachment; filename=chave_publica_{empresa_id}.txt'
+        return response
+
+    else:
+        # Default PEM
+        response = HttpResponse(assinatura.chave_publica, content_type='application/x-pem-file')
+        response['Content-Disposition'] = f'attachment; filename=chave_publica_{empresa_id}.pem'
+        return response
 
 
 @login_required
