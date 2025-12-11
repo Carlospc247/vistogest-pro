@@ -4,7 +4,7 @@
 class AuditLogService:
     @staticmethod
     def registrar(user, acao, empresa_id, ip):
-        from .models import AuditLog
+        from apps.fiscal.models import AuditLog
         AuditLog.objects.create(
             user=user,
             acao=acao,
