@@ -919,6 +919,6 @@ class AgendamentoRelatorioAdmin(admin.ModelAdmin):
 
 
 # Configurações do admin
-admin.site.site_header = 'BizFlow - Relatórios'
-admin.site.site_title = 'Relatórios'
-admin.site.index_title = 'Administração de Relatórios'
+admin.site.site_header = 'VistoGEST - Administração'
+admin.site.site_title = 'Administração'
+admin.site.index_title = 'Administração do Sistema'
