@@ -36,12 +36,12 @@ class AssinaturaDigitalAdmin(admin.ModelAdmin):
     form = AssinaturaDigitalForm
     
     # Lista de visibilidade
-    list_display = ['empresa', 'status_chave', 'data_geracao', 'acoes_rapidas']
+    list_display = ['empresa', 'status_chave', 'data_geracao', 'acoes_download', 'acoes_rapidas']
     
     # Campos no formulário de edição
     # 'gerar_chaves_btn' é o nosso botão customizado
-    fields = ['empresa', 'gerar_chaves_btn', 'ver_chave_publica', 'data_geracao']
-    readonly_fields = ['gerar_chaves_btn', 'ver_chave_publica', 'data_geracao']
+    fields = ['empresa', 'gerar_chaves_btn', 'acoes_download', 'ver_chave_publica', 'data_geracao']
+    readonly_fields = ['gerar_chaves_btn', 'acoes_download', 'ver_chave_publica', 'data_geracao']
 
     def get_urls(self):
         urls = super().get_urls()
