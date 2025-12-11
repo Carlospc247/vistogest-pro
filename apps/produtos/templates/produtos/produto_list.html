@@ -7,9 +7,9 @@
 {% block page_title %}Catálogo de Produtos{% endblock %}
 
 {% block page_subtitle %}
-    <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
-        Consulte, adicione e gira todos os produtos e serviços da sua empresa.
-    </p>
+<p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+    Consulte, adicione e gira todos os produtos e serviços da sua empresa.
+</p>
 {% endblock %}
 
 {% block page_actions %}
@@ -28,6 +28,19 @@
         <i class="fas fa-plus -ml-0.5 h-5 w-5"></i>
         Novo Produto
     </a>
+</div>
+
+<div class="flex items-center space-x-2 mt-2 sm:mt-0">
+    <button onclick="confirmarDesativarTudo()"
+        class="inline-flex items-center gap-x-2 rounded-md bg-orange-100 px-3.5 py-2.5 text-sm font-semibold text-orange-700 shadow-sm hover:bg-orange-200">
+        <i class="fas fa-ban"></i>
+        Desativar Todos
+    </button>
+    <button onclick="confirmarDeletarTudo()"
+        class="inline-flex items-center gap-x-2 rounded-md bg-red-600 px-3.5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-red-500">
+        <i class="fas fa-trash-alt"></i>
+        Apagar Tudo
+    </button>
 </div>
 {% endblock %}
 
@@ -55,31 +68,36 @@
     <form method="get" action=".">
         <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <div>
-                <label for="search" class="block text-sm font-medium text-gray-700 dark:text-gray-300">Pesquisar Produto</label>
+                <label for="search" class="block text-sm font-medium text-gray-700 dark:text-gray-300">Pesquisar
+                    Produto</label>
                 <input type="search" name="search" id="search"
                     class="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white sm:text-sm"
                     placeholder="Nome ou código de barras...">
             </div>
             <div>
-                <label for="categoria" class="block text-sm font-medium text-gray-700 dark:text-gray-300">Categoria</label>
-                <select id="categoria" name="categoria" class="mt-1 block w-full rounded-md border-gray-300 py-2 pl-3 pr-10 text-base dark:border-gray-600 dark:bg-gray-700 dark:text-white sm:text-sm">
+                <label for="categoria"
+                    class="block text-sm font-medium text-gray-700 dark:text-gray-300">Categoria</label>
+                <select id="categoria" name="categoria"
+                    class="mt-1 block w-full rounded-md border-gray-300 py-2 pl-3 pr-10 text-base dark:border-gray-600 dark:bg-gray-700 dark:text-white sm:text-sm">
                     <option value="">Todas</option>
                     {% for cat in categorias %}
-                        <option value="{{ cat.id }}" {% if request.GET.categoria|add:"0" == cat.id %}selected{% endif %}>{{ cat.nome }}</option>
+                    <option value="{{ cat.id }}" <option value="{{ cat.id }}" {% if request.GET.categoria == cat.id|stringformat:"s" %}selected{% endif %}>{{ cat.nome }}</option>
                     {% endfor %}
                 </select>
             </div>
             <div>
                 <label for="status" class="block text-sm font-medium text-gray-700 dark:text-gray-300">Status</label>
-                <select id="status" name="status" class="mt-1 block w-full rounded-md border-gray-300 py-2 pl-3 pr-10 text-base dark:border-gray-600 dark:bg-gray-700 dark:text-white sm:text-sm">
+                <select id="status" name="status"
+                    class="mt-1 block w-full rounded-md border-gray-300 py-2 pl-3 pr-10 text-base dark:border-gray-600 dark:bg-gray-700 dark:text-white sm:text-sm">
                     <option value="">Todos</option>
-                    <option value="ativo" {% if request.GET.status == 'ativo' %}selected{% endif %}>Ativo</option>
-                    <option value="inativo" {% if request.GET.status == 'inativo' %}selected{% endif %}>Inativo</option>
-                    <option value="estoque_baixo" {% if request.GET.status == 'estoque_baixo' %}selected{% endif %}>Estoque Baixo</option>
+                    <option value="ativo" {% if request.GET.status|stringformat:"s" == "ativo" %}selected{% endif %}>Ativo</option>
+                    <option value="inativo" {% if request.GET.status|stringformat:"s" == "inativo" %}selected{% endif %}>Inativo</option>
+                    <option value="estoque_baixo" {% if request.GET.status|stringformat:"s" == "estoque_baixo" %}selected{% endif %}>Estoque Baixo</option>
                 </select>
             </div>
             <div class="self-end">
-                <button type="submit" class="inline-flex w-full justify-center rounded-md bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-gray-50 dark:bg-gray-600 dark:text-white dark:ring-gray-500 dark:hover:bg-gray-500">
+                <button type="submit"
+                    class="inline-flex w-full justify-center rounded-md bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-gray-50 dark:bg-gray-600 dark:text-white dark:ring-gray-500 dark:hover:bg-gray-500">
                     Aplicar Filtros
                 </button>
             </div>
@@ -90,44 +108,55 @@
 <div class="overflow-hidden rounded-lg bg-white shadow-sm dark:bg-gray-800">
     <div class="overflow-x-auto">
         <div class="flex justify-end gap-2 mb-4">
-            <a href="{% url 'produtos:exportar_excel' %}" 
-            class="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700">
-            Exportar Excel
+            <a href="{% url 'produtos:exportar_excel' %}"
+                class="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700">
+                Exportar Excel
             </a>
 
-            <a href="{% url 'produtos:exportar_pdf' %}" 
-            class="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700">
-            Exportar PDF
+            <a href="{% url 'produtos:exportar_pdf' %}"
+                class="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700">
+                Exportar PDF
             </a>
         </div>
 
         <table class="min-w-full divide-y divide-indigo-200 dark:divide-gray-700">
             <thead class="bg-gray-50 dark:bg-gray-700/50">
                 <tr>
-                    <th scope="col" class="py-3.5 pl-4 pr-3 text-left text-sm font-semibold text-gray-900 dark:text-white sm:pl-6">Produto</th>
-                    <th scope="col" class="px-3 py-3.5 text-left text-sm font-semibold text-gray-900 dark:text-white">Categoria</th>
-                    <th scope="col" class="px-3 py-3.5 text-center text-sm font-semibold text-gray-900 dark:text-white">Estoque Atual</th>
-                    <th scope="col" class="px-3 py-3.5 text-center text-sm font-semibold text-gray-900 dark:text-white">IVA</th>
-                    <th scope="col" class="px-3 py-3.5 text-center text-sm font-semibold text-gray-900 dark:text-white">Desconto/Promoção</th>
-                    <th scope="col" class="px-3 py-3.5 text-right text-sm font-semibold text-gray-900 dark:text-white">Preço de Venda</th>
-                    <th scope="col" class="px-3 py-3.5 text-center text-sm font-semibold text-gray-900 dark:text-white">Status</th>
+                    <th scope="col"
+                        class="py-3.5 pl-4 pr-3 text-left text-sm font-semibold text-gray-900 dark:text-white sm:pl-6">
+                        Produto</th>
+                    <th scope="col" class="px-3 py-3.5 text-left text-sm font-semibold text-gray-900 dark:text-white">
+                        Categoria</th>
+                    <th scope="col" class="px-3 py-3.5 text-center text-sm font-semibold text-gray-900 dark:text-white">
+                        Estoque Atual</th>
+                    <th scope="col" class="px-3 py-3.5 text-center text-sm font-semibold text-gray-900 dark:text-white">
+                        IVA</th>
+                    <th scope="col" class="px-3 py-3.5 text-center text-sm font-semibold text-gray-900 dark:text-white">
+                        Desconto/Promoção</th>
+                    <th scope="col" class="px-3 py-3.5 text-right text-sm font-semibold text-gray-900 dark:text-white">
+                        Preço de Venda</th>
+                    <th scope="col" class="px-3 py-3.5 text-center text-sm font-semibold text-gray-900 dark:text-white">
+                        Status</th>
                     <th scope="col" class="relative py-3.5 pl-3 pr-4 sm:pr-6"><span class="sr-only">Ações</span></th>
                 </tr>
             </thead>
-            <tbody id="tabelaProdutos" class="divide-y divide-indigo-200 bg-white dark:divide-gray-700 dark:bg-gray-800">
+            <tbody id="tabelaProdutos"
+                class="divide-y divide-indigo-200 bg-white dark:divide-gray-700 dark:bg-gray-800">
                 {% for produto in produtos %}
                 <tr class="hover:bg-orange-100 hover:text-indigo-700 transition-colors duration-200">
                     <td class="whitespace-nowrap py-4 pl-4 pr-3 text-sm sm:pl-6">
                         <div class="font-medium text-gray-900 dark:text-white">{{ produto.nome_produto }}</div>
                         <div class="text-gray-500 dark:text-gray-400">{{ produto.codigo_barras }}</div>
                     </td>
-                    <td class="whitespace-nowrap px-3 py-4 text-sm text-gray-500 dark:text-gray-400">{{ produto.categoria.nome|default:"-" }}</td>
-                    <td class="whitespace-nowrap px-3 py-4 text-sm text-center font-semibold {% if produto.estoque_atual <= produto.estoque_minimo %}text-red-500{% else %}text-gray-900 dark:text-white{% endif %}">
+                    <td class="whitespace-nowrap px-3 py-4 text-sm text-gray-500 dark:text-gray-400">{{
+                        produto.categoria.nome|default:"-" }}</td>
+                    <td
+                        class="whitespace-nowrap px-3 py-4 text-sm text-center font-semibold {% if produto.estoque_atual <= produto.estoque_minimo %}text-red-500{% else %}text-gray-900 dark:text-white{% endif %}">
                         <div class="flex items-center justify-center space-x-2">
                             <span>{{ produto.estoque_atual|default:0|intcomma }}</span>
                             {% if produto.tipo == 'produto' %}
                             <button onclick="openAddStockModal('{{ produto.pk }}', '{{ produto.nome_produto }}')"
-                                    class="text-green-500 hover:text-green-700" title="Adicionar Estoque">
+                                class="text-green-500 hover:text-green-700" title="Adicionar Estoque">
                                 <i class="fas fa-plus-circle"></i>
                             </button>
                             {% endif %}
@@ -135,35 +164,44 @@
                     </td>
                     <td class="whitespace-nowrap px-3 py-4 text-sm text-center text-gray-500 dark:text-gray-400">
                         {% if produto.iva_percentual > 0 %}
-                            {{ produto.iva_percentual|floatformat:0 }}%
+                        {{ produto.iva_percentual|floatformat:0 }}%
                         {% else %}
-                            N/A
+                        N/A
                         {% endif %}
                     </td>
                     <td class="whitespace-nowrap px-3 py-4 text-sm text-center text-gray-500 dark:text-gray-400">
                         {% if produto.desconto_percentual > 0 %}
-                            {{ produto.desconto_percentual|floatformat:0 }}%
+                        {{ produto.desconto_percentual|floatformat:0 }}%
                         {% else %}
-                            N/A
+                        N/A
                         {% endif %}
                     </td>
-                    <td class="whitespace-nowrap px-3 py-4 text-sm text-right text-gray-500 dark:text-gray-400">AKZ {{ produto.preco_venda|floatformat:2|intcomma }}</td>
+                    <td class="whitespace-nowrap px-3 py-4 text-sm text-right text-gray-500 dark:text-gray-400">AKZ {{
+                        produto.preco_venda|floatformat:2|intcomma }}</td>
                     <td class="whitespace-nowrap px-3 py-4 text-center text-sm">
                         {% if produto.ativo %}
-                            <span class="inline-flex items-center rounded-md bg-green-50 px-2 py-1 text-xs font-medium text-green-700 ring-1 ring-inset ring-green-600/20 dark:bg-green-900/50 dark:text-green-300">Ativo</span>
+                        <span
+                            class="inline-flex items-center rounded-md bg-green-50 px-2 py-1 text-xs font-medium text-green-700 ring-1 ring-inset ring-green-600/20 dark:bg-green-900/50 dark:text-green-300">Ativo</span>
                         {% else %}
-                            <span class="inline-flex items-center rounded-md bg-red-50 px-2 py-1 text-xs font-medium text-red-600 ring-1 ring-inset ring-red-500/10 dark:bg-red-700 dark:text-red-300">Inativo</span>
+                        <span
+                            class="inline-flex items-center rounded-md bg-red-50 px-2 py-1 text-xs font-medium text-red-600 ring-1 ring-inset ring-red-500/10 dark:bg-red-700 dark:text-red-300">Inativo</span>
                         {% endif %}
                     </td>
                     <td class="relative whitespace-nowrap py-4 pl-3 pr-4 text-right text-sm font-medium sm:pr-6">
-                        <a href="{% url 'produtos:editar' produto.pk %}" class="text-blue-600 hover:text-blue-900">Editar</a>
+                        <a href="{% url 'produtos:editar' produto.pk %}"
+                            class="text-blue-600 hover:text-blue-900 mr-2">Editar</a>
+                        <button onclick="deletarProduto('{{ produto.pk }}', '{{ produto.nome_produto|escapejs }}')"
+                            class="text-red-600 hover:text-red-900">
+                            <i class="fas fa-trash"></i>
+                        </button>
                     </td>
                 </tr>
                 {% empty %}
                 <tr>
                     <td colspan="8" class="text-center py-12 text-gray-500 dark:text-gray-400">
                         <i class="fas fa-box-open text-4xl mb-4"></i>
-                        <p>Nenhum produto encontrado. <a href="{% url 'produtos:criar' %}" class="text-blue-500 font-semibold hover:underline">Adicionar o primeiro?</a></p>
+                        <p>Nenhum produto encontrado. <a href="{% url 'produtos:criar' %}"
+                                class="text-blue-500 font-semibold hover:underline">Adicionar o primeiro?</a></p>
                     </td>
                 </tr>
                 {% endfor %}
@@ -171,13 +209,18 @@
         </table>
         <div class="mt-4 flex justify-center space-x-2">
             {% if produtos.has_previous %}
-                <a href="?page={{ produtos.previous_page_number }}&search={{ request.GET.search }}&categoria={{ request.GET.categoria }}&status={{ request.GET.status }}" class="px-3 py-1 bg-gray-200 rounded">Anterior</a>
+            <a href="?page={{ produtos.previous_page_number }}&search={{ request.GET.search }}&categoria={{ request.GET.categoria }}&status={{ request.GET.status }}"
+                class="px-3 py-1 bg-gray-200 rounded">Anterior</a>
             {% endif %}
 
+            <!--
             <span class="px-3 py-1">{{ produtos.number }} de {{ produtos.paginator.num_pages }}</span>
 
+            -->
+            
             {% if produtos.has_next %}
-                <a href="?page={{ produtos.next_page_number }}&search={{ request.GET.search }}&categoria={{ request.GET.categoria }}&status={{ request.GET.status }}" class="px-3 py-1 bg-gray-200 rounded">Próximo</a>
+            <a href="?page={{ produtos.next_page_number }}&search={{ request.GET.search }}&categoria={{ request.GET.categoria }}&status={{ request.GET.status }}"
+                class="px-3 py-1 bg-gray-200 rounded">Próximo</a>
             {% endif %}
         </div>
 
@@ -188,28 +231,28 @@
 
 {% block scripts %}
 <script>
-document.addEventListener('DOMContentLoaded', function () {
-    const searchInput = document.getElementById('search');
-    const tabela = document.getElementById('tabelaProdutos');
-    let timeout = null;
+    document.addEventListener('DOMContentLoaded', function () {
+        const searchInput = document.getElementById('search');
+        const tabela = document.getElementById('tabelaProdutos');
+        let timeout = null;
 
-    function renderTabela(produtos) {
-        tabela.innerHTML = '';
+        function renderTabela(produtos) {
+            tabela.innerHTML = '';
 
-        if (produtos.length === 0) {
-            tabela.innerHTML = `
+            if (produtos.length === 0) {
+                tabela.innerHTML = `
                 <tr>
                     <td colspan="8" class="text-center py-12 text-gray-500 dark:text-gray-400">
                         Nenhum produto encontrado.
                     </td>
                 </tr>`;
-            return;
-        }
+                return;
+            }
 
-        produtos.forEach(produto => {
-            const linha = document.createElement('tr');
-            linha.classList.add('hover:bg-orange-100', 'hover:text-indigo-700', 'transition-colors', 'duration-200');
-            linha.innerHTML = `
+            produtos.forEach(produto => {
+                const linha = document.createElement('tr');
+                linha.classList.add('hover:bg-orange-100', 'hover:text-indigo-700', 'transition-colors', 'duration-200');
+                linha.innerHTML = `
                 <td class="whitespace-nowrap py-4 pl-4 pr-3 text-sm sm:pl-6">
                     <div class="font-medium text-gray-900 dark:text-white">${produto.nome_produto}</div>
                     <div class="text-gray-500 dark:text-gray-400">${produto.codigo_barras}</div>
@@ -230,45 +273,122 @@ document.addEventListener('DOMContentLoaded', function () {
                     AKZ ${produto.preco_venda.toLocaleString('pt-PT')}
                 </td>
                 <td class="whitespace-nowrap px-3 py-4 text-sm text-center">
-                    ${produto.ativo 
-                        ? '<span class="inline-flex items-center rounded-md bg-green-50 px-2 py-1 text-xs font-medium text-green-700 ring-1 ring-inset ring-green-600/20 dark:bg-green-900/50 dark:text-green-300">Ativo</span>' 
+                    ${produto.ativo
+                        ? '<span class="inline-flex items-center rounded-md bg-green-50 px-2 py-1 text-xs font-medium text-green-700 ring-1 ring-inset ring-green-600/20 dark:bg-green-900/50 dark:text-green-300">Ativo</span>'
                         : '<span class="inline-flex items-center rounded-md bg-red-50 px-2 py-1 text-xs font-medium text-red-600 ring-1 ring-inset ring-red-500/10 dark:bg-red-700 dark:text-red-300">Inativo</span>'
                     }
                 </td>
                 <td class="whitespace-nowrap py-4 pl-3 pr-4 text-right text-sm font-medium sm:pr-6">
-                    <a href="/produtos/${produto.id}/editar/" class="text-blue-600 hover:text-blue-900">Editar</a>
+                    <a href="/produtos/${produto.id}/editar/" class="text-blue-600 hover:text-blue-900 mr-2">Editar</a>
+                    <button onclick="deletarProduto('${produto.id}', '${produto.nome_produto.replace(/'/g, "\\'")}')" class="text-red-600 hover:text-red-900">
+                        <i class="fas fa-trash"></i>
+                    </button>
                 </td>
             `;
-            tabela.appendChild(linha);
+                tabela.appendChild(linha);
+            });
+        }
+
+        function buscarProdutos() {
+            const query = searchInput.value.trim();
+            const categoria = document.getElementById('categoria').value;
+            const status = document.getElementById('status').value;
+
+            fetch(`/produtos/api/buscar/?search=${encodeURIComponent(query)}&categoria=${categoria}&status=${status}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) renderTabela(data.produtos);
+                })
+                .catch(err => console.error(err));
+        }
+
+        // Fetch inicial ao carregar a página
+        buscarProdutos();
+
+        // Input de pesquisa com debounce
+        searchInput.addEventListener('input', function () {
+            clearTimeout(timeout);
+            timeout = setTimeout(buscarProdutos, 500);
         });
-    }
 
-    function buscarProdutos() {
-        const query = searchInput.value.trim();
-        const categoria = document.getElementById('categoria').value;
-        const status = document.getElementById('status').value;
-
-        fetch(`/produtos/api/buscar/?search=${encodeURIComponent(query)}&categoria=${categoria}&status=${status}`)
-            .then(response => response.json())
-            .then(data => {
-                if (data.success) renderTabela(data.produtos);
-            })
-            .catch(err => console.error(err));
-    }
-
-    // Fetch inicial ao carregar a página
-    buscarProdutos();
-
-    // Input de pesquisa com debounce
-    searchInput.addEventListener('input', function () {
-        clearTimeout(timeout);
-        timeout = setTimeout(buscarProdutos, 500);
+        document.getElementById('categoria').addEventListener('change', buscarProdutos);
+        document.getElementById('status').addEventListener('change', buscarProdutos);
     });
 
-    // Atualizar tabela ao mudar os selects de filtro
-    document.getElementById('categoria').addEventListener('change', buscarProdutos);
-    document.getElementById('status').addEventListener('change', buscarProdutos);
-});
+    // --- Funções de Exclusão ---
+
+    function getCookie(name) {
+        let cookieValue = null;
+        if (document.cookie && document.cookie !== '') {
+            const cookies = document.cookie.split(';');
+            for (let i = 0; i < cookies.length; i++) {
+                const cookie = cookies[i].trim();
+                if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                    cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                    break;
+                }
+            }
+        }
+        return cookieValue;
+    }
+
+    function deletarProduto(id, nome) {
+        if (!confirm(`Tem certeza que deseja apagar o produto "${nome}"?`)) return;
+
+        fetch(`/produtos/${id}/deletar/`, {
+            method: 'POST',
+            headers: {
+                'X-CSRFToken': getCookie('csrftoken'),
+                'Content-Type': 'application/json'
+            },
+        })
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) {
+                    alert(data.message);
+                    location.reload();
+                } else {
+                    alert("Erro: " + data.message);
+                }
+            })
+            .catch(err => alert("Erro de conexão ao tentar apagar."));
+    }
+
+    function confirmarDesativarTudo() {
+        if (!confirm("ATENÇÃO: Isso irá DESATIVAR todos os produtos do sistema.\nSeus lotes e histórico serão PRESERVADOS.\n\nTem certeza?")) return;
+
+        fetch("{% url 'produtos:deletar_todos_soft' %}", {
+            method: 'POST',
+            headers: { 'X-CSRFToken': getCookie('csrftoken') }
+        })
+            .then(res => res.json())
+            .then(data => {
+                alert(data.message);
+                location.reload();
+            })
+            .catch(err => alert("Erro ao processar: " + err));
+    }
+
+    function confirmarDeletarTudo() {
+        if (!confirm("PERIGO EXTREMO!\n\nIsso irá APAGAR PERMANENTEMENTE todos os produtos E SEUS LOTES.\nEsta ação NÃO pode ser desfeita.\n\nTem certeza ABSOLUTA?")) return;
+
+        const confirm2 = prompt("Para confirmar, digite APAGAR TUDO na caixa abaixo:");
+        if (confirm2 !== "APAGAR TUDO") {
+            alert("Ação cancelada. O texto de confirmação estava incorreto.");
+            return;
+        }
+
+        fetch("{% url 'produtos:deletar_todos_tudo' %}", {
+            method: 'POST',
+            headers: { 'X-CSRFToken': getCookie('csrftoken') }
+        })
+            .then(res => res.json())
+            .then(data => {
+                alert(data.message);
+                location.reload();
+            })
+            .catch(err => alert("Erro ao processar: " + err));
+    }
 </script>
 
 {% endblock %}

@@ -58,6 +58,11 @@ from apps.fornecedores.models import Fornecedor
 import openpyxl
 from openpyxl import Workbook
 from apps.core.models import Categoria
+import uuid
+import unicodedata
+from django.db import transaction
+import csv
+from apps.fiscal.models import TaxaIVAAGT
 
 
 
@@ -407,6 +412,60 @@ class DeletarProdutoView(LoginRequiredMixin, View):
             return Empresa.objects.first()
 
 
+class DeletarTodosProdutosLotesView(LoginRequiredMixin, View):
+    """
+    Remove TODOS os produtos e TODOS os lotes.
+    Uso: Ação drástica de limpeza.
+    """
+    def post(self, request):
+        try:
+            empresa = self._get_empresa(request)
+            from apps.produtos.models import Produto
+            
+            # Como on_delete=CASCADE no Lote, apagar produtos apaga lotes
+            count, _ = Produto.objects.filter(empresa=empresa).delete()
+            
+            return JsonResponse({
+                'success': True,
+                'message': f'{count} registos (produtos e dependências) removidos permanentemente.'
+            })
+        except Exception as e:
+            return JsonResponse({'success': False, 'message': str(e)})
+
+    def _get_empresa(self, request):
+        # Helper simples
+        if hasattr(request.user, 'usuario') and request.user.usuario.empresa:
+            return request.user.usuario.empresa
+        return None
+
+
+class DeletarTodosProdutosManterLotesView(LoginRequiredMixin, View):
+    """
+    Remove (Desativa) TODOS os produtos, mantendo os lotes no banco.
+    Nota: Como Lote tem FK(Produto, on_delete=CASCADE), não podemos apagar o produto fisicamente
+    sem apagar o lote. Portanto, esta view faz um SOFT DELETE (ativo=False).
+    """
+    def post(self, request):
+        try:
+            empresa = self._get_empresa(request)
+            from apps.produtos.models import Produto
+            
+            # Soft Delete
+            updated = Produto.objects.filter(empresa=empresa, ativo=True).update(ativo=False)
+            
+            return JsonResponse({
+                'success': True,
+                'message': f'{updated} produtos foram desativados. Os lotes permanecem inalterados.'
+            })
+        except Exception as e:
+            return JsonResponse({'success': False, 'message': str(e)})
+
+    def _get_empresa(self, request):
+        if hasattr(request.user, 'usuario') and request.user.usuario.empresa:
+            return request.user.usuario.empresa
+        return None
+
+
 class ToggleProdutoView(LoginRequiredMixin, View):
     acao_requerida = 'editar_produtos'
     def post(self, request, produto_id):
@@ -556,7 +615,7 @@ class LoteListView(LoginRequiredMixin, ListView):
     model = Lote
     template_name = "produtos/lote_list.html"
     context_object_name = "lotes"
-    paginate_by = 20  # Define a paginação aqui
+    paginate_by = 200  # Define a paginação aqui
 
     def get_queryset(self):
         """
@@ -924,8 +983,9 @@ class TemplateProdutosView(LoginRequiredMixin, View):
             
             # Definir cabeçalhos
             headers = [
-                'nome_produto', 'codigo_barras', 'categoria', 'preco_custo', 'preco_venda',
+                'nome_produto', 'codigo_barras', 'categoria', 'preco_custo', 'preco_venda', 'taxa',
                 'nome_comercial', 'codigo_interno', 'fabricante', 'fornecedor',
+                'numero_lote', 'data_validade',
                 'estoque_atual', 'estoque_minimo', 'estoque_maximo', 'margem_lucro',
                 'desconto_percentual', 'observacoes', 'ativo'
             ]
@@ -943,10 +1003,13 @@ class TemplateProdutosView(LoginRequiredMixin, View):
                 'Analgésicos',         # categoria
                 '105.50',                 # preco_custo
                 '200.00',                 # preco_venda
+                '14',                   # taxa
                 'Paracetamol 500mg',    # nome_comercial
                 'PARA500',              # codigo_interno
                 'NEWAY FARMÁCIA',                  # fabricante
                 'NEWAY MED',    # fornecedor
+                'LOTE202401',           # numero_lote
+                '2025-12-31',           # data_validade
                 '100',                  # estoque_atual
                 '10',                   # estoque_minimo
                 '1000',                 # estoque_maximo
@@ -972,11 +1035,14 @@ class TemplateProdutosView(LoginRequiredMixin, View):
                 "- preco_custo: Preço de custo (formato: 12.50)",
                 "- preco_venda: Preço de venda (formato: 25.00)",
                 "",
-                "CAMPOS OPCIONAIS:",
+                "CAMPOS OPCIONAIS (MAS RECOMENDADOS):",
+                "- taxa: Percentagem de IVA (ex: 14, 7, 0). Padrão: 0. Se não existir, será criada.",
                 "- nome_comercial: Nome comercial (se vazio, usará nome_produto)",
                 "- codigo_interno: Código interno (se vazio, usará codigo_barras)",
                 "- fabricante: Nome do fabricante",
                 "- fornecedor: Nome do fornecedor (deve existir no sistema)",
+                "- numero_lote: Número do lote (se fornecido, um lote será criado/atualizado)",
+                "- data_validade: Validade do lote (fomato YYYY-MM-DD ou DD/MM/YYYY)",
                 "- estoque_atual: Quantidade em estoque (padrão: 0)",
                 "- estoque_minimo: Estoque mínimo (padrão: 1)",
                 "- estoque_maximo: Estoque máximo (padrão: 100)",
@@ -986,16 +1052,18 @@ class TemplateProdutosView(LoginRequiredMixin, View):
                 "- ativo: 1 para ativo, 0 para inativo (padrão: 1)",
                 "",
                 "FORMATOS:",
-                "- Preços: Use ponto como separador decimal (ex: 12.50)",
+                "- Preços/Taxas: Use ponto como separador decimal (ex: 12.50)",
+                "- Datas: Formato AAAA-MM-DD é o mais seguro para CSV",
                 "- Booleanos: Use 1/0 ou true/false ou sim/não",
                 "- Texto: Evite caracteres especiais",
                 "",
                 "NOTAS IMPORTANTES:",
-                "ATT: APENAS SÃO SUPORTADOS FICHEIROS COM ATÉ 100 a 150 LINHAS DE PRODUTOS/SERVIÇOS"
-                "- Códigos de barras devem ser únicos",
-                "- Categorias e fabricantes serão criados automaticamente se não existirem",
+                "ATT: SUPORTE PARA ATÉ 1000 LINHAS DE PRODUTOS SIMULTANEAENTE",
+                "- Códigos de barras devem ser únicos na empresa",
+                "- Categorias, Fabricantes e Taxas de IVA serão criados automaticamente se não existirem",
                 "- Fornecedores devem existir previamente no sistema",
-                "- Linhas com erros serão ignoradas",
+                "- Se informar Lote e Validade, o sistema atualizará o estoque desse lote específico",
+                "- Linhas com erros serão registradas no log, mas o processo tentará continuar",
                 "- Use a opção 'Validar apenas' para testar antes de importar"
             ]
             
@@ -1072,53 +1140,39 @@ class ImportarProdutosView(LoginRequiredMixin, FormView):
             return str(text).strip()
 
     def obter_categoria(self, nome, empresa):
-        nome_limpo = self.sanitize_text(nome)
-        if not nome_limpo:
-            return None
-        categoria, _ = Categoria.objects.get_or_create(
-            empresa=empresa,
-            nome__iexact=nome_limpo,
-            defaults={'nome': nome_limpo, 'empresa': empresa}
-        )
-        return categoria
+        # NOTE: Deprecated in favor of bulk fetching inside processar_arquivo
+        return None
 
     def obter_fornecedor(self, nome, empresa):
-        nome_limpo = self.sanitize_text(nome)
-        if not nome_limpo:
-            return None
-        return Fornecedor.objects.filter(
-            Q(nome_fantasia__iexact=nome_limpo) | Q(razao_social__iexact=nome_limpo),
-            empresa=empresa
-        ).first()
+        # NOTE: Deprecated in favor of bulk fetching inside processar_arquivo
+        return None
 
     def obter_fabricante(self, nome, empresa):
-        nome_limpo = self.sanitize_text(nome)
-        if not nome_limpo:
-            return None
-        fabricante, _ = Fabricante.objects.get_or_create(
-            empresa=empresa,
-            nome__iexact=nome_limpo,
-            defaults={'nome': nome_limpo, 'empresa': empresa}
-        )
-        return fabricante
+        # NOTE: Deprecated in favor of bulk fetching inside processar_arquivo
+        return None
 
     # ------------------------------
     # Processamento principal
     # ------------------------------
     def processar_arquivo(self, arquivo, empresa):
         registros_criados, registros_atualizados = 0, 0
-
+        
+        # --- Helper interno ---
         def get_val(row, col, default=None):
             val = row.get(col, default)
-            if isinstance(val, (pd.Series, list)):
-                val = val.iloc[0] if hasattr(val, 'iloc') else (val[0] if val else default)
+            # Handle pandas Series/Objects
+            if hasattr(val, 'iloc'):
+                val = val.iloc[0]
+            elif isinstance(val, list):
+                val = val[0] if val else default
+            
             return val if pd.notna(val) else default
 
         try:
             conteudo = arquivo.read()
             nome_ext = arquivo.name.lower()
 
-            # --- Detecta e lê ---
+            # 1. Carregar DataFrame
             if nome_ext.endswith(('.xlsx', '.xls')):
                 df = pd.read_excel(io.BytesIO(conteudo))
             else:
@@ -1138,7 +1192,7 @@ class ImportarProdutosView(LoginRequiredMixin, FormView):
                 logger.warning("O arquivo foi lido mas não contém dados!")
                 return 0, 0
 
-            # --- Normaliza colunas ---
+            # 2. Normalizar Colunas
             df.columns = [str(c).strip().lower() for c in df.columns]
             df = df.loc[:, ~df.columns.duplicated()]
 
@@ -1147,75 +1201,253 @@ class ImportarProdutosView(LoginRequiredMixin, FormView):
                 'descricao': 'nome', 'descrição': 'nome',
                 'preco': 'preco_venda', 'preço': 'preco_venda', 'valor': 'preco_venda',
                 'preco_custo': 'preco_custo', 'preco_venda': 'preco_venda',
+                'taxa': 'taxa', 'iva': 'taxa', 'imposto': 'taxa', 'percentage': 'taxa',
                 'categoria': 'categoria', 'grupo': 'categoria',
                 'fornecedor': 'fornecedor', 'fabricante': 'fabricante',
                 'codigo_barras': 'codigo_barras', 'codigo_interno': 'codigo_interno',
                 'nome_comercial': 'nome_comercial',
-                'estoque_atual': 'estoque_atual', 'estoque_minimo': 'estoque_minimo',
-                'estoque_maximo': 'estoque_maximo', 'margem_lucro': 'margem_lucro',
-                'desconto_percentual': 'desconto_percentual',
+                'numero_lote': 'numero_lote', 'lote': 'numero_lote',
+                'validade': 'data_validade', 'data_validade': 'data_validade', 'vencimento': 'data_validade',
+                'estoque_atual': 'estoque_atual', 'estoque': 'estoque_atual', 
+                'estoque_minimo': 'estoque_minimo', 'estoque_maximo': 'estoque_maximo', 
+                'margem_lucro': 'margem_lucro', 'desconto_percentual': 'desconto_percentual',
                 'observacoes': 'observacoes', 'ativo': 'ativo',
             }
             df.rename(columns=lambda x: col_map.get(x, x), inplace=True)
-
             logger.info(f"Colunas mapeadas: {list(df.columns)}")
-            logger.info(f"Amostra: {df.head(3).to_dict(orient='records')}")
 
-            # --- Processa cada linha ---
-            for _, row in df.iterrows():
+            # 3. Otimização: Pre-fetching de Dependências (Bulk)
+            
+            # --- Taxas IVA (bulk) ---
+            if 'taxa' in df.columns:
+                # Converter para numérico e preencher vazios com 0
+                df['taxa'] = pd.to_numeric(df['taxa'], errors='coerce').fillna(0)
+            else:
+                df['taxa'] = 0
+
+            taxas_unicas = df['taxa'].unique()
+            # Precisamos normalizar para Decimal para comparar com o banco
+            taxas_decimals = set()
+            for t in taxas_unicas:
                 try:
-                    nome = self.sanitize_text(get_val(row, 'nome'))
-                    if not nome:
-                        continue
-
-                    categoria = self.obter_categoria(get_val(row, 'categoria'), empresa)
-                    fornecedor = self.obter_fornecedor(get_val(row, 'fornecedor'), empresa)
-                    fabricante = self.obter_fabricante(get_val(row, 'fabricante'), empresa)
-
-                    codigo_barras = self.sanitize_text(get_val(row, 'codigo_barras')) or f"AUTO-{uuid.uuid4().hex[:10]}"
-                    codigo_interno = self.sanitize_text(get_val(row, 'codigo_interno')) or f"INT-{uuid.uuid4().hex[:8]}"
-                    nome_comercial = self.sanitize_text(get_val(row, 'nome_comercial')) or nome
-
-                    preco_custo = Decimal(str(get_val(row, 'preco_custo', 0) or 0))
-                    preco_venda = Decimal(str(get_val(row, 'preco_venda', 0) or 0))
-                    estoque_atual = Decimal(str(get_val(row, 'estoque_atual', 0) or 0))
-                    estoque_minimo = Decimal(str(get_val(row, 'estoque_minimo', 1) or 1))
-                    estoque_maximo = Decimal(str(get_val(row, 'estoque_maximo', 100) or 100))
-                    margem_lucro = Decimal(str(get_val(row, 'margem_lucro', 0) or 0))
-                    desconto_percentual = Decimal(str(get_val(row, 'desconto_percentual', 0) or 0))
-                    observacoes = self.sanitize_text(get_val(row, 'observacoes'))
-                    ativo = get_val(row, 'ativo', 1)
-                    ativo = bool(str(ativo).lower() in ['1', 'true', 'sim', 'yes']) if ativo is not None else True
-
-                    produto, created = Produto.objects.update_or_create(
+                    taxas_decimals.add(Decimal(str(t)).quantize(Decimal('0.00')))
+                except:
+                    taxas_decimals.add(Decimal('0.00'))
+            
+            # Buscar existentes
+            taxas_existentes = TaxaIVAAGT.objects.filter(
+                empresa=empresa,
+                tax_percentage__in=taxas_decimals
+            )
+            # Map: {Decimal('14.00'): TaxaIVAAGT(...)}
+            taxa_map = {t.tax_percentage: t for t in taxas_existentes}
+            
+            # Criar novas taxas
+            novas_taxas = []
+            for tax_val in taxas_decimals:
+                if tax_val not in taxa_map:
+                     novas_taxas.append(TaxaIVAAGT(
                         empresa=empresa,
-                        codigo_barras=codigo_barras,
-                        defaults={
-                            'codigo_interno': codigo_interno,
-                            'nome_produto': nome,
-                            'nome_comercial': nome_comercial,
-                            'categoria': categoria,
-                            'fornecedor': fornecedor,
-                            'fabricante': fabricante,
-                            'preco_custo': preco_custo,
-                            'preco_venda': preco_venda,
-                            'estoque_atual': estoque_atual,
-                            'estoque_minimo': estoque_minimo,
-                            'estoque_maximo': estoque_maximo,
-                            'margem_lucro': margem_lucro,
-                            'desconto_percentual': desconto_percentual,
-                            'observacoes': observacoes,
-                            'ativo': ativo,
-                        }
-                    )
+                        nome=f"IVA {tax_val}%",
+                        tax_type='IVA',
+                        tax_code='NOR',
+                        tax_percentage=tax_val,
+                        exemption_reason=None if tax_val > 0 else 'M99', # Se 0, precisa motivo, mas vamos null ou M99 genérico
+                        ativo=True
+                     ))
+            
+            if novas_taxas:
+                TaxaIVAAGT.objects.bulk_create(novas_taxas)
+                # Refetch para garantir integridade e pegar IDs se necessário
+                all_taxes = TaxaIVAAGT.objects.filter(empresa=empresa, tax_percentage__in=taxas_decimals)
+                taxa_map = {t.tax_percentage: t for t in all_taxes}
 
-                    if created:
-                        registros_criados += 1
-                    else:
-                        registros_atualizados += 1
+            # --- Categorias ---
+            nomes_cat = df['categoria'].dropna().unique()
+            nomes_cat_limpos = {self.sanitize_text(n) for n in nomes_cat if self.sanitize_text(n)}
+            
+            # Buscar existentes
+            cats_existentes = Categoria.objects.filter(
+                empresa=empresa, nome__in=nomes_cat_limpos
+            ).values_list('nome', 'id')
+            cat_map = {nome.lower(): pk for nome, pk in cats_existentes}
 
-                except Exception as e:
-                    logger.error(f"Erro ao processar linha {row.to_dict()}: {e}")
+            # Criar novas categorias
+            novas_cats = []
+            for nome in nomes_cat_limpos:
+                if nome.lower() not in cat_map:
+                    novas_cats.append(Categoria(empresa=empresa, nome=nome, ativa=True))
+            
+            if novas_cats:
+                Categoria.objects.bulk_create(novas_cats)
+                # Recarregar mapa
+                cats_all = Categoria.objects.filter(empresa=empresa, nome__in=nomes_cat_limpos)
+                cat_map = {c.nome.lower(): c for c in cats_all}
+            else:
+                # Recarregar objetos completos para o mapa
+                cats_all = Categoria.objects.filter(empresa=empresa, nome__in=nomes_cat_limpos)
+                cat_map = {c.nome.lower(): c for c in cats_all}
+
+            # --- Fabricantes ---
+            nomes_fab = df['fabricante'].dropna().unique()
+            nomes_fab_limpos = {self.sanitize_text(n) for n in nomes_fab if self.sanitize_text(n)}
+            
+            fabs_existentes = Fabricante.objects.filter(
+                empresa=empresa, nome__in=nomes_fab_limpos
+            ).values('nome')
+            fab_existem_set = {f['nome'].lower() for f in fabs_existentes}
+            
+            novos_fabs = []
+            for nome in nomes_fab_limpos:
+                if nome.lower() not in fab_existem_set:
+                    novos_fabs.append(Fabricante(empresa=empresa, nome=nome, ativo=True))
+            
+            if novos_fabs:
+                Fabricante.objects.bulk_create(novos_fabs)
+            
+            fabs_all = Fabricante.objects.filter(empresa=empresa, nome__in=nomes_fab_limpos)
+            fab_map = {f.nome.lower(): f for f in fabs_all}
+
+            # --- Fornecedores ---
+            # Fornecedor não criamos automaticamente por segurança, apenas buscamos
+            nomes_forn = df['fornecedor'].dropna().unique()
+            nomes_forn_limpos = {self.sanitize_text(n) for n in nomes_forn if self.sanitize_text(n)}
+            
+            forn_all = Fornecedor.objects.filter(
+                empresa=empresa
+            ).filter(
+                Q(nome_fantasia__in=nomes_forn_limpos) | Q(razao_social__in=nomes_forn_limpos)
+            )
+            # Mapper mais complexo: tenta nome fantasia e razao social
+            forn_map = {} # chave: nome limpo lower -> objeto
+            for f in forn_all:
+                if f.nome_fantasia: forn_map[f.nome_fantasia.strip().lower()] = f
+                if f.razao_social: forn_map[f.razao_social.strip().lower()] = f
+
+            # 4. Processamento Transacional
+            with transaction.atomic():
+                for index, row in df.iterrows():
+                    try:
+                        nome = self.sanitize_text(get_val(row, 'nome'))
+                        if not nome:
+                            continue
+
+                        # Resolve FKs via Mapas
+                        cat_nome = self.sanitize_text(get_val(row, 'categoria'))
+                        categoria = cat_map.get(cat_nome.lower()) if cat_nome else None
+
+                        fab_nome = self.sanitize_text(get_val(row, 'fabricante'))
+                        fabricante = fab_map.get(fab_nome.lower()) if fab_nome else None
+
+                        forn_nome = self.sanitize_text(get_val(row, 'fornecedor'))
+                        fornecedor = forn_map.get(forn_nome.lower()) if forn_nome else None
+
+                        # Resolve Taxa IVA
+                        # Obter valor e converter para Decimal para lookup
+                        def clean_decimal(v, default=0):
+                             if pd.isna(v) or v == '': return Decimal(default)
+                             try: return Decimal(str(v).replace(',', '.'))
+                             except: return Decimal(default)
+
+                        taxa_val_raw = clean_decimal(get_val(row, 'taxa'), 0)
+                        taxa_val_key = taxa_val_raw.quantize(Decimal('0.00')) # Chave do mapa
+                        # Fallback seguro para 0 se não achar (embora deva achar pois criamos todas)
+                        taxa_iva = taxa_map.get(taxa_val_key) or taxa_map.get(Decimal('0.00'))
+
+                        # Valores básicos
+                        codigo_barras = self.sanitize_text(get_val(row, 'codigo_barras'))
+                        if not codigo_barras:
+                             # Se não tem codigo de barras, geramos um temporário ou ignoramos?
+                             # Regra original: gerava UUID
+                             codigo_barras = f"AUTO-{uuid.uuid4().hex[:10]}"
+                        
+                        codigo_interno = self.sanitize_text(get_val(row, 'codigo_interno')) or f"INT-{uuid.uuid4().hex[:8]}"
+                        nome_comercial = self.sanitize_text(get_val(row, 'nome_comercial')) or nome
+
+                        # Numéricos
+                        preco_custo = clean_decimal(get_val(row, 'preco_custo'), 0)
+                        preco_venda = clean_decimal(get_val(row, 'preco_venda'), 0)
+                        estoque_atual = clean_decimal(get_val(row, 'estoque_atual'), 0)
+                        estoque_minimo = clean_decimal(get_val(row, 'estoque_minimo'), 1)
+                        estoque_maximo = clean_decimal(get_val(row, 'estoque_maximo'), 100)
+                        margem_lucro = clean_decimal(get_val(row, 'margem_lucro'), 0)
+                        desconto_percentual = clean_decimal(get_val(row, 'desconto_percentual'), 0)
+                        
+                        observacoes = self.sanitize_text(get_val(row, 'observacoes'))
+                        
+                        val_ativo = get_val(row, 'ativo', 1)
+                        ativo = str(val_ativo).lower() in ['1', 'true', 'sim', 'yes', 'verdadeiro']
+
+                        # --- Produto: Update ou Create ---
+                        produto, created = Produto.objects.update_or_create(
+                            empresa=empresa,
+                            codigo_barras=codigo_barras,
+                            defaults={
+                                'codigo_interno': codigo_interno,
+                                'nome_produto': nome,
+                                'nome_comercial': nome_comercial,
+                                'categoria': categoria,
+                                'fornecedor': fornecedor,
+                                'fabricante': fabricante,
+                                'taxa_iva': taxa_iva,
+                                'preco_custo': preco_custo,
+                                'preco_venda': preco_venda,
+                                'estoque_atual': estoque_atual,
+                                'estoque_minimo': estoque_minimo,
+                                'estoque_maximo': estoque_maximo,
+                                'margem_lucro': margem_lucro,
+                                'desconto_percentual': desconto_percentual,
+                                'observacoes': observacoes,
+                                'ativo': ativo,
+                            }
+                        )
+
+                        if created:
+                            registros_criados += 1
+                        else:
+                            registros_atualizados += 1
+
+                        # --- Lote / Stock ---
+                        numero_lote = self.sanitize_text(get_val(row, 'numero_lote'))
+                        data_validade_raw = get_val(row, 'data_validade')
+
+                        if numero_lote and data_validade_raw:
+                            # Tentar parse da data
+                            data_validade = None
+                            if hasattr(data_validade_raw, 'date'): # Se for datetime/timestamp do pandas
+                                data_validade = data_validade_raw.date()
+                            else:
+                                try:
+                                    # Tenta formatos comuns
+                                    d_str = str(data_validade_raw).strip()
+                                    for fmt in ('%Y-%m-%d', '%d/%m/%Y', '%Y/%m/%d', '%d-%m-%Y'):
+                                        try:
+                                            data_validade = datetime.strptime(d_str, fmt).date()
+                                            break
+                                        except ValueError:
+                                            continue
+                                except Exception:
+                                    pass
+
+                            if data_validade:
+                                # Criar ou atualizar lote
+                                # Se o ficheiro diz estoque_atual = 50, assumimos que esse lote tem 50?
+                                # A lógica original usava 'estoque_atual' para o produto.
+                                # Vamos atribuir esse estoque a este lote.
+                                
+                                Lote.objects.update_or_create(
+                                    produto=produto,
+                                    numero_lote=numero_lote,
+                                    defaults={
+                                        'data_validade': data_validade,
+                                        'quantidade_inicial': int(estoque_atual),
+                                        'quantidade_atual': int(estoque_atual),
+                                        'preco_custo_lote': preco_custo,
+                                    }
+                                )
+
+                    except Exception as e:
+                        logger.error(f"Erro ao processar linha {index} ({row.to_dict()}): {e}")
 
         except Exception as e:
             logger.exception(f"Erro geral ao processar arquivo: {e}")
@@ -1262,7 +1494,7 @@ class ExportarProdutosExcelView(LoginRequiredMixin, View):
             return HttpResponseBadRequest("Empresa não encontrada")
 
         produtos = Produto.objects.filter(empresa=empresa).select_related(
-            'categoria', 'fornecedor', 'fabricante'
+            'categoria', 'fornecedor', 'fabricante', 'taxa_iva'
         )
 
         def to_float(v):
@@ -1320,6 +1552,7 @@ class ExportarProdutosExcelView(LoginRequiredMixin, View):
         # ===================================
         headers = [
             'nome_produto', 'codigo_barras', 'categoria', 'preco_custo', 'preco_venda',
+            'Taxa IVA (%)',
             'nome_comercial', 'codigo_interno', 'fabricante', 'fornecedor',
             'estoque_atual', 'ativo'
         ]
@@ -1343,6 +1576,7 @@ class ExportarProdutosExcelView(LoginRequiredMixin, View):
                 p.categoria.nome if p.categoria else '-',
                 to_float(p.preco_custo),
                 to_float(p.preco_venda),
+                float(p.taxa_iva.tax_percentage) if p.taxa_iva else 0.00,
                 p.nome_comercial,
                 p.codigo_interno,
                 p.fabricante.nome if p.fabricante else '-',
@@ -1427,6 +1661,7 @@ class ExportarProdutosPDFView(LoginRequiredMixin, View):
         # ==============================
         # LOGOTIPO DA EMPRESA
         # ==============================
+        # ==============================
         if empresa.foto and hasattr(empresa.foto, 'url'):
             try:
                 resp = requests.get(empresa.foto.url)
@@ -1455,18 +1690,20 @@ class ExportarProdutosPDFView(LoginRequiredMixin, View):
         # ==============================
 
         tabela_dados = [
-            ["Nº", "Produto", "Preço de Venda (AKZ)", "Estoque"]
+            ["Nº", "Produto", "Preço (AKZ)", "Taxa IVA", "Estoque"]
         ]
 
         for i, p in enumerate(produtos, start=1):
+            iva_str = f"{p.taxa_iva.tax_percentage:.2f}%" if p.taxa_iva else "0.00%"
             tabela_dados.append([
                 i,
                 p.nome_produto,
                 f"{p.preco_venda:.2f}",
+                iva_str,
                 p.estoque_atual
             ])
 
-        tabela = Table(tabela_dados, colWidths=[1.5*cm, 9*cm, 3*cm, 2.5*cm])
+        tabela = Table(tabela_dados, colWidths=[1.5*cm, 8*cm, 3*cm, 2.5*cm, 2*cm])
 
 
         tabela.setStyle(TableStyle([

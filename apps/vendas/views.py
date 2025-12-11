@@ -109,6 +109,8 @@ from django.utils import timezone
 from decimal import Decimal
 from .models import FaturaCredito, Recibo 
 from apps.core.services import gerar_numero_documento
+from apps.configuracoes.services.personalizacao_service import get_personalizacao_empresa, personalizacao_context
+
 
 from django.db import transaction
 from django.views.decorators.http import require_POST
@@ -2016,7 +2018,7 @@ from django.contrib.auth.decorators import permission_required
 
 
 
- # Fatura recibo
+
 # Fatura recibo
 @require_GET
 @requer_permissao("vender") 
@@ -2173,6 +2175,7 @@ def fatura_pdf_view(request, venda_id, tipo):
     # QR Code
     qr_code_base64 = gerar_qr_fatura(venda, request=request)
 
+    personalizacao = personalizacao_context(get_personalizacao_empresa(empresa), request)
     context = {
         'empresa': empresa_info,
         'cliente': cliente_info,
@@ -2182,6 +2185,7 @@ def fatura_pdf_view(request, venda_id, tipo):
         'dados_bancarios': dados_bancarios,
         'qr_code_base64': qr_code_base64,
         'request': request,
+        'personalizacao': personalizacao,
     }
     
     html_string = render_to_string(template_name, context)
@@ -2280,7 +2284,7 @@ def fatura_credito_pdf_view(request, fatura_id, tipo):
         # c) Informações da Fatura
         fatura_info = {
             'numero': fatura_credito.numero_documento, 
-            'data_emissao': fatura_credito.data_emissao,
+            'data_emissao': fatura_credito.data_fatura,
             'data_vencimento': fatura_credito.data_vencimento,
             'observacoes': fatura_credito.observacoes,
             'tipo_venda': "Fatura a Crédito (FT)", 
@@ -2338,6 +2342,7 @@ def fatura_credito_pdf_view(request, fatura_id, tipo):
 
         qr_code_base64 = gerar_qr_fatura(fatura_credito, request)
 
+        personalizacao = personalizacao_context(get_personalizacao_empresa(empresa), request)
         context = {
             'empresa': empresa_info,
             'cliente': cliente_info,
@@ -2347,6 +2352,7 @@ def fatura_credito_pdf_view(request, fatura_id, tipo):
             'dados_bancarios': dados_bancarios,
             'qr_code_base64': qr_code_base64,
             'request': request,
+            'personalizacao': personalizacao,
         }
         
         # 4. GERAÇÃO DO PDF
@@ -2516,6 +2522,7 @@ def proforma_pdf_view(request, proforma_id):
 
     qr_code_base64 = gerar_qr_fatura(proforma, request=request)
     
+    personalizacao = personalizacao_context(get_personalizacao_empresa(empresa), request)
     context = {
         'empresa': empresa_info,
         'cliente': cliente_info,
@@ -2525,6 +2532,7 @@ def proforma_pdf_view(request, proforma_id):
         'dados_bancarios': dados_bancarios,
         'qr_code_base64': qr_code_base64,
         'request': request,
+        'personalizacao': personalizacao,
     }
     
     html_string = render_to_string(template_name, context)
@@ -2533,6 +2541,7 @@ def proforma_pdf_view(request, proforma_id):
     response = HttpResponse(pdf, content_type='application/pdf')
     response['Content-Disposition'] = f'inline; filename="{filename}"'
     return response
+
 
 @requer_permissao("emitir_recibos")
 def recibo_pdf_view(request, recibo_id):
@@ -2642,6 +2651,7 @@ def recibo_pdf_view(request, recibo_id):
         qr_code_base64 = gerar_qr_fatura(recibo, request=request)
 
         # 6. Contexto final
+        personalizacao = personalizacao_context(get_personalizacao_empresa(empresa), request)
         context = {
             'fatura': documento_recibo,
             'itens_venda': itens_recibo,
@@ -2651,6 +2661,7 @@ def recibo_pdf_view(request, recibo_id):
             'dados_bancarios': dados_bancarios,
             'qr_code_base64': qr_code_base64,
             'request': request,
+            'personalizacao': personalizacao,
         }
 
         # 7. Renderizar PDF

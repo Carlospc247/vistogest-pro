@@ -447,6 +447,9 @@ class TaxaIVAAGTViewSet(viewsets.ModelViewSet):
             'Company': empresa.nome
         })
 
+
+
+
 class AssinaturaDigitalViewSet(viewsets.ModelViewSet):
     
     """

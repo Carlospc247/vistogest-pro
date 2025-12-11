@@ -986,4 +986,3 @@ class CalcularFreteAPIView(APIView):
             "prazo_dias": prazo_dias,
             "transportadora": "Transportadora XYZ"
         }, status=status.HTTP_200_OK)
-

@@ -16,6 +16,8 @@ urlpatterns = [
     path('criar/', views.CriarProdutoView.as_view(), name='criar'),
     path('<int:produto_id>/editar/', views.EditarProdutoView.as_view(), name='editar'),
     path('<int:produto_id>/deletar/', views.DeletarProdutoView.as_view(), name='deletar'),
+    path('deletar-todos-tudo/', views.DeletarTodosProdutosLotesView.as_view(), name='deletar_todos_tudo'),
+    path('deletar-todos-soft/', views.DeletarTodosProdutosManterLotesView.as_view(), name='deletar_todos_soft'),
     path('<int:produto_id>/toggle/', views.ToggleProdutoView.as_view(), name='toggle_ativo'),
 
     # --- CATEGORIAS & FABRICANTES ---

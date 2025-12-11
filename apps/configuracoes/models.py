@@ -3,6 +3,8 @@ from django.db import models
 from django.core.validators import RegexValidator
 from apps.core.models import TimeStampedModel
 from datetime import date
+from cloudinary.models import CloudinaryField
+
 
 # ==============================================================================
 # MODELOS ESSENCIAIS PARA A OPERAÇÃO
@@ -129,8 +131,9 @@ class PersonalizacaoInterface(TimeStampedModel):
     )
     
     # Logo
-    logo_principal = models.ImageField(upload_to='personalizacao/logos/', null=True, blank=True)
-    
+    logo_principal = CloudinaryField('foto', blank=True, null=True)
+
+
     class Meta:
         verbose_name = "Personalização de Interface"
         verbose_name_plural = "Personalizações de Interface"

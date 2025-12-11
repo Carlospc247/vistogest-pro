@@ -8,9 +8,29 @@
         rel="stylesheet">
     <style>
         :root {
-            --primary: #1a202c;
-            --secondary: #64748b;
-            --accent: #2563eb;
+            --primary: {
+                    {
+                    personalizacao.cor_primaria|default: "#1a202c"
+                }
+            }
+
+            ;
+
+            --secondary: {
+                    {
+                    personalizacao.cor_secundaria|default: "#64748b"
+                }
+            }
+
+            ;
+
+            --accent: {
+                    {
+                    personalizacao.cor_primaria|default: "#2563eb"
+                }
+            }
+
+            ;
             /* Royal Blue */
             --border: #e2e8f0;
             --bg-light: #f8fafc;
@@ -19,7 +39,8 @@
 
         @page {
             size: A4;
-            margin: 1.5cm 1.5cm 4.5cm 1.5cm; /* Increased bottom margin for footer */
+            margin: 1.5cm 1.5cm 4.5cm 1.5cm;
+            /* Increased bottom margin for footer */
 
             @bottom-center {
                 content: element(page-footer);
@@ -318,8 +339,8 @@
     <!-- Header -->
     <div class="header">
         <div class="logo-container">
-            {% if empresa.logo_url %}
-            <img src="{{ empresa.logo_url }}" alt="Logo">
+            {% if personalizacao.logo %}
+            <img src="{{ personalizacao.logo }}" alt="Logo">
             {% else %}
             <div class="company-name">{{ empresa.razao_social }}</div>
             {% endif %}
@@ -327,7 +348,9 @@
         <div class="company-info">
             <div class="company-name">{{ empresa.razao_social|default:empresa.nome_fantasia }}</div>
             <div class="text-sm text-secondary">
+                {% if personalizacao.mostrar_endereco %}
                 {{ empresa.endereco|default:"Endereço não informado" }}<br>
+                {% endif %}
                 NIF: {{ empresa.nif|default:"N/A" }} | Tel: {{ empresa.telefone|default:"N/A" }}<br>
                 {{ empresa.email|default:"" }}<br>
                 {{ empresa.site|default:"" }}
@@ -339,10 +362,7 @@
     <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 0.8cm;">
         <div>
             <div class="doc-title">
-                {% if 'Proforma' in fatura.tipo_venda %}FATURA PROFORMA
-                {% elif 'Recibo' in fatura.tipo_venda and 'Fatura' not in fatura.tipo_venda %}RECIBO
-                {% elif 'Crédito' in fatura.tipo_venda %}FATURA
-                {% else %}FATURA RECIBO{% endif %}
+                {{ fatura.tipo_venda|upper }}
             </div>
             <div class="doc-number">Nº {{ fatura.numero }}</div>
         </div>
@@ -394,10 +414,12 @@
                 <span>Kwanza (AOA)</span>
             </div>
 
+            {% if fatura.forma_pagamento %}
             <div style="display: flex; justify-content: space-between;">
                 <span class="text-secondary text-sm">Forma Pagamento:</span>
-                <span>{{ fatura.forma_pagamento|default:"Outros" }}</span>
+                <span>{{ fatura.forma_pagamento }}</span>
             </div>
+            {% endif %}
         </div>
     </div>
 
@@ -418,9 +440,9 @@
             <tr>
                 <td class="text-secondary">
                     {% if item.produto %}
-                        {{ item.produto.codigo_barras|default:item.produto.codigo_interno|default:"-" }}
+                    {{ item.produto.codigo_barras|default:item.produto.codigo_interno|default:"-" }}
                     {% else %}
-                        -
+                    -
                     {% endif %}
                 </td>
                 <td>
@@ -435,9 +457,9 @@
                 <td class="text-right">{{ item.preco_unitario|floatformat:2 }}</td>
                 <td class="text-center text-secondary">
                     {% if item.desconto_percentual > 0 %}
-                        {{ item.desconto_percentual|floatformat:0 }}%
+                    {{ item.desconto_percentual|floatformat:0 }}%
                     {% else %}
-                        -
+                    -
                     {% endif %}
                 </td>
                 <td class="text-right font-bold">{{ item.total|floatformat:2 }}</td>
@@ -468,14 +490,14 @@
                 <td class="text-right total-row-final">{{ totais.total|floatformat:2 }} Kz</td>
             </tr>
 
-            {% if totais.valor_pago > 0 %}
+            {% if 'Recibo' in fatura.tipo_venda and totais.valor_pago > 0 %}
             <tr>
                 <td class="text-right text-secondary" style="padding-top: 10px;">Valor Pago</td>
                 <td class="text-right" style="padding-top: 10px;">{{ totais.valor_pago|floatformat:2 }} Kz</td>
             </tr>
             {% endif %}
 
-            {% if totais.troco > 0 %}
+            {% if 'Recibo' in fatura.tipo_venda and totais.troco > 0 %}
             <tr>
                 <td class="text-right text-secondary">Troco</td>
                 <td class="text-right">{{ totais.troco|floatformat:2 }} Kz</td>
@@ -487,7 +509,7 @@
     <!-- Footer / Bank Details -->
     <div class="footer-grid">
         <div class="bank-details">
-            {% if dados_bancarios %}
+            {% if dados_bancarios and personalizacao.mostrar_banco %}
             <div class="info-label mb-1">Coordenadas Bancárias</div>
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
                 {% for conta in dados_bancarios %}
@@ -522,17 +544,18 @@
         <div class="page-footer-content">
             <div class="footer-left">
                 {% if 'Proforma' in fatura.tipo_venda %}
-                    <strong>Este documento não serve de fatura.</strong><br>
-                    Emitido por: {{ request.user.get_full_name|default:request.user.username }}<br>
+                <strong>Este documento não serve de fatura.</strong><br>
+                Emitido por: {{ request.user.get_full_name|default:request.user.username }}<br>
                 {% else %}
-                    Os bens/serviços foram colocados à disposição do adquirente na data do documento.<br>
-                    {{ empresa.endereco|default:"" }}<br>
+                Os bens/serviços foram colocados à disposição do adquirente na data do documento.<br>
+                {{ empresa.endereco|default:"" }}<br>
                 {% endif %}
                 <strong>Vs78</strong> - Processado por Programa Validado nº 567/AGT/2022
             </div>
             <div class="footer-right">
                 {% if qr_code_base64 %}
-                <img src="{{ qr_code_base64 }}" style="width: 60px; height: 60px; border: 1px solid #e2e8f0;" alt="QR Code">
+                <img src="{{ qr_code_base64 }}" style="width: 60px; height: 60px; border: 1px solid #e2e8f0;"
+                    alt="QR Code">
                 {% endif %}
             </div>
         </div>

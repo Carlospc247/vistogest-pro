@@ -746,42 +746,6 @@ class ValidarLoteAPIView(LoginRequiredMixin, APIView):
 
 
 
-
-##################################
-"""from django.shortcuts import get_object_or_404, redirect, render
-from django.views import View
-from django.contrib import messages
-from .models import MovimentacaoEstoque
-from apps.produtos.models import Produto
-from django.contrib.auth.mixins import LoginRequiredMixin
-
-class AdicionarEstoqueView(LoginRequiredMixin, View):
-    template_name = "estoque/adicionar_estoque.html"
-
-    def get(self, request, produto_id):
-        produto = get_object_or_404(Produto, pk=produto_id)
-        return render(request, self.template_name, {"produto": produto})
-
-    def post(self, request, produto_id):
-        produto = get_object_or_404(Produto, pk=produto_id)
-        quantidade = int(request.POST.get("quantidade", 0))
-        motivo = request.POST.get("motivo", "Entrada manual de estoque")
-
-        if quantidade > 0:
-            MovimentacaoEstoque.objects.create(
-                produto=produto,
-                usuario=request.user,
-                tipo="entrada",
-                quantidade=quantidade,
-                motivo=motivo,
-            )
-            messages.success(request, f"Adicionado {quantidade} unidades ao estoque de {produto.nome_produto}.")
-        else:
-            messages.error(request, "Informe uma quantidade válida.")
-
-        return redirect("produtos:lista")  # volta pra listagem de produtos
-
-"""
 from django.views.generic import CreateView
 from django.shortcuts import get_object_or_404, redirect
 from django.contrib import messages
