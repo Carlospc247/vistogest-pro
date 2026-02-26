@@ -268,11 +268,21 @@ class ContabilidadePermission(permissions.BasePermission):
         
         # Verificar permissões específicas de contabilidade
         contabil_permissions = [
-            'financeiro.add_lancamentofinanceiro',
-            'financeiro.change_lancamentofinanceiro',
-            'financeiro.view_lancamentofinanceiro',
-            'financeiro.add_planocontas',
-            'financeiro.change_planocontas',
+            'financeiro.add_configuracaoimposto',
+            'financeiro.change_configuracaoimposto',
+            'financeiro.view_configuracaoimposto',
+            'financeiro.add_impostotributo',
+            'financeiro.change_impostotributo',
+            'financeiro.view_impostotributo',
+            'financeiro.add_movimentocaixa',
+            'financeiro.change_movimentocaixa',
+            'financeiro.view_movimentocaixa',
+            'financeiro.add_conciliacaobancaria',
+            'financeiro.change_conciliacaobancaria',
+            'financeiro.view_conciliacaobancaria',
+            'financeiro.add_fluxocaixa',
+            'financeiro.change_fluxocaixa',
+            'financeiro.view_fluxocaixa',
         ]
         
         if user.has_perms(contabil_permissions):

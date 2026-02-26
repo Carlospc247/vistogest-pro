@@ -1,7 +1,7 @@
 # apps/configuracoes/tasks.py
 from celery import shared_task
 from django.contrib.auth import get_user_model
-from apps.core.models import Empresa
+from apps.empresas.models import Empresa
 from apps.configuracoes.services.backup_service import executar_backup, limpar_backups_antigos
 
 @shared_task

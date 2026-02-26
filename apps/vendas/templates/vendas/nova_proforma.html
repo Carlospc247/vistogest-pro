@@ -337,10 +337,22 @@
                     Filtrar por Categoria
                 </h3>
                 <div id="categoriaButtons" class="categoria-buttons">
-                    <button class="categoria-btn active" onclick="filtrarPorCategoria('todos')">
-                        Todos
-                    </button>
-                </div>
+                    <button class="categoria-btn active" onclick="filtrarPorCategoria('todos')">Todos</button>
+                    </div>
+            </div>
+
+            <div class="content-tabs">
+                {% if regime_empresa == 'COMERCIO' or regime_empresa == 'MISTO' %}
+                <button id="tabProdutos" class="tab-btn active" onclick="alternarAba('produtos')">
+                    <i class="fas fa-box mr-2"></i> Produtos
+                </button>
+                {% endif %}
+
+                {% if regime_empresa == 'SERVICOS' or regime_empresa == 'MISTO' %}
+                <button id="tabServicos" class="tab-btn {% if regime_empresa == 'SERVICOS' %}active{% endif %}" onclick="alternarAba('servicos')">
+                    <i class="fas fa-tools mr-2"></i> Serviços
+                </button>
+                {% endif %}
             </div>
 
             <!-- Abas de Produtos/Serviços -->
@@ -452,6 +464,7 @@
     let proformaAtualId = null;
     let categoriaAtual = 'todos';
     let abaAtual = 'produtos';
+    const regime = "{{ regime_empresa|default:'COMERCIO' }}";
 
     function getCookie(name) {
         let cookieValue = null;
@@ -477,11 +490,24 @@
     }
 
     async function carregarDadosIniciais() {
-        await Promise.all([
-            carregarCategorias(),
-            carregarProdutos(),
-            carregarServicos()
-        ]);
+        // Injeção direta do Backend (Segurança e Velocidade)
+        produtos = {{ produtos|safe|default:"[]" }};
+        servicos = {{ servicos|safe|default:"[]" }};
+        
+        if (regime === 'SERVICOS') {
+            abaAtual = 'servicos';
+            renderizarServicos(servicos);
+        } else {
+            // Se for COMERCIO ou MISTO, começa pelos produtos
+            renderizarProdutos(produtos);
+        }
+        
+        // Chamamos apenas o que ainda precisa de busca externa (opcional)
+        await carregarCategorias();
+        await carregarFormasPagamento();
+        
+        // Foco automático no input de busca para agilizar a venda
+        document.getElementById('searchInput').focus();
     }
 
     async function carregarCategorias() {

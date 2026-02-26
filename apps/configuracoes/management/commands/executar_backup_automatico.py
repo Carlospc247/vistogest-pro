@@ -1,6 +1,6 @@
 # apps/configuracoes/management/commands/executar_backup_automatico.py
 from django.core.management.base import BaseCommand
-from apps.core.models import Empresa
+from apps.empresas.models import Empresa
 from apps.configuracoes.services.backup_service import executar_backup, limpar_backups_antigos
 
 class Command(BaseCommand):

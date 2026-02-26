@@ -1,0 +1,13 @@
+<a href="https://wa.me/{{ dados.numero_whatsapp }}?text={{ dados.mensagem_predefinida|urlencode }}" 
+   target="_blank" 
+   class="whatsapp-btn shadow-lg d-flex align-items-center justify-content-center"
+   style="position: fixed; bottom: 30px; {{ dados.posicao|default:'right' }}: 30px; z-index: 1000; width: 60px; height: 60px; background-color: #25D366; color: white; border-radius: 50%; text-decoration: none; transition: transform 0.3s;">
+    <i class="fab fa-whatsapp fa-2x"></i>
+    <span class="tooltip-text">{{ dados.texto_tooltip }}</span>
+</a>
+
+<style>
+    .whatsapp-btn:hover { transform: scale(1.1); color: white; }
+    .tooltip-text { position: absolute; right: 70px; background: #333; color: #fff; padding: 5px 10px; border-radius: 5px; font-size: 12px; white-space: nowrap; visibility: hidden; opacity: 0; transition: 0.3s; }
+    .whatsapp-btn:hover .tooltip-text { visibility: visible; opacity: 1; }
+</style>

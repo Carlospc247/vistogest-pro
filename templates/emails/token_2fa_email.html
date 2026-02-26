@@ -1,0 +1,16 @@
+<div style="font-family: sans-serif; max-width: 500px; margin: auto; border: 1px solid #ddd; padding: 20px; border-radius: 10px;">
+    <h2 style="color: #1e40af; text-align: center;">Verificação de Acesso</h2>
+    <p>Olá, <strong>{{ user.username }}</strong>,</p>
+    <p>Um novo dispositivo tentou aceder à sua conta a partir do IP: <code style="background: #eee; padding: 2px 5px;">{{ ip }}</code>.</p>
+    <p>Use o código abaixo para autorizar este acesso:</p>
+    
+    <div style="text-align: center; margin: 30px 0;">
+        <span style="font-size: 32px; font-weight: bold; letter-spacing: 5px; color: #ea580c; border: 2px dashed #ea580c; padding: 10px 20px;">
+            {{ token }}
+        </span>
+    </div>
+
+    <p style="font-size: 13px; color: #666;">Este código expira em <strong>{{ expire }} minutos</strong>.</p>
+    <hr style="border: 0; border-top: 1px solid #eee;">
+    <p style="font-size: 11px; color: #999; text-align: center;">© 2026 Vendor VistoGEST - Segurança Ativa SOTARQ</p>
+</div>

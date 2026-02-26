@@ -1,13 +1,10 @@
 # apps/configuracoes/urls.py
 from django.urls import path, include
-from rest_framework.routers import DefaultRouter
 from . import views
-from .api import viewsets
+
+
 
 # API Router
-router = DefaultRouter()
-router.register(r'parametros', viewsets.ParametroSistemaViewSet)
-router.register(r'backups', viewsets.BackupViewSet)
 
 app_name = 'configuracoes'
 

@@ -19,7 +19,7 @@ def test_categorias_api():
     
     # Mock user/empresa if needed (views usually require login)
     from django.contrib.auth.models import User, AnonymousUser
-    from apps.core.models import Empresa
+    from apps.empresas.models import Empresa
     
     # Create dummy user/empresa if not exists
     empresa, _ = Empresa.objects.get_or_create(nome="Test Company", nif="999999999")

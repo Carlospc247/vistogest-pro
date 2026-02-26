@@ -100,3 +100,38 @@ def notifications_context(request):
         'notifications_count': len(notifications)
     }
 
+
+
+def modules_context(request):
+    if not request.user.is_authenticated or not hasattr(request.user, 'empresa'):
+        return {}
+    
+    empresa = request.user.empresa
+    licenca = getattr(empresa, "licenca", None)
+    modulos_ativos = []
+    
+    if licenca:
+        modulos_ativos = list(licenca.plano.modulos.filter(ativo=True).values_list('slug', flat=True))
+
+    return {
+        "modulos_ativos": modulos_ativos
+    }
+
+from django.db import connection
+
+def regime_context(request):
+    """Atalhos globais para controle de interface por regime e schema."""
+    if not request.user.is_authenticated:
+        return {}
+
+    empresa = getattr(request.user, 'empresa', None)
+    regime = getattr(empresa, 'regime_empresa', 'COMERCIO')
+    
+    return {
+        'IS_PUBLIC': connection.schema_name == 'public',
+        'IS_COMERCIO': regime == 'COMERCIO',
+        'IS_SERVICOS': regime == 'SERVICOS',
+        'IS_MISTO': regime == 'MISTO',
+        'PODE_VENDER_PRODUTOS': regime in ['COMERCIO', 'MISTO'],
+        'PODE_VENDER_SERVICOS': regime in ['SERVICOS', 'MISTO'],
+    }

@@ -1,0 +1,3 @@
+{% for secao in secoes %}
+    {% include "site/sections/"|add:secao.tipo|add:".html" with dados=secao.dados %}
+{% endfor %}

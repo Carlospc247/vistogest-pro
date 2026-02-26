@@ -11,7 +11,7 @@ from django.contrib.admin.views.decorators import staff_member_required
 from django.http import HttpResponse, Http404
 from django.shortcuts import get_object_or_404
 from django.views.decorators.http import require_http_methods
-from apps.core.models import Empresa
+from apps.empresas.models import Empresa
 from django.http import FileResponse
 from django.contrib.admin.views.decorators import staff_member_required
 
@@ -32,22 +32,20 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from django.http import HttpResponse, Http404
 from django.contrib.auth.decorators import login_required, user_passes_test
+
+from apps.fiscal.services.assinatura_service import AssinaturaDigitalService
+from apps.fiscal.services.pdf_agt_service import PDFDeclaracaoService
+from apps.fiscal.services.utils import FiscalDashboardService, FiscalServiceError, RetencaoFonteService, SAFTExportService, TaxaIVAService, validar_documentos_fiscais
 from .models import AssinaturaDigital
 from django.shortcuts import get_object_or_404
-from apps.fiscal.servicos.audit_service import AuditLogService
+from apps.fiscal.services.audit_service import AuditLogService
 from apps.fiscal.signals import gerar_backup_fiscal, gerar_relatorio_retencoes, gerar_relatorio_taxas
 from apps.fiscal.utility.pdf import gerar_pdf_submissao_agt
-from apps.fiscal.utility.pdf_agt_service import PDFAGTService
-from apps.fiscal.utils import validar_documentos_fiscais
 from .models import SAFTExport, TaxaIVAAGT, AssinaturaDigital, RetencaoFonte
-from .services import (
-    TaxaIVAService, AssinaturaDigitalService, RetencaoFonteService,
-    FiscalDashboardService, FiscalServiceError
-)
 from .serializers import (
     TaxaIVAAGTSerializer, AssinaturaDigitalSerializer, RetencaoFonteSerializer
 )
-from apps.core.models import Empresa
+from apps.empresas.models import Empresa
 from apps.core.permissions import EmpresaPermission
 import io
 from datetime import datetime
@@ -104,7 +102,6 @@ from apps.core.permissions import (
 )
 
 from .models import TaxaIVAAGT, AssinaturaDigital, RetencaoFonte
-#from .utils import gerar_chaves_assinatura  # função auxiliar opcional
 import logging
 import io
 import zipfile
@@ -118,7 +115,6 @@ from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
 
 from apps.core.permissions import MultiplePermissions, EmpresaPermission, FiscalPermission
-from .models import RetencaoFonte, TaxaIVAAGT, AssinaturaDigital
 import logging
 import platform
 import socket
@@ -142,7 +138,6 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.views import View
 from apps.core.permissions import MultiplePermissions, EmpresaPermission, FiscalPermission  # ajusta o import conforme teu projeto
 from django.contrib.auth.mixins import AccessMixin
-from apps.fiscal.services import SAFTExportService
 
 
 
@@ -221,6 +216,7 @@ logger = logging.getLogger('fiscais.views')
 
 class SAFTExportView(LoginRequiredMixin, PermissaoAcaoMixin, APIView):
     acao_requerida = 'exportar_saft'
+    module_name = 'fiscal'
     """
     View para exportação completa de dados SAF-T AO
     """
@@ -278,6 +274,7 @@ class SAFTExportView(LoginRequiredMixin, PermissaoAcaoMixin, APIView):
 
 class FiscalDashboardView(LoginRequiredMixin, PermissaoAcaoMixin, APIView):
     acao_requerida = 'acessar_dashboard_fiscal'
+    module_name = 'fiscal'
     """
     View para dashboard fiscal com métricas principais
     """
@@ -812,6 +809,7 @@ from django.db.models import Q
 # ===============================
 class FiscalDashboardTemplateView(LoginRequiredMixin, PermissaoAcaoMixin, TemplateView):
     acao_requerida = 'acessar_painel_principal_fiscal'
+    module_name = 'fiscal'
     """
     Painel principal da área fiscal — apresenta resumo de taxas, retenções e status SAF-T.
     """
@@ -1299,7 +1297,6 @@ from django.http import HttpResponse, JsonResponse
 from django.utils import timezone
 from datetime import datetime
 import json, traceback
-from apps.fiscal.services import SAFTExportService
 
 
 class SAFTExportWebView(PermissaoAcaoMixin, View):
@@ -2103,6 +2100,6 @@ def download_pdf_agt(request, empresa_id):
     empresa = get_object_or_404(Empresa, id=empresa_id)
     assinatura = get_object_or_404(AssinaturaDigital, empresa=empresa)
 
-    return PDFAGTService.gerar_pdf_declaracao(empresa, assinatura)
+    return PDFDeclaracaoService.gerar_pdf_declaracao(empresa, assinatura)
 
 

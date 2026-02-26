@@ -2,7 +2,7 @@
 from django.db import models
 from django.core.validators import MinValueValidator, MaxValueValidator
 from django.core.exceptions import ValidationError
-from apps.core.models import Categoria, TimeStampedModel, Empresa, Usuario, Loja
+from apps.core.models import TimeStampedModel, Usuario
 from apps.clientes.models import Cliente
 from apps.funcionarios.models import Funcionario
 from apps.produtos.models import Produto
@@ -15,10 +15,9 @@ from django.db import models
 from django.utils import timezone
 from datetime import date, timedelta
 from decimal import Decimal
-
-from apps.core.models import TimeStampedModel, Empresa, Usuario, Categoria, Loja
+from apps.empresas.models import Empresa, Categoria, Loja
+from apps.core.models import TimeStampedModel, Usuario
 from apps.clientes.models import Cliente
-from apps.funcionarios.models import Funcionario
 from cloudinary.models import CloudinaryField
 
 
@@ -104,7 +103,7 @@ class AgendamentoServico(TimeStampedModel):
     # Relações
     servico = models.ForeignKey(Servico, on_delete=models.PROTECT, related_name='agendamentos')
     cliente = models.ForeignKey(Cliente, on_delete=models.PROTECT, related_name='agendamentos')
-    funcionario = models.ForeignKey(Funcionario, on_delete=models.PROTECT, related_name='agendamentos')
+    funcionario = models.ForeignKey(Funcionario, on_delete=models.PROTECT, related_name='agendamentos', null=True, blank=True) # permitimos null para não quebrar com os agendamentos vindos diretos do site
     empresa = models.ForeignKey(Empresa, on_delete=models.CASCADE, related_name='agendamentos_servicos')
     
     # Detalhes do Agendamento

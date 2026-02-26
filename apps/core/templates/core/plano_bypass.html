@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block content %}
+<div class="container-fluid py-4 bg-light">
+    <div class="row mb-4">
+        <div class="col-xl-3 col-md-6">
+            <div class="card border-0 shadow-sm bg-primary text-white">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between">
+                        <div>
+                            <p class="text-white-50 mb-1 small uppercase fw-bold">Total a Receber (2%)</p>
+                            <h2 class="mb-0">{{ total_global|floatformat:2 }} Kz</h2>
+                        </div>
+                        <div class="align-self-center"><i class="fas fa-hand-holding-usd fa-2x"></i></div>
+                    </div>
+                    <div class="mt-3 small">
+                        <span class="badge bg-white text-primary">✔ {{ relatorio|length }} Empresas Ativas</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="col-xl-3 col-md-6">
+            <div class="card border-0 shadow-sm bg-success text-white">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between">
+                        <div>
+                            <p class="text-white-50 mb-1 small uppercase fw-bold">Faturamento Global Tenants</p>
+                            <h2 class="mb-0">{{ total_faturado_geral|floatformat:2 }} Kz</h2>
+                        </div>
+                        <div class="align-self-center"><i class="fas fa-chart-line fa-2x"></i></div>
+                    </div>
+                    <p class="mt-3 mb-0 small text-white-50">Volume total transacionado no ecossistema</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-lg-8">
+            <div class="card border-0 shadow-sm mb-4">
+                <div class="card-header bg-white border-0 py-3">
+                    <h5 class="mb-0 text-dark">Distribuição de Receita por Empresa</h5>
+                </div>
+                <div class="card-body">
+                    <canvas id="bypassChart" height="100"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-lg-4">
+            <div class="card border-0 shadow-sm">
+                <div class="card-header bg-white border-0 py-3">
+                    <h5 class="mb-0 text-dark">Maiores Comissões</h5>
+                </div>
+                <div class="list-group list-group-flush">
+                    {% for item in relatorio|dictsortreversed:"nossa_parte" %}
+                    <div class="list-group-item d-flex justify-content-between align-items-center border-0 py-3">
+                        <div>
+                            <h6 class="mb-0">{{ item.empresa.nome }}</h6>
+                            <small class="text-muted">Faturamento: {{ item.faturamento|floatformat:0 }} Kz</small>
+                        </div>
+                        <span class="badge bg-soft-success text-success fw-bold">+ {{ item.nossa_parte|floatformat:0 }}</span>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+    const ctx = document.getElementById('bypassChart').getContext('2d');
+    new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: [{% for item in relatorio %}"{{ item.empresa.nome }}",{% endfor %}],
+            datasets: [{
+                label: 'Nossa Comissão (Kz)',
+                data: [{% for item in relatorio %}{{ item.nossa_parte }},{% endfor %}],
+                backgroundColor: '#3498db',
+                borderRadius: 8
+            }]
+        },
+        options: { responsive: true, scales: { y: { beginAtZero: true } } }
+    });
+</script>
+{% endblock %}

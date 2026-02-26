@@ -1,14 +1,10 @@
 # apps/vendas/urls.py
 from django.urls import path, include
-from rest_framework.routers import DefaultRouter
 from . import views
-from .api import viewsets
 
-# API Router (DRF) - Configuração para ViewSets
-router = DefaultRouter()
-router.register(r'vendas', views.VendaViewSet, basename='vendas')
-router.register(r'itens', viewsets.ItemVendaViewSet)
-router.register(r'pagamentos', viewsets.PagamentoViewSet)
+
+
+
 
 
 app_name = 'vendas'
@@ -18,7 +14,7 @@ urlpatterns = [
     # 1. GESTÃO DE VENDAS (VISTAS HTML)
     # =====================================
     
-    path('vendas/', views.VendasView.as_view(), name='lista'),
+    path('', views.VendasView.as_view(), name='lista'),
     path('pdv/', views.PDVView.as_view(), name='pdv'),
     path('nova/', views.VendaCreateView.as_view(), name='create'),
     path('<int:pk>/', views.VendaDetailView.as_view(), name='detail'),
@@ -140,9 +136,9 @@ urlpatterns = [
     # 12. API REST ROUTER (DRF)
     # Esta rota deve ser a ÚLTIMA API para evitar conflitos
     # =====================================
-    path('api/', include(router.urls)),
-    #path('', include('apps.vendas.urls_documentos')),
-    path('', include('apps.vendas.urls_documentos', namespace='vendas_documentos')),
+    
+    
+    #path('', include('apps.vendas.urls_documentos', namespace='vendas_documentos')),
 
     path('notas-credito/', views.NotaCreditoListView.as_view(), name='nota_credito_lista'),
     path('notas-credito/nova/', views.NotaCreditoCreateView.as_view(), name='nota_credito_create'),
@@ -188,8 +184,6 @@ urlpatterns = [
     path('api/finalizar-nota-debito/', views.finalizar_nota_debito_api, name='finalizar_nota_debito_api'),
     path('api/finalizar-documento-transporte/', views.finalizar_documento_transporte_api, name='finalizar_documento_transporte_api'),
     path('api/buscar-documentos-origem/', views.buscar_documentos_origem_api, name='buscar_documentos_origem_api'),
-
-    # Adicionar no final do arquivo apps/vendas/urls_documentos.py:
 
     # APIs para gestão de itens
     path('api/adicionar-item-nc/', views.adicionar_item_nota_credito_api, name='adicionar_item_nota_credito_api'),

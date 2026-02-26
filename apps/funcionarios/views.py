@@ -122,8 +122,9 @@ class FuncionariosView(LoginRequiredMixin, PermissaoAcaoMixin, ListView):
     acao_requerida = 'acessar_rh'
     model = Funcionario
     template_name = 'funcionarios/lista.html'
+    module_name = 'funcionarios'
     context_object_name = 'funcionarios'
-    paginate_by = 20
+    paginate_by = 50
     
     def get_queryset(self):
         queryset = Funcionario.objects.select_related('cargo', 'departamento', 'loja_principal')

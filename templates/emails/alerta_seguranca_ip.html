@@ -1,0 +1,16 @@
+<div style="font-family: sans-serif; max-width: 600px; border: 1px solid #e5e7eb; padding: 20px;">
+    <h2 style="color: #ea580c;">⚠️ Novo Acesso Detectado</h2>
+    <p>Olá, <strong>{{ user.username }}</strong>,</p>
+    <p>Detectamos um acesso à sua conta <strong>VistoGEST</strong> a partir de um endereço IP que não costuma utilizar.</p>
+    
+    <div style="background-color: #f3f4f6; padding: 15px; border-radius: 8px; margin: 20px 0;">
+        <p style="margin: 5px 0;"><strong>Endereço IP:</strong> {{ ip }}</p>
+        <p style="margin: 5px 0;"><strong>Dispositivo:</strong> {{ ua }}</p>
+    </div>
+
+    <p>Se foi você, pode ignorar este e-mail. Caso contrário, <strong>altere a sua senha imediatamente</strong> através do painel de segurança.</p>
+    
+    <p style="font-size: 12px; color: #9ca3af; margin-top: 30px;">
+        © 2026 SOTARQ - Monitorização de Segurança Ativa.
+    </p>
+</div>

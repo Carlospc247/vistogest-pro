@@ -1,11 +1,24 @@
 # apps/analytics/models.py
-from django.db import models
+from django.db import connection, models
 from django.conf import settings
 from django.contrib.contenttypes.models import ContentType
 from django.contrib.contenttypes.fields import GenericForeignKey
 from django.utils import timezone
-from apps.core.models import Empresa
 import json
+# apps/analytics/models.py
+from django.db import models
+from django.conf import settings
+from django.contrib.contenttypes.models import ContentType
+from django.contrib.contenttypes.fields import GenericForeignKey
+from apps.core.models import TimeStampedModel
+from apps.produtos.models import Lote, Fabricante
+from apps.empresas.models import Empresa
+
+
+
+# Para evitar que o "coletor" do Django tente encontrar a tabela no schema public e o sistema exploda novamente.
+def is_managed():
+    return connection.schema_name != 'public'
 
 
 
@@ -22,7 +35,7 @@ class EventoAnalytics(models.Model):
     ]
     
     empresa = models.ForeignKey(Empresa, on_delete=models.CASCADE, related_name='eventos_analytics')
-    usuario = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True)
+    usuario = models.ForeignKey('core.Usuario', on_delete=models.SET_NULL, null=True, blank=True)
     
     categoria = models.CharField(max_length=20, choices=CATEGORIA_CHOICES)
     acao = models.CharField(max_length=100)
@@ -42,9 +55,13 @@ class EventoAnalytics(models.Model):
     timestamp = models.DateTimeField(auto_now_add=True)
     
     class Meta:
+        managed = is_managed()
+        db_table = 'analytics_eventoanalytics'
         verbose_name = 'Evento Analytics'
         verbose_name_plural = 'Eventos Analytics'
         ordering = ['-timestamp']
+
+
 
 class AuditoriaAlteracao(models.Model):
     """Log de auditoria para alterações em registros"""
@@ -55,7 +72,7 @@ class AuditoriaAlteracao(models.Model):
     ]
     
     empresa = models.ForeignKey(Empresa, on_delete=models.CASCADE, related_name='auditorias')
-    usuario = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT)
+    usuario = models.ForeignKey('core.Usuario', on_delete=models.PROTECT)
     
     content_type = models.ForeignKey(ContentType, on_delete=models.CASCADE)
     object_id = models.PositiveIntegerField()
@@ -73,10 +90,15 @@ class AuditoriaAlteracao(models.Model):
     
     timestamp = models.DateTimeField(auto_now_add=True)
     
+    
     class Meta:
+        managed = is_managed()
+        db_table = 'analytics_auditoriaalteracao'
         verbose_name = 'Auditoria'
         verbose_name_plural = 'Auditorias'
         ordering = ['-timestamp']
+
+
 
 class AlertaInteligente(models.Model):
     """Sistema de alertas inteligentes"""
@@ -121,6 +143,8 @@ class AlertaInteligente(models.Model):
     usuarios_notificados = models.ManyToManyField(settings.AUTH_USER_MODEL, through='NotificacaoAlerta', related_name='alertas_recebidos')
     
     class Meta:
+        managed = is_managed()
+        db_table = 'analytics_alertainteligente'
         verbose_name = 'Alerta Inteligente'
         verbose_name_plural = 'Alertas Inteligentes'
         ordering = ['-created_at']
@@ -142,11 +166,13 @@ class NotificacaoAlerta(models.Model):
     lida_em = models.DateTimeField(null=True, blank=True)
     
     class Meta:
+        managed = is_managed()
+        db_table = 'analytics_notificacaoalerta'
         unique_together = ['alerta', 'usuario']
 
 class DashboardPersonalizado(models.Model):
     """Dashboards personalizados por usuário"""
-    usuario = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='dashboards')
+    usuario = models.ForeignKey('core.Usuario', on_delete=models.CASCADE, related_name='dashboards')
     empresa = models.ForeignKey(Empresa, on_delete=models.CASCADE)
     
     nome = models.CharField(max_length=100)
@@ -163,7 +189,83 @@ class DashboardPersonalizado(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
     
     class Meta:
+        managed = is_managed()
+        db_table = 'analytics_dashboardpersonalizado'
         verbose_name = 'Dashboard Personalizado'
         verbose_name_plural = 'Dashboards Personalizados'
         ordering = ['nome']
+
+
+class AuditoriaInvestimento(TimeStampedModel):
+    """
+    Controla o acesso granular de Investidores/Auditores.
+    Vincula o utilizador a ativos específicos (Lotes/Fabricantes).
+    """
+    usuario = models.OneToOneField(
+        'core.Usuario', 
+        on_delete=models.CASCADE, 
+        related_name='vinculo_auditoria'
+    )
+    # Ativos vinculados para filtro restritivo
+    lotes_vinculados = models.ManyToManyField(Lote, blank=True, verbose_name="Lotes Financiados")
+    fabricantes_vinculados = models.ManyToManyField(Fabricante, blank=True, verbose_name="Fabricantes Financiados")
+    
+    # Permissões por Módulo (TENANT_APPS)
+    pode_auditar_vendas = models.BooleanField(default=False)
+    pode_auditar_estoque = models.BooleanField(default=False)
+    pode_auditar_financeiro = models.BooleanField(default=False)
+    pode_auditar_produtos = models.BooleanField(default=False)
+    pode_auditar_fiscal = models.BooleanField(default=False)
+    pode_auditar_tudo = models.BooleanField(default=False, help_text="Libera auditoria de todas as apps")
+
+    class Meta:
+        managed = is_managed()
+        db_table = 'analytics_auditoriainvestimento'
+        verbose_name = "Vínculo de Auditoria de Investimento"
+        verbose_name_plural = "Vínculos de Auditoria de Investimento"
+
+    def __str__(self):
+        return f"Auditor: {self.usuario.username} - {self.usuario.empresa.nome}"
+
+class RegistroAuditoriaOperacional(models.Model):
+    """
+    Log mestre de auditoria para o Tenant.
+    Registra toda e qualquer mudança em registros das TENANT_APPS.
+    """
+    TIPO_OPERACAO_CHOICES = [
+        ('CREATE', 'Criação'),
+        ('UPDATE', 'Alteração'),
+        ('DELETE', 'Exclusão'),
+        ('SECURITY', 'Segurança/Permissão'),
+    ]
+
+    empresa = models.ForeignKey(Empresa, on_delete=models.CASCADE, related_name='logs_auditoria')
+    usuario = models.ForeignKey('core.Usuario', on_delete=models.SET_NULL, null=True)
+    
+    # Rastreio genérico (ContentType)
+    content_type = models.ForeignKey(ContentType, on_delete=models.CASCADE)
+    object_id = models.PositiveIntegerField()
+    content_object = GenericForeignKey('content_type', 'object_id')
+
+    # Contexto da Auditoria
+    app_origem = models.CharField(max_length=50, help_text="Slug da app (ex: vendas, estoque)")
+    operacao = models.CharField(max_length=10, choices=TIPO_OPERACAO_CHOICES)
+    
+    # Detalhes técnicos
+    dados_anteriores = models.JSONField(null=True, blank=True)
+    dados_posteriores = models.JSONField(null=True, blank=True)
+    
+    # Rastreio de Ativos (Para o Investidor)
+    lote_relacionado = models.ForeignKey(Lote, on_delete=models.SET_NULL, null=True, blank=True)
+    fabricante_relacionado = models.ForeignKey(Fabricante, on_delete=models.SET_NULL, null=True, blank=True)
+
+    ip_address = models.GenericIPAddressField(null=True, blank=True)
+    timestamp = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        managed = is_managed()
+        db_table = 'analytics_registroauditoriaoperacional'
+        verbose_name = "Registro de Auditoria Operacional"
+        verbose_name_plural = "Registros de Auditoria Operacional"
+        ordering = ['-timestamp']
 

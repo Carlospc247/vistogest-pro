@@ -69,7 +69,7 @@
                 <input type="checkbox" class="rounded border-gray-300 text-primary focus:ring-primary">
                 <span class="ml-2 text-sm text-gray-600">Lembrar-me</span>
             </label>
-            <a href="#" class="text-sm text-primary hover:text-primary-dark">Esqueceu a senha?</a>
+            <a href="{% url 'core:password_reset' %}" class="text-sm text-primary hover:text-primary-dark">Esqueceu a senha?</a>
         </div>
            <!--{% csrf_token %}
                 {{ form.as_p }}-->

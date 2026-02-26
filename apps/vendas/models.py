@@ -5,18 +5,18 @@ from django.utils import timezone
 import uuid
 from django.db import models
 from django.conf import settings
-from apps.core.models import Empresa
+from apps.empresas.models import Empresa, Loja
 from django.conf import settings
 from decimal import Decimal
-from apps.core.models import TimeStampedModel, Empresa,  Loja
+from apps.core.models import TimeStampedModel
 from apps.clientes.models import Cliente
 
 
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 from django.core.validators import RegexValidator, MinValueValidator, MaxValueValidator
-from apps.core.services import gerar_numero_documento
 from django.db.models import Sum, F
+
 
 
 
@@ -98,8 +98,8 @@ class Venda(TimeStampedModel):
             ('online', 'Online'),
         ]
     
-    empresa = models.ForeignKey('core.Empresa', on_delete=models.CASCADE, related_name='vendas')
-    loja = models.ForeignKey('core.Loja', on_delete=models.SET_NULL, null=True, blank=True)
+    empresa = models.ForeignKey('empresas.Empresa', on_delete=models.CASCADE, related_name='vendas')
+    loja = models.ForeignKey('empresas.Loja', on_delete=models.SET_NULL, null=True, blank=True)
     cliente = models.ForeignKey('clientes.Cliente', on_delete=models.SET_NULL, null=True, blank=True, related_name='vendas')
     vendedor = models.ForeignKey('funcionarios.Funcionario', on_delete=models.SET_NULL, null=True, blank=True, related_name='vendas')
     forma_pagamento = models.ForeignKey(FormaPagamento, on_delete=models.PROTECT, default=1)
@@ -162,7 +162,7 @@ class Venda(TimeStampedModel):
         if self.total <= 0:
             raise ValueError("Total da venda inválido para gerar documento")
 
-        from apps.fiscal.services import DocumentoFiscalService
+        from apps.fiscal.services.utils import DocumentoFiscalService
         service = DocumentoFiscalService()
         documento = service.criar_documento(
             empresa=self.empresa,
@@ -455,7 +455,7 @@ class Convenio(models.Model):
     Ex: 'ESSA Seguros', 'Fidelidade Angola', 'Tranquilidade'.
     """
     empresa = models.ForeignKey(
-        'core.Empresa', 
+        'empresas.Empresa', 
         on_delete=models.CASCADE, 
         related_name='convenios'
     )
@@ -535,7 +535,7 @@ class Orcamento(models.Model):
         ('expirado', 'Expirado'),
     ]
     
-    empresa = models.ForeignKey('core.Empresa', on_delete=models.PROTECT)
+    empresa = models.ForeignKey('empresas.Empresa', on_delete=models.PROTECT)
     numero_orcamento = models.CharField("Número do Orçamento", max_length=50, unique=True)
     cliente = models.ForeignKey('clientes.Cliente', on_delete=models.PROTECT, related_name='orcamentos')
     vendedor = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name='orcamentos_criados')
@@ -659,7 +659,7 @@ class MetaVenda(models.Model):
     
     # Relacionamentos
     empresa = models.ForeignKey(
-        'core.Empresa',
+        'empresas.Empresa',
         on_delete=models.PROTECT,
         related_name='metas_vendas',
         verbose_name='Empresa'
@@ -1141,8 +1141,8 @@ class FaturaCredito(TimeStampedModel):
         ('outros', 'Outros'),
     ]
     
-    empresa = models.ForeignKey('core.Empresa', on_delete=models.CASCADE, related_name='faturas_credito')
-    loja = models.ForeignKey('core.Loja', on_delete=models.SET_NULL, null=True, blank=True)
+    empresa = models.ForeignKey('empresas.Empresa', on_delete=models.CASCADE, related_name='faturas_credito')
+    loja = models.ForeignKey('empresas.Loja', on_delete=models.SET_NULL, null=True, blank=True)
     cliente = models.ForeignKey('clientes.Cliente', on_delete=models.SET_NULL, null=True, blank=True)
     vendedor = models.ForeignKey('funcionarios.Funcionario', on_delete=models.SET_NULL, null=True, blank=True, related_name='faturas_credito')
     forma_pagamento = models.ForeignKey('vendas.FormaPagamento', on_delete=models.PROTECT, default=1)
@@ -1200,7 +1200,7 @@ class FaturaCredito(TimeStampedModel):
         if self.total <= 0:
             raise ValueError("Total da fatura inválido")
 
-        from apps.fiscal.services import DocumentoFiscalService
+        from apps.fiscal.services.utils import DocumentoFiscalService
         service = DocumentoFiscalService()
         documento = service.criar_documento(
             empresa=self.empresa,
@@ -1254,8 +1254,8 @@ class Recibo(TimeStampedModel):
         ('outros', 'Outros'),
     ]
     
-    empresa = models.ForeignKey('core.Empresa', on_delete=models.CASCADE, related_name='recibos')
-    loja = models.ForeignKey('core.Loja', on_delete=models.SET_NULL, null=True, blank=True)
+    empresa = models.ForeignKey('empresas.Empresa', on_delete=models.CASCADE, related_name='recibos')
+    loja = models.ForeignKey('empresas.Loja', on_delete=models.SET_NULL, null=True, blank=True)
     cliente = models.ForeignKey('clientes.Cliente', on_delete=models.SET_NULL, null=True, blank=True)
     vendedor = models.ForeignKey('funcionarios.Funcionario', on_delete=models.SET_NULL, null=True, blank=True, related_name='recibos')
     forma_pagamento = models.ForeignKey('vendas.FormaPagamento', on_delete=models.PROTECT, default=1)
@@ -1308,7 +1308,7 @@ class Recibo(TimeStampedModel):
         if not self.total > 0:
             raise ValueError("Total do recibo inválido")
 
-        from apps.fiscal.services import DocumentoFiscalService
+        from apps.fiscal.services.utils import DocumentoFiscalService
         service = DocumentoFiscalService()
         documento = service.criar_documento(
             empresa=self.empresa,
@@ -1440,8 +1440,8 @@ class FaturaProforma(TimeStampedModel):
         ('outros', 'Outros'),
     ]
     
-    empresa = models.ForeignKey('core.Empresa', on_delete=models.CASCADE, related_name='faturas_proforma')
-    loja = models.ForeignKey('core.Loja', on_delete=models.SET_NULL, null=True, blank=True)
+    empresa = models.ForeignKey('empresas.Empresa', on_delete=models.CASCADE, related_name='faturas_proforma')
+    loja = models.ForeignKey('empresas.Loja', on_delete=models.SET_NULL, null=True, blank=True)
     cliente = models.ForeignKey('clientes.Cliente', on_delete=models.SET_NULL, null=True, blank=True)
     vendedor = models.ForeignKey('funcionarios.Funcionario', on_delete=models.SET_NULL, null=True, blank=True, related_name='faturas_proforma')
     forma_pagamento = models.ForeignKey('vendas.FormaPagamento', on_delete=models.PROTECT, default=1)
@@ -1497,7 +1497,7 @@ class FaturaProforma(TimeStampedModel):
         super().save(*args, **kwargs)
 
         if criar_documento and is_new and self.status == 'emitida':
-            from apps.fiscal.services import DocumentoFiscalService
+            from apps.fiscal.services.utils import DocumentoFiscalService
 
             service = DocumentoFiscalService()
 
@@ -1611,8 +1611,8 @@ class NotaCredito(TimeStampedModel):
         ('outros', 'Outros'),
     ]
     
-    empresa = models.ForeignKey('core.Empresa', on_delete=models.CASCADE, related_name='notas_credito')
-    loja = models.ForeignKey('core.Loja', on_delete=models.SET_NULL, null=True, blank=True)
+    empresa = models.ForeignKey('empresas.Empresa', on_delete=models.CASCADE, related_name='notas_credito')
+    loja = models.ForeignKey('empresas.Loja', on_delete=models.SET_NULL, null=True, blank=True)
     cliente = models.ForeignKey('clientes.Cliente', on_delete=models.SET_NULL, null=True, blank=True)
     vendedor = models.ForeignKey('funcionarios.Funcionario', on_delete=models.SET_NULL, null=True, blank=True, related_name='notas_credito')
     forma_pagamento = models.ForeignKey('vendas.FormaPagamento', on_delete=models.PROTECT, default=1)
@@ -1698,7 +1698,7 @@ class NotaCredito(TimeStampedModel):
         super().save(*args, **kwargs)
 
         if criar_documento and is_new and self.status == 'emitida':
-            from apps.fiscal.services import DocumentoFiscalService
+            from apps.fiscal.services.utils import DocumentoFiscalService
     
             service = DocumentoFiscalService()
             documento = service.criar_documento(
@@ -1814,8 +1814,8 @@ class NotaDebito(TimeStampedModel):
         ('outros', 'Outros'),
     ]
     
-    empresa = models.ForeignKey('core.Empresa', on_delete=models.CASCADE, related_name='notas_debito')
-    loja = models.ForeignKey('core.Loja', on_delete=models.SET_NULL, null=True, blank=True)
+    empresa = models.ForeignKey('empresas.Empresa', on_delete=models.CASCADE, related_name='notas_debito')
+    loja = models.ForeignKey('empresas.Loja', on_delete=models.SET_NULL, null=True, blank=True)
     cliente = models.ForeignKey('clientes.Cliente', on_delete=models.SET_NULL, null=True, blank=True)
     vendedor = models.ForeignKey('funcionarios.Funcionario', on_delete=models.SET_NULL, null=True, blank=True, related_name='notas_debito')
     forma_pagamento = models.ForeignKey('vendas.FormaPagamento', on_delete=models.PROTECT, default=1)
@@ -1906,7 +1906,7 @@ class NotaDebito(TimeStampedModel):
         super().save(*args, **kwargs)
 
         if criar_documento and is_new and self.status == 'emitida':
-            from apps.fiscal.services import DocumentoFiscalService
+            from apps.fiscal.services.utils import DocumentoFiscalService
 
             service = DocumentoFiscalService()
             documento = service.criar_documento(
@@ -2029,8 +2029,8 @@ class DocumentoTransporte(TimeStampedModel):
         ('outros', 'Outros'),
     ]
     
-    empresa = models.ForeignKey('core.Empresa', on_delete=models.CASCADE, related_name='documentos_transporte')
-    loja = models.ForeignKey('core.Loja', on_delete=models.SET_NULL, null=True, blank=True)
+    empresa = models.ForeignKey('empresas.Empresa', on_delete=models.CASCADE, related_name='documentos_transporte')
+    loja = models.ForeignKey('empresas.Loja', on_delete=models.SET_NULL, null=True, blank=True)
     cliente = models.ForeignKey('clientes.Cliente', on_delete=models.SET_NULL, null=True, blank=True)
     vendedor = models.ForeignKey('funcionarios.Funcionario', on_delete=models.SET_NULL, null=True, blank=True, related_name='documentos_transporte')
     forma_pagamento = models.ForeignKey('vendas.FormaPagamento', on_delete=models.PROTECT, default=1)
@@ -2207,7 +2207,7 @@ class DocumentoTransporte(TimeStampedModel):
 
         # Só gera hash e numeração se for um novo documento
         if criar_documento and is_new and self.status in ['preparando', 'em_transito']:
-            from apps.fiscal.services import DocumentoFiscalService
+            from apps.fiscal.services.utils import DocumentoFiscalService
 
             service = DocumentoFiscalService()
             documento = service.criar_documento(

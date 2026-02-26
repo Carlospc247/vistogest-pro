@@ -70,7 +70,6 @@ from django.db.models.functions import ExtractHour
 
 from apps.analytics import models
 from apps.compras.models import Compra, ItemCompra
-from apps.vendas.api.serializers import VendaSerializer
 import pandas as pd
 from sklearn.cluster import KMeans
 from statsmodels.tsa.api import SimpleExpSmoothing
@@ -113,8 +112,7 @@ from apps.fornecedores.models import (
     Fornecedor, AvaliacaoFornecedor
 )
 from apps.financeiro.models import (
-    ContaReceber, ContaPagar, LancamentoFinanceiro, MovimentacaoFinanceira, CentroCusto,
-    PlanoContas
+    ContaReceber, ContaPagar, MovimentacaoFinanceira, CentroCusto
 )
 from apps.estoque.models import MovimentacaoEstoque, Inventario, AlertaEstoque
 from django.contrib.auth.mixins import LoginRequiredMixin
@@ -5173,56 +5171,20 @@ class RelatorioDREView(BaseRelatorioView):
         
         # Lógica para DRE (exemplo com um modelo 'LancamentoContabil')
         # Esta é uma simplificação. Um DRE real depende de um plano de contas estruturado.
-        receita_bruta = LancamentoFinanceiro.objects.filter(
-            conta__natureza='receita', data__range=(data_inicio, data_fim)
-        ).aggregate(total=Sum('valor'))['total'] or 0
-
-        custos = LancamentoFinanceiro.objects.filter(
-            conta__natureza='custo', data__range=(data_inicio, data_fim)
-        ).aggregate(total=Sum('valor'))['total'] or 0
-
-        despesas = LancamentoFinanceiro.objects.filter(
-            conta__natureza='despesa', data__range=(data_inicio, data_fim)
-        ).aggregate(total=Sum('valor'))['total'] or 0
-
-        lucro_bruto = receita_bruta - custos
-        lucro_liquido = lucro_bruto - despesas
-
+       
+       
+       
+        
         context['dre_data'] = {
             'receita_bruta': receita_bruta,
             'custos': custos,
-            'lucro_bruto': lucro_bruto,
-            'despesas': despesas,
+            
+          
             'lucro_liquido': lucro_liquido
         }
         context['titulo'] = 'Relatório DRE'
         return context
 
-class RelatorioBalancoView(BaseRelatorioView):
-    """
-    Balanço Patrimonial.
-    Apresenta a posição financeira da empresa (Ativos, Passivos, Património Líquido).
-    """
-    def get_empresa(self):
-        return getattr(self.request.user, "empresa", None)
-    
-    template_name = 'relatorios/financeiro/balanco.html'
-
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        # Lógica para Balanço Patrimonial (altamente dependente do plano de contas)
-        # Exemplo simplificado:
-        ativos = LancamentoFinanceiro.objects.filter(conta__grupo='ativo').aggregate(total=Sum('valor'))['total'] or 0
-        passivos = LancamentoFinanceiro.objects.filter(conta__grupo='passivo').aggregate(total=Sum('valor'))['total'] or 0
-        patrimonio_liquido = ativos - passivos
-
-        context['balanco_data'] = {
-            'ativos': ativos,
-            'passivos': passivos,
-            'patrimonio_liquido': patrimonio_liquido
-        }
-        context['titulo'] = 'Balanço Patrimonial'
-        return context
 
 class RelatorioInadimplenciaView(BaseRelatorioView):
     """

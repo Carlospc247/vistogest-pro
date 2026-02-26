@@ -9,6 +9,7 @@ import json
 import logging
 import xml.etree.ElementTree as ET
 from xml.dom import minidom
+from django.db import models
 from django.shortcuts import render, get_object_or_404
 from django.views import View
 from django.http import HttpResponse, JsonResponse, Http404
@@ -23,14 +24,14 @@ from django.core.files.base import ContentFile
 from datetime import datetime, date, timedelta
 from typing import Dict, List, Optional
 from apps.fiscal.models import TaxaIVAAGT
-from apps.fiscal.services import SAFTExportService
-from apps.core.models import Empresa
+from apps.empresas.models import Empresa
 from apps.fiscal.models import TaxaIVAAGT
 from django.contrib.auth.mixins import AccessMixin
 from django.shortcuts import redirect
 from django.urls import reverse_lazy
 from django.contrib import messages
 from django.urls import reverse
+from apps.fiscal.services.utils import SAFTExportService
 from apps.saft.services.saft_xml_generator_service import SaftXmlGeneratorService
 
 

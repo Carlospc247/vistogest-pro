@@ -2,11 +2,12 @@
 from django.db import models
 from django.core.validators import RegexValidator, MinValueValidator, MaxValueValidator
 from django.core.exceptions import ValidationError
-from apps.core.models import TimeStampedModel, Empresa, Usuario
+from apps.core.models import TimeStampedModel, Usuario
+from apps.empresas.models import Empresa
 from decimal import Decimal
 from datetime import date, datetime, timedelta
 import uuid
-from pharmassys import settings
+from django.conf import settings
 from django.db import models
 from django.utils import timezone 
 from datetime import date
@@ -583,7 +584,7 @@ class PreferenciaCliente(TimeStampedModel):
         null=True, 
         blank=True
     )
-    categoria = models.ForeignKey('core.Categoria', on_delete=models.CASCADE)
+    categoria = models.ForeignKey('empresas.Categoria', on_delete=models.CASCADE)
     
     fabricante = models.ForeignKey(
         'produtos.Fabricante', 

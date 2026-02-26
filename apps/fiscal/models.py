@@ -6,9 +6,8 @@ from apps.core.choices import TIPO_RETENCAO_CHOICES
 from decimal import Decimal
 from django.core.validators import MinValueValidator, MaxValueValidator
 from django.db import models
-from apps.core.models import Empresa, TimeStampedModel
 from django.utils import timezone
-from pharmassys import settings
+from django.conf import settings
 import hashlib
 import json
 from django.db import models, transaction
@@ -16,21 +15,38 @@ from django.core.validators import MinValueValidator, MaxValueValidator
 from django.core.exceptions import ValidationError
 from decimal import Decimal
 from datetime import datetime
-from apps.core.models import Empresa, TimeStampedModel
+from apps.core.models import TimeStampedModel
 from apps.clientes.models import Cliente
 from apps.produtos.models import Produto
 from django.contrib.postgres.fields import JSONField
+import base64
+import hashlib
+import json
+import logging
+from typing import Dict, Optional, Tuple
+from apps.empresas.models import Empresa
+from django.db import transaction
+from django.utils import timezone
+
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import padding, rsa
+from cryptography.hazmat.backends import default_backend
+
+from decimal import Decimal
 
 
-#log de auditoria para tentativa de download das chaves públicas
-#Audit log para AGT
+
+
+logger = logging.getLogger(__name__)
+
+
+
 class AuditLog(models.Model):
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True)
     acao = models.CharField(max_length=50)
     empresa_id = models.IntegerField()
     timestamp = models.DateTimeField(auto_now_add=True)
     ip_address = models.GenericIPAddressField()
-
 
 
 class TaxaIVAAGT(TimeStampedModel):
@@ -62,7 +78,7 @@ class TaxaIVAAGT(TimeStampedModel):
 
     # Vínculo com a empresa para personalização, embora as taxas sejam tipicamente globais.
     empresa = models.ForeignKey(
-        'core.Empresa', 
+        'empresas.Empresa', 
         on_delete=models.CASCADE, 
         related_name='taxas_iva'
     )
@@ -103,28 +119,12 @@ class TaxaIVAAGT(TimeStampedModel):
         if self.tax_type == 'IVA':
             return f"{self.nome} ({self.tax_percentage}%)"
         return f"{self.nome} ({self.tax_type} - {self.exemption_reason})"
-
-
-# apps/fiscal/services/assinatura_service.py
-import base64
-import hashlib
-import json
-import logging
-from typing import Dict, Optional, Tuple
-
-from django.db import transaction
-from django.utils import timezone
-
-from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import padding, rsa
-from cryptography.hazmat.backends import default_backend
-
-from decimal import Decimal
-
-
-logger = logging.getLogger(__name__)
-
-
+    
+    def obter_codigo_isencao(self):
+        """Retorna o código de isenção obrigatório para taxas 0%."""
+        if self.tax_percentage == Decimal('0.00'):
+            return self.exemption_reason or 'M99'
+        return None
 
 
 class AssinaturaDigital(TimeStampedModel):
@@ -133,7 +133,7 @@ class AssinaturaDigital(TimeStampedModel):
     utilizada para assinar documentos e garantir a cadeia de integridade.
     """
     empresa = models.OneToOneField(
-        'core.Empresa', 
+        'empresas.Empresa', 
         on_delete=models.CASCADE, 
         related_name='assinatura_fiscal'
     )
@@ -161,8 +161,6 @@ class AssinaturaDigital(TimeStampedModel):
 
     def __str__(self):
         return f"Assinatura Fiscal de {self.empresa.nome}"
-
-
 
 
 class RetencaoFonte(TimeStampedModel):
@@ -210,7 +208,7 @@ class RetencaoFonte(TimeStampedModel):
     # Controle
     paga_ao_estado = models.BooleanField(default=False, help_text="Indica se o valor retido já foi pago ao Estado")
     
-    empresa = models.ForeignKey('core.Empresa', on_delete=models.CASCADE)
+    empresa = models.ForeignKey('empresas.Empresa', on_delete=models.CASCADE)
 
     class Meta:
         verbose_name = "Retenção na Fonte"
@@ -231,7 +229,6 @@ class RetencaoFonte(TimeStampedModel):
         return f"Retenção {self.tipo_retencao} de {self.valor_retido} em {self.data_retencao}"
 
 
-
 class DocumentoFiscal(TimeStampedModel):
     """
     Modelo principal para documentos fiscais (Faturas, Notas de Crédito, etc.)
@@ -242,22 +239,15 @@ class DocumentoFiscal(TimeStampedModel):
     # Tipos de Documento conforme SAF-T AO
     TIPO_DOCUMENTO_CHOICES = [
         ('FT', 'Fatura Crédito'),
-        ('REC', 'Recibo'),
+        ('RC', 'Recibo'),
         ('FR', 'Fatura-Recibo'),
+        ('FP', 'Fatura Proforma'),
         ('NC', 'Nota de Crédito'),
         ('ND', 'Nota de Débito'),
         ('DT', 'Documento de Transporte'),
         ('VD', 'Venda a Dinheiro'),
         ('TV', 'Talão de Venda'),
         ('TD', 'Talão de Devolução'),
-        ('AA', 'Alienação de Ativos'),
-        ('DA', 'Devolução de Ativos'),
-        ('RP', 'Prémio ou Penalização'),
-        ('RE', 'Estorno ou Anulação'),
-        ('CS', 'Imputação a Co-Produtos'),
-        ('LD', 'Lançamentos Diversos'),
-        ('RA', 'Resseguro Aceite'),
-        ('RC', 'Resseguro Cedido'),
     ]
     
     # Status do Documento
@@ -293,7 +283,7 @@ class DocumentoFiscal(TimeStampedModel):
     # ==========================================
     
     empresa = models.ForeignKey(
-        'core.Empresa',
+        'empresas.Empresa',
         on_delete=models.CASCADE,
         related_name='documentos_fiscais'
     )
@@ -696,17 +686,57 @@ class DocumentoFiscal(TimeStampedModel):
         if self.status == 'confirmed':
             self._atualizar_cadeia_integridade()
 
+
     def _gerar_numero_documento(self):
-        """Gera numeração sequencial por série."""
-        with transaction.atomic():
-            ultimo_doc = DocumentoFiscal.objects.filter(
+        """
+        Integração com o motor de sequencialidade centralizado do Core.
+        Garante conformidade com a estrutura de dicionário retornada pelo service.
+        """
+        
+        # Só gera se o número ainda não tiver sido atribuído (evita re-geração no save)
+        if not self.numero:
+            dados = gerar_numero_documento(
+                empresa=self.empresa, 
+                tipo_documento=self.tipo_documento, 
+                serie=self.serie
+            )
+            
+            # Mapeamento rigoroso conforme o retorno do service unificado
+            self.numero = dados['sequencial']
+            self.numero_documento = dados['formatado']
+
+    def save(self, *args, **kwargs):
+        """
+        Pipeline de persistência fiscal SOTARQ.
+        Ordem: Numeração -> ATCUD -> Validação -> Assinatura.
+        """
+        # 1. Fase de Inserção (Novo Registro)
+        if not self.pk:
+            self._gerar_numero_documento() # Primeiro o número oficial
+            self._gerar_atcud()            # ATCUD depende do número gerado
+            self._definir_periodo_tributacao()
+
+        # 2. Fase de Confirmação (Criptografia)
+        # SAF-T exige que apenas documentos confirmados/lançados entrem na cadeia de hash
+        if self.status == 'confirmed' and not self.hash_documento:
+            # Busca o elo anterior da corrente (Chain of Integrity)
+            doc_anterior = DocumentoFiscal.objects.filter(
                 empresa=self.empresa,
                 tipo_documento=self.tipo_documento,
-                serie=self.serie
+                serie=self.serie,
+                numero__lt=self.numero,
+                status='confirmed'
             ).order_by('-numero').first()
+
+            if doc_anterior:
+                self.hash_anterior = doc_anterior.hash_documento
             
-            self.numero = (ultimo_doc.numero + 1) if ultimo_doc else 1
-            self.numero_documento = f"{self.tipo_documento} {self.serie}/{self.numero}"
+            self._gerar_hash_documento()
+            self._aplicar_assinatura_digital()
+
+        super().save(*args, **kwargs)
+
+        
 
     def _gerar_atcud(self):
         """Gera ATCUD conforme especificação AGT."""
@@ -1075,7 +1105,7 @@ class SAFTExport(TimeStampedModel):
     ]
 
     empresa = models.ForeignKey(
-        'core.Empresa',
+        'empresas.Empresa',
         on_delete=models.CASCADE,
         related_name='saft_exports',
         verbose_name="Empresa"
@@ -1184,3 +1214,24 @@ class SAFTExport(TimeStampedModel):
             self.status = 'falhou'
             self.save(update_fields=['log_geracao', 'status', 'updated_at'])
 
+
+
+class ContadorDocumento(models.Model):
+    """
+    Motor de Sequencialidade SOTARQ.
+    Garante que cada fatura tenha um número único por Empresa/Ano/Série.
+    """
+    empresa = models.ForeignKey('empresas.Empresa', on_delete=models.CASCADE, related_name='contadores')
+    tipo_documento = models.CharField(max_length=5) 
+    ano = models.IntegerField()
+    serie = models.CharField(max_length=10, default='A')
+    ultimo_numero = models.IntegerField(default=0)
+
+    class Meta:
+        # Essencial para garantir que a combinação nunca se repita no banco
+        unique_together = ('empresa', 'tipo_documento', 'ano', 'serie')
+        verbose_name = 'Contador de Documento'
+        verbose_name_plural = 'Contadores de Documentos'
+
+    def __str__(self):
+        return f"{self.empresa.nome} - {self.tipo_documento} {self.serie}/{self.ano}: {self.ultimo_numero}"

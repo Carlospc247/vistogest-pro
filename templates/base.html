@@ -824,35 +824,51 @@
                         </a>
                     </li>
 
+                    {% if user.is_superuser %}
+                    <li class="nav-item mt-3">
+                        <h6 class="ps-4 ms-2 text-uppercase text-xs font-weight-bolder opacity-6 text-white">Administração Global - Dívidas</h6>
+                    </li>
+
+                    <li class="nav-item">
+                        <a class="nav-link {% if current_module == 'plano_bypass' %}active{% endif %}" 
+                        href="{% url 'core:plano_bypass' %}"
+                        style="background: linear-gradient(135deg, #6366f1 0%, #a855f7 100%); border-radius: 8px; margin: 5px 15px;">
+                            <div class="icon icon-shape icon-sm shadow border-radius-md bg-white text-center me-2 d-flex align-items-center justify-content-center">
+                                <i class="fas fa-gem" style="color: #6366f1;"></i>
+                            </div>
+                            <span class="nav-link-text ms-1 text-white fw-bold">Elite Bypass (%%)</span>
+                        </a>
+                    </li>
+                    {% endif %}
+
                     <!-- Vendas -->
+                    {% if 'vendas' in request.resolver_match.namespaces or request.tenant.schema_name != 'public' %}
                     <li x-data="{ open: {% if request.resolver_match.namespace == 'vendas' %}true{% else %}false{% endif %} }">
                         <button @click="open = !open"
                             class="menu-item text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 
-                                   group flex w-full items-center gap-x-3 rounded-md p-2 text-left text-sm leading-6 font-semibold">
+                                group flex w-full items-center gap-x-3 rounded-md p-2 text-left text-sm leading-6 font-semibold">
                             <i class="fas fa-shopping-cart h-6 w-6 shrink-0 menu-icon"></i>
                             Vendas
                             <i class="fas fa-chevron-right ml-auto h-5 w-5 shrink-0 transition-transform"
                                 :class="open ? 'rotate-90' : ''"></i>
                         </button>
                         <ul x-show="open" x-cloak x-transition class="mt-1 px-2">
-                            <li><a href="{% url 'vendas:pdv' %}" 
-                                   @click="isMobile && closeSidebar()"
-                                    class="block rounded-md py-2 px-3 text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800">
+                            <li><a href="{% url 'vendas:pdv' %}" @click="isMobile && closeSidebar()" class="block rounded-md py-2 px-3 text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800">
                                     <i class="fas fa-cash-register mr-2"></i>PDV
-                            </a></li>
-                            <li><a href="{% url 'vendas:lista' %}"
-                                   @click="isMobile && closeSidebar()"
-                                    class="block rounded-md py-2 px-3 text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800">
+                                </a>
+                            </li>
+                            <li><a href="{% url 'vendas:lista' %}" @click="isMobile && closeSidebar()" class="block rounded-md py-2 px-3 text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800">
                                     <i class="fas fa-list mr-2"></i>Vendas
-                            </a></li>
+                                </a>
+                            </li>
                         </ul>
                     </li>
+                {% endif %}
 
+                    {% if connection.schema_name != 'public' %}
                     <!-- Faturamento e Documentos -->
                     <li x-data="{ open: {% if 'fatura' in request.path or 'recibo' in request.path or 'proforma' in request.path or 'pdv' in request.path or 'documentos' in request.path %}true{% else %}false{% endif %} }">
-                        <button @click="open = !open"
-                            class="menu-item text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 
-                                group flex w-full items-center gap-x-3 rounded-md p-2 text-left text-sm leading-6 font-semibold">
+                        <button @click="open = !open" class="menu-item text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 group flex w-full items-center gap-x-3 rounded-md p-2 text-left text-sm leading-6 font-semibold">
                             <i class="fas fa-file-invoice-dollar h-6 w-6 shrink-0 menu-icon"></i> 
                             Faturamento e Documentos
                             <i class="fas fa-chevron-right ml-auto h-5 w-5 shrink-0 transition-transform"
@@ -876,11 +892,10 @@
                                 </span>
                             </li>
                             
-                            <li><a href="{% url 'vendas:pdv' %}" 
-                                   @click="isMobile && closeSidebar()"
-                                class="block rounded-md py-2 px-3 text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800">
+                            <li><a href="{% url 'vendas:pdv' %}" @click="isMobile && closeSidebar()" class="block rounded-md py-2 px-3 text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800">
                                     <i class="fas fa-cash-register mr-2"></i>PDV - Ponto de Venda
-                            </a></li>
+                                </a>
+                            </li>
                      
                             <li><a href="{% url 'vendas:vendas_lista' %}" 
                                    @click="isMobile && closeSidebar()"
@@ -930,8 +945,75 @@
                             
                         </ul>
                     </li>
+                    {% endif %}
+
+                    <li x-data="{ open: {% if 'vendas' in request.path or 'fatura' in request.path or 'recibo' in request.path or 'proforma' in request.path or 'documento' in request.path or 'nota' in request.path %}true{% else %}false{% endif %} }">
+                        <button @click="open = !open"
+                                class="menu-item text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 
+                                    group flex w-full items-center gap-x-3 rounded-md p-2 text-left text-sm leading-6 font-semibold transition-all duration-200">
+                            <i class="fas fa-file-invoice-dollar h-6 w-6 shrink-0 menu-icon text-blue-600 dark:text-blue-400"></i>
+                            <span>Vendas e Documentos</span>
+                            <i class="fas fa-chevron-right ml-auto h-5 w-5 shrink-0 transition-transform duration-200" :class="open ? 'rotate-90' : ''"></i>
+                        </button>
+
+                        <ul x-show="open" x-cloak x-transition:enter="transition ease-out duration-100"
+                            x-transition:enter-start="transform opacity-0 scale-95"
+                            x-transition:enter-end="transform opacity-100 scale-100" 
+                            class="mt-1 px-2 space-y-1 border-l-2 border-gray-100 dark:border-gray-700 ml-4">
+
+                            <li>
+                                <a href="{% url 'vendas:faturas_recibo_lista' %}" 
+                                class="flex items-center gap-x-3 rounded-md py-2 px-3 text-sm leading-6 text-gray-600 dark:text-gray-400 hover:bg-blue-50 dark:hover:bg-gray-800 hover:text-blue-700 transition">
+                                    <i class="fas fa-receipt w-5 text-center opacity-70"></i> Faturas Recibo (FR)
+                                </a>
+                            </li>
+                            <li>
+                                <a href="{% url 'vendas:faturas_credito_lista' %}" 
+                                class="flex items-center gap-x-3 rounded-md py-2 px-3 text-sm leading-6 text-gray-600 dark:text-gray-400 hover:bg-blue-50 dark:hover:bg-gray-800 hover:text-blue-700 transition">
+                                    <i class="fas fa-file-contract w-5 text-center opacity-70"></i> Faturas a Crédito (FT)
+                                </a>
+                            </li>
+                            <li>
+                                <a href="{% url 'vendas:recibos_lista' %}" 
+                                class="flex items-center gap-x-3 rounded-md py-2 px-3 text-sm leading-6 text-gray-600 dark:text-gray-400 hover:bg-blue-50 dark:hover:bg-gray-800 hover:text-blue-700 transition">
+                                    <i class="fas fa-check-double w-5 text-center opacity-70"></i> Recibos (REC)
+                                </a>
+                            </li>
+
+                            <li class="border-t border-gray-100 dark:border-gray-700 my-1 mx-3"></li>
+
+                            <li>
+                                <a href="{% url 'vendas_documentos:nota_credito_lista' %}" 
+                                class="flex items-center justify-between rounded-md py-2 px-3 text-sm leading-6 text-gray-600 dark:text-gray-400 hover:bg-red-50 dark:hover:bg-gray-800 hover:text-red-700 transition group/item">
+                                    <div class="flex items-center gap-x-3">
+                                        <i class="fas fa-minus-circle w-5 text-center opacity-70 text-red-500"></i> Notas de Crédito
+                                    </div>
+                                    <span class="text-[10px] font-bold bg-red-100 text-red-600 px-1.5 rounded">NC</span>
+                                </a>
+                            </li>
+                            <li>
+                                <a href="{% url 'vendas_documentos:nota_debito_lista' %}" 
+                                class="flex items-center justify-between rounded-md py-2 px-3 text-sm leading-6 text-gray-600 dark:text-gray-400 hover:bg-indigo-50 dark:hover:bg-gray-800 hover:text-indigo-700 transition group/item">
+                                    <div class="flex items-center gap-x-3">
+                                        <i class="fas fa-plus-circle w-5 text-center opacity-70 text-indigo-500"></i> Notas de Débito
+                                    </div>
+                                    <span class="text-[10px] font-bold bg-indigo-100 text-indigo-600 px-1.5 rounded">ND</span>
+                                </a>
+                            </li>
+                            <li>
+                                <a href="{% url 'vendas_documentos:documento_transporte_lista' %}" 
+                                class="flex items-center justify-between rounded-md py-2 px-3 text-sm leading-6 text-gray-600 dark:text-gray-400 hover:bg-purple-50 dark:hover:bg-gray-800 hover:text-purple-700 transition group/item">
+                                    <div class="flex items-center gap-x-3">
+                                        <i class="fas fa-truck-moving w-5 text-center opacity-70 text-purple-500"></i> Guias de Transporte
+                                    </div>
+                                    <span class="text-[10px] font-bold bg-purple-100 text-purple-600 px-1.5 rounded">GT</span>
+                                </a>
+                            </li>
+                        </ul>
+                    </li>
 
                     <!-- Produtos -->
+                     {% if request.user.empresa.regime_empresa == 'COMERCIO' or request.user.empresa.regime_empresa == 'SERVICOS' or request.user.empresa.regime_empresa == 'MISTO' %}
                     <li x-data="{ open: {% if request.resolver_match.namespace == 'produtos' %}true{% else %}false{% endif %} }">
                         <button @click="open = !open"
                             class="menu-item text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 
@@ -961,8 +1043,10 @@
                                 </a></li>
                         </ul>
                     </li>
+                    {% endif %}
 
                     <!-- Estoque -->
+                     {% if request.user.empresa.regime_empresa == 'COMERCIO' or request.user.empresa.regime_empresa == 'SERVICOS' or request.user.empresa.regime_empresa == 'MISTO' %}
                     <li x-data="{ open: {% if request.resolver_match.namespace == 'estoque' %}true{% else %}false{% endif %} }">
                         <button @click="open = !open"
                             class="menu-item text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 
@@ -983,13 +1067,16 @@
                                     class="block rounded-md py-2 px-3 text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800">
                                     <i class="fas fa-exchange-alt mr-2"></i>Movimentações
                                 </a></li>
+                                
                             <li><a href="{% url 'estoque:inventario_lista' %}"
                                    @click="isMobile && closeSidebar()"
                                     class="block rounded-md py-2 px-3 text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800">
                                     <i class="fas fa-clipboard-list mr-2"></i>Inventário
                                 </a></li>
+                                
                         </ul>
                     </li>
+                    {% endif %}
 
                     <!-- Clientes -->
                     <li x-data="{ open: {% if request.resolver_match.namespace == 'clientes' %}true{% else %}false{% endif %} }">
@@ -1124,7 +1211,7 @@
                     
                     
                     
-<li x-data="{ open: {% if 'fatura' in request.path or 'recibo' in request.path or 'proforma' in request.path or 'pdv' in request.path or 'documentos' in request.path %}true{% else %}false{% endif %} }">
+                    <li x-data="{ open: {% if 'fatura' in request.path or 'recibo' in request.path or 'proforma' in request.path or 'pdv' in request.path or 'documentos' in request.path %}true{% else %}false{% endif %} }">
                         <button @click="open = !open"
                             class="menu-item text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 
                                                         group flex w-full items-center gap-x-3 rounded-md p-2 text-left text-sm leading-6 font-semibold">
@@ -1162,11 +1249,27 @@
                         </ul>
                     </li>
 
-                    <!--usar como base para criar área de gerenciamento de licenças-->
-                    <!--
-                    {% if perms.relatorios.view_relatorio %}
+                    {% if 'site' in modulos_ativos and user.e_administrador_empresa %}
+                    <li class="nav-item">
+                        <a class="nav-link" href="{% url 'site:configuracao_dashboard' %}">
+                            <div class="icon icon-shape icon-sm shadow border-radius-md bg-white text-center me-2 d-flex align-items-center justify-content-center">
+                                <i class="fas fa-globe text-primary"></i>
+                            </div>
+                            <span class="nav-link-text ms-1">Configurações do Site</span>
+                        </a>
+                    </li>
                     {% endif %}
-                    -->
+
+                    {% if perms.funcionarios.pode_gerenciar_funcionarios %}
+                    <li class="nav-item">
+                        <a class="nav-link {% if 'recrutamento' in request.path %}active{% endif %}" href="{% url 'funcionarios:painel_candidatura' %}">
+                            <div class="icon icon-shape icon-sm shadow border-radius-md bg-white text-center me-2 d-flex align-items-center justify-content-center">
+                                <i class="fas fa-user-tie text-dark"></i>
+                            </div>
+                            <span class="nav-link-text ms-1">Painel de Candidaturas</span>
+                        </a>
+                    </li>
+                    {% endif %}
               
                     <!-- Configurações -->
                     <li class="mt-auto">
@@ -1314,18 +1417,22 @@
                                 class="block px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700">
                                 <i class="fas fa-cash-register mr-2"></i>Nova Venda (PDV)
                             </a>
+                            {% if request.user.empresa.regime_empresa == 'COMERCIO' or request.user.empresa.regime_empresa == 'SERVICOS' or request.user.empresa.regime_empresa == 'MISTO' %}
                             <a href="{% url 'produtos:criar' %}"
                                 class="block px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700">
                                 <i class="fas fa-box mr-2"></i>Cadastrar Produto
                             </a>
+                            {% endif %}
                             <a href="{% url 'clientes:novo' %}"
                                 class="block px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700">
                                 <i class="fas fa-user-plus mr-2"></i>Cadastrar Cliente
                             </a>
+                            {% if request.user.empresa.regime_empresa == 'COMERCIO' or request.user.empresa.regime_empresa == 'SERVICOS' or request.user.empresa.regime_empresa == 'MISTO' %}
                             <a href="{% url 'produtos:lote_create' %}"
                                 class="block px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700">
                                 <i class="fas fa-truck mr-2"></i>Entrada de Estoque
                             </a>
+                            {% endif %}
                         </div>
                     </div>
 
@@ -1383,7 +1490,7 @@
 
                             <div class="border-t border-gray-200 dark:border-gray-700"></div>
 
-                            <form method="post" action="{% url 'logout' %}">
+                            <form method="post" action="{% url 'core:logout' %}">
                                 {% csrf_token %}
                                 <button type="submit"
                                     class="block w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700">

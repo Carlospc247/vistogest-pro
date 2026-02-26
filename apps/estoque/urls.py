@@ -1,15 +1,9 @@
 # apps/estoque/urls.py
 from django.urls import path, include
-from rest_framework.routers import DefaultRouter
 from . import views
-from .api import viewsets
 from .views import EntradaDiretaProdutoView, EntradaEstoqueView, SaidaEstoqueView, AjusteEstoqueView, PerdaEstoqueView
 
 # API Router
-router = DefaultRouter()
-router.register(r'movimentacoes', viewsets.MovimentacaoEstoqueViewSet)
-router.register(r'inventarios', viewsets.InventarioViewSet)
-router.register(r'movimentacoes', viewsets.MovimentacaoEstoqueViewSet, basename='movimentacao')
 
 app_name = 'estoque'
 
@@ -135,8 +129,7 @@ urlpatterns = [
     # =====================================
     # API REST
     # =====================================
-    path('api/', include(router.urls)),
-    
+   
     # API Personalizada
     path('api/saldo-atual/', views.SaldoAtualAPIView.as_view(), name='api_saldo_atual'),
     path('api/historico-movimentacao/', views.HistoricoMovimentacaoAPIView.as_view(), name='api_historico_movimentacao'),

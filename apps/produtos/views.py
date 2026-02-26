@@ -34,20 +34,19 @@ from django.views.generic import ListView, CreateView, UpdateView, DeleteView
 from django.urls import reverse_lazy
 from django.contrib import messages
 from django.shortcuts import redirect
-from apps.core.models import Categoria
+from apps.empresas.models import Categoria
 from .forms import CategoriaForm
 from django.http import JsonResponse
 from django.views import View
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db import models
 from .models import Produto
-from apps.core.models import Empresa
+from apps.empresas.models import Empresa
 from django.db import models
 from django.http import JsonResponse
 from django.views import View
 from django.contrib.auth.mixins import LoginRequiredMixin
 from apps.produtos.models import Produto
-from apps.core.models import Empresa
 from django.contrib.auth.mixins import AccessMixin
 import logging
 import pandas as pd
@@ -57,7 +56,6 @@ from django.core.exceptions import ValidationError
 from apps.fornecedores.models import Fornecedor
 import openpyxl
 from openpyxl import Workbook
-from apps.core.models import Categoria
 import uuid
 import unicodedata
 from django.db import transaction
@@ -321,7 +319,7 @@ class CriarProdutoView(LoginRequiredMixin, CreateView):
         if hasattr(user, 'funcionario') and user.funcionario and user.funcionario.empresa:
             return user.funcionario.empresa
         if user.is_superuser:
-            from apps.core.models import Empresa
+            from apps.empresas.models import Empresa
             return Empresa.objects.first()
         return None
 
@@ -408,7 +406,7 @@ class DeletarProdutoView(LoginRequiredMixin, View):
         elif hasattr(request.user, 'profile') and request.user.profile.empresa:
             return request.user.profile.empresa
         else:
-            from apps.core.models import Empresa
+            from apps.empresas.models import Empresa
             return Empresa.objects.first()
 
 
@@ -492,7 +490,7 @@ class ToggleProdutoView(LoginRequiredMixin, View):
         elif hasattr(request.user, 'profile') and request.user.profile.empresa:
             return request.user.profile.empresa
         else:
-            from apps.core.models import Empresa
+            from apps.empresas.models import Empresa
             return Empresa.objects.first()
 
 
@@ -512,7 +510,7 @@ class CategoriaBaseView(LoginRequiredMixin):
             return user.funcionario.empresa
         # Adicione um fallback para o superuser ou outros casos, se necessário
         if user.is_superuser and not hasattr(user, 'funcionario'):
-             from apps.core.models import Empresa
+             from apps.empresas.models import Empresa
              return Empresa.objects.first()
         return None
 

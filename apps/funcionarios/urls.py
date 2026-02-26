@@ -1,14 +1,10 @@
 # apps/funcionarios/urls.py
 from django.urls import path, include
-from rest_framework.routers import DefaultRouter
-from . import views
-from .api import viewsets
 
-# API Router
-router = DefaultRouter()
-router.register(r'funcionarios', viewsets.FuncionarioViewSet)
-router.register(r'cargos', viewsets.CargoViewSet)
-router.register(r'departamentos', viewsets.DepartamentoViewSet)
+from apps.funcionarios import views_recrutamento
+from . import views
+
+
 
 app_name = 'funcionarios'
 
@@ -178,10 +174,24 @@ urlpatterns = [
     # =====================================
     # API REST
     # =====================================
-    path('api/', include(router.urls)),
     
     # API Personalizada
     path('api/registrar-ponto/', views.RegistrarPontoAPIView.as_view(), name='api_registrar_ponto'),
     path('api/consultar-ferias/', views.ConsultarFeriasAPIView.as_view(), name='api_consultar_ferias'),
     path('api/horarios-disponiveis/', views.HorariosDisponiveisAPIView.as_view(), name='api_horarios_disponiveis'),
+
+
+
+    # 🏢 PAINEL DE RECRUTAMENTO SOTARQ
+    path('recrutamento/candidaturas/', 
+         views_recrutamento.PainelCandidaturaView.as_view(), 
+         name='painel_candidatura'),
+    
+    path('recrutamento/admitir/<int:candidato_id>/', 
+         views_recrutamento.AdmitirCandidatoView.as_view(), 
+         name='admitir_candidato'),
+    
+    path('recrutamento/rejeitar/<int:candidato_id>/', 
+     views_recrutamento.RejeitarCandidatoView.as_view(), 
+     name='rejeitar_candidato'),
 ]

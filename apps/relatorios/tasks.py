@@ -14,7 +14,7 @@ from .utils import (
     processar_relatorio_assincrono, criar_kpi_automatico,
     detectar_alertas_automaticos
 )
-from apps.core.models import Empresa
+from apps.empresas.models import Empresa
 
 logger = logging.getLogger(__name__)
 

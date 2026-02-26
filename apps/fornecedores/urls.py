@@ -1,14 +1,8 @@
 # apps/fornecedores/urls.py
 from django.urls import path, include
-from rest_framework.routers import DefaultRouter
 from . import views
-from .api import viewsets
 
-# API Router
-router = DefaultRouter()
-router.register(r'fornecedores', viewsets.FornecedorViewSet)
-router.register(r'pedidos', viewsets.PedidoCompraViewSet)
-router.register(r'contatos', viewsets.ContatoFornecedorViewSet)
+
 
 app_name = 'fornecedores'
 
@@ -117,7 +111,6 @@ urlpatterns = [
     # =====================================
     # API REST
     # =====================================
-    path('api/', include(router.urls)),
     
     # API Personalizada
     path('api/buscar-produtos/', views.BuscarProdutosFornecedorAPIView.as_view(), name='api_buscar_produtos'),

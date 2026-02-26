@@ -1,14 +1,9 @@
 # apps/licencas/urls.py
 from django.urls import path, include
-from rest_framework.routers import DefaultRouter
 from . import views
-from .api import viewsets
+
 
 # API Router
-router = DefaultRouter()
-router.register(r'licencas', viewsets.LicencaViewSet)
-router.register(r'renovacoes', viewsets.RenovacaoViewSet)
-router.register(r'documentos', viewsets.DocumentoLicencaViewSet)
 
 app_name = 'licencas'
 
@@ -66,7 +61,6 @@ urlpatterns = [
     # =====================================
     # API REST
     # =====================================
-    path('api/', include(router.urls)),
     
     # API Personalizada
     path('api/verificar-status/', views.VerificarStatusAPIView.as_view(), name='api_verificar_status'),

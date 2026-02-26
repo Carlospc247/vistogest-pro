@@ -1,7 +1,7 @@
 # apps/saft/services/master_files_service.py
 
 from typing import List, Dict, Any
-from apps.core.models import Empresa 
+from apps.empresas.models import Empresa 
 
 
 

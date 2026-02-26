@@ -5,4 +5,6 @@ class ServicosConfig(AppConfig):
     default_auto_field = 'django.db.models.BigAutoField'
     name = 'apps.servicos'
 
+    def ready(self):
+        import apps.servicos.signals
 

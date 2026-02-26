@@ -1,0 +1,41 @@
+<section class="py-5">
+    <div class="container">
+        <div class="text-center mb-5">
+            <h2 class="fw-bold">{{ dados.titulo }}</h2>
+            <p class="text-muted">{{ dados.subtitulo }}</p>
+        </div>
+        
+        <div class="row justify-content-center">
+            <div class="col-lg-6 bg-white p-4 shadow-lg rounded-3">
+                <form id="formAgendamento" action="{% url 'site:processar_agendamento' %}" method="POST">
+                    {% csrf_token %}
+                    <div class="mb-3">
+                        <label class="small fw-bold">Seu Nome</label>
+                        <input type="text" name="nome" class="form-control" required>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="small fw-bold">WhatsApp</label>
+                            <input type="tel" name="telefone" class="form-control" placeholder="244..." required>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="small fw-bold">Serviço</label>
+                            <select name="servico_id" class="form-select">
+                                {% for s in servicos_disponiveis %}
+                                <option value="{{ s.id }}">{{ s.nome }} {% if dados.mostrar_preco %}- {{ s.preco }} Kz{% endif %}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                    </div>
+                    <div class="mb-4">
+                        <label class="small fw-bold">Data e Hora Preferencial</label>
+                        <input type="datetime-local" name="data_hora" class="form-control" required>
+                    </div>
+                    <button type="submit" class="btn btn-primary w-100 py-3 fw-bold" style="background-color: {{ dados.cor_botao }}">
+                        Confirmar Marcação
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+</section>

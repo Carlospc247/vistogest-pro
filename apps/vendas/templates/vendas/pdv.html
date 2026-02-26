@@ -710,6 +710,21 @@
                         <i class="fas fa-user-plus mr-2"></i>
                         Adicionar Cliente
                     </h2>
+
+                    <div class="mt-4 p-3 bg-white bg-opacity-10 rounded-lg border border-white border-opacity-20">
+                        <h3 class="text-white text-sm font-bold mb-2">
+                            <i class="fas fa-paper-plane mr-1"></i> Enviar Fatura para (Opcional)
+                        </h3>
+                        <div class="grid grid-cols-1 gap-2">
+                            <input type="email" id="email_avulso" class="search-input text-xs" 
+                                placeholder="E-mail do cliente (Diversos)"
+                                style="background: rgba(255,255,255,0.9); color: #1e3a8a;">
+                            <input type="text" id="whats_avulso" class="search-input text-xs" 
+                                placeholder="WhatsApp (ex: 244923000000)"
+                                style="background: rgba(255,255,255,0.9); color: #1e3a8a;">
+                        </div>
+                    </div>
+
                     <div class="flex gap-3">
                         <input type="text" id="clienteInput" class="search-input flex-1"
                             placeholder="Buscar por nome ou NIF..." autocomplete="off">
@@ -735,10 +750,22 @@
                     Filtrar por Categoria
                 </h3>
                 <div id="categoriaButtons" class="categoria-buttons">
-                    <button class="categoria-btn active" onclick="filtrarPorCategoria('todos')">
-                        Todos
-                    </button>
-                </div>
+                    <button class="categoria-btn active" onclick="filtrarPorCategoria('todos')">Todos</button>
+                    </div>
+            </div>
+
+            <div class="content-tabs">
+                {% if regime_empresa == 'COMERCIO' or regime_empresa == 'MISTO' %}
+                <button id="tabProdutos" class="tab-btn active" onclick="alternarAba('produtos')">
+                    <i class="fas fa-box mr-2"></i> Produtos
+                </button>
+                {% endif %}
+
+                {% if regime_empresa == 'SERVICOS' or regime_empresa == 'MISTO' %}
+                <button id="tabServicos" class="tab-btn {% if regime_empresa == 'SERVICOS' %}active{% endif %}" onclick="alternarAba('servicos')">
+                    <i class="fas fa-tools mr-2"></i> Serviços
+                </button>
+                {% endif %}
             </div>
 
             <!-- Abas de Produtos/Serviços -->
@@ -989,6 +1016,7 @@
     let tipoFaturaSelecionado = null;
     let categoriaAtual = 'todos';
     let abaAtual = 'produtos';
+    const regime = "{{ regime_empresa|default:'COMERCIO' }}";
 
     function getCookie(name) {
         let cookieValue = null;
@@ -1014,12 +1042,24 @@
     }
 
     async function carregarDadosIniciais() {
-        await Promise.all([
-            carregarCategorias(),
-            carregarProdutos(),
-            carregarServicos(),
-            carregarFormasPagamento()
-        ]);
+        // Injeção direta do Backend (Segurança e Velocidade)
+        produtos = {{ produtos|safe|default:"[]" }};
+        servicos = {{ servicos|safe|default:"[]" }};
+        
+        if (regime === 'SERVICOS') {
+            abaAtual = 'servicos';
+            renderizarServicos(servicos);
+        } else {
+            // Se for COMERCIO ou MISTO, começa pelos produtos
+            renderizarProdutos(produtos);
+        }
+        
+        // Chamamos apenas o que ainda precisa de busca externa (opcional)
+        await carregarCategorias();
+        await carregarFormasPagamento();
+        
+        // Foco automático no input de busca para agilizar a venda
+        document.getElementById('searchInput').focus();
     }
 
     async function carregarCategorias() {
@@ -1502,13 +1542,13 @@
         calcularTrocoSidebar();
     }
 
+
     async function finalizarVenda() {
         if (carrinho.length === 0) {
             showToast('Carrinho vazio! Adicione produtos para continuar.', "#ef4444");
             return;
         }
 
-        // REMOVIDA a verificação mobile - usar sempre os campos disponíveis
         let formaPagamentoSelect = document.getElementById('formaPagamentoSelect') || document.getElementById('formaPagamentoMobile');
         let valorPagoInput = document.getElementById('valorPagoInput') || document.getElementById('valorPagoSidebarInput');
 
@@ -1518,9 +1558,11 @@
             return;
         }
 
-        // Calcular totais simples - SEM desconto manual
+        // --- RIGOR SOTARQ: CAPTURA DE DADOS DE NOTIFICAÇÃO ---
+        const emailAvulso = document.getElementById('email_avulso').value.trim();
+        const whatsAvulso = document.getElementById('whats_avulso').value.trim();
+
         let subtotalItens = carrinho.reduce((sum, item) => sum + (item.preco_venda * item.quantidade), 0);
-        
         let ivaTotal = 0;
         carrinho.forEach(item => {
             const valorItem = item.preco_venda * item.quantidade;
@@ -1533,36 +1575,32 @@
 
         const dadosVenda = {
             cliente_id: clienteSelecionado ? clienteSelecionado.id : null,
-            itens: carrinho.map(item => {
-                const itemData = {
-                    quantidade: item.quantidade,
-                    preco_unitario: item.preco_venda,
-                    iva_percentual: item.iva_percentual || 0,
-                    desconto_item: 0, // SEM desconto manual
-                    subtotal_item: item.preco_venda * item.quantidade
-                };
-
-                if (item.tipo === 'produto') {
-                    itemData.produto_id = item.id;
-                } else if (item.tipo === 'servico') {
-                    itemData.servico_id = item.id;
-                }
-
-                return itemData;
-            }),
+            
+            // ENVIO DOS CAMPOS AVULSOS PARA O SERVICE PYTHON
+            email_cliente_avulso: emailAvulso || null,
+            whatsapp_cliente_avulso: whatsAvulso || null,
+            
+            itens: carrinho.map(item => ({
+                quantidade: item.quantidade,
+                preco_unitario: item.preco_venda,
+                iva_percentual: item.iva_percentual || 0,
+                desconto_item: 0,
+                produto_id: item.tipo === 'produto' ? item.id : null,
+                servico_id: item.tipo === 'servico' ? item.id : null,
+                taxa_iva_id: item.taxa_iva_id // Certifique-se de que o item tem este ID
+            })),
             subtotal: subtotalItens,
-            desconto_valor: 0, // SEM desconto manual
+            desconto_valor: 0,
             iva_valor: ivaTotal,
             total: total,
             total_pago: valorPago,
             troco: troco,
             forma_pagamento_id: formaPagamentoSelecionadaId,
-            observacoes: '',
+            tipo_venda: 'fatura_recibo'
         };
 
         try {
-            const urlFinalizarVenda = "{% url 'vendas:api_finalizar_venda' %}";
-            const response = await fetch(urlFinalizarVenda, {
+            const response = await fetch("{% url 'vendas:api_finalizar_venda' %}", {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -1574,19 +1612,25 @@
             const data = await response.json();
 
             if (data.success) {
-                showToast(data.message, "#22c55e");
+                showToast("Venda Finalizada! Notificações enviadas.", "#22c55e");
                 limparCarrinho();
+                // Limpar campos avulsos
+                document.getElementById('email_avulso').value = '';
+                document.getElementById('whats_avulso').value = '';
+                
                 vendaAtualId = data.venda_id;
                 mostrarModalFatura();
             } else {
-                showToast(`Erro na venda: ${data.message}`, "#ef4444");
+                showToast(`Erro: ${data.message}`, "#ef4444");
             }
         } catch (error) {
-            console.error('Erro de conexão:', error);
-            showToast('Erro de conexão com o servidor. Verifique a sua internet.', "#ef4444");
+            showToast('Erro de conexão com o servidor.', "#ef4444");
         }
     }
 
+
+
+    
     function atualizarQuantidade(index, novaQuantidade) {
         const item = carrinho[index];
         if (novaQuantidade <= 0) {

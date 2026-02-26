@@ -59,6 +59,25 @@
         </div>
     </div>
 </div>
+<!--Card específico para o Lucro do Auditor, que só aparecerá se houver um vínculo de auditoria ativo.-->
+{% if request.tenant.schema_name != 'public' and request.user.vinculo_auditoria %}
+<div class="flex-1 overflow-hidden rounded-lg bg-gradient-to-br from-purple-500 to-purple-700 px-6 py-8 shadow-md transition-transform duration-300 hover:scale-105">
+    <div class="flex items-center">
+        <div class="flex-shrink-0">
+            <div class="flex h-16 w-16 items-center justify-center rounded-full bg-white bg-opacity-30">
+                <i class="fas fa-chart-line text-3xl text-white"></i>
+            </div>
+        </div>
+        <div class="ml-5 w-0 flex-1">
+            <dt class="truncate text-lg font-medium text-white">Lucro Estimado (Ativos)</dt>
+            <dd class="text-3xl font-bold tracking-tight text-white mt-1">AKZ {{ lucro_total|floatformat:2|intcomma }}</dd>
+        </div>
+    </div>
+    <div class="mt-4 text-xs text-white text-opacity-80">
+        Baseado nos lotes e fabricantes financiados
+    </div>
+</div>
+{% endif %}
 
 <div class="mt-8 grid grid-cols-1 gap-6 lg:grid-cols-3">
     <div class="lg:col-span-2">
@@ -200,32 +219,15 @@ document.addEventListener('DOMContentLoaded', function() {
         const ctx = document.getElementById('vendasChart');
         if (!ctx) return;
         
-        if (vendasChart) {
-            vendasChart.destroy();
-        }
+        if (vendasChart) { vendasChart.destroy(); }
         
-        let dados, titulo, backgroundColor, borderColor;
-        
+        let dados, titulo;
         switch(tipo) {
-            case 'mensal':
-                dados = dadosVendasMensal;
-                titulo = 'Faturamento Mensal';
-                backgroundColor = 'rgba(93, 92, 222, 0.1)';
-                borderColor = cores.primary;
-                break;
-            case 'semanal':
-                dados = dadosVendasSemanal;
-                titulo = 'Faturamento Semanal';
-                backgroundColor = 'rgba(16, 185, 129, 0.1)';
-                borderColor = cores.success;
-                break;
-            case 'anual':
-                dados = dadosVendasAnual;
-                titulo = 'Faturamento Anual';
-                backgroundColor = 'rgba(59, 130, 246, 0.1)';
-                borderColor = cores.info;
-                break;
+            case 'mensal': dados = dadosVendasMensal; titulo = 'Análise Mensal (Faturamento vs Lucro)'; break;
+            case 'semanal': dados = dadosVendasSemanal; titulo = 'Análise Semanal (Faturamento vs Lucro)'; break;
+            case 'anual': dados = dadosVendasAnual; titulo = 'Análise Anual (Faturamento vs Lucro)'; break;
         }
+        
         
         // ⚠️ Verificar se há dados
         if (!dados || !dados.labels || dados.labels.length === 0) {
@@ -238,59 +240,52 @@ document.addEventListener('DOMContentLoaded', function() {
         }
         
         vendasChart = new Chart(ctx.getContext('2d'), {
-            type: 'line',
             data: {
                 labels: dados.labels,
-                datasets: [{
-                    label: 'Faturamento (AKZ)',
-                    data: dados.valores,
-                    backgroundColor: backgroundColor,
-                    borderColor: borderColor,
-                    borderWidth: 3,
-                    fill: true,
-                    tension: 0.3,
-                    pointBackgroundColor: borderColor,
-                    pointBorderColor: '#fff',
-                    pointBorderWidth: 2,
-                    pointRadius: 6,
-                    pointHoverRadius: 8
-                }]
+                datasets: [
+                    {
+                        type: 'line', // Linha para o Lucro
+                        label: 'Lucro Líquido (AKZ)',
+                        data: dados.lucro,
+                        borderColor: '#10B981', // Verde Sucesso
+                        backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                        borderWidth: 3,
+                        fill: false,
+                        tension: 0.4,
+                        yAxisID: 'y',
+                    },
+                    {
+                        type: 'bar', // Barras para o Faturamento
+                        label: 'Faturamento Bruto (AKZ)',
+                        data: dados.faturamento,
+                        backgroundColor: 'rgba(59, 130, 246, 0.6)', // Azul SOTARQ
+                        borderColor: cores.primary,
+                        borderWidth: 1,
+                        yAxisID: 'y',
+                    }
+                ]
             },
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
                 plugins: {
-                    title: {
-                        display: true,
-                        text: titulo,
-                        font: { size: 16, weight: 'bold' },
-                        color: document.documentElement.classList.contains('dark') ? '#fff' : '#1f2937'
-                    },
-                    legend: { display: false },
+                    title: { display: true, text: titulo, color: document.documentElement.classList.contains('dark') ? '#fff' : '#1f2937' },
                     tooltip: {
-                        backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                        mode: 'index',
+                        intersect: false,
                         callbacks: {
                             label: function(context) {
-                                return 'Faturamento: AKZ ' + (context.parsed.y || 0).toLocaleString('pt-AO', {
-                                    minimumFractionDigits: 2
-                                });
+                                return context.dataset.label + ': AKZ ' + context.parsed.y.toLocaleString('pt-AO', { minimumFractionDigits: 2 });
                             }
                         }
                     }
                 },
                 scales: {
-                    x: {
-                        grid: { color: document.documentElement.classList.contains('dark') ? '#374151' : '#f3f4f6' },
-                        ticks: { color: document.documentElement.classList.contains('dark') ? '#9ca3af' : '#6b7280' }
-                    },
                     y: {
                         beginAtZero: true,
-                        grid: { color: document.documentElement.classList.contains('dark') ? '#374151' : '#f3f4f6' },
                         ticks: {
-                            color: document.documentElement.classList.contains('dark') ? '#9ca3af' : '#6b7280',
-                            callback: function(value) {
-                                return 'AKZ ' + (value || 0).toLocaleString('pt-AO');
-                            }
+                            callback: function(value) { return 'AKZ ' + value.toLocaleString('pt-AO'); },
+                            color: '#9ca3af'
                         }
                     }
                 }

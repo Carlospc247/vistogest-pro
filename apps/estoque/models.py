@@ -3,7 +3,8 @@ from django.conf import settings
 from django.db import models
 from django.core.validators import MinValueValidator, MaxValueValidator
 from django.core.exceptions import ValidationError
-from apps.core.models import TimeStampedModel, Empresa, Usuario, Loja
+from apps.core.models import TimeStampedModel, Usuario
+from apps.empresas.models import Empresa, Loja
 from apps.produtos.models import Produto, Lote
 from decimal import Decimal
 from datetime import date, datetime
@@ -60,7 +61,7 @@ class MovimentacaoEstoque(TimeStampedModel):
     usuario = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name='movimentacoes_usuario')
     
     tipo = models.CharField(max_length=20, choices=TIPO_CHOICES)
-    loja = models.ForeignKey('core.Loja', on_delete=models.PROTECT, related_name='movimentacoes_loja')
+    loja = models.ForeignKey('empresas.Loja', on_delete=models.PROTECT, related_name='movimentacoes_loja')
 
     quantidade = models.IntegerField()
     motivo = models.CharField(max_length=200)
@@ -101,7 +102,7 @@ class Inventario(TimeStampedModel):
     # Escopo
     loja = models.ForeignKey(Loja, on_delete=models.PROTECT, related_name='inventarios')
     categorias = models.ManyToManyField(
-        'core.Categoria',  # ✅ CORRIGIDO: referência correta
+        'empresas.Categoria',  # ✅ CORRIGIDO: referência correta
         blank=True,
         help_text="Categorias incluídas (vazio = todas)"
     )

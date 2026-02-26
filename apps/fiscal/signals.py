@@ -5,15 +5,12 @@ from django.core.cache import cache
 from django.utils import timezone
 from decimal import Decimal
 
+from apps.fiscal.services.assinatura_service import VerificadorIntegridadeService
+
 from .models import TaxaIVAAGT, AssinaturaDigital, RetencaoFonte
-from .services import AssinaturaDigitalService, RetencaoFonteService, FiscalServiceError
 from apps.vendas.models import Venda, FaturaCredito, NotaCredito, NotaDebito, Recibo
-from apps.financeiro.models import LancamentoFinanceiro, MovimentacaoFinanceira
-from apps.core.models import Empresa
-from .tasks import (
-    processar_assinatura_documento,
-    notificar_retencao_criada, verificar_integridade_cadeia
-)
+from apps.financeiro.models import MovimentacaoFinanceira
+from apps.empresas.models import Empresa
 import io
 import csv
 import logging
@@ -145,14 +142,6 @@ def processar_retencao_criada(sender, instance, created, **kwargs):
         return
     
     try:
-        # Gerar lançamentos contábeis se ainda não foram gerados
-        if not LancamentoFinanceiro.objects.filter(
-            empresa=instance.empresa,
-            descricao__icontains=f"Retenção {instance.id}"
-        ).exists():
-            
-            # Usar service para gerar lançamentos
-            RetencaoFonteService._gerar_lancamento_contabil(instance)
         
         # Notificar criação de retenção de forma assíncrona
         notificar_retencao_criada.delay(
@@ -346,7 +335,7 @@ def verificar_integridade_assinatura(sender, instance, **kwargs):
     Verifica integridade da cadeia de assinatura quando atualizada
     """
     # Agendar verificação de integridade
-    verificar_integridade_cadeia.delay(
+    VerificadorIntegridadeService.delay(
         empresa_id=instance.empresa.id,
         verificar_todas_series=True
     )
@@ -426,26 +415,37 @@ def log_auditoria_fiscal_delete(sender, instance, **kwargs):
 # Signals para Cache e Performance
 # =====================================
 
+# =====================================
+# Signals para Cache e Performance
+# =====================================
+from django.db import transaction # RIGOR SOTARQ: Importação vital
+
 @receiver(post_save, sender=Empresa)
 def inicializar_cache_empresa_fiscal(sender, instance, created, **kwargs):
     """
-    Inicializa cache fiscal quando uma nova empresa é criada
+    Inicializa cache fiscal apenas após o COMMIT absoluto no banco de dados.
+    Isso evita o erro 'current transaction is aborted'.
     """
     if created:
-        # Pré-carregar dados fiscais essenciais no cache
-        cache_keys = {
-            f"taxas_iva_ativas_{instance.id}": [],
-            f"assinatura_configurada_{instance.id}": False,
-            f"dashboard_fiscal_{instance.id}": {},
-        }
-        
-        cache.set_many(cache_keys, timeout=3600)  # 1 hora
-        
-        logger.info(
-            f"Cache fiscal inicializado para nova empresa: {instance.id}",
-            extra={'empresa_id': instance.id}
-        )
+        def executar_inicializacao():
+            try:
+                # Pré-carregar dados fiscais essenciais no cache
+                cache_keys = {
+                    f"taxas_iva_ativas_{instance.id}": [],
+                    f"assinatura_configurada_{instance.id}": False,
+                    f"dashboard_fiscal_{instance.id}": {},
+                }
+                cache.set_many(cache_keys, timeout=3600)  # 1 hora
+                
+                logger.info(
+                    f"SUCESSO SOTARQ: Cache fiscal inicializado para nova empresa: {instance.id}",
+                    extra={'empresa_id': instance.id}
+                )
+            except Exception as e:
+                logger.error(f"ERRO SOTARQ ao inicializar cache: {e}")
 
+        # RIGOR: Só dispara a lógica quando o PostgreSQL der o OK final (COMMIT)
+        transaction.on_commit(executar_inicializacao)
 
 # =====================================
 # Signal personalizado para eventos fiscais

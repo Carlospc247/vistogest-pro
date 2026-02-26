@@ -5,7 +5,6 @@ from django.views.generic import ListView, DetailView, CreateView, UpdateView, D
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib import messages
 
-from apps.clientes.api.serializers import ClienteSerializer
 from .models import (
     Cliente, CategoriaCliente, EnderecoCliente, ContatoCliente,
     HistoricoCliente, CartaoFidelidade, MovimentacaoFidelidade,

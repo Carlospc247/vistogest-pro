@@ -4,6 +4,7 @@ from django.db.models import F, Sum, DecimalField
 from datetime import timedelta
 from django.utils import timezone
 from apps.produtos.models import Produto # Ajuste o caminho
+from apps.vendas.models import ItemVenda
 # from apps.users.utils import enviar_email_alerta # Importe sua função de e-mail
 
 @shared_task
@@ -18,7 +19,7 @@ def verificar_margem_critica():
     data_limite = timezone.now() - timedelta(days=DIAS_ANALISE)
     
     # 1. Calcular a Margem Agregada nos últimos 7 dias
-    margens = VendaItem.objects.filter(
+    margens = ItemVenda.objects.filter(
         venda__data_venda__gte=data_limite
     ).select_related('produto').values(
         'produto__id', 'produto__nome'

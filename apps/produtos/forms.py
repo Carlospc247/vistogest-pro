@@ -1,15 +1,13 @@
 # apps/produtos/forms.py
 from apps.fiscal.models import TaxaIVAAGT
-from .models import Produto, Lote, Categoria, Fabricante
+from .models import PrincipioAtivo, Produto, Lote, Categoria, Fabricante
 from .models import Lote
 from django import forms
-from apps.core.models import Categoria  # Importa o modelo da app 'core'
+from apps.empresas.models import Categoria  # Importa o modelo da app 'core'
 from django.core.exceptions import ValidationError
-from apps.core.models import Categoria
 from .models import Produto, Fabricante
 from apps.fornecedores.models import Fornecedor
 from django.core.exceptions import ValidationError
-from apps.core.models import Categoria
 import openpyxl
 from openpyxl import Workbook
 
@@ -35,7 +33,6 @@ checkbox_classes = (
 )
 
 
-
 class ProdutoForm(forms.ModelForm):
     margem_lucro = forms.DecimalField(
         max_digits=5,
@@ -51,6 +48,7 @@ class ProdutoForm(forms.ModelForm):
         fields = [
             'nome_produto', 'codigo_barras', 'codigo_interno',
             'categoria', 'fabricante', 'fornecedor',
+            'principio_ativo',  # <--- RIGOR SOTARQ: Campo incluído
             'preco_custo', 'preco_venda', 'margem_lucro',
             'estoque_minimo', 'estoque_maximo',
             'ativo', 'foto', 'taxa_iva', 'desconto_percentual'
@@ -59,6 +57,7 @@ class ProdutoForm(forms.ModelForm):
             'nome_produto': 'Nome Comercial do Produto',
             'codigo_barras': 'Código de Barras (EAN)',
             'codigo_interno': 'Código Interno / SKU',
+            'principio_ativo': 'Princípio Ativo / Composição Base', # Label amigável
             'preco_custo': 'Preço de Custo',
             'preco_venda': 'Preço de Venda ao Público',
             'estoque_minimo': 'Nível Mínimo de Estoque',
@@ -85,7 +84,7 @@ class ProdutoForm(forms.ModelForm):
             else:
                 field.widget.attrs['class'] = 'form-input'
 
-        # Filtra listas de seleção por empresa
+        # FILTROS DE SEGURANÇA MULTI-TENANT
         if empresa:
             if 'categoria' in self.fields:
                 self.fields['categoria'].queryset = Categoria.objects.filter(empresa=empresa, ativa=True)
@@ -93,26 +92,18 @@ class ProdutoForm(forms.ModelForm):
                 self.fields['fabricante'].queryset = Fabricante.objects.filter(empresa=empresa)
             if 'fornecedor' in self.fields:
                 self.fields['fornecedor'].queryset = Fornecedor.objects.filter(empresa=empresa, ativo=True)
+            
+            # RIGOR SOTARQ: Filtra princípios ativos apenas da empresa logada
+            if 'principio_ativo' in self.fields:
+                self.fields['principio_ativo'].queryset = PrincipioAtivo.objects.filter(empresa=empresa, ativo=True)
+                
             if 'taxa_iva' in self.fields:
+                # Nota: Garanta que o model TaxaIVAAGT tenha o campo empresa se for multi-tenant
                 self.fields['taxa_iva'].queryset = TaxaIVAAGT.objects.filter(empresa=empresa, ativo=True).order_by('-tax_percentage')
 
         # Valor inicial da margem de lucro ao editar
         if self.instance and self.instance.pk:
             self.fields['margem_lucro'].initial = self.instance.margem_lucro
-
-    def clean(self):
-        cleaned_data = super().clean()
-
-        codigo_interno = cleaned_data.get("codigo_interno")
-        if codigo_interno and self.empresa:
-            queryset = Produto.objects.filter(empresa=self.empresa, codigo_interno=codigo_interno)
-            if self.instance and self.instance.pk:
-                queryset = queryset.exclude(pk=self.instance.pk)
-            if queryset.exists():
-                self.add_error('codigo_interno', 'Já existe um produto com este Código Interno nesta empresa.')
-
-        return cleaned_data
-
 
 
 class LoteForm(forms.ModelForm):

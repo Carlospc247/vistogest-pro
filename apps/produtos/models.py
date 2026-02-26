@@ -5,7 +5,8 @@ from django.utils import timezone
 from django.utils.html import format_html
 from django.core.validators import MinValueValidator, MaxValueValidator
 from django.db import models
-from apps.core.models import Empresa, TimeStampedModel, Categoria
+from apps.core.models import TimeStampedModel
+from apps.empresas.models import Empresa, Categoria
 from cloudinary.models import CloudinaryField
 from apps.core.models import TimeStampedModel
 from decimal import Decimal, ROUND_HALF_UP
@@ -61,6 +62,15 @@ class Produto(TimeStampedModel):
         decimal_places=2, 
         default=0.00,
         verbose_name="DESCONTO (%)"
+    )
+    # RIGOR SOTARQ: Conexão para Farmacêutica/Cosmética
+    principio_ativo = models.ForeignKey(
+        'produtos.PrincipioAtivo', 
+        on_delete=models.SET_NULL, 
+        null=True, 
+        blank=True, 
+        related_name='produtos',
+        verbose_name="Princípio Ativo / Composição Base"
     )
     observacoes = models.TextField(blank=True, null=True)
 
@@ -145,6 +155,48 @@ class Produto(TimeStampedModel):
         return 'M'
 
 
+class PrincipioAtivo(TimeStampedModel):
+    """
+    RIGOR SOTARQ: Cadastro de substâncias para Farmacêutica e Cosmética.
+    Inclui suporte a códigos internacionais (CAS, ATC).
+    """
+    nome = models.CharField(max_length=255, unique=True, verbose_name="Nome da Substância")
+    nome_cientifico = models.CharField(max_length=255, blank=True, null=True)
+    codigo_cas = models.CharField(
+        max_length=20, 
+        blank=True, 
+        null=True, 
+        verbose_name="Código CAS",
+        help_text="Identificador químico universal"
+    )
+    codigo_atc = models.CharField(
+        max_length=20, 
+        blank=True, 
+        null=True, 
+        verbose_name="Código ATC",
+        help_text="Classificação Anatômica Terapêutica Química"
+    )
+    classe_terapeutica = models.CharField(max_length=255, blank=True, null=True)
+    lista_controle = models.CharField(
+        max_length=50, 
+        blank=True, 
+        null=True, 
+        help_text="Ex: Portaria 344 (se aplicável em Angola/região)"
+    )
+    descricao = models.TextField(blank=True, null=True)
+    ativo = models.BooleanField(default=True)
+    
+    # Vínculo Multi-tenant
+    empresa = models.ForeignKey('empresas.Empresa', on_delete=models.CASCADE, related_name='principios_ativos')
+
+    class Meta:
+        verbose_name = "Princípio Ativo"
+        verbose_name_plural = "Princípios Ativos"
+        ordering = ['nome']
+
+    def __str__(self):
+        return self.nome
+    
 class Lote(TimeStampedModel):
     """Lote de produtos"""
     produto = models.ForeignKey(Produto, on_delete=models.CASCADE, related_name='lotes')
@@ -172,6 +224,40 @@ class Lote(TimeStampedModel):
         return f"{self.produto.nome_comercial} - Lote {self.numero_lote}"
 
 
+class ComposicaoProduto(TimeStampedModel):
+    """
+    RIGOR SOTARQ: Tabela intermediária para definir a miligramagem/concentração
+    de Princípios Ativos em cada Produto (Medicamento ou Cosmético).
+    """
+    produto = models.ForeignKey(
+        'Produto', 
+        on_delete=models.CASCADE, 
+        related_name='composicoes'
+    )
+    principio_ativo = models.ForeignKey(
+        'PrincipioAtivo', 
+        on_delete=models.CASCADE, 
+        related_name='produtos_vinculados'
+    )
+    concentracao = models.CharField(
+        max_length=50, 
+        help_text="Ex: 500mg, 10mg/ml, 5%", 
+        verbose_name="Concentração/Dose"
+    )
+    is_principal = models.BooleanField(
+        default=True, 
+        verbose_name="Ativo Principal?",
+        help_text="Marcar se este for o componente principal da fórmula."
+    )
+
+    class Meta:
+        verbose_name = "Composição do Produto"
+        verbose_name_plural = "Composições dos Produtos"
+        unique_together = ['produto', 'principio_ativo']
+
+    def __str__(self):
+        return f"{self.principio_ativo.nome} ({self.concentracao}) em {self.produto.nome_comercial}"
+    
 class ControleVencimento(TimeStampedModel):
     lote = models.ForeignKey(Lote, on_delete=models.CASCADE, related_name="controles_vencimento")
     dias_para_alerta = models.IntegerField(default=30)

@@ -4,12 +4,12 @@ from django.db import models
 from django.contrib.auth.models import AbstractUser, Group, Permission
 from django.core.validators import RegexValidator, MinValueValidator, MaxValueValidator
 from django.core.exceptions import ValidationError
-from apps.core.models import TimeStampedModel, Empresa, Loja
+from apps.core.models import TimeStampedModel
 from decimal import Decimal
 from datetime import date, datetime, timedelta
 from django.utils import timezone
 import uuid
-from pharmassys import settings
+from django.conf import settings
 from django.db import models
 from django.core.exceptions import ValidationError
 from django.contrib.auth.models import Permission
@@ -17,23 +17,19 @@ from apps.core.models import TimeStampedModel
 from cloudinary.models import CloudinaryField
 
 
-
 class Cargo(TimeStampedModel):
-    """Cargos dos funcionários — com permissões integradas ao sistema Django"""
+    """Cargos dos funcionários — Rigor SOTARQ: 100% vinculado ao Tenant"""
     nome = models.CharField(max_length=100)
     codigo = models.CharField(max_length=20)
     descricao = models.TextField(blank=True)
 
+    # RIGOR: Removido null=True e blank=True. Todo cargo pertence a uma empresa.
     empresa = models.ForeignKey(
-        "core.Empresa",
+        "empresas.Empresa",
         on_delete=models.CASCADE,
-        related_name="cargos",
-        null=True,
-        blank=True,
-        help_text="Se vazio, é um cargo global do sistema (modelo base)."
+        related_name="cargos"
     )
 
-    # Hierarquia
     cargo_superior = models.ForeignKey(
         'self',
         on_delete=models.SET_NULL,
@@ -41,17 +37,14 @@ class Cargo(TimeStampedModel):
         blank=True,
         related_name='cargos_subordinados'
     )
-    nivel_hierarquico = models.IntegerField(default=1, help_text="1 = Nível mais alto na hierarquia")
+    nivel_hierarquico = models.IntegerField(default=1, help_text="1 = Nível mais alto")
 
-    # ⚙️ Permissões Django (para sincronizar com o Group e usuários)
     permissions = models.ManyToManyField(
         Permission,
         blank=True,
-        verbose_name="Permissões do Django",
-        help_text="Permissões aplicáveis a este cargo (vinculadas ao grupo automaticamente)."
+        verbose_name="Permissões do Django"
     )
 
-    # Características
     CATEGORIA_CHOICES = [
         ('diretoria', 'Diretoria'),
         ('gerencia', 'Gerência'),
@@ -63,21 +56,17 @@ class Cargo(TimeStampedModel):
         ('vendas', 'Vendas'),
         ('direcao_tecnica', 'Direção Técnica'),
         ('estagiario', 'Estagiário'),
-        ('terceirizado', 'Terceirizado'),
         ('rh', 'Recursos Humanos'),
         ('financeiro', 'Contabilidade'),
         ('outros', 'Outros')
     ]
     categoria = models.CharField(max_length=20, choices=CATEGORIA_CHOICES, default='operacional')
 
-    # 💰 Remuneração
     salario_base = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
     vale_alimentacao = models.DecimalField(max_digits=8, decimal_places=2, default=0)
     vale_transporte = models.DecimalField(max_digits=8, decimal_places=2, default=0)
 
-    # 💼 Permissões de negócios
-    selecionar_todos = models.BooleanField(default=False, verbose_name="Selecionar todas as permissões")
-
+    selecionar_todos = models.BooleanField(default=False)
     pode_estornar_pagamento = models.BooleanField(default=False)
     pode_pagar_salario = models.BooleanField(default=True)
 
@@ -98,34 +87,29 @@ class Cargo(TimeStampedModel):
     pode_emitir_documentotransporte = models.BooleanField(default=False)
     pode_confirmar_entrega = models.BooleanField(default=False)
 
-    # Gestão
+    # Gestão e Fiscal
     pode_gerenciar_estoque = models.BooleanField(default=False)
     pode_fazer_compras = models.BooleanField(default=False)
     pode_aprovar_pedidos = models.BooleanField(default=False)
     pode_gerenciar_funcionarios = models.BooleanField(default=False)
     pode_editar_produtos = models.BooleanField(default=False)
-
-    # Faturas
     pode_emitir_faturacredito = models.BooleanField(default=False)
     pode_liquidar_faturacredito = models.BooleanField(default=False)
     pode_emitir_proforma = models.BooleanField(default=False)
     pode_aprovar_proforma = models.BooleanField(default=False)
     pode_emitir_recibo = models.BooleanField(default=False)
     pode_acessar_documentos = models.BooleanField(default=False)
-
     pode_acessar_rh = models.BooleanField(default=False)
     pode_acessar_financeiro = models.BooleanField(default=False)
     pode_acessar_fornecedores = models.BooleanField(default=False)
     pode_alterar_dados_fiscais = models.BooleanField(default=False)
     pode_eliminar_detalhes_fiscal = models.BooleanField(default=False)
-    
     pode_acessar_detalhes_fiscal = models.BooleanField(default=False)
     pode_fazer_backup_manual = models.BooleanField(default=False)
     pode_ver_configuracoes = models.BooleanField(default=False)
     pode_atualizar_backups = models.BooleanField(default=False)
     pode_alterar_interface = models.BooleanField(default=False)
     pode_acessar_configuracoes = models.BooleanField(default=False)
-
     pode_exportar_saft = models.BooleanField(default=False)
     pode_ver_historico_saft = models.BooleanField(default=False)
     pode_baixar_saft = models.BooleanField(default=False)
@@ -135,7 +119,6 @@ class Cargo(TimeStampedModel):
     pode_criar_dados_bancarios = models.BooleanField(default=False)
     pode_apagar_dados_bancarios = models.BooleanField(default=False)
     pode_atualizar_dados_bancarios = models.BooleanField(default=False)
-
     pode_ver_taxaiva_agt = models.BooleanField(default=False)
     pode_gerir_assinatura_digital = models.BooleanField(default=False)
     pode_gerir_retencoes_na_fonte = models.BooleanField(default=False)
@@ -151,22 +134,16 @@ class Cargo(TimeStampedModel):
     pode_ver_status_atual_assinatura_digital = models.BooleanField(default=False)
     pode_configurar_assinatura_digital = models.BooleanField(default=False)
     pode_gerar_par_chave_publica_ou_privada = models.BooleanField(default=False)
-
     pode_ver_relatorio_fiscal = models.BooleanField(default=False)
     pode_ver_relatorio_retencoes = models.BooleanField(default=False)
     pode_ver_relatorio_taxas_iva = models.BooleanField(default=False)
     pode_acessar_dashboard_saft = models.BooleanField(default=False)
     pode_baixar_chave_publica = models.BooleanField(default=False)
     pode_baixar_retencoes = models.BooleanField(default=False)
-
     pode_baixar_saft_backup_fiscal = models.BooleanField(default=False)
     pode_baixar_relatorio_retencoes = models.BooleanField(default=False)
     pode_acessar_configuracao_fiscal = models.BooleanField(default=False)
     pode_verificar_integridade_cadeia_hash_fiscal = models.BooleanField(default=False)
-    
-
-
-
 
     ativo = models.BooleanField(default=True)
 
@@ -176,25 +153,15 @@ class Cargo(TimeStampedModel):
         ordering = ['nivel_hierarquico', 'nome']
 
     def __str__(self):
-        return self.nome
-
-    def delete(self, *args, **kwargs):
-        """Impede exclusão de cargos globais."""
-        if self.empresa is None:
-            raise ValidationError("Cargos globais do sistema não podem ser excluídos.")
-        super().delete(*args, **kwargs)
+        return f"{self.nome} ({self.empresa.nome})"
 
     @property
     def funcionarios_ativos(self):
-        """Quantidade de funcionários ativos neste cargo."""
         return self.funcionarios.filter(ativo=True).count()
 
 
-
-
-
 class Departamento(TimeStampedModel):
-    """Departamentos globais e personalizados por empresa."""
+    """Departamentos 100% personalizados por Empresa/Loja"""
     nome = models.CharField(max_length=100)
     codigo = models.CharField(max_length=20, unique=True)
     descricao = models.TextField(blank=True)
@@ -204,17 +171,14 @@ class Departamento(TimeStampedModel):
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
-        related_name='departamentos_responsavel',
-        help_text="Responsável dentro da empresa. Global não possui responsável."
+        related_name='departamentos_responsavel'
     )
 
+    # RIGOR: Tornou-se obrigatório. Não existe departamento sem loja.
     loja = models.ForeignKey(
-        Loja,
+        'empresas.Loja',
         on_delete=models.CASCADE,
-        related_name='departamentos',
-        null=True,
-        blank=True,
-        help_text="Se vazio, é um departamento global (modelo padrão do sistema)."
+        related_name='departamentos'
     )
 
     centro_custo = models.CharField(max_length=20, blank=True)
@@ -227,7 +191,7 @@ class Departamento(TimeStampedModel):
         ordering = ['loja', 'nome']
 
     def __str__(self):
-        return f"{self.nome} - {self.loja.nome if self.loja else 'Global'}"
+        return f"{self.nome} - {self.loja.nome}"
 
 
 
@@ -271,12 +235,23 @@ class Funcionario(TimeStampedModel):
         editable=False,
         help_text="Gerada automaticamente no formato FUNC-00001"
     )
+    
     usuario = models.OneToOneField(
-        settings.AUTH_USER_MODEL,
-        on_delete=models.CASCADE,
+        'core.Usuario',
+        on_delete=models.SET_NULL,
         null=True,
         blank=True,
-        help_text="Usuário do sistema (se tiver acesso)"
+        related_name='+' # RIGOR: O '+' diz ao Django: "NÃO crie relação reversa automática"
+    )
+
+    recebe_copia_faturamento_email = models.BooleanField(
+        "Receber Cópia de Faturamento?", 
+        default=False,
+        help_text="Diretores e Gerentes recebem uma cópia de cada documento fiscal emitido."
+    )
+    recebe_copia_faturamento_whatsapp = models.BooleanField(
+        "Receber via WhatsApp?", 
+        default=False
     )
 
     # Dados pessoais
@@ -309,9 +284,9 @@ class Funcionario(TimeStampedModel):
     # Dados profissionais
     cargo = models.ForeignKey(Cargo, null=True, blank=True, on_delete=models.PROTECT, related_name='funcionarios')
     departamento = models.ForeignKey(Departamento, on_delete=models.PROTECT, related_name='funcionarios')
-    loja_principal = models.ForeignKey(Loja, on_delete=models.PROTECT, related_name='funcionarios')
+    loja_principal = models.ForeignKey('empresas.Loja', on_delete=models.PROTECT, related_name='funcionarios')
     lojas_acesso = models.ManyToManyField(
-        Loja,
+        'empresas.Loja',
         related_name='funcionarios_com_acesso',
         help_text="Lojas que o funcionário tem acesso"
     )
@@ -388,7 +363,7 @@ class Funcionario(TimeStampedModel):
     foto = CloudinaryField('foto', blank=True, null=True)
 
 
-    empresa = models.ForeignKey(Empresa, on_delete=models.CASCADE, related_name='funcionarios')
+    empresa = models.ForeignKey('empresas.Empresa', on_delete=models.CASCADE, related_name='funcionarios')
 
     class Meta:
         verbose_name = "Funcionário"
@@ -551,7 +526,7 @@ class EscalaTrabalho(TimeStampedModel):
     horario_almoco_fim = models.TimeField(null=True, blank=True)
     
     # Local
-    loja = models.ForeignKey(Loja, on_delete=models.CASCADE)
+    loja = models.ForeignKey('empresas.Loja', on_delete=models.CASCADE)
     departamento = models.ForeignKey(Departamento, on_delete=models.CASCADE, null=True, blank=True)
     
     # Função específica do dia
@@ -623,7 +598,7 @@ class RegistroPonto(TimeStampedModel):
     tipo_registro = models.CharField(max_length=15, choices=TIPO_REGISTRO_CHOICES)
     
     # Localização
-    loja = models.ForeignKey(Loja, on_delete=models.CASCADE)
+    loja = models.ForeignKey('empresas.Loja', on_delete=models.CASCADE)
     ip_registro = models.GenericIPAddressField(null=True, blank=True)
     
     # Justificativa (para registros manuais)
@@ -894,7 +869,7 @@ class JornadaTrabalho(models.Model):
     horario_almoco_inicio = models.TimeField(null=True, blank=True)
     horario_almoco_fim = models.TimeField(null=True, blank=True)
     departamento = models.ForeignKey(Departamento, on_delete=models.SET_NULL, null=True, blank=True)
-    loja = models.ForeignKey(Loja, on_delete=models.CASCADE)
+    loja = models.ForeignKey('empresas.Loja', on_delete=models.CASCADE)
 
     class Meta:
         verbose_name = "Jornada de Trabalho"
@@ -959,7 +934,7 @@ class Afastamento(TimeStampedModel):
     
     # Localização/Departamento (opcional)
     loja = models.ForeignKey(
-        Loja,
+        'empresas.Loja',
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
@@ -1222,7 +1197,7 @@ class FolhaPagamento(TimeStampedModel):
     ]
     
     # Identificação
-    empresa = models.ForeignKey(Empresa, on_delete=models.CASCADE, related_name='folhas_pagamento')
+    empresa = models.ForeignKey('empresas.Empresa', on_delete=models.CASCADE, related_name='folhas_pagamento')
     mes = models.IntegerField(validators=[MinValueValidator(1), MaxValueValidator(12)])
     ano = models.IntegerField(validators=[MinValueValidator(2020), MaxValueValidator(2050)])
     

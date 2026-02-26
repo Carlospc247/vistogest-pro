@@ -7,7 +7,7 @@ from datetime import datetime, date, timedelta
 import json
 
 from .models import AlertaInteligente, DashboardPersonalizado, EventoAnalytics, AuditoriaAlteracao
-from apps.core.models import Empresa
+from apps.empresas.models import Empresa
 
 
 Usuario = get_user_model()

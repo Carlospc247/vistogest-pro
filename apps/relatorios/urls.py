@@ -1,15 +1,8 @@
 # apps/relatorios/urls.py
 from django.urls import path, include
-from rest_framework.routers import DefaultRouter
-
 from apps.relatorios.relatorios import gerar_relatorio_corporativo
 from . import views
-from .api import viewsets
-# API Router
-router = DefaultRouter()
-router.register(r'relatorios', viewsets.RelatorioViewSet)
-router.register(r'templates', viewsets.TemplateRelatorioViewSet)
-router.register(r'agendamentos', viewsets.AgendamentoRelatorioViewSet)
+
 
 app_name = 'relatorios'
 
@@ -72,7 +65,6 @@ urlpatterns = [
     path('financeiro/contas-receber/', views.RelatorioContasReceberView.as_view(), name='financeiro_contas_receber'),
     path('financeiro/contas-pagar/', views.RelatorioContasPagarView.as_view(), name='financeiro_contas_pagar'),
     path('financeiro/dre/', views.RelatorioDREView.as_view(), name='financeiro_dre'),
-    path('financeiro/balanco/', views.RelatorioBalancoView.as_view(), name='financeiro_balanco'),
     path('financeiro/inadimplencia/', views.RelatorioInadimplenciaView.as_view(), name='financeiro_inadimplencia'),
     
     # =====================================
@@ -186,7 +178,6 @@ urlpatterns = [
     # =====================================
     # API REST
     # =====================================
-    path('api/', include(router.urls)),
     
     # API Personalizada
     path('api/gerar-relatorio/', views.GerarRelatorioAPIView.as_view(), name='api_gerar_relatorio'),

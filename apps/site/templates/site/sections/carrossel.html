@@ -1,0 +1,28 @@
+<div id="carousel-{{ secao.id }}" class="carousel slide" data-bs-ride="carousel">
+    <div class="carousel-inner">
+        {% for slide in dados.slides %}
+        <div class="carousel-item {% if forloop.first %}active{% endif %}" style="height: {{ dados.altura_px|default:500 }}px;">
+            <img src="{{ slide.imagem_url }}" class="d-block w-100 h-100" style="object-fit: cover; filter: brightness(0.7);" alt="{{ slide.titulo }}">
+            <div class="carousel-caption d-none d-md-block" style="bottom: 20%;">
+                <div class="container text-{{ slide.alinhamento|default:'center' }}">
+                    <h1 class="display-4 fw-bold animated fadeInDown">{{ slide.titulo }}</h1>
+                    <p class="lead animated fadeInUp">{{ slide.subtitulo }}</p>
+                    {% if slide.link_botao %}
+                    <a href="{{ slide.link_botao }}" class="btn btn-primary btn-lg rounded-pill mt-3 shadow">
+                        {{ slide.texto_botao|default:'Saber Mais' }}
+                    </a>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% if dados.slides|length > 1 %}
+    <button class="carousel-control-prev" type="button" data-bs-target="#carousel-{{ secao.id }}" data-bs-slide="prev">
+        <span class="carousel-control-prev-icon"></span>
+    </button>
+    <button class="carousel-control-next" type="button" data-bs-target="#carousel-{{ secao.id }}" data-bs-slide="next">
+        <span class="carousel-control-next-icon"></span>
+    </button>
+    {% endif %}
+</div>

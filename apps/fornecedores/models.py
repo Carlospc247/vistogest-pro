@@ -8,7 +8,7 @@ from decimal import Decimal
 from datetime import date, datetime, timedelta
 import uuid
 from cloudinary.models import CloudinaryField
-from pharmassys import settings
+from django.conf import settings
 
 
 class CondicaoPagamento(TimeStampedModel):
@@ -200,7 +200,7 @@ class Fornecedor(TimeStampedModel):
     observacoes_internas = models.TextField(blank=True, help_text="Observações internas (não visíveis ao fornecedor)")
     
     # Relacionamento
-    empresa = models.ForeignKey('core.Empresa', on_delete=models.CASCADE, related_name='fornecedores')
+    empresa = models.ForeignKey('empresas.Empresa', on_delete=models.CASCADE, related_name='fornecedores')
     
     class Meta:
         verbose_name = "Fornecedor"
@@ -416,7 +416,7 @@ class Pedido(TimeStampedModel):
     arquivo_pedido = models.FileField(upload_to='pedidos/documentos/', null=True, blank=True)
     numero_orcamento_fornecedor = models.CharField(max_length=50, blank=True)
     
-    empresa = models.ForeignKey('core.Empresa', on_delete=models.CASCADE)
+    empresa = models.ForeignKey('empresas.Empresa', on_delete=models.CASCADE)
     
     class Meta:
         verbose_name = "Pedido"

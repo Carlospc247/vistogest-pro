@@ -1,193 +1,129 @@
-# apps/licenca/admin.py
 from django.contrib import admin
 from django.utils.html import format_html
-from .models import PlanoLicenca, Licenca, HistoricoLicenca
-from django.utils.safestring import mark_safe
-from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
-from django.contrib.auth.models import User
+from django.utils import timezone
+from .models import Modulo, PlanoLicenca, Licenca, HistoricoLicenca
+from django.contrib import admin
 from django.utils.html import format_html
-from apps.core.models import Usuario
+from django.utils import timezone
+from .models import ComissaoBypass
 
 
+
+@admin.register(ComissaoBypass)
+class ComissaoBypassAdmin(admin.ModelAdmin):
+    """
+    🛡️ RIGOR SOTARQ: Painel de Controle de Royalties do Plano Elite.
+    Gerencia os 2% de comissão de forma auditável.
+    """
+    list_display = (
+        'empresa', 'get_periodo', 'get_faturamento_formatado', 
+        'get_comissao_badge', 'get_status_badge', 'pago_em'
+    )
+    list_filter = ('status', 'periodo_inicio', 'empresa')
+    search_fields = ('empresa__nome', 'empresa__nif')
+    readonly_fields = ('valor_comissao', 'pago_em')
+    
+    actions = ['marcar_como_pago']
+
+    # 🎨 Visualização de Rigor: Badges de Status
+    def get_status_badge(self, obj):
+        colors = {'pendente': '#dc3545', 'parcial': '#ffc107', 'pago': '#28a745'}
+        return format_html(
+            '<span style="background: {}; color: white; padding: 5px 12px; '
+            'border-radius: 12px; font-weight: bold; font-size: 11px;">{}</span>',
+            colors.get(obj.status, '#6c757d'), obj.get_status_display().upper()
+        )
+    get_status_badge.short_description = "Situação"
+
+    def get_comissao_badge(self, obj):
+        return format_html('<strong style="color: #28a745;">{} Kz</strong>', f"{obj.valor_comissao:,.2f}")
+    get_comissao_badge.short_description = "Nossa Parte (2%)"
+
+    def get_faturamento_formatado(self, obj):
+        return f"{obj.valor_faturado:,.2f} Kz"
+    get_faturamento_formatado.short_description = "Faturado pelo Cliente"
+
+    def get_periodo(self, obj):
+        return f"{obj.periodo_inicio.strftime('%d/%m')} à {obj.periodo_fim.strftime('%d/%m/%y')}"
+    get_periodo.short_description = "Período"
+
+    # 🚀 Ação de Engenharia: Liquidação em Massa
+    def marcar_como_pago(self, request, queryset):
+        rows_updated = queryset.update(status='pago', pago_em=timezone.now())
+        self.message_user(request, f"✔ {rows_updated} faturas de comissão foram liquidadas com sucesso.")
+    marcar_como_pago.short_description = "Liquidar comissões selecionadas"
+
+
+
+@admin.register(Modulo)
+class ModuloAdmin(admin.ModelAdmin):
+    list_display = ('nome', 'slug', 'ativo', 'created_at')
+    search_fields = ('nome', 'slug')
+    list_filter = ('ativo',)
+    prepopulated_fields = {'slug': ('nome',)} # Facilita a criação manual
 
 @admin.register(PlanoLicenca)
 class PlanoLicencaAdmin(admin.ModelAdmin):
-    list_display = ['nome', 'preco_mensal', 'limite_usuarios', 'funcionalidades', 'ativo']
-    list_filter = ['ativo', 'inclui_financeiro', 'inclui_relatorios', 'inclui_backup']
-    search_fields = ['nome', 'descricao']
+    list_display = ('nome', 'preco_mensal', 'limite_usuarios', 'limite_produtos', 'ativo')
+    list_filter = ('ativo',)
+    search_fields = ('nome',)
+    filter_horizontal = ('modulos',) # Interface amigável para selecionar ManyToMany
+
+class HistoricoLicencaInline(admin.TabularInline):
+    """Permite visualizar o histórico diretamente dentro da página da Licença"""
+    model = HistoricoLicenca
+    extra = 0
+    readonly_fields = ('acao', 'data_anterior', 'data_nova', 'observacoes', 'created_at')
+    can_delete = False
+
+@admin.register(Licenca)
+class LicencaAdmin(admin.ModelAdmin):
+    list_display = ('empresa', 'plano', 'status_vencimento', 'data_vencimento', 'status_badge')
+    list_filter = ('status', 'plano', 'data_vencimento')
+    search_fields = ('empresa__nome', 'chave_licenca')
+    readonly_fields = ('chave_licenca', 'created_at', 'updated_at')
+    inlines = [HistoricoLicencaInline]
     
     fieldsets = (
-        ('Dados Básicos', {
-            'fields': ('nome', 'descricao', 'preco_mensal', 'ativo')
+        ('Identificação', {
+            'fields': ('chave_licenca', 'empresa', 'plano', 'status')
         }),
-        ('Limites', {
-            'fields': ('limite_usuarios', 'limite_produtos')
+        ('Prazos e Datas', {
+            'fields': ('data_inicio', 'data_vencimento', 'data_cancelamento')
         }),
-        ('Funcionalidades Incluídas', {
-            'fields': ('inclui_pdv', 'inclui_estoque', 'inclui_financeiro', 
-                      'inclui_relatorios', 'inclui_backup')
+        ('Metadados', {
+            'fields': ('created_at', 'updated_at'),
+            'classes': ('collapse',) # Esconde por padrão para limpar a tela
         }),
     )
-    
-    def funcionalidades(self, obj):
-        """Mostrar funcionalidades do plano"""
-        funcionalidades = []
-        if obj.inclui_pdv: funcionalidades.append('PDV')
-        if obj.inclui_estoque: funcionalidades.append('Estoque')
-        if obj.inclui_financeiro: funcionalidades.append('Financeiro')
-        if obj.inclui_relatorios: funcionalidades.append('Relatórios')
-        if obj.inclui_backup: funcionalidades.append('Backup')
-        
-        return ', '.join(funcionalidades) if funcionalidades else 'Básico'
-    funcionalidades.short_description = 'Funcionalidades'
 
+    def status_badge(self, obj):
+        """Cria um indicador visual colorido para o status no grid"""
+        colors = {
+            'ativa': '#059669',   # Verde
+            'expirada': '#dc2626', # Vermelho
+            'suspensa': '#d97706', # Laranja
+            'cancelada': '#4b5563', # Cinza
+        }
+        return format_html(
+            '<span style="color: white; background-color: {}; padding: 3px 10px; border-radius: 10px; font-weight: bold;">{}</span>',
+            colors.get(obj.status, '#000'),
+            obj.get_status_display()
+        )
+    status_badge.short_description = 'Status'
 
-
-    def dias_restantes(self, obj):
-        """Mostrar dias restantes com cores"""
+    def status_vencimento(self, obj):
+        """Exibe o rastro de dias restantes com cor de alerta"""
         dias = obj.dias_para_vencer
-        if dias < 0:
-            return format_html('<span style="color: red; font-weight: bold;">Vencida há {} dias</span>', abs(dias))
-        elif dias <= 7:
-            return format_html('<span style="color: orange; font-weight: bold;">{} dias</span>', dias)
-        elif dias <= 30:
-            return format_html('<span style="color: blue;">{} dias</span>', dias)
-        else:
-            return format_html('<span style="color: green;">{} dias</span>', dias)
-    dias_restantes.short_description = 'Dias Restantes'
-    dias_restantes.admin_order_field = 'data_vencimento'
-    
-    def acoes_rapidas(self, obj):
-        """Botões de ação rápida"""
-        botoes = []
-        
-        if obj.status == 'ativa' and obj.dias_para_vencer <= 30:
-            botoes.append(
-                f'<a class="button" href="javascript:void(0)" '
-                f'onclick="renovarLicenca({obj.pk})">Renovar</a>'
-            )
-        
-        if obj.status != 'suspensa':
-            botoes.append(
-                f'<a class="button" href="javascript:void(0)" '
-                f'onclick="suspenderLicenca({obj.pk})">Suspender</a>'
-            )
-        
-        return mark_safe(' '.join(botoes)) if botoes else '-'
-    acoes_rapidas.short_description = 'Ações'
-    
-    # Ações em lote
-    actions = ['renovar_licencas_1mes', 'renovar_licencas_3meses', 'suspender_licencas']
-    
-    def renovar_licencas_1mes(self, request, queryset):
-        """Renovar licenças por 1 mês"""
-        count = 0
-        for licenca in queryset:
-            licenca.renovar(meses=1)
-            count += 1
-        self.message_user(request, f"{count} licenças renovadas por 1 mês.")
-    renovar_licencas_1mes.short_description = "Renovar licenças por 1 mês"
-    
-    def renovar_licencas_3meses(self, request, queryset):
-        """Renovar licenças por 3 meses"""
-        count = 0
-        for licenca in queryset:
-            licenca.renovar(meses=3)
-            count += 1
-        self.message_user(request, f"{count} licenças renovadas por 3 meses.")
-    renovar_licencas_3meses.short_description = "Renovar licenças por 3 meses"
-    
-    def suspender_licencas(self, request, queryset):
-        """Suspender licenças selecionadas"""
-        count = queryset.update(status='suspensa')
-        self.message_user(request, f"{count} licenças suspensas.")
-    suspender_licencas.short_description = "Suspender licenças selecionadas"
+        if obj.esta_vencida:
+            return format_html('<b style="color: #dc2626;">VENCIDA</b>')
+        if dias <= 7:
+            return format_html('<b style="color: #d97706;">Vence em {} dias</b>', dias)
+        return f"{dias} dias restantes"
+    status_vencimento.short_description = 'Prazo'
 
 @admin.register(HistoricoLicenca)
 class HistoricoLicencaAdmin(admin.ModelAdmin):
-    list_display = ['licenca', 'acao', 'data_anterior', 'data_nova', 'observacoes']
-    list_filter = ['acao', 'created_at']
-    search_fields = ['licenca__empresa__nome', 'acao', 'observacoes']
-    readonly_fields = ['created_at', 'updated_at']
-    
-    def has_add_permission(self, request):
-        return False  # Histórico é criado automaticamente
-
-
-
-
-
-class LicencaInline(admin.StackedInline):
-    """Inline para mostrar licença da empresa"""
-    model = Licenca
-    extra = 0
-    max_num = 1
-    can_delete = False
-    
-    fields = (
-        'chave_licenca',
-        ('plano', 'status'),
-        ('data_inicio', 'data_vencimento'),
-        'observacoes_admin'
-    )
-    
-    readonly_fields = ('chave_licenca', 'observacoes_admin')
-    
-    def observacoes_admin(self, obj):
-        """Campo customizado com informações da licença"""
-        if not obj.pk:
-            return "Licença será criada após salvar"
-        
-        dias = obj.dias_para_vencer
-        if dias < 0:
-            status_cor = 'red'
-            status_texto = f'Vencida há {abs(dias)} dias'
-        elif dias <= 7:
-            status_cor = 'orange'
-            status_texto = f'Vence em {dias} dias - ATENÇÃO!'
-        elif dias <= 30:
-            status_cor = 'blue'
-            status_texto = f'Vence em {dias} dias'
-        else:
-            status_cor = 'green'
-            status_texto = f'Vence em {dias} dias'
-        
-        return format_html(
-            '<div style="background-color: #f0f0f0; padding: 10px; border-radius: 5px;">'
-            '<strong>Status:</strong> <span style="color: {};">{}</span><br>'
-            '<strong>Usuários Permitidos:</strong> {} usuários<br>'
-            '<strong>Chave:</strong> <code>{}</code><br>'
-            '<strong>Criada em:</strong> {}<br>'
-            '<strong>Última Atualização:</strong> {}'
-            '</div>',
-            status_cor,
-            status_texto,
-            obj.plano.limite_usuarios if obj.plano else 'N/A',
-            str(obj.chave_licenca)[:8] + '...' if obj.chave_licenca else 'N/A',
-            obj.created_at.strftime('%d/%m/%Y %H:%M') if obj.created_at else 'N/A',
-            obj.updated_at.strftime('%d/%m/%Y %H:%M') if obj.updated_at else 'N/A'
-        )
-    observacoes_admin.short_description = 'Informações da Licença'
-
-
-
-class PerfilUsuarioInline(admin.StackedInline):
-    """Inline para perfil do usuário"""
-    model = Usuario
-    can_delete = False
-    verbose_name_plural = 'Perfil'
-    
-    fieldsets = (
-        ('Dados Básicos', {
-            'fields': ('empresa', 'loja', 'cargo', 'telefone')
-        }),
-        ('Permissões', {
-            'fields': (
-                'pode_vender',
-                'pode_gerenciar_estoque', 
-                'pode_ver_financeiro',
-                'e_administrador'
-            )
-        }),
-    )
-
+    list_display = ('licenca', 'acao', 'data_nova', 'created_at')
+    list_filter = ('acao', 'created_at')
+    readonly_fields = ('licenca', 'acao', 'data_anterior', 'data_nova', 'observacoes', 'created_at', 'updated_at')

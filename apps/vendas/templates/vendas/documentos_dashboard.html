@@ -1,273 +1,213 @@
-{% extends 'base.html' %}
-{% load static %}
-
-{% block title %}{{ title }}{% endblock %}
-{% block page_title %}{{ title }}{% endblock %}
+{% extends "base.html" %}
+{% load i18n static %}
 
 {% block content %}
-<style>
-    /* static/css/styles.css */
-body {
-    font-family: 'Arial', sans-serif;
-    background-color: #f8f9fa;
-}
-
-.btn-icon {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.5rem;
-    font-weight: 500;
-    transition: background-color 0.2s ease;
-}
-
-.container {
-    margin-top: 20px;
-}
-
-.card {
-    border-radius: 8px;
-    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
-}
-
-.card-header {
-    background-color: #007bff;
-    color: white;
-    font-weight: bold;
-}
-
-.table {
-    margin-top: 20px;
-}
-
-.table th {
-    background-color: #007bff;
-    color: white;
-}
-
-.btn {
-    margin: 5px;
-}
-
-.pagination {
-    margin-top: 20px;
-}
-
-.pagination a {
-    margin: 0 5px;
-    padding: 5px 10px;
-    border-radius: 5px;
-    background-color: #007bff;
-    color: white;
-    text-decoration: none;
-}
-</style>
-
-<div class="space-y-6">
-    
-    <!-- Cabeçalho -->
-    <div class="bg-white dark:bg-gray-800 shadow rounded-lg p-6">
-        <div class="flex justify-between items-center">
+<div class="min-h-screen bg-gray-50 py-8 px-4 sm:px-6 lg:px-8" x-data="{ openModal: false, selectedDoc: {} }">
+    <div class="max-w-7xl mx-auto mb-8">
+        <div class="flex items-center justify-between border-b border-gray-200 pb-6">
             <div>
-                <h1 class="text-2xl font-bold text-gray-900 dark:text-white">
-                    <i class="fas fa-chart-line mr-2"></i>{{ title }}
-                </h1>
-                <p class="text-gray-600 dark:text-gray-400 mt-1">
-                    Últimos 30 dias (desde {{ data_inicio|date:"d/m/Y" }})
+                <h2 class="text-3xl font-extrabold text-gray-900 tracking-tight">
+                    {% trans "Gestão Documental e Fiscal" %}
+                </h2>
+                <p class="mt-2 text-sm text-gray-600">
+                    Sincronização AGT: <span class="text-green-600 font-bold">Ativa</span> | Período: Últimos 30 dias
                 </p>
             </div>
             <div class="flex space-x-3">
-                <a href="{% url 'vendas:pdv' %}" 
-                   class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg">
-                    <i class="fas fa-cash-register mr-2"></i>PDV
+                <button onclick="location.reload()" class="p-2 bg-white border border-gray-300 rounded-lg shadow-sm hover:bg-gray-50 transition">
+                    <i class="fas fa-sync-alt text-gray-500"></i>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div class="max-w-7xl mx-auto grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4 mb-12">
+        
+        <a href="{% url 'vendas:faturas_recibo_lista' %}" class="bg-white p-6 rounded-xl shadow-sm border border-gray-100 hover:border-blue-500 hover:shadow-md transition-all group">
+            <div class="flex items-center justify-between mb-4">
+                <div class="p-3 bg-blue-50 rounded-lg text-blue-600 group-hover:bg-blue-600 group-hover:text-white transition">
+                    <i class="fas fa-file-invoice-dollar fa-lg"></i>
+                </div>
+                <span class="text-xs font-bold text-gray-400 uppercase tracking-widest">FR</span>
+            </div>
+            <h3 class="text-gray-500 text-sm font-medium">Faturas Recibo</h3>
+            <p class="text-2xl font-bold text-gray-900">{{ vendas_stats.qtd_fr|default:0 }}</p>
+        </a>
+
+        <a href="{% url 'vendas:faturas_credito_lista' %}" class="bg-white p-6 rounded-xl shadow-sm border border-gray-100 hover:border-indigo-500 hover:shadow-md transition-all group">
+            <div class="flex items-center justify-between mb-4">
+                <div class="p-3 bg-indigo-50 rounded-lg text-indigo-600 group-hover:bg-indigo-600 group-hover:text-white transition">
+                    <i class="fas fa-file-contract fa-lg"></i>
+                </div>
+                <span class="text-xs font-bold text-gray-400 uppercase tracking-widest">FT</span>
+            </div>
+            <h3 class="text-gray-500 text-sm font-medium">Faturas a Crédito</h3>
+            <div class="flex items-baseline space-x-2">
+                <p class="text-2xl font-bold text-gray-900">{{ faturas_stats.qtd|default:0 }}</p>
+                <span class="text-xs text-red-500 font-bold">{{ faturas_stats.pendentes }} pend.</span>
+            </div>
+        </a>
+
+        <a href="{% url 'vendas:recibos_lista' %}" class="bg-white p-6 rounded-xl shadow-sm border border-gray-100 hover:border-green-500 hover:shadow-md transition-all group">
+            <div class="flex items-center justify-between mb-4">
+                <div class="p-3 bg-green-50 rounded-lg text-green-600 group-hover:bg-green-600 group-hover:text-white transition">
+                    <i class="fas fa-receipt fa-lg"></i>
+                </div>
+                <span class="text-xs font-bold text-gray-400 uppercase tracking-widest">REC</span>
+            </div>
+            <h3 class="text-gray-500 text-sm font-medium">Recibos</h3>
+            <p class="text-2xl font-bold text-gray-900">{{ recibos_stats.qtd|default:0 }}</p>
+        </a>
+
+        <a href="{% url 'vendas:proformas_lista' %}" class="bg-white p-6 rounded-xl shadow-sm border border-gray-100 hover:border-yellow-500 hover:shadow-md transition-all group">
+            <div class="flex items-center justify-between mb-4">
+                <div class="p-3 bg-yellow-50 rounded-lg text-yellow-600 group-hover:bg-yellow-600 group-hover:text-white transition">
+                    <i class="fas fa-file-invoice fa-lg"></i>
+                </div>
+                <span class="text-xs font-bold text-gray-400 uppercase tracking-widest">FP</span>
+            </div>
+            <h3 class="text-gray-500 text-sm font-medium">Faturas Proforma</h3>
+            <p class="text-2xl font-bold text-gray-900">{{ proformas_stats.qtd|default:0 }}</p>
+        </a>
+
+        <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-100 lg:col-span-1">
+            <div class="flex items-center justify-between mb-4 text-gray-400">
+                <i class="fas fa-exchange-alt"></i>
+                <span class="text-xs font-bold uppercase tracking-widest">Rectificativos</span>
+            </div>
+            <div class="grid grid-cols-2 gap-4">
+                <a href="{% url 'vendas:nota_credito_lista' %}" class="hover:bg-gray-50 p-2 rounded block transition">
+                    <span class="block text-xs text-gray-400">NC (Crédito)</span>
+                    <span class="text-xl font-bold text-red-600">{{ notas_stats.nc }}</span>
+                </a>
+                <a href="{% url 'vendas:nota_debito_lista' %}" class="hover:bg-gray-50 p-2 rounded block transition">
+                    <span class="block text-xs text-gray-400">ND (Débito)</span>
+                    <span class="text-xl font-bold text-blue-600">{{ notas_stats.nd }}</span>
                 </a>
             </div>
         </div>
-    </div>
 
-    <!-- Cards de Estatísticas -->
-    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        
-        <!-- Faturas Recibo (FR) -->
-        <div class="bg-white dark:bg-gray-800 shadow rounded-lg p-6 border-l-4 border-green-500">
-            <div class="flex items-center">
-                <div class="flex-shrink-0">
-                    <i class="fas fa-receipt text-3xl text-green-500"></i>
-                </div>
-                <div class="ml-4">
-                    <h3 class="text-lg font-semibold text-gray-900 dark:text-white">Vendas (FR)</h3>
-                    <p class="text-2xl font-bold text-green-600">{{ vendas_stats.total_vendas|default:0 }}</p>
-                    <p class="text-sm text-gray-600 dark:text-gray-400">
-                        {{ vendas_stats.total_faturamento|default:0|floatformat:2 }} Kz
-                    </p>
-                </div>
+        <a href="{% url 'vendas:documento_transporte_lista' %}" class="bg-white p-6 rounded-xl shadow-sm border border-gray-100 hover:border-purple-500 hover:shadow-md transition-all group">
+            <div class="flex items-center justify-between mb-4 text-purple-600">
+                <i class="fas fa-truck-moving fa-lg"></i>
+                <span class="text-xs font-bold text-gray-400 uppercase tracking-widest">GT</span>
             </div>
-        </div>
+            <h3 class="text-gray-500 text-sm font-medium">Guias de Transporte</h3>
+            <p class="text-2xl font-bold text-gray-900">{{ logistica_stats.gt }}</p>
+        </a>
 
-        <!-- Faturas a Crédito (FT) -->
-        <div class="bg-white dark:bg-gray-800 shadow rounded-lg p-6 border-l-4 border-yellow-500">
-            <div class="flex items-center">
-                <div class="flex-shrink-0">
-                    <i class="fas fa-file-invoice text-3xl text-yellow-500"></i>
-                </div>
-                <div class="ml-4">
-                    <h3 class="text-lg font-semibold text-gray-900 dark:text-white">Crédito (FT)</h3>
-                    <p class="text-2xl font-bold text-yellow-600">{{ faturas_credito_stats.total_faturas|default:0 }}</p>
-                    <p class="text-sm text-gray-600 dark:text-gray-400">
-                        {{ faturas_credito_stats.total_valor|default:0|floatformat:2 }} Kz
-                    </p>
-                </div>
+        <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-100 lg:col-span-2">
+            <div class="flex items-center justify-between mb-4 text-gray-400">
+                <i class="fas fa-ellipsis-h"></i>
+                <span class="text-xs font-bold uppercase tracking-widest">Outros</span>
             </div>
-        </div>
-
-        <!-- Recibos (REC) -->
-        <div class="bg-white dark:bg-gray-800 shadow rounded-lg p-6 border-l-4 border-blue-500">
-            <div class="flex items-center">
-                <div class="flex-shrink-0">
-                    <i class="fas fa-money-check-alt text-3xl text-blue-500"></i>
+            <div class="grid grid-cols-3 gap-2">
+                <div class="p-2">
+                    <span class="block text-xs text-gray-400">VD (Dinheiro)</span>
+                    <span class="text-xl font-bold">{{ vendas_stats.qtd_vd }}</span>
                 </div>
-                <div class="ml-4">
-                    <h3 class="text-lg font-semibold text-gray-900 dark:text-white">Recibos (REC)</h3>
-                    <p class="text-2xl font-bold text-blue-600">{{ recibos_stats.total_recibos|default:0 }}</p>
-                    <p class="text-sm text-gray-600 dark:text-gray-400">
-                        {{ recibos_stats.total_recebido|default:0|floatformat:2 }} Kz
-                    </p>
+                <div class="p-2">
+                    <span class="block text-xs text-gray-400">TV (Talão Venda)</span>
+                    <span class="text-xl font-bold">{{ vendas_stats.qtd_tv }}</span>
                 </div>
-            </div>
-        </div>
-
-        <!-- Proformas -->
-        <div class="bg-white dark:bg-gray-800 shadow rounded-lg p-6 border-l-4 border-purple-500">
-            <div class="flex items-center">
-                <div class="flex-shrink-0">
-                    <i class="fas fa-file-contract text-3xl text-purple-500"></i>
-                </div>
-                <div class="ml-4">
-                    <h3 class="text-lg font-semibold text-gray-900 dark:text-white">Proformas</h3>
-                    <p class="text-2xl font-bold text-purple-600">{{ proformas_stats.total_proformas|default:0 }}</p>
-                    <p class="text-sm text-gray-600 dark:text-gray-400">
-                        {{ proformas_stats.total_valor|default:0|floatformat:2 }} Kz
-                    </p>
+                <div class="p-2">
+                    <span class="block text-xs text-gray-400">TD (Devolução)</span>
+                    <span class="text-xl font-bold text-orange-600">{{ logistica_stats.td }}</span>
                 </div>
             </div>
         </div>
     </div>
 
-
-    <a href="{% url 'vendas:nota_credito_lista' %}" class="btn-icon bg-yellow-600 hover:bg-yellow-700 text-white px-4 py-2 rounded-lg">
-    <i class="fas fa-file-invoice-dollar"></i> Nota de Crédito
-    </a>
-    <a href="{% url 'vendas:nota_debito_lista' %}" class="btn-icon bg-red-700 hover:bg-yellow-700 text-white px-4 py-2 rounded-lg">
-    <i class="fas fa-money-bill-wave"></i> Nota de Débito
-    </a>
-    <a href="{% url 'vendas:documento_transporte_lista' %}" class="btn-icon bg-yellow-600 hover:bg-yellow-700 text-white px-4 py-2 rounded-lg">
-    <i class="fas fa-shipping-fast"></i> Doc. Transporte
-    </a>
-
-    <!-- Detalhamento -->
-    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        
-        <!-- Status das Faturas a Crédito -->
-        <div class="bg-white dark:bg-gray-800 shadow rounded-lg p-6">
-            <h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">
-                <i class="fas fa-chart-pie mr-2"></i>Status Faturas Crédito
-            </h3>
-            <div class="space-y-3">
-                <div class="flex justify-between items-center">
-                    <span class="text-gray-600 dark:text-gray-400">Pendentes:</span>
-                    <span class="text-red-600 font-semibold">{{ faturas_credito_stats.pendentes|default:0 }}</span>
-                </div>
-                <div class="flex justify-between items-center">
-                    <span class="text-gray-600 dark:text-gray-400">Liquidadas:</span>
-                    <span class="text-green-600 font-semibold">{{ faturas_credito_stats.liquidadas|default:0 }}</span>
-                </div>
+    <div class="max-w-7xl mx-auto">
+        <div class="bg-white shadow-sm border border-gray-200 rounded-2xl overflow-hidden">
+            <div class="px-6 py-5 border-b border-gray-200 flex justify-between items-center bg-white">
+                <h3 class="text-lg font-bold text-gray-900">Últimas Emissões</h3>
+                <span class="text-xs text-blue-600 font-bold bg-blue-50 px-2 py-1 rounded">Tempo Real</span>
             </div>
-        </div>
-
-        <!-- Status das Proformas -->
-        <div class="bg-white dark:bg-gray-800 shadow rounded-lg p-6">
-            <h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">
-                <i class="fas fa-chart-donut mr-2"></i>Status Proformas
-            </h3>
-            <div class="space-y-3">
-                <div class="flex justify-between items-center">
-                    <span class="text-gray-600 dark:text-gray-400">Pendentes:</span>
-                    <span class="text-yellow-600 font-semibold">{{ proformas_stats.pendentes|default:0 }}</span>
-                </div>
-                <div class="flex justify-between items-center">
-                    <span class="text-gray-600 dark:text-gray-400">Aceitas:</span>
-                    <span class="text-green-600 font-semibold">{{ proformas_stats.aceitas|default:0 }}</span>
-                </div>
+            <div class="overflow-x-auto">
+                <table class="min-w-full divide-y divide-gray-200">
+                    <thead class="bg-gray-50">
+                        <tr>
+                            <th class="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Nº Documento</th>
+                            <th class="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Cliente</th>
+                            <th class="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Data</th>
+                            <th class="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Total</th>
+                            <th class="px-6 py-3 text-right text-xs font-bold text-gray-500 uppercase tracking-wider">Ações</th>
+                        </tr>
+                    </thead>
+                    <tbody class="bg-white divide-y divide-gray-200">
+                        {% for venda in vendas_recentes %}
+                        <tr class="hover:bg-blue-50/50 transition cursor-pointer" 
+                            @click="selectedDoc = { 
+                                numero: '{{ venda.numero_documento }}', 
+                                cliente: '{{ venda.cliente.nome_completo|default:'Consumidor Final' }}',
+                                total: '{{ venda.total }}',
+                                data: '{{ venda.data_venda|date:'d/m/Y H:i' }}',
+                                status: '{{ venda.get_status_display }}',
+                                id: '{{ venda.id }}'
+                            }; openModal = true">
+                            <td class="px-6 py-4 whitespace-nowrap text-sm font-bold text-blue-600">
+                                {{ venda.numero_documento }}
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+                                {{ venda.cliente.nome_completo|default:"Consumidor Final" }}
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                {{ venda.data_venda|date:"d/m/Y H:i" }}
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm font-bold text-gray-900">
+                                AKZ {{ venda.total|floatformat:2 }}
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                                <button class="text-gray-400 hover:text-blue-600"><i class="fas fa-eye"></i></button>
+                            </td>
+                        </tr>
+                        {% empty %}
+                        <tr>
+                            <td colspan="5" class="px-6 py-10 text-center text-gray-400">Nenhum documento recente encontrado.</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
             </div>
         </div>
     </div>
 
-    <!-- Vendas Recentes -->
-    <div class="bg-white dark:bg-gray-800 shadow rounded-lg p-6">
-        <h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">
-            <i class="fas fa-clock mr-2"></i>Vendas Recentes
-        </h3>
-        <div class="overflow-x-auto">
-            <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-                <thead class="bg-gray-50 dark:bg-gray-900">
-                    <tr>
-                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
-                            Número
-                        </th>
-                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
-                            Cliente
-                        </th>
-                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
-                            Data
-                        </th>
-                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
-                            Total
-                        </th>
-                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
-                            Status
-                        </th>
-                    </tr>
-                </thead>
-                <tbody class="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
-                    {% for venda in vendas_recentes %}
-                    <tr class="hover:bg-gray-50 dark:hover:bg-gray-700">
-                        <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">
-                            {{ venda.numero_documento }}
-                        </td>
-                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                            {% if venda.cliente %}
-                                {{ venda.cliente.nome_exibicao }}
-                            {% else %}
-                                Consumidor Final
-                            {% endif %}
-                        </td>
-                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                            {{ venda.data_venda|date:"d/m/Y H:i" }}
-                        </td>
-                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white font-semibold">
-                            {{ venda.total|floatformat:2 }} Kz
-                        </td>
-                        <td class="px-6 py-4 whitespace-nowrap">
-                            <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full 
-                                {% if venda.status == 'finalizada' %}bg-green-100 text-green-800 dark:bg-green-800 dark:text-green-100
-                                {% else %}bg-yellow-100 text-yellow-800 dark:bg-yellow-800 dark:text-yellow-100{% endif %}">
-                                {{ venda.get_status_display }}
-                            </span>
-                        </td>
-                    </tr>
-                    {% empty %}
-                    <tr>
-                        <td colspan="5" class="px-6 py-4 text-center text-gray-500 dark:text-gray-400">
-                            <div class="py-8">
-                                <i class="fas fa-inbox text-4xl text-gray-300 dark:text-gray-600 mb-3"></i>
-                                <p class="text-lg font-medium">Nenhuma venda encontrada</p>
-                                <p class="text-sm">Comece criando vendas no PDV</p>
+    <div x-show="openModal" class="fixed inset-0 z-50 overflow-y-auto" x-cloak>
+        <div class="flex items-center justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
+            <div class="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity" @click="openModal = false"></div>
+            <span class="hidden sm:inline-block sm:align-middle sm:h-screen">&#8203;</span>
+            <div class="inline-block align-bottom bg-white rounded-2xl text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full">
+                <div class="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
+                    <div class="sm:flex sm:items-start">
+                        <div class="mx-auto flex-shrink-0 flex items-center justify-center h-12 w-12 rounded-full bg-blue-100 sm:mx-0 sm:h-10 sm:w-10">
+                            <i class="fas fa-file-alt text-blue-600"></i>
+                        </div>
+                        <div class="mt-3 text-center sm:mt-0 sm:ml-4 sm:text-left w-full">
+                            <h3 class="text-lg leading-6 font-bold text-gray-900" x-text="selectedDoc.numero"></h3>
+                            <div class="mt-4 border-t border-gray-100 pt-4 space-y-3">
+                                <div class="flex justify-between text-sm"><span class="text-gray-500">Cliente:</span><span class="font-bold text-gray-900" x-text="selectedDoc.cliente"></span></div>
+                                <div class="flex justify-between text-sm"><span class="text-gray-500">Total:</span><span class="font-extrabold text-blue-600" x-text="'AKZ ' + selectedDoc.total"></span></div>
+                                <div class="flex justify-between text-sm"><span class="text-gray-500">Data:</span><span x-text="selectedDoc.data"></span></div>
+                                <div class="flex justify-between text-sm"><span class="text-gray-500">Estado:</span><span class="px-2 bg-green-100 text-green-700 rounded-full text-xs" x-text="selectedDoc.status"></span></div>
                             </div>
-                        </td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
+                        </div>
+                    </div>
+                </div>
+                <div class="bg-gray-50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse space-x-reverse space-x-2">
+                    <a :href="'/vendas/fatura/' + selectedDoc.id + '/pdf/'" class="w-full inline-flex justify-center rounded-lg border border-transparent shadow-sm px-4 py-2 bg-blue-600 text-base font-medium text-white hover:bg-blue-700 sm:ml-3 sm:w-auto sm:text-sm transition">
+                        <i class="fas fa-download mr-2"></i> Baixar A4
+                    </a>
+                    <button type="button" @click="openModal = false" class="mt-3 w-full inline-flex justify-center rounded-lg border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 sm:mt-0 sm:w-auto sm:text-sm transition">
+                        Fechar
+                    </button>
+                </div>
+            </div>
         </div>
     </div>
 </div>
+
+<style>
+    [x-cloak] { display: none !important; }
+</style>
 {% endblock %}

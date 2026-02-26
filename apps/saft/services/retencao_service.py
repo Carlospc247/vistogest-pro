@@ -2,7 +2,7 @@
 
 from typing import List, Dict
 from apps.fiscal.models import RetencaoFonte
-from apps.core.models import Empresa 
+from apps.empresas.models import Empresa 
 from datetime import datetime
 
 class SaftRetencaoService:

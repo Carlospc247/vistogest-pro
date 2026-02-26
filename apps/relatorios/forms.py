@@ -11,7 +11,7 @@ from .models import (
     AnaliseVendas, AnaliseEstoque, AnaliseClientes, AlertaGerencial,
     TemplateRelatorio, Relatorio, AgendamentoRelatorio
 )
-from apps.core.models import Empresa
+from apps.empresas.models import Empresa
 from apps.produtos.models import Categoria
 from apps.funcionarios.models import Funcionario, Cargo
 from apps.clientes.models import Cliente

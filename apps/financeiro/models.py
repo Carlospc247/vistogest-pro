@@ -3,7 +3,8 @@ from django.utils import timezone
 from django.db import models
 from django.core.validators import MinValueValidator, MaxValueValidator
 from django.core.exceptions import ValidationError
-from apps.core.models import TimeStampedModel, Empresa, Usuario, Loja
+from apps.core.models import TimeStampedModel, Usuario
+from apps.empresas.models import Empresa, Loja
 from apps.fornecedores.models import Fornecedor
 from apps.clientes.models import Cliente
 from apps.vendas.models import Venda
@@ -11,7 +12,7 @@ from decimal import Decimal
 from datetime import date, datetime, timedelta
 import uuid
 
-from pharmassys import settings
+from django.conf import settings
 from django.db import models
 from django.core.exceptions import ValidationError
 from django.utils.timezone import now
@@ -20,73 +21,14 @@ from django.db import transaction
 from django.utils import timezone
 from decimal import Decimal
 
+# models.py
+from django.db import models
+from django.utils import timezone
+from decimal import Decimal
 
 
 
-class PlanoContas(TimeStampedModel):
-    """Plano de contas contábil"""
-    TIPO_CONTA_CHOICES = [
-        ('receita', 'Receita'),
-        ('despesa', 'Despesa'),
-        ('ativo', 'Ativo'),
-        ('passivo', 'Passivo'),
-        ('patrimonio', 'Patrimônio Líquido'),
-    ]
-    
-    NATUREZA_CHOICES = [
-        ('debito', 'Débito'),
-        ('credito', 'Crédito'),
-    ]
-    
-    # Identificação
-    codigo = models.CharField(max_length=20, help_text="Código da conta")
-    nome = models.CharField(max_length=200)
-    descricao = models.TextField(blank=True)
-    
-    # Hierarquia
-    conta_pai = models.ForeignKey(
-        'self', 
-        on_delete=models.CASCADE, 
-        null=True, 
-        blank=True,
-        related_name='contas_filhas'
-    )
-    nivel = models.IntegerField(default=1, help_text="Nível hierárquico da conta")
-    
-    # Características
-    tipo_conta = models.CharField(max_length=15, choices=TIPO_CONTA_CHOICES)
-    natureza = models.CharField(max_length=10, choices=NATUREZA_CHOICES)
-    aceita_lancamento = models.BooleanField(default=True, help_text="Permite lançamentos diretos")
-    
-    # Configurações
-    ativa = models.BooleanField(default=True)
-    ordem = models.IntegerField(default=0, help_text="Ordem de exibição")
-    
-    empresa = models.ForeignKey(Empresa, on_delete=models.CASCADE, related_name='planos_contas')
 
-    
-    class Meta:
-        verbose_name = "Plano de Contas"
-        verbose_name_plural = "Planos de Contas"
-        unique_together = [['codigo', 'empresa']]
-        ordering = ['codigo']
-    
-    def __str__(self):
-        return f"{self.codigo} - {self.nome}"
-    
-    @property
-    def codigo_completo(self):
-        """Código completo com hierarquia"""
-        if self.conta_pai:
-            return f"{self.conta_pai.codigo_completo}.{self.codigo}"
-        return self.codigo
-    
-    @property
-    def nome_completo(self):
-        """Nome completo com hierarquia"""
-        if self.conta_pai:
-            return f"{self.conta_pai.nome_completo} > {self.nome}"
-        return self.nome
 
 
 class CentroCusto(TimeStampedModel):
@@ -158,15 +100,7 @@ class ContaBancaria(TimeStampedModel):
         default=0,
         help_text="Limite de crédito/cheque especial"
     )
-    plano_contas_ativo = models.ForeignKey(
-        PlanoContas,
-        on_delete=models.PROTECT,
-        null=True,
-        blank=True,
-        related_name='contas_bancarias_ativo',
-        help_text="Conta do Plano de Contas (Ativo) associada a este Caixa/Banco."
-    )
-        
+ 
     # Configurações
     ativa = models.BooleanField(default=True)
     conta_principal = models.BooleanField(default=False)
@@ -210,6 +144,24 @@ class ContaBancaria(TimeStampedModel):
         """Saldo disponível (incluindo limite)"""
         return self.saldo_atual + self.limite_credito
 
+class CategoriaFinanceira(TimeStampedModel):
+    """Categorias simples para classificação de receitas e despesas"""
+    TIPO_CHOICES = [
+        ('receita', 'Receita'),
+        ('despesa', 'Despesa'),
+    ]
+    nome = models.CharField(max_length=100)
+    tipo = models.CharField(max_length=10, choices=TIPO_CHOICES, default='receita')
+    ativa = models.BooleanField(default=True)
+    empresa = models.ForeignKey(Empresa, on_delete=models.CASCADE)
+
+    class Meta:
+        verbose_name = "Categoria Financeira"
+        verbose_name_plural = "Categorias Financeiras"
+        unique_together = [['nome', 'empresa', 'tipo']]
+
+    def __str__(self):
+        return f"{self.nome} ({self.get_tipo_display()})"
 
 class MovimentacaoFinanceira(TimeStampedModel):
     """Movimentações financeiras"""
@@ -269,7 +221,13 @@ class MovimentacaoFinanceira(TimeStampedModel):
         related_name='transferencias_recebidas',
         help_text="Para transferências entre contas"
     )
-    plano_contas = models.ForeignKey(PlanoContas, on_delete=models.PROTECT)
+    categoria = models.ForeignKey(
+        CategoriaFinanceira, 
+        on_delete=models.PROTECT, 
+        null=True, 
+        blank=True,
+        related_name='%(class)s_relacionada'
+    )
     centro_custo = models.ForeignKey(CentroCusto, on_delete=models.PROTECT, null=True, blank=True)
     
     # Relacionamentos
@@ -346,7 +304,7 @@ class MovimentacaoFinanceira(TimeStampedModel):
                 data_movimentacao=self.data_movimentacao,
                 valor=self.valor,
                 conta_bancaria=self.conta_destino,
-                plano_contas=self.plano_contas,
+                categoria=self.categoria,
                 centro_custo=self.centro_custo,
                 descricao=f"Transferência de {self.conta_bancaria}",
                 status='confirmada',
@@ -372,7 +330,7 @@ class MovimentacaoFinanceira(TimeStampedModel):
             data_movimentacao=date.today(),
             valor=self.valor,
             conta_bancaria=self.conta_bancaria,
-            plano_contas=self.plano_contas,
+            categoria=self.categoria,
             centro_custo=self.centro_custo,
             descricao=f"Estorno: {self.descricao}",
             observacoes=f"Estorno da movimentação {self.id}: {motivo}",
@@ -420,10 +378,9 @@ class ContaPai(models.Model):
     observacoes = models.TextField(blank=True)
 
     # Relacionamentos opcionais para integração com contas a pagar ou receber
-    empresa = models.ForeignKey('core.Empresa', on_delete=models.CASCADE)
+    empresa = models.ForeignKey('empresas.Empresa', on_delete=models.CASCADE)
     cliente = models.ForeignKey('clientes.Cliente', on_delete=models.SET_NULL, null=True, blank=True)
     fornecedor = models.ForeignKey('fornecedores.Fornecedor', on_delete=models.SET_NULL, null=True, blank=True)
-    plano_contas = models.ForeignKey(PlanoContas, on_delete=models.PROTECT, null=True, blank=True)
     centro_custo = models.ForeignKey(CentroCusto, on_delete=models.PROTECT, null=True, blank=True)
     
     class Meta:
@@ -521,12 +478,18 @@ class ContaPagar(TimeStampedModel):
     
     # Relacionamentos
     fornecedor = models.ForeignKey(Fornecedor, on_delete=models.SET_NULL, null=True, blank=True)
-    plano_contas = models.ForeignKey(PlanoContas, on_delete=models.PROTECT)
     centro_custo = models.ForeignKey(CentroCusto, on_delete=models.PROTECT, null=True, blank=True)
     
     # Parcelamento
     numero_parcela = models.IntegerField(default=1)
     total_parcelas = models.IntegerField(default=1)
+    categoria = models.ForeignKey(
+        CategoriaFinanceira, 
+        on_delete=models.PROTECT, 
+        null=True, 
+        blank=True,
+        related_name='%(class)s_relacionada'
+    )
     conta_pai = models.ForeignKey(
         ContaPai, 
         on_delete=models.CASCADE, 
@@ -597,7 +560,7 @@ class ContaPagar(TimeStampedModel):
             data_movimentacao=date.today(),
             valor=valor_pagamento,
             conta_bancaria=conta_bancaria,
-            plano_contas=self.plano_contas,
+            # plano_contas removido para leveza do sistema
             centro_custo=self.centro_custo,
             fornecedor=self.fornecedor,
             descricao=f"Pagamento: {self.descricao}",
@@ -605,7 +568,7 @@ class ContaPagar(TimeStampedModel):
             status='confirmada',
             confirmada=True,
             data_confirmacao=datetime.now(),
-            usuario_responsavel=conta_bancaria.empresa.funcionarios.first().usuario,
+            usuario_responsavel=conta_bancaria.empresa.usuarios.first(), 
             empresa=self.empresa
         )
         
@@ -685,12 +648,18 @@ class ContaReceber(TimeStampedModel):
     # Relacionamentos
     cliente = models.ForeignKey('clientes.Cliente', on_delete=models.SET_NULL, null=True, blank=True)
     venda = models.ForeignKey('vendas.Venda', on_delete=models.SET_NULL, null=True, blank=True)
-    plano_contas = models.ForeignKey(PlanoContas, on_delete=models.PROTECT)
     centro_custo = models.ForeignKey(CentroCusto, on_delete=models.PROTECT, null=True, blank=True)
     
     # Parcelamento
     numero_parcela = models.IntegerField(default=1)
     total_parcelas = models.IntegerField(default=1)
+    categoria = models.ForeignKey(
+        CategoriaFinanceira, 
+        on_delete=models.PROTECT, 
+        null=True, 
+        blank=True,
+        related_name='%(class)s_relacionada'
+    )
     conta_pai = models.ForeignKey(
         ContaPai, 
         on_delete=models.CASCADE, 
@@ -767,7 +736,7 @@ class ContaReceber(TimeStampedModel):
             data_movimentacao=date.today(),
             valor=valor_recebimento,
             conta_bancaria=conta_bancaria,
-            plano_contas=self.plano_contas,
+            # plano_contas removido para leveza do sistema
             centro_custo=self.centro_custo,
             cliente=self.cliente,
             venda_relacionada=self.venda,
@@ -776,7 +745,7 @@ class ContaReceber(TimeStampedModel):
             status='confirmada',
             confirmada=True,
             data_confirmacao=timezone.now(),
-            usuario_responsavel=conta_bancaria.empresa.funcionarios.first().usuario,
+            usuario_responsavel=conta_bancaria.empresa.usuarios.first(),
             empresa=self.empresa
         )
         
@@ -798,10 +767,6 @@ class ContaReceber(TimeStampedModel):
         return movimentacao
 
 
-# models.py
-from django.db import models
-from django.utils import timezone
-from decimal import Decimal
 
 class FluxoCaixa(models.Model):
     TIPO_CHOICES = [
@@ -809,7 +774,7 @@ class FluxoCaixa(models.Model):
         ('saida', 'Saída'),
     ]
 
-    empresa = models.ForeignKey('core.Empresa', on_delete=models.CASCADE)
+    empresa = models.ForeignKey('empresas.Empresa', on_delete=models.CASCADE)
     data_referencia = models.DateField()
     tipo = models.CharField(max_length=10, choices=TIPO_CHOICES)
     valor_previsto = models.DecimalField(max_digits=12, decimal_places=2)
@@ -898,142 +863,7 @@ class ConciliacaoBancaria(TimeStampedModel):
         
         super().save(*args, **kwargs)
 
-class OrcamentoFinanceiro(TimeStampedModel):
-    """Orçamento financeiro"""
-    TIPO_CHOICES = [
-        ('receita', 'Receita'),
-        ('despesa', 'Despesa'),
-    ]
-    
-    # Período
-    ano = models.IntegerField()
-    mes = models.IntegerField(validators=[MinValueValidator(1), MaxValueValidator(12)])
-    
-    # Classificação
-    tipo = models.CharField(max_length=10, choices=TIPO_CHOICES)
-    plano_contas = models.ForeignKey(PlanoContas, on_delete=models.CASCADE)
-    centro_custo = models.ForeignKey(CentroCusto, on_delete=models.SET_NULL, null=True, blank=True)
-    
-    # Valores
-    valor_orcado = models.DecimalField(max_digits=12, decimal_places=2)
-    valor_realizado = models.DecimalField(max_digits=12, decimal_places=2, default=0)
-    valor_variacao = models.DecimalField(max_digits=12, decimal_places=2, default=0)
-    percentual_realizacao = models.DecimalField(max_digits=5, decimal_places=2, default=0)
-    
-    # Observações
-    justificativa_variacao = models.TextField(blank=True)
-    
-    empresa = models.ForeignKey(Empresa, on_delete=models.CASCADE)
-    
-    class Meta:
-        verbose_name = "Orçamento Financeiro"
-        verbose_name_plural = "Orçamentos Financeiros"
-        unique_together = ['ano', 'mes', 'plano_contas', 'centro_custo', 'empresa']
-        ordering = ['ano', 'mes']
-    
-    def __str__(self):
-        return f"{self.ano}/{self.mes:02d} - {self.plano_contas.nome} - R$ {self.valor_orcado}"
-    
-    def save(self, *args, **kwargs):
-        # Calcular variação e percentual
-        self.valor_variacao = self.valor_realizado - self.valor_orcado
-        if self.valor_orcado:
-            self.percentual_realizacao = (self.valor_realizado / self.valor_orcado) * 100
-        
-        super().save(*args, **kwargs)
-    
-    def atualizar_realizado(self):
-        """Atualiza valor realizado baseado nas movimentações do período"""
-        from datetime import date
-        
-        data_inicio = date(self.ano, self.mes, 1)
-        if self.mes == 12:
-            data_fim = date(self.ano + 1, 1, 1) - timedelta(days=1)
-        else:
-            data_fim = date(self.ano, self.mes + 1, 1) - timedelta(days=1)
-        
-        # Buscar movimentações do período
-        movimentacoes = MovimentacaoFinanceira.objects.filter(
-            plano_contas=self.plano_contas,
-            centro_custo=self.centro_custo,
-            data_movimentacao__range=[data_inicio, data_fim],
-            confirmada=True,
-            empresa=self.empresa
-        )
-        
-        if self.tipo == 'receita':
-            movimentacoes = movimentacoes.filter(tipo_movimentacao='entrada')
-        else:
-            movimentacoes = movimentacoes.filter(tipo_movimentacao='saida')
-        
-        total = movimentacoes.aggregate(total=models.Sum('valor'))['total'] or Decimal('0.00')
-        self.valor_realizado = total
-        self.save()
 
-
-class CategoriaFinanceira(models.Model):
-    TIPO_DRE_CHOICES = [
-        ('receita', 'Receita Bruta'),
-        ('deducao', 'Deduções/Impostos'),
-        ('custo', 'Custo'),
-        ('despesa', 'Despesa Operacional'),
-        ('financeiro', 'Resultado Financeiro'),
-        ('outros', 'Outros'),
-    ]
-
-    nome = models.CharField(max_length=100)
-    descricao = models.TextField(blank=True, null=True)
-    tipo_dre = models.CharField(max_length=20, null=False, blank=False, choices=TIPO_DRE_CHOICES, default='receita')
-
-    def __str__(self):
-        return self.nome
-
-
-class LancamentoFinanceiro(TimeStampedModel): # Use TimeStampedModel para tracking
-    TIPO_CHOICES = (
-        ('debito', 'Débito'),
-        ('credito', 'Crédito'),
-    )
-
-    # Identificação
-    numero_lancamento = models.CharField(max_length=50, unique=True, help_text="ID do lançamento contábil (ex: 202509-0001)")
-    data_lancamento = models.DateField(default=date.today)
-    descricao = models.CharField(max_length=255)
-    
-    # Valores
-    tipo = models.CharField(max_length=10, choices=TIPO_CHOICES) # Se é Débito ou Crédito
-    valor = models.DecimalField(max_digits=12, decimal_places=2, validators=[MinValueValidator(Decimal('0.01'))]) # Deve ser sempre positivo
-    
-    # Contas
-    plano_contas = models.ForeignKey(PlanoContas, on_delete=models.PROTECT, related_name='lancamentos')
-    centro_custo = models.ForeignKey(CentroCusto, on_delete=models.PROTECT, null=True, blank=True)
-    
-    # Rastreamento (Obrigatório para auditoria)
-    origem_movimentacao = models.ForeignKey(
-        MovimentacaoFinanceira, 
-        on_delete=models.SET_NULL, 
-        null=True, 
-        blank=True,
-        help_text="Movimentação (Caixa/Banco) que gerou o lançamento"
-    )
-    # Grupo de Lançamentos (Para agrupar o débito e o crédito)
-    transacao_uuid = models.UUIDField(default=uuid.uuid4, editable=False) 
-
-    usuario_responsavel = models.ForeignKey(Usuario, on_delete=models.PROTECT)
-    empresa = models.ForeignKey(Empresa, on_delete=models.CASCADE)
-
-    class Meta:
-        verbose_name = "Lançamento Contábil"
-        verbose_name_plural = "Lançamentos Contábeis"
-        ordering = ['data_lancamento', 'numero_lancamento']
-        # Índices para pesquisa rápida de GeneralLedgerEntries
-        indexes = [
-             models.Index(fields=['data_lancamento', 'plano_contas']),
-             models.Index(fields=['transacao_uuid']),
-        ]
-
-    def __str__(self):
-        return f"{self.numero_lancamento} | {self.data_lancamento} | {self.tipo.upper()} {self.valor}"
 
 
 class MovimentoCaixa(TimeStampedModel):
@@ -1055,14 +885,14 @@ class MovimentoCaixa(TimeStampedModel):
     ]
     
     FORMA_PAGAMENTO_CHOICES = [
-    ('dinheiro', 'Dinheiro'),
-    ('cartao_debito', 'Cartão de Débito'),
-    ('cartao_credito', 'Cartão de Crédito'),
-    ('transferencia', 'Transferência'),
-    ('cheque', 'Cheque'),
-    ('vale', 'Vale'),
-    ('outros', 'Outros'),
-]
+        ('dinheiro', 'Dinheiro'),
+        ('cartao_debito', 'Cartão de Débito'),
+        ('cartao_credito', 'Cartão de Crédito'),
+        ('transferencia', 'Transferência'),
+        ('cheque', 'Cheque'),
+        ('vale', 'Vale'),
+        ('outros', 'Outros'),
+    ]
     
     STATUS_CHOICES = [
         ('pendente', 'Pendente'),
@@ -1262,8 +1092,7 @@ class MovimentoCaixa(TimeStampedModel):
         self.save()
     
     def _criar_movimentacao_financeira(self):
-        """Cria movimentação financeira correspondente"""
-        # Buscar conta principal da empresa
+        """Cria movimentação financeira correspondente sem dependência de plano de contas"""
         conta_principal = ContaBancaria.objects.filter(
             empresa=self.empresa,
             conta_principal=True,
@@ -1271,27 +1100,16 @@ class MovimentoCaixa(TimeStampedModel):
         ).first()
         
         if not conta_principal:
-            return  # Sem conta principal, não criar movimentação
-        
-        # Buscar plano de contas padrão para vendas
-        plano_vendas = PlanoContas.objects.filter(
-            empresa=self.empresa,
-            tipo_conta='receita',
-            nome__icontains='venda'
-        ).first()
-        
-        if not plano_vendas:
-            return  # Sem plano de contas, não criar movimentação
-        
-        # Criar movimentação apenas para dinheiro e transferencia (que vão direto para o caixa)
+            return 
+
+        # Criar movimentação apenas para dinheiro e transferencia
         if self.forma_pagamento in ['dinheiro', 'transferencia']:
             MovimentacaoFinanceira.objects.create(
                 tipo_movimentacao='entrada',
                 tipo_documento=self.forma_pagamento,
                 data_movimentacao=self.data_movimento,
-                valor=abs(self.valor),  # Sempre positivo para entrada
+                valor=abs(self.valor),
                 conta_bancaria=conta_principal,
-                plano_contas=plano_vendas,
                 cliente=self.cliente,
                 venda_relacionada=self.venda_relacionada,
                 descricao=f"Recebimento venda: {self.descricao}",
@@ -1302,7 +1120,7 @@ class MovimentoCaixa(TimeStampedModel):
                 usuario_responsavel=self.usuario,
                 empresa=self.empresa
             )
-    
+
     @property
     def valor_liquido(self):
         """Valor líquido (valor - troco)"""
@@ -1394,18 +1212,6 @@ class ImpostoTributo(TimeStampedModel):
         ('05I', '05I - IVA - Regime Transitório'),
         ('06I', '06I - IVA - Outros'),
         
-        # A - IMPOSTO SOBRE APLICAÇÃO DE CAPITAIS
-        ('01A', '01A - IAC - Títulos do Banco Central'),
-        ('02A', '02A - IAC - Bilhetes e Obrigações do Tesouro'),
-        ('03A', '03A - IAC - Depósito à Ordem'),
-        ('04A', '04A - IAC - Depósito a Prazo'),
-        ('05A', '05A - IAC - Dividendos/Lucros'),
-        ('06A', '06A - IAC - Juros de Suprimentos'),
-        ('07A', '07A - IAC - Mais Valias'),
-        ('08A', '08A - IAC - Operações do Mercado Monetário'),
-        ('09A', '09A - IAC - Royalties'),
-        ('10A', '10A - IAC - Outros'),
-        
         # B - IMPOSTO SOBRE RENDIMENTO DO TRABALHO
         ('01B', '01B - IRT - Grupo A - Conta de Outrem'),
         ('02B', '02B - IRT - Grupo B - Conta Própria'),
@@ -1419,28 +1225,6 @@ class ImpostoTributo(TimeStampedModel):
         ('05C', '05C - II - Diamantes'),
         ('06C', '06C - II - Ouro'),
         ('07C', '07C - II - Outros Minerais'),
-        
-        # D - IMPOSTOS ESPECIAIS DE JOGOS
-        ('01D', '01D - IEJ - Casino'),
-        ('02D', '02D - IEJ - Totobola'),
-        ('03D', '03D - IEJ - Totoloto'),
-        ('04D', '04D - IEJ - Angomilhões'),
-        ('05D', '05D - IEJ - Outros Tipos de Jogos Sociais'),
-        ('06D', '06D - IEJ - Apostas Hípicas'),
-        ('07D', '07D - IEJ - Rifas e Concursos'),
-        ('08D', '08D - IEJ - Combinações Aleatórias'),
-        ('09D', '09D - IEJ - Lotarias'),
-        ('10D', '10D - IEJ - Outros Jogos Presenciais'),
-        ('11D', '11D - IEJ - Prémios - Casino'),
-        ('12D', '12D - IEJ - Online - Receita Bruta'),
-        ('13D', '13D - IEJ - Online - Prémios'),
-        ('14D', '14D - IEJ - Prémios - Totobola'),
-        ('15D', '15D - IEJ - Prémios - Totoloto'),
-        ('16D', '16D - IEJ - Prémios - Angomilhões'),
-        ('17D', '17D - IEJ - Prémios Online'),
-        ('18D', '18D - IEJ - Prémios - Apostas Hípicas'),
-        ('19D', '19D - IEJ - Prémios - Apostas Hípicas'),
-        ('20D', '20D - IEJ - Prémios - Lotarias'),
         
         # E - IMPOSTOS PETROLÍFEROS
         ('01E', '01E - IP - Rendimentos do Petróleo'),
@@ -1494,17 +1278,6 @@ class ImpostoTributo(TimeStampedModel):
         ('04L', '04L - IS - Operações Isentas (Regime Geral)'),
         ('05L', '05L - IS - Operações Isentas (Regime Simplificado)'),
         ('06L', '06L - IS - Outros'),
-        
-        # P - MULTAS E JUROS
-        ('01P', '01P - Multas Fiscais pela não Entrega da Declaração'),
-        ('02P', '02P - Multas Fiscais pelo não Pagamento da Prestação da Dívida Tributária'),
-        ('03P', '03P - Multa Substitutiva de Confisco Aduaneiro'),
-        ('04P', '04P - Multas Fiscais'),
-        ('05P', '05P - Multas Aduaneiras'),
-        ('06P', '06P - Multas Institucionais'),
-        ('07P', '07P - Adicional de 10% sobre as Multas Fiscais'),
-        ('08P', '08P - Juros de Mora'),
-        ('09P', '09P - Juros Compensatórios'),
         
         # Q - CONTRIBUIÇÕES
         ('01Q', '01Q - Contribuições para o Fundo de Desenvolvimento Mineiro'),
@@ -1561,6 +1334,13 @@ class ImpostoTributo(TimeStampedModel):
     codigo_imposto_interno = models.CharField(
         max_length=30,
         help_text="Código interno do sistema"
+    )
+    categoria = models.ForeignKey(
+        CategoriaFinanceira, 
+        on_delete=models.PROTECT, 
+        null=True, 
+        blank=True,
+        related_name='%(class)s_relacionada'
     )
     nome = models.CharField(max_length=200)
     descricao = models.TextField(blank=True)
@@ -1745,11 +1525,7 @@ class ImpostoTributo(TimeStampedModel):
     )
     
     # Conta contábil
-    plano_contas = models.ForeignKey(
-        PlanoContas,
-        on_delete=models.PROTECT,
-        help_text="Conta contábil do imposto"
-    )
+    
     centro_custo = models.ForeignKey(
         CentroCusto,
         on_delete=models.SET_NULL,
@@ -1895,6 +1671,12 @@ class ImpostoTributo(TimeStampedModel):
         self.aliquota_percentual = aliquota_iva
         self.valor_calculado = self.base_calculo * (aliquota_iva / 100)
     
+    def _calcular_por_percentual_receita(self):
+        """Cálculo genérico baseado em percentual da receita bruta"""
+        self.receita_bruta = self._obter_receitas_periodo()
+        self.base_calculo = self.receita_bruta
+        self.valor_calculado = self.base_calculo * (self.aliquota_percentual / 100)
+
     def _calcular_imposto_industrial_angola(self):
         """Calcula Imposto Industrial segundo legislação angolana"""
         # Alíquotas do Imposto Industrial em Angola
@@ -2235,22 +2017,7 @@ class ConfiguracaoImposto(TimeStampedModel):
     )
     
     # Configurações contábeis
-    conta_iva_a_pagar = models.ForeignKey(
-        'PlanoContas',
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name='configuracao_iva_pagar',
-        help_text="Conta contábil para IVA a pagar"
-    )
-    conta_impostos_diversos = models.ForeignKey(
-        'PlanoContas',
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name='configuracao_impostos_diversos',
-        help_text="Conta contábil para impostos diversos"
-    )
+    
     centro_custo_impostos = models.ForeignKey(
         'CentroCusto',
         on_delete=models.SET_NULL,

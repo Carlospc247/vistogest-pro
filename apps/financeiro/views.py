@@ -17,19 +17,17 @@ import csv
 from rest_framework import viewsets
 from jsonschema import ValidationError
 from apps.clientes.models import Cliente
-from apps.core.models import Empresa
+from apps.empresas.models import Empresa
 from apps.core.views import BaseMPAView
-from apps.financeiro.api.serializers import CategoriaFinanceiraSerializer, LancamentoFinanceiroSerializer
 from apps.fornecedores.models import Fornecedor
 from apps.vendas.models import Venda
 from .models import (
-    ConciliacaoBancaria, ContaReceber, ContaPagar, FluxoCaixa, LancamentoFinanceiro, CategoriaFinanceira,
+    ConciliacaoBancaria, ContaReceber, ContaPagar, FluxoCaixa,
     CentroCusto, ContaBancaria, MovimentacaoFinanceira, MovimentoCaixa,
-    ImpostoTributo, OrcamentoFinanceiro, PlanoContas
+    ImpostoTributo
 )
 from .forms import (
-    ContaReceberForm, ContaPagarForm, ImpostoTributoForm, LancamentoFinanceiroForm,
-    CategoriaFinanceiraForm, CentroCustoForm, MovimentoCaixaForm
+    ContaReceberForm, ContaPagarForm, ImpostoTributoForm, CentroCustoForm, MovimentoCaixaForm
 )
 from django.contrib.auth.mixins import AccessMixin
 from django.urls import reverse_lazy
@@ -41,8 +39,6 @@ import logging
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
-from .models import PlanoContas
-from .forms import PlanoContasForm
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
@@ -156,117 +152,8 @@ class FinanceiroView(BaseMPAView, PermissaoAcaoMixin):
 # PLANO DE CONTAS
 # =====================================
 
-class PlanoContasListView(LoginRequiredMixin, PermissaoAcaoMixin, ListView):
-    acao_requerida = 'acessar_financeiro'
-    model = PlanoContas
-    template_name = 'financeiro/plano_contas/lista.html'
-    context_object_name = 'contas'
-    
-    def get_queryset(self):
-        return PlanoContas.objects.filter(
-            empresa=self.request.user.empresa
-        ).select_related('conta_pai').order_by('codigo')
-    
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        
-        # Organizar contas por hierarquia
-        contas_hierarquia = {}
-        for conta in context['contas']:
-            nivel = conta.nivel
-            if nivel not in contas_hierarquia:
-                contas_hierarquia[nivel] = []
-            contas_hierarquia[nivel].append(conta)
-        
-        context['contas_hierarquia'] = contas_hierarquia
-        return context
 
-class PlanoContasCreateView(LoginRequiredMixin, PermissaoAcaoMixin, CreateView):
-    acao_requerida = 'acessar_financeiro'
-    model = PlanoContas
-    template_name = 'financeiro/plano_contas/form.html'
-    fields = [
-        'codigo', 'nome', 'descricao', 'conta_pai', 'tipo_conta',
-        'natureza', 'aceita_lancamento', 'ativa', 'ordem'
-    ]
-    success_url = reverse_lazy('financeiro:plano_contas_lista')
-    
-    def form_valid(self, form):
-        form.instance.empresa = self.request.user.empresa
-        
-        # Calcular nível baseado na conta pai
-        if form.instance.conta_pai:
-            form.instance.nivel = form.instance.conta_pai.nivel + 1
-        else:
-            form.instance.nivel = 1
-        
-        messages.success(self.request, 'Conta criada com sucesso!')
-        return super().form_valid(form)
-    
-    def get_form(self, form_class=None):
-        form = super().get_form(form_class)
-        # Filtrar contas pai pela empresa
-        form.fields['conta_pai'].queryset = PlanoContas.objects.filter(
-            empresa=self.request.user.empresa
-        )
-        return form
 
-class PlanoContasUpdateView(LoginRequiredMixin, PermissaoAcaoMixin, UpdateView):
-    acao_requerida = 'acessar_financeiro'
-    model = PlanoContas
-    template_name = 'financeiro/plano_contas/form.html'
-    fields = [
-        'codigo', 'nome', 'descricao', 'conta_pai', 'tipo_conta',
-        'natureza', 'aceita_lancamento', 'ativa', 'ordem'
-    ]
-    success_url = reverse_lazy('financeiro:plano_contas_lista')
-    
-    def form_valid(self, form):
-        # Recalcular nível se conta pai mudou
-        if form.instance.conta_pai:
-            form.instance.nivel = form.instance.conta_pai.nivel + 1
-        else:
-            form.instance.nivel = 1
-        
-        messages.success(self.request, 'Conta atualizada com sucesso!')
-        return super().form_valid(form)
-
-class PlanoContasDetailView(LoginRequiredMixin, PermissaoAcaoMixin, DetailView):
-    acao_requerida = 'acessar_financeiro'
-    model = PlanoContas
-    template_name = 'financeiro/plano_contas/detail.html'
-    context_object_name = 'conta'
-    
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        
-        # Contas filhas
-        context['contas_filhas'] = self.object.contas_filhas.all()
-        
-        # Movimentações recentes
-        context['movimentacoes_recentes'] = MovimentacaoFinanceira.objects.filter(
-            plano_contas=self.object
-        ).select_related('conta_bancaria').order_by('-data_movimentacao')[:10]
-        
-        # Totais do mês
-        hoje = date.today()
-        inicio_mes = hoje.replace(day=1)
-        
-        movimentacoes_mes = MovimentacaoFinanceira.objects.filter(
-            plano_contas=self.object,
-            data_movimentacao__range=[inicio_mes, hoje],
-            confirmada=True
-        )
-        
-        context['total_entradas_mes'] = movimentacoes_mes.filter(
-            tipo_movimentacao='entrada'
-        ).aggregate(total=Sum('valor'))['total'] or 0
-        
-        context['total_saidas_mes'] = movimentacoes_mes.filter(
-            tipo_movimentacao='saida'
-        ).aggregate(total=Sum('valor'))['total'] or 0
-        
-        return context
 
 # =====================================
 # MOVIMENTAÇÃO FINANCEIRA
@@ -283,7 +170,7 @@ class MovimentacaoFinanceiraListView(LoginRequiredMixin, PermissaoAcaoMixin, Lis
         queryset = MovimentacaoFinanceira.objects.filter(
             empresa=self.request.user.empresa
         ).select_related(
-            'conta_bancaria', 'plano_contas', 'centro_custo',
+            'conta_bancaria', 'centro_custo',
             'fornecedor', 'cliente', 'usuario_responsavel'
         ).order_by('-data_movimentacao', '-created_at')
         
@@ -340,7 +227,7 @@ class MovimentacaoFinanceiraCreateView(LoginRequiredMixin, PermissaoAcaoMixin, C
         'tipo_movimentacao', 'tipo_documento', 'numero_documento',
         'data_movimentacao', 'data_vencimento', 'valor', 'valor_juros',
         'valor_multa', 'valor_desconto', 'conta_bancaria', 'conta_destino',
-        'plano_contas', 'centro_custo', 'fornecedor', 'cliente',
+        'centro_custo', 'fornecedor', 'cliente',
         'descricao', 'observacoes', 'numero_cheque', 'banco_cheque',
         'emissor_cheque'
     ]
@@ -363,9 +250,6 @@ class MovimentacaoFinanceiraCreateView(LoginRequiredMixin, PermissaoAcaoMixin, C
         )
         form.fields['conta_destino'].queryset = ContaBancaria.objects.filter(
             empresa=empresa, ativa=True
-        )
-        form.fields['plano_contas'].queryset = PlanoContas.objects.filter(
-            empresa=empresa, ativa=True, aceita_lancamento=True
         )
         form.fields['centro_custo'].queryset = CentroCusto.objects.filter(
             empresa=empresa, ativo=True
@@ -749,162 +633,6 @@ class DesconciliarMovimentacaoView(LoginRequiredMixin, PermissaoAcaoMixin, View)
 # ORÇAMENTO FINANCEIRO COMPLETO
 # =====================================
 
-class OrcamentoFinanceiroListView(LoginRequiredMixin, PermissaoAcaoMixin, ListView):
-    acao_requerida = 'acessar_financeiro'
-    model = OrcamentoFinanceiro
-    template_name = 'financeiro/orcamento/lista.html'
-    context_object_name = 'orcamentos'
-    
-    def get_queryset(self):
-        ano = int(self.request.GET.get('ano', date.today().year))
-        mes = self.request.GET.get('mes')
-        
-        queryset = OrcamentoFinanceiro.objects.filter(
-            empresa=self.request.user.empresa,
-            ano=ano
-        ).select_related('plano_contas', 'centro_custo')
-        
-        if mes:
-            queryset = queryset.filter(mes=int(mes))
-        
-        return queryset.order_by('mes', 'plano_contas__codigo')
-    
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        
-        ano = int(self.request.GET.get('ano', date.today().year))
-        context['ano_selecionado'] = ano
-        context['anos_disponiveis'] = range(ano - 2, ano + 3)
-        
-        # Totais por mês
-        orcamentos_ano = self.get_queryset()
-        
-        context['resumo_mensal'] = {}
-        for mes in range(1, 13):
-            orcamentos_mes = orcamentos_ano.filter(mes=mes)
-            
-            receitas = orcamentos_mes.filter(tipo='receita').aggregate(
-                orcado=Sum('valor_orcado'),
-                realizado=Sum('valor_realizado')
-            )
-            
-            despesas = orcamentos_mes.filter(tipo='despesa').aggregate(
-                orcado=Sum('valor_orcado'),
-                realizado=Sum('valor_realizado')
-            )
-            
-            context['resumo_mensal'][mes] = {
-                'receitas_orcadas': receitas['orcado'] or 0,
-                'receitas_realizadas': receitas['realizado'] or 0,
-                'despesas_orcadas': despesas['orcado'] or 0,
-                'despesas_realizadas': despesas['realizado'] or 0,
-            }
-        
-        return context
-
-class OrcamentoFinanceiroCreateView(LoginRequiredMixin, PermissaoAcaoMixin, CreateView):
-    acao_requerida = 'acessar_financeiro'
-    model = OrcamentoFinanceiro
-    template_name = 'financeiro/orcamento/form.html'
-    fields = [
-        'ano', 'mes', 'tipo', 'plano_contas', 'centro_custo',
-        'valor_orcado', 'justificativa_variacao'
-    ]
-    success_url = reverse_lazy('financeiro:orcamento_lista')
-    
-    def form_valid(self, form):
-        form.instance.empresa = self.request.user.empresa
-        messages.success(self.request, 'Orçamento criado com sucesso!')
-        return super().form_valid(form)
-    
-    def get_form(self, form_class=None):
-        form = super().get_form(form_class)
-        empresa = self.request.user.empresa
-        
-        form.fields['plano_contas'].queryset = PlanoContas.objects.filter(
-            empresa=empresa, ativa=True, aceita_lancamento=True
-        )
-        form.fields['centro_custo'].queryset = CentroCusto.objects.filter(
-            empresa=empresa, ativo=True
-        )
-        
-        return form
-
-class OrcamentoFinanceiroUpdateView(LoginRequiredMixin, PermissaoAcaoMixin, UpdateView):
-    acao_requerida = 'acessar_financeiro'
-    model = OrcamentoFinanceiro
-    template_name = 'financeiro/orcamento/form.html'
-    fields = [
-        'valor_orcado', 'justificativa_variacao'
-    ]
-    success_url = reverse_lazy('financeiro:orcamento_lista')
-
-class AtualizarOrcamentoRealizadoView(LoginRequiredMixin, PermissaoAcaoMixin, View):
-    acao_requerida = 'acessar_financeiro'
-    def post(self, request):
-        """Atualiza valores realizados de todos os orçamentos"""
-        ano = int(request.POST.get('ano', date.today().year))
-        mes = request.POST.get('mes')
-        
-        orcamentos = OrcamentoFinanceiro.objects.filter(
-            empresa=request.user.empresa,
-            ano=ano
-        )
-        
-        if mes:
-            orcamentos = orcamentos.filter(mes=int(mes))
-        
-        contador = 0
-        for orcamento in orcamentos:
-            orcamento.atualizar_realizado()
-            contador += 1
-        
-        messages.success(request, f'{contador} orçamentos atualizados!')
-        return redirect('financeiro:orcamento_lista')
-
-class CopiarOrcamentoView(LoginRequiredMixin, PermissaoAcaoMixin, View):
-    acao_requerida = 'acessar_financeiro'
-    def post(self, request):
-        """Copia orçamento de um ano para outro"""
-        ano_origem = int(request.POST.get('ano_origem'))
-        ano_destino = int(request.POST.get('ano_destino'))
-        fator_reajuste = Decimal(request.POST.get('fator_reajuste', '1.0'))
-        
-        if ano_origem == ano_destino:
-            messages.error(request, 'Anos de origem e destino devem ser diferentes')
-            return redirect('financeiro:orcamento_lista')
-        
-        # Buscar orçamentos do ano origem
-        orcamentos_origem = OrcamentoFinanceiro.objects.filter(
-            empresa=request.user.empresa,
-            ano=ano_origem
-        )
-        
-        # Deletar orçamentos existentes do ano destino
-        OrcamentoFinanceiro.objects.filter(
-            empresa=request.user.empresa,
-            ano=ano_destino
-        ).delete()
-        
-        contador = 0
-        for orcamento in orcamentos_origem:
-            OrcamentoFinanceiro.objects.create(
-                empresa=orcamento.empresa,
-                ano=ano_destino,
-                mes=orcamento.mes,
-                tipo=orcamento.tipo,
-                plano_contas=orcamento.plano_contas,
-                centro_custo=orcamento.centro_custo,
-                valor_orcado=orcamento.valor_orcado * fator_reajuste
-            )
-            contador += 1
-        
-        messages.success(
-            request, 
-            f'{contador} orçamentos copiados de {ano_origem} para {ano_destino} '
-            f'com reajuste de {((fator_reajuste - 1) * 100):.1f}%'
-        )
-        return redirect('financeiro:orcamento_lista')
 
 # =====================================
 # CONTA BANCÁRIA COMPLETA
@@ -1033,8 +761,7 @@ from django.views.generic import TemplateView
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db.models import Sum
 
-# IMPORTAÇÕES: Certifique-se que ContaPagar, ContaReceber, MovimentoCaixa, MovimentacaoFinanceira e LancamentoFinanceiro 
-# estão corretamente importados no topo do seu views.py
+
 
 
 
@@ -1050,6 +777,7 @@ from decimal import Decimal
 class FinanceiroDashboardView(LoginRequiredMixin, PermissaoAcaoMixin, TemplateView):
     acao_requerida = 'acessar_financeiro'
     template_name = 'financeiro/dashboard.html'
+    module_name = 'financeiro'
     
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -1084,22 +812,7 @@ class FinanceiroDashboardView(LoginRequiredMixin, PermissaoAcaoMixin, TemplateVi
             data_vencimento__lt=hoje
         ).count()
         
-        # ====== RECEITAS E DESPESAS DO MÊS ======
-        # CORRIGIDO: Usar plano_contas__tipo_conta em vez de tipo
-        context['receitas_mes'] = LancamentoFinanceiro.objects.filter(
-            empresa=empresa,
-            plano_contas__tipo_conta='receita',  # CORRIGIDO
-            data_lancamento__gte=inicio_mes,
-            data_lancamento__lte=hoje
-        ).aggregate(total=Sum('valor'))['total'] or Decimal('0.00')
-        
-        context['despesas_mes'] = LancamentoFinanceiro.objects.filter(
-            empresa=empresa,
-            plano_contas__tipo_conta='despesa',  # CORRIGIDO
-            data_lancamento__gte=inicio_mes,
-            data_lancamento__lte=hoje
-        ).aggregate(total=Sum('valor'))['total'] or Decimal('0.00')
-        
+
         # ====== CONTAS VENCENDO (próximos 7 dias) ======
         proximos_7_dias = hoje + timedelta(days=7)
         
@@ -1203,44 +916,7 @@ class FinanceiroDashboardView(LoginRequiredMixin, PermissaoAcaoMixin, TemplateVi
         
         return dados
     
-    def _get_receitas_por_categoria(self, empresa):
-        """Dados para gráfico de receitas por categoria (mês atual)"""
-        inicio_mes = date.today().replace(day=1)
-        
-        receitas = LancamentoFinanceiro.objects.filter(
-            empresa=empresa,
-            plano_contas__tipo_conta='receita',
-            data_lancamento__gte=inicio_mes
-        ).values(
-            'plano_contas__nome'
-        ).annotate(
-            total=Sum('valor')
-        ).order_by('-total')
-        
-        return {
-            'labels': [item['plano_contas__nome'] for item in receitas],
-            'valores': [float(item['total']) for item in receitas]
-        }
-    
-    def _get_despesas_por_categoria(self, empresa):
-        """Dados para gráfico de despesas por categoria (mês atual)"""
-        inicio_mes = date.today().replace(day=1)
-        
-        despesas = LancamentoFinanceiro.objects.filter(
-            empresa=empresa,
-            plano_contas__tipo_conta='despesa',
-            data_lancamento__gte=inicio_mes
-        ).values(
-            'plano_contas__nome'
-        ).annotate(
-            total=Sum('valor')
-        ).order_by('-total')
-        
-        return {
-            'labels': [item['plano_contas__nome'] for item in despesas],
-            'valores': [float(item['total']) for item in despesas]
-        }
-    
+   
     def _get_evolucao_saldos(self, empresa):
         """Evolução dos saldos bancários (últimos 12 meses)"""
         dados = {'labels': [], 'valores': []}
@@ -1391,30 +1067,14 @@ class DREView(LoginRequiredMixin, PermissaoAcaoMixin, TemplateView):
         else:
             fim_periodo = date(ano, mes + 1, 1) - timedelta(days=1)
         
-        # Receitas
-        receitas = LancamentoFinanceiro.objects.filter(
-            tipo='entrada',
-            data__range=[inicio_periodo, fim_periodo]
-        ).values('categoria__nome').annotate(
-            total=Sum('valor')
-        )
         
-        # Despesas
-        despesas = LancamentoFinanceiro.objects.filter(
-            tipo='saida',
-            data__range=[inicio_periodo, fim_periodo]
-        ).values('categoria__nome').annotate(
-            total=Sum('valor')
-        )
         
-        total_receitas = sum(item['total'] for item in receitas)
-        total_despesas = sum(item['total'] for item in despesas)
+        
+        
         
         context.update({
             'mes': mes,
             'ano': ano,
-            'receitas': receitas,
-            'despesas': despesas,
             'total_receitas': total_receitas,
             'total_despesas': total_despesas,
             'resultado': total_receitas - total_despesas
@@ -1540,15 +1200,6 @@ class ReceberContaView(LoginRequiredMixin, PermissaoAcaoMixin, View):
         conta.status = 'paga'
         conta.save()
         
-        # Criar lançamento financeiro
-        LancamentoFinanceiro.objects.create(
-            tipo='receita',
-            categoria=conta.categoria,
-            descricao=f'Recebimento - {conta.descricao}',
-            valor=valor_recebido,
-            data_lancamento=data_recebimento,
-            conta_bancaria=conta.conta_bancaria
-        )
         
         messages.success(request, 'Conta recebida com sucesso!')
         return redirect('financeiro:conta_receber_detail', pk=pk)
@@ -1693,15 +1344,6 @@ class PagarContaView(LoginRequiredMixin, PermissaoAcaoMixin, View):
         conta.status = 'paga'
         conta.save()
         
-        # Criar lançamento financeiro
-        LancamentoFinanceiro.objects.create(
-            tipo='despesa',
-            categoria=conta.categoria,
-            descricao=f'Pagamento - {conta.descricao}',
-            valor=valor_pago,
-            data_lancamento=data_pagamento,
-            conta_bancaria=conta.conta_bancaria
-        )
         
         messages.success(request, 'Conta paga com sucesso!')
         return redirect('financeiro:conta_pagar_detail', pk=pk)
@@ -1763,94 +1405,7 @@ class PagamentoLoteView(LoginRequiredMixin, PermissaoAcaoMixin, FormView):
 # MOVIMENTAÇÃO FINANCEIRA
 # =====================================
 
-class LancamentoListView(LoginRequiredMixin, PermissaoAcaoMixin, ListView):
-    acao_requerida = 'acessar_financeiro'
-    model = LancamentoFinanceiro
-    template_name = 'financeiro/lancamento/lista.html'
-    context_object_name = 'lancamentos'
-    paginate_by = 25
-    
-    def get_queryset(self):
-        queryset = super().get_queryset()
-        
-        # Filtros
-        tipo = self.request.GET.get('tipo')
-        if tipo:
-            queryset = queryset.filter(tipo=tipo)
-        
-        categoria = self.request.GET.get('categoria')
-        if categoria:
-            queryset = queryset.filter(categoria_id=categoria)
-        
-        return queryset.select_related('categoria').order_by('-data')
 
-class LancamentoDetailView(LoginRequiredMixin, PermissaoAcaoMixin, DetailView):
-    acao_requerida = 'acessar_financeiro'
-    model = LancamentoFinanceiro
-    template_name = 'financeiro/lancamento/detail.html'
-    context_object_name = 'lancamento'
-
-class LancamentoCreateView(LoginRequiredMixin, PermissaoAcaoMixin, CreateView):
-    acao_requerida = 'acessar_financeiro'
-    model = LancamentoFinanceiro
-    form_class = LancamentoFinanceiroForm
-    template_name = 'financeiro/lancamento/form.html'
-    success_url = reverse_lazy('financeiro:lancamento_lista')
-
-class EstornarLancamentoView(LoginRequiredMixin, PermissaoAcaoMixin, View):
-    acao_requerida = 'acessar_financeiro'
-    def post(self, request, pk):
-        lancamento = get_object_or_404(LancamentoFinanceiro, pk=pk)
-        
-        # Criar lançamento de estorno
-        LancamentoFinanceiro.objects.create(
-            tipo='receita' if lancamento.tipo == 'despesa' else 'despesa',
-            categoria=lancamento.categoria,
-            descricao=f'Estorno - {lancamento.descricao}',
-            valor=lancamento.valor,
-            data_lancamento=date.today(),
-            observacoes=f'Estorno do lançamento {lancamento.id}'
-        )
-        
-        # Marcar como estornado
-        lancamento.estornado = True
-        lancamento.save()
-        
-        messages.success(request, 'Lançamento estornado com sucesso!')
-        return redirect('financeiro:lancamento_detail', pk=pk)
-
-class ReceitasView(LoginRequiredMixin, PermissaoAcaoMixin, ListView):
-    acao_requerida = 'acessar_financeiro'
-    model = LancamentoFinanceiro
-    template_name = 'financeiro/lancamento/receitas.html'
-    context_object_name = 'receitas'
-    
-    def get_queryset(self):
-        return LancamentoFinanceiro.objects.filter(
-            tipo='receita'
-        ).order_by('-data_lancamento')
-
-class DespesasView(LoginRequiredMixin, PermissaoAcaoMixin, ListView):
-    acao_requerida = 'acessar_financeiro'
-    model = LancamentoFinanceiro
-    template_name = 'financeiro/lancamento/despesas.html'
-    context_object_name = 'despesas'
-    
-    def get_queryset(self):
-        return LancamentoFinanceiro.objects.filter(
-            tipo='despesa'
-        ).order_by('-data_lancamento')
-
-class TransferenciasView(LoginRequiredMixin, PermissaoAcaoMixin, ListView):
-    acao_requerida = 'acessar_financeiro'
-    model = LancamentoFinanceiro
-    template_name = 'financeiro/lancamento/transferencias.html'
-    context_object_name = 'transferencias'
-    
-    def get_queryset(self):
-        return LancamentoFinanceiro.objects.filter(
-            tipo='transferencia'
-        ).order_by('-data')
 
 # =====================================
 # BANCOS E CONTAS
@@ -2223,26 +1778,6 @@ class CancelarTEFView(LoginRequiredMixin, PermissaoAcaoMixin, View):
 # CATEGORIAS E CENTROS DE CUSTO
 # =====================================
 
-class CategoriaFinanceiraListView(LoginRequiredMixin, PermissaoAcaoMixin, ListView):
-    acao_requerida = 'acessar_financeiro'
-    model = CategoriaFinanceira
-    template_name = 'financeiro/categoria/lista.html'
-    context_object_name = 'categorias'
-
-class CategoriaFinanceiraCreateView(LoginRequiredMixin, CreateView):
-    acao_requerida = 'acessar_financeiro'
-    model = CategoriaFinanceira
-    form_class = CategoriaFinanceiraForm
-    template_name = 'financeiro/categoria/form.html'
-    success_url = reverse_lazy('financeiro:categoria_lista')
-
-class CategoriaFinanceiraUpdateView(LoginRequiredMixin, UpdateView):
-    acao_requerida = 'acessar_financeiro'
-    model = CategoriaFinanceira
-    form_class = CategoriaFinanceiraForm
-    template_name = 'financeiro/categoria/form.html'
-    success_url = reverse_lazy('financeiro:categoria_lista')
-
 class CentroCustoListView(LoginRequiredMixin, PermissaoAcaoMixin, ListView):
     acao_requerida = 'acessar_financeiro'
     model = CentroCusto
@@ -2266,20 +1801,6 @@ class CentroCustoDetailView(LoginRequiredMixin, PermissaoAcaoMixin, DetailView):
 # PLANEJAMENTO FINANCEIRO (Implementação básica)
 # =====================================
 
-class OrcamentoFinanceiroView(LoginRequiredMixin, PermissaoAcaoMixin, TemplateView):
-    acao_requerida = 'acessar_financeiro'
-    template_name = 'financeiro/planejamento/orcamento.html'
-
-class NovoOrcamentoView(LoginRequiredMixin, PermissaoAcaoMixin, CreateView):
-    acao_requerida = 'acessar_financeiro'
-    model = OrcamentoFinanceiro
-    template_name = 'financeiro/planejamento/novo_orcamento.html'
-    fields = '__all__'
-
-class AcompanharOrcamentoView(LoginRequiredMixin, PermissaoAcaoMixin, DetailView):
-    acao_requerida = 'acessar_financeiro'
-    model = OrcamentoFinanceiro
-    template_name = 'financeiro/planejamento/acompanhar.html'
 
 class ProjecoesFinanceirasView(LoginRequiredMixin, PermissaoAcaoMixin, TemplateView):
     acao_requerida = 'acessar_financeiro'
@@ -2401,7 +1922,7 @@ class ImpostoPagarView(LoginRequiredMixin, PermissaoAcaoMixin, View):
 
 
 def pagar_imposto(request, empresa_id):
-    empresa = get_object_or_404('core.Empresa', id=empresa_id)
+    empresa = get_object_or_404('empresas.Empresa', id=empresa_id)
     impostos = empresa.impostos_angola.all()
     total = 0
 
@@ -2621,72 +2142,7 @@ class IndicadoresFinanceirosAPIView(APIView, PermissaoAcaoMixin):
             'margem_liquida': 0
         })
 
-class LancamentoViewSet(viewsets.ModelViewSet):
-    """
-    API endpoint para CRUD de lançamentos financeiros
-    """
-    queryset = LancamentoFinanceiro.objects.all()
-    serializer_class = LancamentoFinanceiroSerializer
 
-
-class CategoriaFinanceiraViewSet(viewsets.ModelViewSet):
-    """
-    API endpoint para CRUD de categorias financeiras
-    """
-    queryset = CategoriaFinanceira.objects.all()
-    serializer_class = CategoriaFinanceiraSerializer
-
-
-
-
-@login_required
-@permissao_acao_required(acao_requerida='acessar_financeiro')
-def lista_planos(request):
-    planos = PlanoContas.objects.filter(empresa=request.user.empresa)
-    return render(request, 'financeiro/plano_contas/lista.html', {'planos': planos})
-
-@login_required
-@permissao_acao_required(acao_requerida='acessar_financeiro')
-def criar_plano(request):
-    if request.method == 'POST':
-        form = PlanoContasForm(request.POST)
-        if form.is_valid():
-            plano = form.save(commit=False)
-            plano.empresa = request.user.empresa
-            # Definir nível automaticamente
-            plano.nivel = (plano.conta_pai.nivel + 1) if plano.conta_pai else 1
-            plano.save()
-            messages.success(request, "Plano de contas criado com sucesso!")
-            return redirect('financeiro:lista_planos')
-    else:
-        form = PlanoContasForm()
-    return render(request, 'financeiro/plano_contas/form.html', {'form': form, 'titulo': 'Criar Plano de Contas'})
-
-@login_required
-@permissao_acao_required(acao_requerida='acessar_financeiro')
-def editar_plano(request, pk):
-    plano = get_object_or_404(PlanoContas, pk=pk, empresa=request.user.empresa)
-    if request.method == 'POST':
-        form = PlanoContasForm(request.POST, instance=plano)
-        if form.is_valid():
-            plano = form.save(commit=False)
-            plano.nivel = (plano.conta_pai.nivel + 1) if plano.conta_pai else 1
-            plano.save()
-            messages.success(request, "Plano de contas atualizado!")
-            return redirect('financeiro:lista_planos')
-    else:
-        form = PlanoContasForm(instance=plano)
-    return render(request, 'financeiro/plano_contas/form.html', {'form': form, 'titulo': 'Editar Plano de Contas'})
-
-@login_required
-@permissao_acao_required(acao_requerida='acessar_financeiro')
-def deletar_plano(request, pk):
-    plano = get_object_or_404(PlanoContas, pk=pk, empresa=request.user.empresa)
-    if request.method == 'POST':
-        plano.delete()
-        messages.success(request, "Plano de contas deletado!")
-        return redirect('financeiro:lista_planos')
-    return render(request, 'financeiro/plano_contas/confirm_delete.html', {'plano': plano})
 
 
 

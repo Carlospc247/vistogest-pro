@@ -8,7 +8,6 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from datetime import timedelta
 from django.db.models import F
 from apps.core.views import BaseMPAView
-from apps.estoque.api.serializers import MovimentacaoEstoqueSerializer
 from apps.produtos.forms import ProdutoForm
 from .models import (
     MovimentacaoEstoque, Inventario, LocalizacaoEstoque

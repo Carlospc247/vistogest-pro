@@ -1,5 +1,6 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
+from apps.fiscal import views_erro_agt
 from . import views
 
 app_name = 'fiscal'
@@ -16,10 +17,9 @@ router.register(r'retencoes-fonte', views.RetencaoFonteViewSet, basename='retenc
 # =====================================
 # URLs da API REST
 # =====================================
-
+# Para integrações e consumo via JSON (Mobile ou Frontend moderno).
 api_urlpatterns = [
     # ViewSets registrados no router
-    path('api/', include(router.urls)),
     
     # Views específicas da API
     path('api/saft/export/', views.SAFTExportView.as_view(), name='saft-export'),
@@ -47,7 +47,7 @@ api_urlpatterns = [
 # =====================================
 # URLs Web (Templates/HTML)
 # =====================================
-
+# Para os templates Django tradicionais.
 web_urlpatterns = [
     # Dashboard principal
     path('', views.FiscalDashboardTemplateView.as_view(), name='dashboard'),
@@ -113,13 +113,15 @@ web_urlpatterns = [
 # =====================================
 # URLs de Utilitários e AJAX
 # =====================================
-
+# Para as atualizações em tempo real do Dashboard que criamos.
 ajax_urlpatterns = [
     # AJAX para operações rápidas
     path('ajax/calcular-iva/', views.ajax_calcular_iva, name='ajax-calcular-iva'),
     path('ajax/buscar-fornecedores/', views.ajax_buscar_fornecedores, name='ajax-buscar-fornecedores'),
     path('ajax/validar-nif/', views.ajax_validar_nif, name='ajax-validar-nif'),
     path('ajax/gerar-hash/', views.ajax_gerar_hash, name='ajax-gerar-hash'),
+
+    path('ajax/venda/<int:venda_id>/erros/', views_erro_agt.detalhe_erro_venda, name='ajax-venda-erros'),
     
     # AJAX para relatórios dinâmicos
     path('ajax/dados-dashboard/', views.ajax_dados_dashboard, name='ajax-dados-dashboard'),
@@ -134,7 +136,7 @@ ajax_urlpatterns = [
 # =====================================
 # URLs de Downloads e Exports
 # =====================================
-
+# Para os arquivos PDF/PEM e o backup SAF-T.
 download_urlpatterns = [
     # Downloads de relatórios
     # Downloads de relatórios

@@ -8,7 +8,7 @@ os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'pharmassys.settings')
 django.setup()
 
 # Imports Necessários
-from apps.core.models import Empresa 
+from apps.empresas.models import Empresa 
 from apps.saft.services.saft_xml_generator_service import SaftXmlGeneratorService
 from apps.saft.utils.saft_validator import SaftValidator 
 #from scripts.seed_data import create_test_transactions # 🚨 Assumindo um script de seed

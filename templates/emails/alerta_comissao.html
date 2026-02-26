@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+    <meta charset="UTF-8">
+</head>
+<body style="margin: 0; padding: 0; background-color: #0f172a; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: #f8fafc;">
+    <table width="100%" border="0" cellspacing="0" cellpadding="0" style="background-color: #0f172a; padding: 40px 20px;">
+        <tr>
+            <td align="center">
+                <table width="600" border="0" cellspacing="0" cellpadding="0" style="background-color: #1e293b; border-radius: 16px; overflow: hidden; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3);">
+                    <tr>
+                        <td align="center" style="background: linear-gradient(135deg, #6366f1 0%, #a855f7 100%); padding: 30px;">
+                            <img src="https://res.cloudinary.com/drb9m2gwz/image/upload/v1762087442/logo_wovikm.png" alt="VistoGEST" width="140" style="margin-bottom: 15px;">
+                            <h1 style="margin: 0; font-size: 20px; text-transform: uppercase; letter-spacing: 2px; color: #ffffff;">Alerta de Faturamento Elite</h1>
+                        </td>
+                    </tr>
+
+                    <tr>
+                        <td style="padding: 40px 30px;">
+                            <p style="font-size: 16px; line-height: 1.6; color: #cbd5e1;">Diretor, uma nova transação de alto impacto foi processada no ecossistema:</p>
+                            
+                            <div style="background-color: #334155; border-radius: 12px; padding: 25px; margin: 25px 0;">
+                                <table width="100%" border="0" cellspacing="0" cellpadding="0">
+                                    <tr>
+                                        <td style="padding-bottom: 10px; font-size: 14px; color: #94a3b8;">EMPRESA CLIENTE</td>
+                                    </tr>
+                                    <tr>
+                                        <td style="font-size: 18px; font-weight: bold; color: #ffffff;">{{ empresa_nome }}</td>
+                                    </tr>
+                                    <tr>
+                                        <td style="padding-top: 25px; padding-bottom: 10px; font-size: 14px; color: #94a3b8;">VALOR DA FATURA</td>
+                                    </tr>
+                                    <tr>
+                                        <td style="font-size: 24px; font-weight: bold; color: #22c55e;">{{ valor_venda|floatformat:2 }} Kz</td>
+                                    </tr>
+                                    <tr>
+                                        <td style="padding-top: 25px; padding-bottom: 10px; font-size: 14px; color: #94a3b8;">ROYALTIES SOTARQ (2%)</td>
+                                    </tr>
+                                    <tr>
+                                        <td style="font-size: 28px; font-weight: 800; color: #6366f1;">{{ valor_comissao|floatformat:2 }} Kz</td>
+                                    </tr>
+                                </table>
+                            </div>
+
+                            <p style="font-size: 14px; color: #94a3b8; text-align: center; margin-bottom: 30px;">
+                                Esta venda superou o gatilho de monitorização de 500.000,00 Kz.
+                            </p>
+
+                            <table width="100%" border="0" cellspacing="0" cellpadding="0">
+                                <tr>
+                                    <td align="center">
+                                        <a href="{{ link_admin }}" style="display: inline-block; background-color: #6366f1; color: #ffffff; padding: 16px 32px; border-radius: 8px; font-weight: bold; text-decoration: none; font-size: 16px;">Aceder Painel de Controle</a>
+                                    </td>
+                                </tr>
+                            </table>
+                        </td>
+                    </tr>
+
+                    <tr>
+                        <td style="padding: 20px 30px; background-color: #0f172a; text-align: center;">
+                            <p style="font-size: 12px; color: #475569; margin: 0;">
+                                &copy; 2026 SOTARQ Group | VistoGEST Pro ERP<br>
+                                Engenharia de Software de Alto Rigor
+                            </p>
+                        </td>
+                    </tr>
+                </table>
+            </td>
+        </tr>
+    </table>
+</body>
+</html>

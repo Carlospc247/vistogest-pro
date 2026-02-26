@@ -1,3 +1,4 @@
+# apps/configuracoews/models.py
 import os
 from django.db import models
 from django.core.validators import RegexValidator
@@ -12,7 +13,7 @@ from cloudinary.models import CloudinaryField
 
 class ConfiguracaoFiscal(TimeStampedModel):
     
-    empresa = models.OneToOneField('core.Empresa', on_delete=models.CASCADE, related_name='config_fiscal', help_text="Ex: Farmácia Neway LDA")
+    empresa = models.OneToOneField('empresas.Empresa', on_delete=models.CASCADE, related_name='config_fiscal', help_text="Ex: Farmácia Neway LDA")
     
     # Dados da empresa para documentos fiscais
     razao_social = models.CharField(max_length=255)
@@ -74,7 +75,7 @@ class BackupConfiguracao(TimeStampedModel):
     """
     Configurações de backup do sistema para cada empresa. Essencial para a segurança dos dados.
     """
-    empresa = models.OneToOneField('core.Empresa', on_delete=models.CASCADE, related_name='config_backup')
+    empresa = models.OneToOneField('empresas.Empresa', on_delete=models.CASCADE, related_name='config_backup')
     
     # Configurações de backup
     backup_automatico = models.BooleanField("Ativar Backup Automático", default=True)
@@ -114,7 +115,7 @@ class BackupConfiguracao(TimeStampedModel):
 
 class PersonalizacaoInterface(TimeStampedModel):
     
-    empresa = models.ForeignKey('core.Empresa', on_delete=models.CASCADE, null=True, blank=True)
+    empresa = models.ForeignKey('empresas.Empresa', on_delete=models.CASCADE, null=True, blank=True)
     usuario = models.ForeignKey('core.Usuario', on_delete=models.CASCADE, null=True, blank=True)
     
     # Tema e cores
@@ -161,7 +162,7 @@ class HistoricoBackup(TimeStampedModel):
         ('erro', 'Erro'),
     ]
 
-    empresa = models.ForeignKey('core.Empresa', on_delete=models.CASCADE, related_name='historico_backups')
+    empresa = models.ForeignKey('empresas.Empresa', on_delete=models.CASCADE, related_name='historico_backups')
     
     tipo = models.CharField("Tipo de Backup", max_length=15, choices=TIPO_CHOICES)
     status = models.CharField("Status", max_length=15, choices=STATUS_CHOICES, default='processando')

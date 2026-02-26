@@ -1,8 +1,12 @@
 # apps/core/models.py
-from django.db import models
+from django.db import connection, models
 from django.contrib.auth.models import User
 from django.contrib.auth.models import AbstractUser
 from cloudinary.models import CloudinaryField
+from django.utils import timezone
+from django_tenants.models import DomainMixin, TenantMixin
+from django.conf import settings
+import random
 
 
 
@@ -16,217 +20,135 @@ class TimeStampedModel(models.Model):
         abstract = True
 
 
-class Empresa(models.Model):
-    """Empresa cliente que usa o sistema"""
-    # Dados básicos
-    nome = models.CharField(max_length=200)
-    nome_fantasia = models.CharField(max_length=200, blank=True)
-    nif = models.CharField(max_length=10, unique=True)
-    codigo_validacao = models.CharField(
-        max_length=500,  # ou maior, se precisar
-        blank=True,
-        null=True,
-        help_text="Código de validação fornecido pela AGT para ATCUD"
-    )
-    
-    # Endereço
-    endereco = models.CharField(max_length=200)
-    numero = models.CharField(max_length=10, blank=True)
-    bairro = models.CharField(max_length=100)
-    cidade = models.CharField(max_length=100)
-    provincia = models.CharField(max_length=50, choices=[
-        ('BGO', 'Bengo'),
-        ('ICB', 'Icolo e Bengo'),
-        ('BGU', 'Benguela'),
-        ('BIE', 'Bié'),
-        ('CAB', 'Cabinda'),
-        ('CCS', 'Cuando Cubango'),
-        ('CNO', 'Cuanza Norte'),
-        ('CUS', 'Cuanza Sul'),
-        ('CNN', 'Cunene'),
-        ('HUA', 'Huambo'),
-        ('HUI', 'Huíla'),
-        ('LUA', 'Luanda'),
-        ('LNO', 'Lunda Norte'),
-        ('LSU', 'Lunda Sul'),
-        ('MAL', 'Malanje'),
-        ('MOX', 'Moxico'),
-        ('NAM', 'Namibe'),
-        ('UIG', 'Uíge'),
-        ('ZAI', 'Zaire'),
-    ])
-
-    postal = models.CharField(max_length=9)
-    
-    
-    # Contato
-    telefone = models.CharField(max_length=20)
-    email = models.EmailField()
-
-    #foto = models.ImageField(upload_to='core/empresa/', null=True, blank=True, default='https://res.cloudinary.com/drb9m2gwz/image/upload/v1762087442/logo_wovikm.png')
-    foto = CloudinaryField('foto', blank=True, null=True)
-
-    # Status
-    ativa = models.BooleanField(default=True)
-    data_cadastro = models.DateTimeField(auto_now_add=True)
-    
-    class Meta:
-        verbose_name = 'Empresa'
-        verbose_name_plural = 'Empresas'
-        
-    def __str__(self):
-        return self.nome
-
-
-class Loja(TimeStampedModel):
-    """Loja/Filial da empresa"""
-    empresa = models.ForeignKey(Empresa, on_delete=models.CASCADE, related_name='lojas')
-    nome = models.CharField(max_length=200)
-    codigo = models.CharField(max_length=20)
-    
-    # Endereço
-    endereco = models.CharField(max_length=200)
-    numero = models.CharField(max_length=10, blank=True)
-    bairro = models.CharField(max_length=100)
-    cidade = models.CharField(max_length=100)
-    postal = models.CharField(max_length=9)
-    provincia = models.CharField(max_length=50, choices=[
-        ('BGO', 'Bengo'),
-        ('ICB', 'Icolo e Bengo'),
-        ('BGU', 'Benguela'),
-        ('BIE', 'Bié'),
-        ('CAB', 'Cabinda'),
-        ('CCS', 'Cuando Cubango'),
-        ('CNO', 'Cuanza Norte'),
-        ('CUS', 'Cuanza Sul'),
-        ('CNN', 'Cunene'),
-        ('HUA', 'Huambo'),
-        ('HUI', 'Huíla'),
-        ('LUA', 'Luanda'),
-        ('LNO', 'Lunda Norte'),
-        ('LSU', 'Lunda Sul'),
-        ('MAL', 'Malanje'),
-        ('MOX', 'Moxico'),
-        ('NAM', 'Namibe'),
-        ('UIG', 'Uíge'),
-        ('ZAI', 'Zaire'),
-    ])
-
-    #foto = models.ImageField(upload_to='core/loja/', null=True, blank=True, default='https://res.cloudinary.com/drb9m2gwz/image/upload/v1762087442/logo_wovikm.png')
-    foto = CloudinaryField('foto', blank=True, null=True)
-    
-    # Contato
-    telefone = models.CharField(max_length=20, blank=True)
-    email = models.EmailField(blank=True)
-    
-    # Status
-    ativa = models.BooleanField(default=True)
-    eh_matriz = models.BooleanField(default=False)
-    
-    class Meta:
-        verbose_name = 'Loja'
-        verbose_name_plural = 'Lojas'
-        unique_together = ['empresa', 'codigo']
-        
-    def __str__(self):
-        return f"{self.nome} - {self.empresa.nome}"
 
 
 class Usuario(AbstractUser):
+    # --- Campos de Relacionamento ---
     empresa = models.ForeignKey(
-        Empresa, 
+        'empresas.Empresa', 
         on_delete=models.CASCADE, 
         related_name='usuarios',
         null=True,
         blank=True
     )
-    loja = models.ForeignKey(Loja, on_delete=models.SET_NULL, null=True, blank=True, related_name='usuarios')
+    loja = models.ForeignKey(
+        'empresas.Loja', 
+        on_delete=models.SET_NULL, 
+        null=True, 
+        blank=True, 
+        related_name='usuarios'
+    )
 
+    # --- Campos de Identificação e Perfil ---
     telefone = models.CharField(max_length=20, blank=True)
+    foto = CloudinaryField('foto', blank=True, null=True)
     
-    # Campo de permissão essencial movido para aqui:
     e_administrador_empresa = models.BooleanField(
         "É Administrador da Empresa?",
         default=False,
         help_text="Se marcado, este utilizador pode gerir todas as lojas e utilizadores da sua empresa."
     )
 
-    #foto = models.ImageField(upload_to='core/usuario/', null=True, blank=True, default='https://res.cloudinary.com/drb9m2gwz/image/upload/v1762087442/logo_wovikm.png')
-    foto = CloudinaryField('foto', blank=True, null=True)
+    # --- Propriedades de Blindagem Multi-tenant (O Cérebro) ---
 
+    @property
+    def funcionario(self):
+        """
+        RIGOR SOTARQ: Intercepta a chamada antes que o Django dispare o SQL.
+        No schema public, retornamos None imediatamente sem tocar no banco.
+        """
+        if connection.schema_name == 'public':
+            return None
+        
+        try:
+            from django.apps import apps
+            FuncionarioModel = apps.get_model('funcionarios', 'Funcionario')
+            # Usamos filter().first() para evitar exceções de DoesNotExist
+            return FuncionarioModel.objects.filter(usuario=self).first()
+        except (LookupError, Exception):
+            return None
+
+    @property
+    def funcionario_profile(self):
+        """Alias de compatibilidade para o perfil do funcionário."""
+        return self.funcionario
+
+    def get_funcionario(self):
+        """Método auxiliar para recuperação segura do funcionário."""
+        return self.funcionario
+    
+    def delete(self, *args, **kwargs):
+        # 🛡️ RIGOR SOTARQ: Engenharia de Proteção de Schema
+        if connection.schema_name == 'public':
+            # Se estamos no public, deletamos via SQL bruto para saltar o 
+            # Collector do Django que tenta buscar tabelas de inquilinos.
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    f"DELETE FROM {self._meta.db_table} WHERE id = %s", 
+                    [self.pk]
+                )
+            return 1 # Retorna o número de linhas afetadas
+        
+        # Comportamento normal para deleções dentro de inquilinos
+        return super().delete(*args, **kwargs)
+
+    def _get_pk_val(self, meta=None):
+        return getattr(self, (meta or self._meta).pk.name)
+
+    # --- Configurações do Modelo ---
     class Meta:
         verbose_name = 'Usuário'
         verbose_name_plural = 'Usuários'
     
     def __str__(self):
-        return self.username
-    
-
-class Categoria(TimeStampedModel ):
-    """Categoria de produtos, específica para cada empresa"""
-    empresa = models.ForeignKey(
-        Empresa, 
-        on_delete=models.CASCADE, 
-        related_name='categorias'
-    )
-    nome = models.CharField(max_length=100)
-    codigo = models.CharField(max_length=20, blank=True)
-    descricao = models.TextField(blank=True)
-    ativa = models.BooleanField(default=True)
-    
-    class Meta:
-        verbose_name = 'Categoria'
-        verbose_name_plural = 'Categorias'
-        constraints = [
-            models.UniqueConstraint(fields=['empresa', 'nome'], name='unique_categoria_empresa_nome')
-        ]
-        ordering = ['nome']
-
-        
-    def __str__(self):
-        return self.nome
+        return self.username    
 
 
-from django.db import models
-
-class ContadorDocumento(models.Model):
-    """
-    Controla o último número emitido para cada tipo de documento fiscal, 
-    garantindo a sequencialidade por Empresa e Ano.
-    """
-    TIPO_CHOICES = [
-        ('FR', 'Fatura Recibo'),        # Venda à vista (PDV)
-        ('FT', 'Fatura'),               # Venda a crédito (Cria dívida)
-        ('REC', 'Recibo'),              # Liquidação de dívida (Recebimento)
-        ('PP', 'Fatura Proforma'),      # Orçamento
-        ('NC', 'Nota de Crédito'),
-        ('ND', 'Nota de Débito'),  
-        ('DT', 'Documento de Transporte'),
-        ('VD', 'Venda a Dinheiro'),
-        ('TV', 'Talão de Venda'),
-        ('TD', 'Talão de Devolução'),
-        ('AA', 'Alienação de Ativos'),
-        ('DA', 'Devolução de Ativos'),
-        ('RP', 'Prémio ou Penalização'),
-        ('RE', 'Estorno ou Anulação'),
-        ('CS', 'Imputação a Co-Produtos'),
-        ('LD', 'Lançamentos Diversos'),
-        ('RA', 'Resseguro Aceite'),
-        ('RC', 'Resseguro Cedido'),
+class AuditoriaAcesso(models.Model):
+    ACAO_CHOICES = [
+        ('LOGIN', 'Login'),
+        ('LOGOUT', 'Logout'),
+        ('RESET_REQ', 'Solicitação de Reset de Senha'),
+        ('RESET_CONF', 'Senha Alterada com Sucesso'),
     ]
-
-    empresa = models.ForeignKey('core.Empresa', on_delete=models.CASCADE)
-    tipo_documento = models.CharField(max_length=5, choices=TIPO_CHOICES, unique=True, verbose_name="Tipo de Documento")
-    ano = models.IntegerField(default=2025) # Ajustar para o ano atual dinamicamente
-    ultimo_numero = models.IntegerField(default=0)
     
+    usuario = models.ForeignKey(Usuario, on_delete=models.CASCADE, related_name='logs_acesso') # settings.AUTH_USER_MODEL
+    acao = models.CharField(max_length=10, choices=ACAO_CHOICES)
+    ip_address = models.GenericIPAddressField(null=True, blank=True)
+    user_agent = models.TextField(null=True, blank=True)
+    timestamp = models.DateTimeField(auto_now_add=True)
+
     class Meta:
-        # Garante que só pode haver uma entrada por Tipo, Empresa e Ano.
-        unique_together = ('empresa', 'tipo_documento', 'ano')
-        verbose_name = 'Contador de Documento'
-        verbose_name_plural = 'Contadores de Documentos'
+        verbose_name = "Auditoria de Acesso"
+        verbose_name_plural = "Auditorias de Acessos"
+        ordering = ['-timestamp']
 
-    def __str__(self):
-        return f"Série {self.tipo_documento} de {self.empresa.nome} ({self.ano}): {self.ultimo_numero}"
+# apps/core/models.py
 
+class IPConhecido(models.Model):
+    usuario = models.ForeignKey(Usuario, on_delete=models.CASCADE, related_name='ips_conhecidos')
+    ip_address = models.GenericIPAddressField()
+    primeiro_acesso = models.DateTimeField(auto_now_add=True)
+    ultimo_acesso = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ('usuario', 'ip_address')
+
+
+class VerificacaoSeguranca(models.Model):
+    usuario = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    token = models.CharField(max_length=6)
+    ip_address = models.GenericIPAddressField()
+    criado_em = models.DateTimeField(auto_now_add=True)
+    expira_em = models.DateTimeField()
+    foi_verificado = models.BooleanField(default=False)
+
+    def esta_valido(self):
+        return not self.foi_verificado and timezone.now() < self.expira_em
+
+    def gerar_token(self):
+        self.token = str(random.randint(100000, 999999))
+        self.expira_em = timezone.now() + timezone.timedelta(minutes=10)
+        self.save()
+        return self.token
 

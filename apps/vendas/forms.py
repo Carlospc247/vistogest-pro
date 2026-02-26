@@ -4,6 +4,7 @@ from django.core.exceptions import ValidationError
 from django.db.models import Q
 from decimal import Decimal
 from datetime import date, timedelta
+from .models import Convenio
 
 from .models import *
 from apps.clientes.models import Cliente
@@ -163,6 +164,51 @@ class FormaPagamentoForm(BaseVendaForm):
         self.fields['ativa'].initial = True
 
 
+
+class ConvenioForm(forms.ModelForm):
+    """
+    RIGOR SOTARQ: Formulário para gestão de convênios e seguradoras.
+    Garante integridade multi-tenant e estilização padronizada.
+    """
+    class Meta:
+        model = Convenio
+        fields = [
+            'nome', 'codigo', 'contato', 'telefone', 
+            'percentual_desconto', 'ativa', 'observacoes'
+        ]
+        widgets = {
+            'observacoes': forms.Textarea(attrs={'rows': 3, 'placeholder': 'Notas adicionais sobre o convênio...'}),
+            'percentual_desconto': forms.NumberInput(attrs={'step': '0.01', 'min': '0', 'max': '100'}),
+            'telefone': forms.TextInput(attrs={'placeholder': 'Ex: 923000000'}),
+        }
+        help_texts = {
+            'percentual_desconto': 'Este valor será aplicado automaticamente em vendas vinculadas a este convênio.',
+        }
+
+    def __init__(self, *args, **kwargs):
+        # Extrai a empresa do kwargs para garantir o rigor multi-tenant
+        self.empresa = kwargs.pop('empresa', None)
+        super().__init__(*args, **kwargs)
+
+        # 1. Estilização Automática SOTARQ
+        for field_name, field in self.fields.items():
+            if isinstance(field.widget, forms.CheckboxInput):
+                field.widget.attrs['class'] = 'form-checkbox h-5 w-5 text-primary-600 border-gray-300 rounded focus:ring-primary-500'
+            else:
+                field.widget.attrs['class'] = 'form-input block w-full px-4 py-3 rounded-lg border-gray-300 focus:ring-primary-500 focus:border-primary-500'
+
+    def clean_nome(self):
+        """Validação de unicidade por empresa (Rigor SOTARQ)"""
+        nome = self.cleaned_data.get('nome')
+        if self.empresa:
+            exists = Convenio.objects.filter(
+                empresa=self.empresa, 
+                nome__iexact=nome
+            ).exclude(pk=self.instance.pk).exists()
+            
+            if exists:
+                raise forms.ValidationError("Já existe um convênio cadastrado com este nome na sua empresa.")
+        return nome
 # =====================================
 # DEVOLUÇÃO E TROCA FORMS
 # =====================================

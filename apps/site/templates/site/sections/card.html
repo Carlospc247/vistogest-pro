@@ -1,0 +1,14 @@
+<section class="py-5">
+    <h2 class="text-center">{{ dados.titulo_secao }}</h2>
+    <div class="row">
+        {% for item in dados.itens %}
+        <div class="col-md-4">
+            <div class="card">
+                <i class="{{ item.icone }}"></i>
+                <h5>{{ item.titulo }}</h5>
+                <p>{{ item.descricao }}</p>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</section>

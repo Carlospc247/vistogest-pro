@@ -135,7 +135,6 @@ urlpatterns = [
     # =====================================
     # API REST
     # =====================================
-    path('api/', include(router.urls)),
     
     # API Personalizada
     path('api/registrar-evento/', views.RegistrarEventoAPIView.as_view(), name='api_registrar_evento'),

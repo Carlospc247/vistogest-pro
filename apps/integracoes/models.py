@@ -35,7 +35,7 @@ class TipoIntegracao(models.Model):
 
 class ConfiguracaoIntegracao(models.Model):
     """Configurações de integração por empresa"""
-    empresa = models.ForeignKey('core.Empresa', on_delete=models.CASCADE, related_name='integracoes_sistema')
+    empresa = models.ForeignKey('empresas.Empresa', on_delete=models.CASCADE, related_name='integracoes_sistema')
     tipo_integracao = models.ForeignKey(TipoIntegracao, on_delete=models.CASCADE)
     
     # Status

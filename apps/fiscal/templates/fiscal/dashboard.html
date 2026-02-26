@@ -1,494 +1,212 @@
-<!-- templates/fiscal/dashboard.html -->
-{% extends 'base.html' %}
-{% load static %}
-
-{% block title %}Dashboard Fiscal{% endblock %}
-
-{% block extra_css %}
-<style>
-    .metric-card {
-        background: linear-gradient(145deg, #ffffff 0%, #f8fafc 100%);
-        border: 1px solid #e2e8f0;
-        transition: all 0.3s ease;
-    }
-    
-    .metric-card:hover {
-        transform: translateY(-4px);
-        box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
-    }
-    
-    .dark .metric-card {
-        background: linear-gradient(145deg, #1e293b 0%, #0f172a 100%);
-        border-color: #374151;
-    }
-
-    .progress-ring {
-        transform: rotate(-90deg);
-    }
-
-    .chart-container {
-        position: relative;
-        height: 300px;
-    }
-</style>
-{% endblock %}
-
-{% block breadcrumbs %}
-<li><a href="{% url 'core:dashboard' %}" class="text-gray-400 hover:text-gray-500">
-    <i class="fas fa-home h-5 w-5"></i>
-</a></li>
-<li class="flex items-center">
-    <i class="fas fa-chevron-right h-5 w-5 text-gray-400 mx-2"></i>
-    <span class="text-gray-700 dark:text-gray-300 font-medium">Dashboard Fiscal</span>
-</li>
-{% endblock %}
-
-{% block page_title %}
-<div class="flex items-center">
-    <div class="flex-shrink-0">
-        <div class="flex items-center justify-center w-12 h-12 bg-blue-100 dark:bg-blue-900 rounded-lg">
-            <i class="fas fa-calculator text-blue-600 dark:text-blue-400 text-xl"></i>
-        </div>
-    </div>
-    <div class="ml-4">
-        <h1 class="text-2xl font-bold text-gray-900 dark:text-gray-100">Dashboard Fiscal</h1>
-        <p class="text-sm text-gray-500 dark:text-gray-400">Gestão fiscal e tributária - {{ empresa.nome }}</p>
-    </div>
-</div>
-{% endblock %}
-
-{% block page_actions %}
-<div class="flex items-center space-x-3">
-    <a href="{% url 'fiscal:saft' %}" 
-       class="inline-flex items-center px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700">
-        <i class="fas fa-file-export mr-2"></i>
-        SAF-T
-    </a>
-    <a href="{% url 'fiscal:relatorios' %}" 
-       class="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700">
-        <i class="fas fa-chart-bar mr-2"></i>
-        Relatórios
-    </a>
-</div>
-{% endblock %}
+{% extends "base.html" %}
+{% load i18n static %}
 
 {% block content %}
-<div x-data="fiscalDashboard()" x-init="initDashboard()" class="space-y-6">
-
-    <!-- Métricas Principais -->
-    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <!-- Total Taxas Ativas -->
-        <div class="metric-card rounded-lg p-6">
-            <div class="flex items-center">
-                <div class="flex-shrink-0">
-                    <div class="flex items-center justify-center w-12 h-12 bg-green-100 dark:bg-green-900 rounded-lg">
-                        <i class="fas fa-percentage text-green-600 dark:text-green-400 text-xl"></i>
-                    </div>
-                </div>
-                <div class="ml-4 flex-1">
-                    <p class="text-sm font-medium text-gray-500 dark:text-gray-400 truncate">Taxas IVA Ativas</p>
-                    <p class="text-2xl font-semibold text-gray-900 dark:text-gray-100">{{ total_taxas_ativas }}</p>
-                </div>
+<div class="min-h-screen bg-gray-50 py-8 px-4 sm:px-6 lg:px-8">
+    <div class="max-w-7xl mx-auto mb-8">
+        <div class="md:flex md:items-center md:justify-between border-b border-gray-200 pb-6">
+            <div class="flex-1 min-w-0">
+                <h2 class="text-2xl font-bold leading-7 text-gray-900 sm:text-3xl sm:truncate">
+                    {% trans "Painel de Conformidade Fiscal" %}
+                </h2>
+                <p class="mt-1 text-sm text-gray-500">
+                    {{ empresa.nome }} | NIF: {{ empresa.nif }}
+                </p>
             </div>
-            <div class="mt-4">
-                <div class="flex items-center text-sm">
-                    <span class="text-green-600 dark:text-green-400 font-medium">{{ total_taxas_ativas }}</span>
-                    <span class="ml-2 text-gray-500 dark:text-gray-400">configuradas</span>
-                </div>
-            </div>
-        </div>
-
-        <!-- Total Isenções -->
-        <div class="metric-card rounded-lg p-6">
-            <div class="flex items-center">
-                <div class="flex-shrink-0">
-                    <div class="flex items-center justify-center w-12 h-12 bg-yellow-100 dark:bg-yellow-900 rounded-lg">
-                        <i class="fas fa-shield-alt text-yellow-600 dark:text-yellow-400 text-xl"></i>
-                    </div>
-                </div>
-                <div class="ml-4 flex-1">
-                    <p class="text-sm font-medium text-gray-500 dark:text-gray-400 truncate">Isenções</p>
-                    <p class="text-2xl font-semibold text-gray-900 dark:text-gray-100">{{ total_isencoes }}</p>
-                </div>
-            </div>
-            <div class="mt-4">
-                <div class="flex items-center text-sm">
-                    <span class="text-yellow-600 dark:text-yellow-400 font-medium">{{ total_isencoes }}</span>
-                    <span class="ml-2 text-gray-500 dark:text-gray-400">registradas</span>
-                </div>
-            </div>
-        </div>
-
-        <!-- Não Sujeitas -->
-        <div class="metric-card rounded-lg p-6">
-            <div class="flex items-center">
-                <div class="flex-shrink-0">
-                    <div class="flex items-center justify-center w-12 h-12 bg-purple-100 dark:bg-purple-900 rounded-lg">
-                        <i class="fas fa-ban text-purple-600 dark:text-purple-400 text-xl"></i>
-                    </div>
-                </div>
-                <div class="ml-4 flex-1">
-                    <p class="text-sm font-medium text-gray-500 dark:text-gray-400 truncate">Não Sujeitas</p>
-                    <p class="text-2xl font-semibold text-gray-900 dark:text-gray-100">{{ total_nao_sujeitas }}</p>
-                </div>
-            </div>
-            <div class="mt-4">
-                <div class="flex items-center text-sm">
-                    <span class="text-purple-600 dark:text-purple-400 font-medium">{{ total_nao_sujeitas }}</span>
-                    <span class="ml-2 text-gray-500 dark:text-gray-400">configuradas</span>
-                </div>
-            </div>
-        </div>
-
-        <!-- Retenções Pendentes -->
-        <div class="metric-card rounded-lg p-6">
-            <div class="flex items-center">
-                <div class="flex-shrink-0">
-                    <div class="flex items-center justify-center w-12 h-12 bg-red-100 dark:bg-red-900 rounded-lg">
-                        <i class="fas fa-clock text-red-600 dark:text-red-400 text-xl"></i>
-                    </div>
-                </div>
-                <div class="ml-4 flex-1">
-                    <p class="text-sm font-medium text-gray-500 dark:text-gray-400 truncate">Retenções Pendentes</p>
-                    <p class="text-2xl font-semibold text-gray-900 dark:text-gray-100" x-text="metrics.retencoesPendentes">0</p>
-                </div>
-            </div>
-            <div class="mt-4">
-                <div class="flex items-center text-sm">
-                    <span class="text-red-600 dark:text-red-400 font-medium" x-text="formatCurrency(metrics.valorPendente)">AOA 0</span>
-                    <span class="ml-2 text-gray-500 dark:text-gray-400">em aberto</span>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Gráficos e Análises -->
-    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <!-- Gráfico de Retenções -->
-        <div class="metric-card rounded-lg p-6">
-            <div class="flex items-center justify-between mb-4">
-                <h3 class="text-lg font-medium text-gray-900 dark:text-gray-100">Retenções Mensais</h3>
-                <div class="flex items-center space-x-2">
-                    <select x-model="selectedYear" @change="updateCharts()" class="text-sm border-gray-300 dark:border-gray-600 rounded-md dark:bg-gray-700">
-                        <option value="2024">2024</option>
-                        <option value="2023">2023</option>
-                    </select>
-                </div>
-            </div>
-            <div class="chart-container">
-                <canvas id="retencoesChart"></canvas>
-            </div>
-        </div>
-
-        <!-- Distribuição de Taxas IVA -->
-        <div class="metric-card rounded-lg p-6">
-            <div class="flex items-center justify-between mb-4">
-                <h3 class="text-lg font-medium text-gray-900 dark:text-gray-100">Distribuição de Taxas IVA</h3>
-                <button @click="refreshTaxasChart()" class="text-sm text-blue-600 dark:text-blue-400 hover:text-blue-800">
-                    <i class="fas fa-sync-alt mr-1"></i>
-                    Atualizar
+            <div class="mt-4 flex md:mt-0 md:ml-4 space-x-3">
+                <button type="button" onclick="location.reload()" class="inline-flex items-center px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 transition">
+                    <i class="fas fa-sync-alt mr-2 text-gray-400"></i> {% trans "Actualizar Dados" %}
                 </button>
-            </div>
-            <div class="chart-container">
-                <canvas id="taxasChart"></canvas>
-            </div>
-        </div>
-    </div>
-
-    <!-- Status e Ações Rápidas -->
-    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <!-- Status SAF-T -->
-        <div class="metric-card rounded-lg p-6">
-            <div class="flex items-center justify-between mb-4">
-                <h3 class="text-lg font-medium text-gray-900 dark:text-gray-100">Status SAF-T</h3>
-                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200">
-                    <i class="fas fa-check mr-1"></i>
-                    Configurado
-                </span>
-            </div>
-            <div class="space-y-3">
-                <div class="flex justify-between text-sm">
-                    <span class="text-gray-500 dark:text-gray-400">Última Exportação:</span>
-                    <span class="font-medium text-gray-900 dark:text-gray-100" x-text="lastExport">Nunca</span>
-                </div>
-                <div class="flex justify-between text-sm">
-                    <span class="text-gray-500 dark:text-gray-400">Próxima Obrigatória:</span>
-                    <span class="font-medium text-gray-900 dark:text-gray-100">31/01/2025</span>
-                </div>
-                <div class="pt-2">
-                    <a href="{% url 'fiscal:saft' %}" class="w-full inline-flex justify-center items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700">
-                        <i class="fas fa-file-export mr-2"></i>
-                        Exportar SAF-T
-                    </a>
-                </div>
-            </div>
-        </div>
-
-        <!-- Assinatura Digital -->
-        <div class="metric-card rounded-lg p-6">
-            <div class="flex items-center justify-between mb-4">
-                <h3 class="text-lg font-medium text-gray-900 dark:text-gray-100">Assinatura Digital</h3>
-                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium" 
-                      :class="digitalSignature.configured ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200' : 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'">
-                    <i :class="digitalSignature.configured ? 'fas fa-check' : 'fas fa-times'" class="mr-1"></i>
-                    <span x-text="digitalSignature.configured ? 'Ativa' : 'Inativa'"></span>
-                </span>
-            </div>
-            <div class="space-y-3">
-                <div class="flex justify-between text-sm">
-                    <span class="text-gray-500 dark:text-gray-400">Certificado:</span>
-                    <span class="font-medium text-gray-900 dark:text-gray-100" x-text="digitalSignature.certificate">N/A</span>
-                </div>
-                <div class="flex justify-between text-sm">
-                    <span class="text-gray-500 dark:text-gray-400">Validade:</span>
-                    <span class="font-medium text-gray-900 dark:text-gray-100" x-text="digitalSignature.validity">N/A</span>
-                </div>
-                <div class="pt-2">
-                    <a href="{% url 'fiscal:assinatura-digital' %}" class="w-full inline-flex justify-center items-center px-3 py-2 border border-gray-300 dark:border-gray-600 text-sm leading-4 font-medium rounded-md text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700">
-                        <i class="fas fa-cog mr-2"></i>
-                        Configurar
-                    </a>
-                </div>
-            </div>
-        </div>
-
-        <!-- Ações Rápidas -->
-        <div class="metric-card rounded-lg p-6">
-            <h3 class="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">Ações Rápidas</h3>
-            <div class="space-y-3">
-                <a href="{% url 'fiscal:taxas-iva-create' %}" 
-                   class="w-full inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-white bg-green-600 hover:bg-green-700">
-                    <i class="fas fa-plus mr-2"></i>
-                    Nova Taxa IVA
-                </a>
-                <a href="{% url 'fiscal:retencoes-create' %}" 
-                   class="w-full inline-flex items-center px-3 py-2 border border-gray-300 dark:border-gray-600 text-sm leading-4 font-medium rounded-md text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700">
-                    <i class="fas fa-receipt mr-2"></i>
-                    Nova Retenção
-                </a>
-                <a href="{% url 'fiscal:validacoes' %}" 
-                   class="w-full inline-flex items-center px-3 py-2 border border-gray-300 dark:border-gray-600 text-sm leading-4 font-medium rounded-md text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700">
-                    <i class="fas fa-check-double mr-2"></i>
-                    Validações
+                <a href="{% url 'fiscal:saft-export-web' %}" class="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 transition">
+                    <i class="fas fa-file-export mr-2"></i> {% trans "Gerar SAF-T AO" %}
                 </a>
             </div>
         </div>
     </div>
 
-    <!-- Alertas e Notificações -->
-    <div x-show="alerts.length > 0" class="space-y-4">
-        <h3 class="text-lg font-medium text-gray-900 dark:text-gray-100">Alertas Fiscais</h3>
-        <template x-for="alert in alerts" :key="alert.id">
-            <div class="rounded-md p-4" :class="alert.type === 'warning' ? 'bg-yellow-50 dark:bg-yellow-900' : 'bg-red-50 dark:bg-red-900'">
-                <div class="flex">
-                    <div class="flex-shrink-0">
-                        <i :class="alert.type === 'warning' ? 'fas fa-exclamation-triangle text-yellow-400' : 'fas fa-exclamation-circle text-red-400'" class="h-5 w-5"></i>
-                    </div>
-                    <div class="ml-3">
-                        <h3 class="text-sm font-medium" :class="alert.type === 'warning' ? 'text-yellow-800 dark:text-yellow-200' : 'text-red-800 dark:text-red-200'" x-text="alert.title"></h3>
-                        <div class="mt-2 text-sm" :class="alert.type === 'warning' ? 'text-yellow-700 dark:text-yellow-300' : 'text-red-700 dark:text-red-300'">
-                            <p x-text="alert.message"></p>
-                        </div>
-                        <div class="mt-4" x-show="alert.action">
-                            <div class="-mx-2 -my-1.5 flex">
-                                <button @click="handleAlertAction(alert)" 
-                                        class="px-2 py-1.5 rounded-md text-sm font-medium hover:bg-yellow-100 dark:hover:bg-yellow-800"
-                                        :class="alert.type === 'warning' ? 'bg-yellow-50 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200' : 'bg-red-50 text-red-800 dark:bg-red-900 dark:text-red-200'">
-                                    <span x-text="alert.actionText"></span>
-                                </button>
-                            </div>
-                        </div>
+    <div class="max-w-7xl mx-auto grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4 mb-8">
+        <div class="bg-white overflow-hidden shadow-sm rounded-lg border border-gray-200">
+            <div class="p-5">
+                <div class="flex items-center">
+                    <div class="bg-blue-100 rounded-lg p-3 text-blue-600"><i class="fas fa-percent fa-lg"></i></div>
+                    <div class="ml-5">
+                        <dt class="text-xs font-semibold text-gray-500 uppercase tracking-wider">Taxas Ativas</dt>
+                        <dd class="text-2xl font-bold text-gray-900">{{ total_taxas_ativas }}</dd>
                     </div>
                 </div>
             </div>
-        </template>
+        </div>
+        <div class="bg-white overflow-hidden shadow-sm rounded-lg border border-gray-200">
+            <div class="p-5">
+                <div class="flex items-center">
+                    <div class="bg-yellow-100 rounded-lg p-3 text-yellow-600"><i class="fas fa-shield-alt fa-lg"></i></div>
+                    <div class="ml-5">
+                        <dt class="text-xs font-semibold text-gray-500 uppercase tracking-wider">Isenções (AGT)</dt>
+                        <dd class="text-2xl font-bold text-gray-900">{{ total_isencoes }}</dd>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="bg-white overflow-hidden shadow-sm rounded-lg border border-gray-200">
+            <div class="p-5">
+                <div class="flex items-center">
+                    <div class="{% if assinatura %}bg-green-100 text-green-600{% else %}bg-red-100 text-red-600{% endif %} rounded-lg p-3">
+                        <i class="fas fa-key fa-lg"></i>
+                    </div>
+                    <div class="ml-5">
+                        <dt class="text-xs font-semibold text-gray-500 uppercase tracking-wider">Certificado RSA</dt>
+                        <dd class="text-sm font-bold {% if assinatura %}text-green-700{% else %}text-red-700{% endif %}">
+                            {% if assinatura %}Válido e Activo{% else %}Não Configurado{% endif %}
+                        </dd>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="bg-white overflow-hidden shadow-sm rounded-lg border border-gray-200">
+            <div class="p-5">
+                <div class="flex items-center">
+                    <div class="bg-indigo-100 rounded-lg p-3 text-indigo-600"><i class="fas fa-link fa-lg"></i></div>
+                    <div class="ml-5">
+                        <dt class="text-xs font-semibold text-gray-500 uppercase tracking-wider">Cadeia de Hash</dt>
+                        <dd class="text-sm font-bold text-gray-900" id="hash-status">Processando...</dd>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
 
+    <div class="max-w-7xl mx-auto">
+        <div class="bg-white shadow-sm border border-gray-200 rounded-lg overflow-hidden">
+            <div class="px-6 py-4 border-b border-gray-200 bg-gray-50 flex justify-between items-center">
+                <h3 class="text-lg font-bold text-gray-800">Monitor de Faturação Eletrónica (Últimas Submissões)</h3>
+                <span class="flex items-center text-xs font-semibold text-green-600 uppercase">
+                    <span class="h-2 w-2 bg-green-500 rounded-full mr-2 animate-pulse"></span>
+                    Polling em tempo real
+                </span>
+            </div>
+            <div class="overflow-x-auto">
+                <table class="min-w-full divide-y divide-gray-200">
+                    <thead class="bg-gray-50">
+                        <tr>
+                            <th class="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Nº Documento</th>
+                            <th class="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Data Submissão</th>
+                            <th class="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Status AGT</th>
+                            <th class="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider italic text-blue-600">Request ID (Oficial)</th>
+                            <th class="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Observações</th>
+                        </tr>
+                    </thead>
+                    <tbody class="bg-white divide-y divide-gray-200" id="docs-polling-body">
+                        <tr class="animate-pulse">
+                            <td colspan="5" class="px-6 py-8 text-center text-gray-400">
+                                <i class="fas fa-circle-notch fa-spin mr-2"></i> Sincronizando com a Administração Tributária...
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
 </div>
-{% endblock %}
 
-{% block extra_js %}
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
-function fiscalDashboard() {
-    return {
-        metrics: {
-            retencoesPendentes: 0,
-            valorPendente: 0,
-            totalTaxas: 0,
-            ultimaExportacao: null
-        },
-        selectedYear: 2024,
-        lastExport: 'Nunca',
-        digitalSignature: {
-            configured: false,
-            certificate: 'N/A',
-            validity: 'N/A'
-        },
-        alerts: [],
-        retencoesChart: null,
-        taxasChart: null,
-
-        async initDashboard() {
-            await this.loadMetrics();
-            this.initCharts();
-            this.checkAlerts();
-        },
-
-        async loadMetrics() {
-            try {
-                const response = await fetch('{% url "fiscal:ajax-dados-dashboard" %}');
-                const data = await response.json();
-                
-                if (data.success) {
-                    this.metrics = data.data;
-                }
-            } catch (error) {
-                console.error('Erro ao carregar métricas:', error);
-            }
-        },
-
-        initCharts() {
-            this.initRetencoesChart();
-            this.initTaxasChart();
-        },
-
-        initRetencoesChart() {
-            const ctx = document.getElementById('retencoesChart').getContext('2d');
-            
-            this.retencoesChart = new Chart(ctx, {
-                type: 'line',
-                data: {
-                    labels: ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'],
-                    datasets: [{
-                        label: 'Retenções (AOA)',
-                        data: [12000, 15000, 18000, 14000, 16000, 19000, 22000, 20000, 17000, 21000, 23000, 25000],
-                        borderColor: 'rgb(59, 130, 246)',
-                        backgroundColor: 'rgba(59, 130, 246, 0.1)',
-                        tension: 0.4
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: {
-                        legend: {
-                            display: false
-                        }
-                    },
-                    scales: {
-                        y: {
-                            beginAtZero: true,
-                            ticks: {
-                                callback: function(value) {
-                                    return value.toLocaleString('pt-AO', {
-                                        style: 'currency',
-                                        currency: 'AOA',
-                                        minimumFractionDigits: 0
-                                    });
-                                }
-                            }
-                        }
-                    }
+    document.addEventListener('DOMContentLoaded', function() {
+        // 1. Verificação de Integridade da Cadeia de Hash
+        fetch("{% url 'fiscal:verificar-integridade' %}")
+            .then(res => res.json())
+            .then(data => {
+                const el = document.getElementById('hash-status');
+                if(data.integridade_geral) {
+                    el.innerText = "Série Verificada ✓";
+                    el.className = "text-sm font-bold text-green-600";
+                } else {
+                    el.innerText = "Falha Crítica!";
+                    el.className = "text-sm font-bold text-red-600";
                 }
             });
-        },
 
-        initTaxasChart() {
-            const ctx = document.getElementById('taxasChart').getContext('2d');
-            
-            this.taxasChart = new Chart(ctx, {
-                type: 'doughnut',
-                data: {
-                    labels: ['14% IVA', '7% IVA', 'Isento', 'Não Sujeito'],
-                    datasets: [{
-                        data: [60, 25, 10, 5],
-                        backgroundColor: [
-                            'rgb(34, 197, 94)',
-                            'rgb(59, 130, 246)', 
-                            'rgb(245, 158, 11)',
-                            'rgb(156, 163, 175)'
-                        ]
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: {
-                        legend: {
-                            position: 'bottom'
-                        }
+        // 2. Polling de Faturas (Usando dados da API de Faturação)
+        function loadPollingData() {
+            fetch("{% url 'fiscal:ajax-status-assinatura' %}") // Nota: Aqui você deve usar a view que retorna as vendas e seus requestIDs
+                .then(res => res.json())
+                .then(data => {
+                    const body = document.getElementById('docs-polling-body');
+                    if (!data.success || data.exports.length === 0) {
+                        body.innerHTML = '<tr><td colspan="5" class="px-6 py-4 text-center text-gray-500">Nenhuma submissão recente encontrada.</td></tr>';
+                        return;
                     }
-                }
-            });
-        },
-
-        async updateCharts() {
-            // Atualizar dados dos gráficos baseado no ano selecionado
-            try {
-                const response = await fetch(`{% url "fiscal:ajax-metricas-periodo" %}?ano=${this.selectedYear}`);
-                const data = await response.json();
-                
-                if (data.success && this.retencoesChart) {
-                    this.retencoesChart.data.datasets[0].data = data.data;
-                    this.retencoesChart.update();
-                }
-            } catch (error) {
-                console.error('Erro ao atualizar gráficos:', error);
-            }
-        },
-
-        async refreshTaxasChart() {
-            // Recarregar dados do gráfico de taxas
-            await this.loadMetrics();
-            if (this.taxasChart) {
-                this.taxasChart.update();
-            }
-        },
-
-        checkAlerts() {
-            this.alerts = [];
-            
-            // Verificar certificado próximo do vencimento
-            if (!this.digitalSignature.configured) {
-                this.alerts.push({
-                    id: 1,
-                    type: 'warning',
-                    title: 'Assinatura Digital Não Configurada',
-                    message: 'Configure a assinatura digital para estar em conformidade com a legislação fiscal.',
-                    action: true,
-                    actionText: 'Configurar Agora'
+                    
+                    body.innerHTML = '';
+                    data.exports.forEach(doc => {
+                        const statusColor = doc.sucesso ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800';
+                        const statusLabel = doc.sucesso ? 'Validado' : 'Erro Técnico';
+                        
+                        // DECISÃO TÉCNICA: Exibição do Request ID oficial da AGT
+                        const requestID = doc.request_id_agt || '<span class="text-gray-400 italic">Pendente...</span>';
+                        
+                        body.innerHTML += `
+                            <tr class="hover:bg-gray-50 transition">
+                                <td class="px-6 py-4 whitespace-nowrap text-sm font-bold text-gray-900">${doc.numero_documento}</td>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${doc.data_submissao}</td>
+                                <td class="px-6 py-4 whitespace-nowrap">
+                                    <span class="px-3 py-1 inline-flex text-xs leading-5 font-bold rounded-full ${statusColor}">
+                                        ${statusLabel}
+                                    </span>
+                                </td>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm font-mono text-blue-700 bg-blue-50">
+                                    ${requestID}
+                                </td>
+                                <td class="px-6 py-4 text-xs text-gray-600 max-w-xs truncate">
+                                    ${doc.erro_message || 'Documento processado com sucesso.'}
+                                </td>
+                            </tr>
+                        `;
+                    });
+                })
+                .catch(err => {
+                    console.error("Erro no Polling:", err);
                 });
-            }
-
-            // Verificar SAF-T em atraso
-            if (!this.lastExport || this.lastExport === 'Nunca') {
-                this.alerts.push({
-                    id: 2,
-                    type: 'error',
-                    title: 'SAF-T Nunca Exportado',
-                    message: 'É obrigatório exportar o SAF-T mensalmente. Exporte o arquivo agora.',
-                    action: true,
-                    actionText: 'Exportar SAF-T'
-                });
-            }
-        },
-
-        handleAlertAction(alert) {
-            if (alert.id === 1) {
-                window.location.href = '{% url "fiscal:assinatura-digital" %}';
-            } else if (alert.id === 2) {
-                window.location.href = '{% url "fiscal:saft" %}';
-            }
-        },
-
-        formatCurrency(value) {
-            return new Intl.NumberFormat('pt-AO', {
-                style: 'currency',
-                currency: 'AOA'
-            }).format(value || 0);
         }
-    }
+
+        loadPollingData();
+        // Atualiza a cada 30 segundos automaticamente (Polling dinâmico)
+        setInterval(loadPollingData, 30000);
+    });
+
+
+    // No seu dashboard.html
+function openErrorModal(vendaId) {
+    const container = document.getElementById('error-list-container');
+    container.innerHTML = '<div class="text-center py-4"><i class="fas fa-spinner fa-spin"></i></div>';
+    document.getElementById('error-modal').classList.remove('hidden');
+
+    fetch(`/fiscal/ajax/venda/${vendaId}/erros/`)
+        .then(res => res.json())
+        .then(data => {
+            if (!data.success) {
+                // Caso o backend retorne success: False (nossa proteção manual)
+                document.getElementById('modal-doc-no').innerText = "Erro de Acesso";
+                container.innerHTML = `<p class="text-sm text-red-600 font-bold">${data.error}</p>`;
+                return;
+            }
+
+            // Se for sucesso, renderiza os erros da AGT normalmente
+            document.getElementById('modal-doc-no').innerText = `Rejeição: ${data.numero_documento}`;
+            document.getElementById('modal-request-id').innerText = `Request ID: ${data.request_id}`;
+            
+            container.innerHTML = '';
+            data.erros.forEach(err => {
+                container.innerHTML += `
+                    <div class="bg-red-50 border-l-4 border-red-400 p-4 mb-2">
+                        <p class="text-sm text-red-700 font-bold">[${err.errorCode}]</p>
+                        <p class="text-sm text-red-600">${err.errorDescription}</p>
+                    </div>
+                `;
+            });
+        })
+        .catch(err => {
+            // Caso ocorra um erro de rede ou 500 real
+            container.innerHTML = '<p class="text-red-600 font-bold">Erro crítico na comunicação com o servidor.</p>';
+        });
 }
 </script>
 {% endblock %}

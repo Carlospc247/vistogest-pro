@@ -16,14 +16,14 @@ from rest_framework.views import APIView
 
 from django_filters.rest_framework import DjangoFilterBackend
 
+from apps.fornecedores.serializers import PedidoCompraSerializer
+from apps.produtos.serializers import ProdutoSerializer
+
 from .models import (
     ContatoFornecedor, ContratoFornecedor, CotacaoFornecedor, Fornecedor, Pedido, AvaliacaoFornecedor
 )
 from .forms import AvaliacaoForm, ContatoForm, ContratoForm, CotacaoForm, FornecedorForm, PedidoCompraForm
 from .filters import FornecedorFilter, PedidoCompraFilter
-from .api.serializers import (
-    FornecedorSerializer, PedidoCompraSerializer, AvaliacaoFornecedorSerializer, ProdutoSerializer
-)
 from django.contrib.auth.mixins import AccessMixin
 
 
@@ -63,7 +63,6 @@ class PermissaoAcaoMixin(AccessMixin):
 
 
 class FornecedorViewSet(viewsets.ModelViewSet):
-    serializer_class = FornecedorSerializer
     permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_class = FornecedorFilter
@@ -184,6 +183,8 @@ class FornecedorViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(fornecedores, many=True)
         return Response(serializer.data)
 
+
+
 class PedidoCompraViewSet(viewsets.ModelViewSet):
     serializer_class = PedidoCompraSerializer
     permission_classes = [IsAuthenticated]
@@ -300,6 +301,7 @@ class FornecedorListView(EmpresaQuerysetMixin, PermissaoAcaoMixin, ListView):
     model = Fornecedor
     paginate_by = 25
     template_name = 'fornecedores/fornecedor_list.html'
+    module_name = 'fornecedores'
     context_object_name = 'fornecedores'
 
 

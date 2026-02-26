@@ -4,31 +4,49 @@ from django.http import JsonResponse
 from django.utils import timezone
 from datetime import timedelta
 import uuid
-from apps.core.models import Empresa, TimeStampedModel
 
+
+
+from django.db import models
+from apps.core.models import TimeStampedModel
+from apps.empresas.models import Empresa
+
+
+class Modulo(TimeStampedModel):
+    """Controla módulos do sistema e planos"""
+    nome = models.CharField(max_length=100)
+    descricao = models.TextField(blank=True)
+    slug = models.SlugField(unique=True, max_length=50)
+    ativo = models.BooleanField(default=True)
+
+    class Meta:
+        verbose_name = "Módulo"
+        verbose_name_plural = "Módulos"
+
+    def __str__(self):
+        return self.nome
+
+
+# Atualizando PlanoLicenca para ter módulos
 class PlanoLicenca(TimeStampedModel):
-    """Tipos de plano disponíveis"""
     nome = models.CharField(max_length=100)
     descricao = models.TextField()
     preco_mensal = models.DecimalField(max_digits=10, decimal_places=2)
     limite_usuarios = models.IntegerField()
     limite_produtos = models.IntegerField(null=True, blank=True)
-    
-    # Funcionalidades
-    inclui_pdv = models.BooleanField(default=True)
-    inclui_estoque = models.BooleanField(default=True)
-    inclui_financeiro = models.BooleanField(default=False)
-    inclui_relatorios = models.BooleanField(default=False)
-    inclui_backup = models.BooleanField(default=False)
-    
+
+    # Funcionalidades (relacionadas aos módulos)
+    modulos = models.ManyToManyField(Modulo, related_name="planos")
+
     ativo = models.BooleanField(default=True)
-    
+
     class Meta:
-        verbose_name = 'Plano de Licença'
-        verbose_name_plural = 'Planos de Licença'
-    
+        verbose_name = "Plano de Licença"
+        verbose_name_plural = "Planos de Licença"
+
     def __str__(self):
         return self.nome
+
 
 class Licenca(TimeStampedModel):
     """Licença de uso do sistema"""
@@ -89,4 +107,23 @@ class HistoricoLicenca(TimeStampedModel):
     
     def __str__(self):
         return f"{self.licenca.empresa.nome} - {self.acao}"
+
+
+class ComissaoBypass(TimeStampedModel):
+    STATUS_PAGAMENTO = [
+        ('pendente', 'Pendente'),
+        ('parcial', 'Pago Parcialmente'),
+        ('pago', 'Liquidado'),
+    ]
+    
+    empresa = models.ForeignKey('empresas.Empresa', on_delete=models.CASCADE)
+    valor_faturado = models.DecimalField(max_digits=15, decimal_places=2)
+    valor_comissao = models.DecimalField(max_digits=15, decimal_places=2) # Os 2%
+    periodo_inicio = models.DateField()
+    periodo_fim = models.DateField()
+    status = models.CharField(max_length=20, choices=STATUS_PAGAMENTO, default='pendente')
+    pago_em = models.DateTimeField(null=True, blank=True)
+    
+    def __str__(self):
+        return f"{self.empresa.nome} - {self.valor_comissao} Kz ({self.status})"
 

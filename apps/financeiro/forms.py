@@ -7,8 +7,8 @@ from crispy_forms.bootstrap import FormActions
 from decimal import Decimal
 from datetime import date, timedelta
 from .models import (
-    ContaReceber, ContaPagar, ImpostoTributo, LancamentoFinanceiro, CategoriaFinanceira,
-    CentroCusto, MovimentoCaixa, PlanoContas, ContaBancaria,
+    ContaReceber, ContaPagar, ImpostoTributo,
+    CentroCusto, MovimentoCaixa, ContaBancaria,
     MovimentacaoFinanceira
 )
 
@@ -20,7 +20,7 @@ class ContaReceberForm(forms.ModelForm):
         fields = [
             'numero_documento', 'descricao', 'tipo_conta', 'data_emissao',
             'data_vencimento', 'valor_original', 'valor_juros', 'valor_multa',
-            'valor_desconto', 'cliente', 'venda', 'plano_contas',
+            'valor_desconto', 'cliente', 'venda',
             'centro_custo', 'numero_parcela', 'total_parcelas',
             'conta_pai', 'observacoes'
         ]
@@ -114,7 +114,6 @@ class ContaReceberForm(forms.ModelForm):
                     css_class='form-row'
                 ),
                 Row(
-                    Column('plano_contas', css_class='form-group col-md-6 mb-0'),
                     Column('centro_custo', css_class='form-group col-md-6 mb-0'),
                     css_class='form-row'
                 ),
@@ -173,7 +172,7 @@ class ContaPagarForm(forms.ModelForm):
         fields = [
             'numero_documento', 'descricao', 'tipo_conta', 'data_emissao',
             'data_vencimento', 'valor_original', 'valor_juros', 'valor_multa',
-            'valor_desconto', 'fornecedor', 'plano_contas', 'centro_custo',
+            'valor_desconto', 'fornecedor', 'centro_custo',
             'numero_parcela', 'total_parcelas', 'conta_pai', 'observacoes'
         ]
         
@@ -252,7 +251,6 @@ class ContaPagarForm(forms.ModelForm):
                 'Relacionamentos',
                 'fornecedor',
                 Row(
-                    Column('plano_contas', css_class='form-group col-md-6 mb-0'),
                     Column('centro_custo', css_class='form-group col-md-6 mb-0'),
                     css_class='form-row'
                 ),
@@ -273,92 +271,6 @@ class ContaPagarForm(forms.ModelForm):
             )
         )
 
-class LancamentoFinanceiroForm(forms.ModelForm):
-    """Formulário para Lançamento Financeiro"""
-    
-    class Meta:
-        model = LancamentoFinanceiro
-        fields = ['descricao', 'valor', 'tipo', 'data_lancamento']
-        
-        widgets = {
-            'data': forms.DateInput(
-                attrs={'type': 'date', 'class': 'form-control'}
-            ),
-            'valor': forms.NumberInput(
-                attrs={'class': 'form-control', 'step': '0.01', 'min': '0'}
-            ),
-            'descricao': forms.TextInput(
-                attrs={'class': 'form-control', 'maxlength': '255'}
-            ),
-            'tipo': forms.Select(
-                attrs={'class': 'form-control'}
-            ),
-        }
-    
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        
-        # Configurar crispy forms
-        self.helper = FormHelper()
-        self.helper.form_method = 'post'
-        
-        self.helper.layout = Layout(
-            'descricao',
-            Row(
-                Column('valor', css_class='form-group col-md-6 mb-0'),
-                Column('tipo', css_class='form-group col-md-6 mb-0'),
-                css_class='form-row'
-            ),
-            'data',
-            FormActions(
-                Submit('submit', 'Salvar Lançamento', css_class='btn btn-primary'),
-                HTML('<a href="{% url "financeiro:lancamento_lista" %}" class="btn btn-secondary ml-2">Cancelar</a>')
-            )
-        )
-    
-    def clean_valor(self):
-        valor = self.cleaned_data.get('valor')
-        if valor <= 0:
-            raise ValidationError('Valor deve ser maior que zero')
-        return valor
-
-class CategoriaFinanceiraForm(forms.ModelForm):
-    """Formulário para Categoria Financeira"""
-    
-    class Meta:
-        model = CategoriaFinanceira
-        fields = ['nome', 'descricao']
-        
-        widgets = {
-            'nome': forms.TextInput(
-                attrs={'class': 'form-control', 'maxlength': '100'}
-            ),
-            'descricao': forms.Textarea(
-                attrs={'rows': 3, 'class': 'form-control'}
-            ),
-        }
-    
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        
-        # Configurar crispy forms
-        self.helper = FormHelper()
-        self.helper.form_method = 'post'
-        
-        self.helper.layout = Layout(
-            'nome',
-            'descricao',
-            FormActions(
-                Submit('submit', 'Salvar Categoria', css_class='btn btn-primary'),
-                HTML('<a href="{% url "financeiro:categoria_lista" %}" class="btn btn-secondary ml-2">Cancelar</a>')
-            )
-        )
-    
-    def clean_nome(self):
-        nome = self.cleaned_data.get('nome')
-        if len(nome.strip()) < 3:
-            raise ValidationError('Nome deve ter pelo menos 3 caracteres')
-        return nome.strip()
 
 class CentroCustoForm(forms.ModelForm):
     """Formulário para Centro de Custo"""
@@ -809,20 +721,7 @@ class PagarContaForm(forms.Form):
 
 
 from django import forms
-from .models import PlanoContas
 
-class PlanoContasForm(forms.ModelForm):
-    class Meta:
-        model = PlanoContas
-        fields = ['codigo', 'nome', 'tipo_conta', 'natureza', 'aceita_lancamento', 'conta_pai']
-        widgets = {
-            'codigo': forms.TextInput(attrs={'class': 'input', 'placeholder': 'Código da conta'}),
-            'nome': forms.TextInput(attrs={'class': 'input', 'placeholder': 'Nome da conta'}),
-            'tipo_conta': forms.Select(attrs={'class': 'select'}),
-            'natureza': forms.Select(attrs={'class': 'select'}),
-            'aceita_lancamento': forms.CheckboxInput(attrs={'class': 'checkbox'}),
-            'conta_pai': forms.Select(attrs={'class': 'select'}),
-        }
 
 
 class ImpostoTributoForm(forms.ModelForm):

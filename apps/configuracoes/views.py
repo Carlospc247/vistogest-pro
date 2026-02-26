@@ -16,7 +16,7 @@ from django.views.generic import TemplateView, UpdateView, ListView, View
 from django.contrib.auth.decorators import login_required
 from .models import ConfiguracaoFiscal, BackupConfiguracao, PersonalizacaoInterface, HistoricoBackup
 from .forms import ConfiguracaoFiscalForm, BackupConfiguracoesForm, ContactForm, PersonalizacaoInterfaceForm
-from apps.core.models import Empresa
+from apps.empresas.models import Empresa
 from django.urls import reverse_lazy
 from django.views.generic import CreateView, UpdateView, DeleteView
 from .models import DadosBancarios

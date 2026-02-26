@@ -3,7 +3,8 @@ from django.conf import settings
 from django.db import models
 from django.core.validators import MinValueValidator, MaxValueValidator
 from django.core.exceptions import ValidationError
-from apps.core.models import TimeStampedModel, Empresa, Usuario, Loja
+from apps.core.models import TimeStampedModel, Usuario
+from apps.empresas.models import Empresa, Loja, Categoria
 from apps.produtos.models import Produto, Categoria
 from apps.clientes.models import Cliente
 from apps.vendas.models import Venda
@@ -14,12 +15,11 @@ import json
 import uuid
 from django.contrib.contenttypes.models import ContentType
 from django.contrib.auth.models import User
-from django.db import models
-from django.conf import settings
-from apps.core.models import Empresa, TimeStampedModel
-
+from apps.core.models import TimeStampedModel
+from apps.empresas.models import Empresa, Loja
 from django.db import models
 from django.contrib.auth.models import User
+
 
 
 class TipoRelatorio(TimeStampedModel):

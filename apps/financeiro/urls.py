@@ -1,15 +1,8 @@
 # apps/financeiro/urls.py
 from django.urls import path, include
-from rest_framework.routers import DefaultRouter
 from . import views
-from .api import viewsets
 
-# API Router
-router = DefaultRouter()
-router.register(r'contas-receber', viewsets.ContaReceberViewSet)
-router.register(r'contas-pagar', viewsets.ContaPagarViewSet)
-router.register(r'lancamentos', viewsets.LancamentoViewSet)
-router.register(r'categorias', viewsets.CategoriaFinanceiraViewSet)
+
 
 app_name = 'financeiro'
 
@@ -56,18 +49,7 @@ urlpatterns = [
     path('contas-pagar/aprovacao/', views.AprovacaoPagamentosView.as_view(), name='aprovacao_pagamentos'),
     path('contas-pagar/lote/', views.PagamentoLoteView.as_view(), name='pagamento_lote'),
     
-    # =====================================
-    # MOVIMENTAÇÃO FINANCEIRA
-    # =====================================
-    path('lancamentos/', views.LancamentoListView.as_view(), name='lancamento_lista'),
-    path('lancamentos/novo/', views.LancamentoCreateView.as_view(), name='lancamento_create'),
-    path('lancamentos/<int:pk>/', views.LancamentoDetailView.as_view(), name='lancamento_detail'),
-    path('lancamentos/<int:pk>/estornar/', views.EstornarLancamentoView.as_view(), name='estornar_lancamento'),
-    
-    # Tipos de lançamento
-    path('lancamentos/receitas/', views.ReceitasView.as_view(), name='receitas'),
-    path('lancamentos/despesas/', views.DespesasView.as_view(), name='despesas'),
-    path('lancamentos/transferencias/', views.TransferenciasView.as_view(), name='transferencias'),
+  
     
     # =====================================
     # BANCOS E CONTAS
@@ -112,10 +94,7 @@ urlpatterns = [
     # =====================================
     # CATEGORIAS E CENTROS DE CUSTO
     # =====================================
-    path('categorias/', views.CategoriaFinanceiraListView.as_view(), name='categoria_lista'),
-    path('categorias/nova/', views.CategoriaFinanceiraCreateView.as_view(), name='categoria_create'),
-    path('categorias/<int:pk>/editar/', views.CategoriaFinanceiraUpdateView.as_view(), name='categoria_update'),
-    
+
     path('centros-custo/', views.CentroCustoListView.as_view(), name='centro_custo_lista'),
     path('centros-custo/novo/', views.CentroCustoCreateView.as_view(), name='centro_custo_create'),
     path('centros-custo/<int:pk>/', views.CentroCustoDetailView.as_view(), name='centro_custo_detail'),
@@ -123,9 +102,6 @@ urlpatterns = [
     # =====================================
     # PLANEJAMENTO FINANCEIRO
     # =====================================
-    path('orcamento/', views.OrcamentoFinanceiroView.as_view(), name='orcamento'),
-    path('orcamento/novo/', views.NovoOrcamentoView.as_view(), name='novo_orcamento'),
-    path('orcamento/<int:pk>/acompanhar/', views.AcompanharOrcamentoView.as_view(), name='acompanhar_orcamento'),
     
     path('projecoes/', views.ProjecoesFinanceirasView.as_view(), name='projecoes'),
     path('cenarios/', views.CenariosFinanceirosView.as_view(), name='cenarios'),
@@ -201,19 +177,9 @@ urlpatterns = [
     # =====================================
     # API REST
     # =====================================
-    path('api/', include(router.urls)),
     
     # API Personalizada
     path('api/saldo-atual/', views.SaldoAtualAPIView.as_view(), name='api_saldo_atual'),
     path('api/projecao-fluxo/', views.ProjecaoFluxoAPIView.as_view(), name='api_projecao_fluxo'),
     path('api/indicadores/', views.IndicadoresFinanceirosAPIView.as_view(), name='api_indicadores'),
-
-
-
-    path('planos/', views.lista_planos, name='lista_planos'),
-    path('planos/criar/', views.criar_plano, name='criar_plano'),
-    path('planos/<int:pk>/editar/', views.editar_plano, name='editar_plano'),
-    path('planos/<int:pk>/deletar/', views.deletar_plano, name='deletar_plano'),
-
-
 ]

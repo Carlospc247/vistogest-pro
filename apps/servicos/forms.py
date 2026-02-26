@@ -2,7 +2,7 @@
 
 from django import forms
 from .models import Servico, AgendamentoServico
-from apps.core.models import Categoria
+from apps.empresas.models import Categoria
 from apps.clientes.models import Cliente
 from apps.funcionarios.models import Funcionario
 

@@ -1,7 +1,7 @@
 # apps/saft/services/saft_xml_generator_service.py
 
 from datetime import datetime
-from apps.core.models import Empresa 
+from apps.empresas.models import Empresa 
 from typing import Dict, Any
 from decimal import Decimal
 from django.conf import settings

@@ -6,7 +6,7 @@ from django.http import JsonResponse
 from datetime import timedelta
 from django.utils import timezone
 from .models import Licenca, PlanoLicenca, HistoricoLicenca
-from apps.core.models import Empresa
+from apps.empresas.models import Empresa
 from django.contrib.auth.mixins import AccessMixin
 
 
