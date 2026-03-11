@@ -13,6 +13,11 @@ import random
 
 class TimeStampedModel(models.Model):
     """Modelo base com timestamps"""
+    tenant = models.ForeignKey(
+        'customers.Client', 
+        on_delete=models.CASCADE,
+        null=True, blank=True # Null=True para não quebrar tabelas já existentes
+    ) 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     
