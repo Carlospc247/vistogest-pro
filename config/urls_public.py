@@ -12,7 +12,7 @@ urlpatterns = [
 
     # Core público (login, dashboard básico, páginas públicas)
     path('', include(('apps.core.urls', 'core'), namespace='core')),
-    #path('', include('pharmassys.urls_tenants')),
+    #path('', include('config.urls_tenants')),
     path('empresas/', include('apps.empresas.urls', namespace='empresas')),
     
     # Proteção robots

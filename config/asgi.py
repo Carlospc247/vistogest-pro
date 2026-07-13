@@ -1,5 +1,5 @@
 """
-ASGI config for pharmassys project.
+ASGI config for config project.
 
 It exposes the ASGI callable as a module-level variable named ``application``.
 
@@ -11,6 +11,6 @@ import os
 
 from django.core.asgi import get_asgi_application
 
-os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'pharmassys.settings.development')
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'config.settings.productio')
 
 application = get_asgi_application()
