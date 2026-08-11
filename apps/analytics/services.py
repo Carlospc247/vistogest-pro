@@ -11,15 +11,13 @@ from .models import EventoAnalytics, AuditoriaAlteracao, AlertaInteligente
 class AnalyticsService:
     """Serviço para coleta e análise de eventos"""
     
-    def __init__(self, empresa, usuario=None):
-        self.empresa = empresa
+    def __init__(self, usuario=None):
         self.usuario = usuario
     
     def track_event(self, categoria, acao, label=None, valor=None, propriedades=None, request=None):
         """Registrar evento de analytics"""
         
         evento_data = {
-            'empresa': self.empresa,
             'usuario': self.usuario,
             'categoria': categoria,
             'acao': acao,
@@ -103,7 +101,6 @@ class AnalyticsService:
         data_inicio = timezone.now() - timedelta(days=periodo_dias)
         
         eventos = EventoAnalytics.objects.filter(
-            empresa=self.empresa,
             timestamp__gte=data_inicio
         )
         
@@ -157,17 +154,12 @@ class AuditoriaService:
     def log_alteracao(self, instance, tipo_operacao, dados_anteriores=None, campos_alterados=None, motivo=''):
         """Registrar alteração para auditoria"""
         
-        # Obter empresa do objeto (assumindo que tem campo empresa)
-        empresa = getattr(instance, 'empresa', None)
-        if not empresa:
-            return  # Não auditar objetos sem empresa
         
         content_type = ContentType.objects.get_for_model(instance)
         
         dados_atuais = self.serializar_objeto(instance)
         
         auditoria_data = {
-            'empresa': empresa,
             'usuario': self.usuario,
             'content_type': content_type,
             'object_id': instance.pk,
@@ -255,7 +247,6 @@ class AlertasService:
         from apps.produtos.models import Produto
         
         produtos_baixo_estoque = Produto.objects.filter(
-            empresa=self.empresa,
             estoque_atual__lte=models.F('estoque_minimo'),
             ativo=True
         )
@@ -263,14 +254,12 @@ class AlertasService:
         if produtos_baixo_estoque.exists():
             # Verificar se alerta já existe e está ativo
             alerta_existente = AlertaInteligente.objects.filter(
-                empresa=self.empresa,
                 tipo='estoque_baixo',
                 status='ativo'
             ).first()
             
             if not alerta_existente:
-                alerta = AlertaIntegrante.objects.create(
-                    empresa=self.empresa,
+                alerta = AlertaInteligente.objects.create(
                     tipo='estoque_baixo',
                     prioridade='alta',
                     titulo='Produtos com Estoque Baixo',
@@ -296,14 +285,12 @@ class AlertasService:
         # Últimos 7 dias
         data_inicio = timezone.now() - timedelta(days=7)
         vendas_semana = Venda.objects.filter(
-            empresa=self.empresa,
             data_venda__gte=data_inicio
         ).count()
         
         # Média dos últimos 30 dias
         data_30_dias = timezone.now() - timedelta(days=30)
         vendas_30_dias = Venda.objects.filter(
-            empresa=self.empresa,
             data_venda__gte=data_30_dias,
             data_venda__lt=data_inicio
         ).count()
@@ -312,7 +299,6 @@ class AlertasService:
         
         if vendas_semana < media_semanal * 0.7:  # 30% abaixo da média
             alerta_existente = AlertaInteligente.objects.filter(
-                empresa=self.empresa,
                 tipo='vendas_baixas',
                 status='ativo',
                 created_at__gte=timezone.now() - timedelta(days=7)
@@ -320,7 +306,6 @@ class AlertasService:
             
             if not alerta_existente:
                 alerta = AlertaInteligente.objects.create(
-                    empresa=self.empresa,
                     tipo='vendas_baixas',
                     prioridade='media',
                     titulo='Vendas Abaixo da Média',
@@ -347,7 +332,6 @@ class AlertasService:
         data_limite = timezone.now().date() + timedelta(days=30)
         
         produtos_vencendo = Produto.objects.filter(
-            empresa=self.empresa,
             data_validade__lte=data_limite,
             data_validade__gte=timezone.now().date(),
             estoque_atual__gt=0
@@ -355,7 +339,6 @@ class AlertasService:
         
         if produtos_vencendo.exists():
             alerta_existente = AlertaInteligente.objects.filter(
-                empresa=self.empresa,
                 tipo='estoque_baixo',  # Usar mesmo tipo para não duplicar
                 status='ativo',
                 titulo__icontains='vencimento'
@@ -363,7 +346,6 @@ class AlertasService:
             
             if not alerta_existente:
                 alerta = AlertaInteligente.objects.create(
-                    empresa=self.empresa,
                     tipo='estoque_baixo',
                     prioridade='alta',
                     titulo='Produtos Próximos do Vencimento',

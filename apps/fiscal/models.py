@@ -10,18 +10,16 @@ from django.utils import timezone
 from django.conf import settings
 import hashlib
 import json
-from django.db import models, transaction
 from django.core.validators import MinValueValidator, MaxValueValidator
 from django.core.exceptions import ValidationError
 from decimal import Decimal
 from datetime import datetime
 from apps.core.models import TimeStampedModel
 from apps.clientes.models import Cliente
+#from apps.fiscal.services.utils import gerar_numero_documento
 from apps.produtos.models import Produto
 from django.contrib.postgres.fields import JSONField
 import base64
-import hashlib
-import json
 import logging
 from typing import Dict, Optional, Tuple
 from apps.empresas.models import Empresa
@@ -127,6 +125,29 @@ class TaxaIVAAGT(TimeStampedModel):
         return None
 
 
+
+class ContadorDocumento(models.Model):
+    """
+    Motor de Sequencialidade SOTARQ.
+    Garante que cada fatura tenha um número único por Empresa/Ano/Série.
+    """
+    tipo_documento = models.CharField(max_length=5) 
+    ano = models.IntegerField()
+    serie = models.CharField(max_length=10, default='A')
+    ultimo_numero = models.IntegerField(default=0)
+
+    class Meta:
+        # Essencial para garantir que a combinação nunca se repita no banco
+        unique_together = ('tipo_documento', 'ano', 'serie')
+        verbose_name = 'Contador de Documento'
+        verbose_name_plural = 'Contadores de Documentos'
+
+    def __str__(self):
+        return f"{self.empresa.nome} - {self.tipo_documento} {self.serie}/{self.ano}: {self.ultimo_numero}"
+
+
+
+
 class AssinaturaDigital(TimeStampedModel):
     """
     Armazena a chave pública/privada (RSA) ou apenas a chave de hash,
@@ -208,8 +229,7 @@ class RetencaoFonte(TimeStampedModel):
     # Controle
     paga_ao_estado = models.BooleanField(default=False, help_text="Indica se o valor retido já foi pago ao Estado")
     
-    empresa = models.ForeignKey('empresas.Empresa', on_delete=models.CASCADE)
-
+    
     class Meta:
         verbose_name = "Retenção na Fonte"
         verbose_name_plural = "Retenções na Fonte"
@@ -272,7 +292,6 @@ class DocumentoFiscal(TimeStampedModel):
     # Tipo de Cliente/Regime
     TIPO_CLIENTE_CHOICES = [
         ('particular', 'Particular'),
-        ('empresa', 'Empresa'),
         ('isento', 'Isento de IVA'),
         ('nao_residente', 'Não Residente'),
         ('regime_especial', 'Regime Especial'),
@@ -615,19 +634,19 @@ class DocumentoFiscal(TimeStampedModel):
         # Constraints para garantir unicidade
         constraints = [
             models.UniqueConstraint(
-                fields=['empresa', 'tipo_documento', 'serie', 'numero'],
+                fields=['tipo_documento', 'serie', 'numero'],
                 name='unique_documento_por_empresa_serie'
             ),
             models.UniqueConstraint(
-                fields=['empresa', 'atcud'],
+                fields=['atcud'],
                 name='unique_atcud_por_empresa'
             ),
         ]
         
         # Índices para performance
         indexes = [
-            models.Index(fields=['empresa', 'data_emissao']),
-            models.Index(fields=['empresa', 'status']),
+            models.Index(fields=['data_emissao']),
+            models.Index(fields=['status']),
             models.Index(fields=['cliente', 'data_emissao']),
             models.Index(fields=['numero_documento']),
             models.Index(fields=['atcud']),
@@ -695,8 +714,7 @@ class DocumentoFiscal(TimeStampedModel):
         
         # Só gera se o número ainda não tiver sido atribuído (evita re-geração no save)
         if not self.numero:
-            dados = gerar_numero_documento(
-                empresa=self.empresa, 
+            dados = gerar_numero_documento( 
                 tipo_documento=self.tipo_documento, 
                 serie=self.serie
             )
@@ -721,7 +739,6 @@ class DocumentoFiscal(TimeStampedModel):
         if self.status == 'confirmed' and not self.hash_documento:
             # Busca o elo anterior da corrente (Chain of Integrity)
             doc_anterior = DocumentoFiscal.objects.filter(
-                empresa=self.empresa,
                 tipo_documento=self.tipo_documento,
                 serie=self.serie,
                 numero__lt=self.numero,
@@ -809,7 +826,6 @@ class DocumentoFiscal(TimeStampedModel):
                 'ultimo_documento': self.numero_documento,
                 'data_ultima_assinatura': datetime.now().isoformat(),
                 'total_documentos': DocumentoFiscal.objects.filter(
-                    empresa=self.empresa,
                     tipo_documento=self.tipo_documento,
                     serie=self.serie,
                     status='confirmed'
@@ -823,7 +839,6 @@ class DocumentoFiscal(TimeStampedModel):
         except AssinaturaDigital.DoesNotExist:
             # Criar assinatura se não existir
             AssinaturaDigital.objects.create(
-                empresa=self.empresa,
                 ultimo_hash=self.hash_documento,
                 dados_series_fiscais={
                     f"{self.tipo_documento}_{self.serie}": {
@@ -846,7 +861,6 @@ class DocumentoFiscal(TimeStampedModel):
         
         # Buscar hash do documento anterior
         doc_anterior = DocumentoFiscal.objects.filter(
-            empresa=self.empresa,
             tipo_documento=self.tipo_documento,
             serie=self.serie,
             numero__lt=self.numero,
@@ -1216,22 +1230,4 @@ class SAFTExport(TimeStampedModel):
 
 
 
-class ContadorDocumento(models.Model):
-    """
-    Motor de Sequencialidade SOTARQ.
-    Garante que cada fatura tenha um número único por Empresa/Ano/Série.
-    """
-    empresa = models.ForeignKey('empresas.Empresa', on_delete=models.CASCADE, related_name='contadores')
-    tipo_documento = models.CharField(max_length=5) 
-    ano = models.IntegerField()
-    serie = models.CharField(max_length=10, default='A')
-    ultimo_numero = models.IntegerField(default=0)
 
-    class Meta:
-        # Essencial para garantir que a combinação nunca se repita no banco
-        unique_together = ('empresa', 'tipo_documento', 'ano', 'serie')
-        verbose_name = 'Contador de Documento'
-        verbose_name_plural = 'Contadores de Documentos'
-
-    def __str__(self):
-        return f"{self.empresa.nome} - {self.tipo_documento} {self.serie}/{self.ano}: {self.ultimo_numero}"

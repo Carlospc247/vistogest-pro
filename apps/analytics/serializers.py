@@ -229,12 +229,10 @@ class DashboardPersonalizadoSerializer(serializers.ModelSerializer):
         # Validar que apenas um dashboard por usuário pode ser padrão
         if attrs.get('padrao', False):
             user = attrs.get('usuario') or self.instance.usuario if self.instance else None
-            empresa = self.context.get('empresa')
             
             if user and empresa:
                 existing_default = DashboardPersonalizado.objects.filter(
                     usuario=user,
-                    empresa=empresa,
                     padrao=True
                 ).exclude(id=self.instance.id if self.instance else None)
                 

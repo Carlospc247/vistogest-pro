@@ -115,8 +115,8 @@ class ComissaoBypass(TimeStampedModel):
         ('parcial', 'Pago Parcialmente'),
         ('pago', 'Liquidado'),
     ]
-    
-    empresa = models.ForeignKey('empresas.Empresa', on_delete=models.CASCADE)
+
+    empresa = models.ForeignKey(Empresa, on_delete=models.CASCADE, related_name='comissoes')
     valor_faturado = models.DecimalField(max_digits=15, decimal_places=2)
     valor_comissao = models.DecimalField(max_digits=15, decimal_places=2) # Os 2%
     periodo_inicio = models.DateField()

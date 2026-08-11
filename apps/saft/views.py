@@ -590,7 +590,7 @@ class SaftValidarView(LoginRequiredMixin, PermissaoAcaoMixin, PermissionRequired
             return ['MasterFiles ausente']
         
         # Verificar presença de pelo menos uma tabela
-        tables = ['GeneralLedgerAccounts', 'Customers', 'Suppliers', 'TaxTable', 'Products']
+        tables = ['GeneralLedgerAccounts', 'Clientes', 'Suppliers', 'TaxTable', 'Products']
         has_any_table = False
         
         for table in tables:
@@ -716,7 +716,7 @@ class SaftVisualizarView(LoginRequiredMixin, PermissaoAcaoMixin, PermissionRequi
             
             # Contar elementos nas diferentes seções
             counts = {
-                'customers': len(root.findall(f'.//{{{namespace}}}Customer')),
+                'clientes': len(root.findall(f'.//{{{namespace}}}Customer')),
                 'suppliers': len(root.findall(f'.//{{{namespace}}}Supplier')),
                 'products': len(root.findall(f'.//{{{namespace}}}Product')),
                 'invoices': len(root.findall(f'.//{{{namespace}}}Invoice')),

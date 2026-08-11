@@ -150,7 +150,7 @@ class CategoriaForm(forms.ModelForm):
         # Este método impede o IntegrityError
         nome = self.cleaned_data.get('nome')
         if nome and self.empresa:
-            queryset = Categoria.objects.filter(empresa=self.empresa, nome__iexact=nome)
+            queryset = Categoria.objects.filter(nome__iexact=nome)
             if self.instance and self.instance.pk:
                 queryset = queryset.exclude(pk=self.instance.pk)
             if queryset.exists():

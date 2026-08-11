@@ -100,7 +100,6 @@ class FiscalPollingService:
             try:
                 # Busca documento garantindo isolamento multi-tenant
                 doc_fiscal = DocumentoFiscal.objects.get(
-                    empresa=self.empresa, 
                     numero_documento=doc_no
                 )
                 

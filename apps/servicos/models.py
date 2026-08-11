@@ -15,7 +15,7 @@ from django.db import models
 from django.utils import timezone
 from datetime import date, timedelta
 from decimal import Decimal
-from apps.empresas.models import Empresa, Categoria, Loja
+from apps.empresas.models import Empresa, Categoria
 from apps.core.models import TimeStampedModel, Usuario
 from apps.clientes.models import Cliente
 from cloudinary.models import CloudinaryField
@@ -28,7 +28,6 @@ from cloudinary.models import CloudinaryField
 
 class Servico(TimeStampedModel):
     
-    empresa = models.ForeignKey(Empresa, on_delete=models.CASCADE, related_name='servicos_catalogo')
     nome = models.CharField(max_length=100)
     categoria = models.ForeignKey(Categoria, on_delete=models.PROTECT)
     duracao_padrao_minutos = models.IntegerField(default=30)
@@ -66,7 +65,7 @@ class Servico(TimeStampedModel):
         verbose_name = "Serviço (Catálogo)"
         verbose_name_plural = "Serviços (Catálogo)"
         ordering = ['nome']
-        unique_together = ['empresa', 'nome']
+        unique_together = ['nome']
 
     def __str__(self):
         return self.nome
@@ -104,7 +103,6 @@ class AgendamentoServico(TimeStampedModel):
     servico = models.ForeignKey(Servico, on_delete=models.PROTECT, related_name='agendamentos')
     cliente = models.ForeignKey(Cliente, on_delete=models.PROTECT, related_name='agendamentos')
     funcionario = models.ForeignKey(Funcionario, on_delete=models.PROTECT, related_name='agendamentos', null=True, blank=True) # permitimos null para não quebrar com os agendamentos vindos diretos do site
-    empresa = models.ForeignKey(Empresa, on_delete=models.CASCADE, related_name='agendamentos_servicos')
     
     # Detalhes do Agendamento
     data_hora = models.DateTimeField()
@@ -177,8 +175,6 @@ class NotificacaoAgendamento(TimeStampedModel):
     # Dados de contato utilizados
     email_enviado = models.EmailField(blank=True)
     telefone_enviado = models.CharField(max_length=20, blank=True)
-    
-    empresa = models.ForeignKey(Empresa, on_delete=models.CASCADE)
     
     class Meta:
         verbose_name = "Notificação de Agendamento"

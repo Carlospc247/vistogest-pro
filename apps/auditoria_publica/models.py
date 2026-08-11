@@ -1,7 +1,7 @@
 # apps/auditoria_publica/models.py
 from django.db import models
 from django.conf import settings
-from apps.core.models import TimeStampedModel
+from apps.core.models import TimeStampedModel, Usuario
 from apps.empresas.models import Empresa
 
 class LogAuditoriaPublica(TimeStampedModel):
@@ -24,7 +24,7 @@ class LogAuditoriaPublica(TimeStampedModel):
     ]
 
     usuario = models.ForeignKey(
-        settings.AUTH_USER_MODEL, 
+        Usuario, 
         on_delete=models.SET_NULL, 
         null=True,
         related_name='logs_publicos'

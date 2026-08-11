@@ -1,4 +1,6 @@
 # apps/fiscal/services/utils.py
+from __future__ import annotations
+
 import logging
 import hashlib
 import json
@@ -8,39 +10,44 @@ import xml.etree.ElementTree as ET
 from datetime import datetime, date
 from decimal import Decimal
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Any
+from typing import TYPE_CHECKING, Dict, List, Optional, Tuple, Any
 
-from django.db import transaction
+from django.db import connection, transaction
 from django.core.exceptions import ValidationError
 from django.utils import timezone
+from django.utils.encoding import force_bytes
 from django.conf import settings
 from lxml import etree
 
-# Imports do Projeto
-from apps.empresas.models import Empresa
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.hazmat.primitives import serialization
-import logging
-from django.utils import timezone
-from decimal import Decimal
-import hashlib
-from django.utils.encoding import force_bytes
 
-from apps.fiscal.models import AssinaturaDigital, ContadorDocumento, DocumentoFiscal, DocumentoFiscalLinha, RetencaoFonte, TaxaIVAAGT
+# Importações apenas para Type Hinting (evita Circular Import em Runtime)
+if TYPE_CHECKING:
+    from apps.empresas.models import Empresa
+    from apps.fiscal.models import (
+        AssinaturaDigital,
+        ContadorDocumento,
+        DocumentoFiscal,
+        DocumentoFiscalLinha,
+        RetencaoFonte,
+        TaxaIVAAGT,
+    )
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger('fiscal')
 
 
 class FiscalServiceError(Exception):
     pass
 
 
-def validar_documentos_fiscais(empresa):
+def validar_documentos_fiscais(empresa: Empresa) -> Dict[str, Any]:
     """
     Executa validações em todos os documentos fiscais emitidos pela empresa.
-
     Retorna um dicionário com contagem de erros e avisos.
     """
+    from apps.fiscal.models import DocumentoFiscal
+
     erros = []
     avisos = []
 
@@ -94,18 +101,7 @@ def validar_documentos_fiscais(empresa):
     }
 
 
-
-
-
-
-
-
-
-
-
-logger = logging.getLogger('fiscal')
-
-def gerar_rsa_local():
+def gerar_rsa_local() -> Tuple[bytes, bytes]:
     private_key = rsa.generate_private_key(
         public_exponent=65537,
         key_size=2048,
@@ -122,22 +118,19 @@ def gerar_rsa_local():
     return private_pem, public_pem
 
 
-
-
-
-
-def gerar_numero_documento(empresa, tipo_documento, serie='A'):
+def gerar_numero_documento(empresa: Empresa, tipo_documento: str, serie: str = 'A') -> Dict[str, Any]:
     """
     Gera o número oficial conforme o modelo DocumentoFiscal.
     Formato exigido: TIPO SERIE/NUMERO
     Exemplo: FR A/1, FT A/2, REC A/1
     """
+    from apps.fiscal.models import ContadorDocumento
+
     ano_atual = timezone.now().year
 
     with transaction.atomic():
         # select_for_update() bloqueia a linha para evitar duplicidade no PDV
         contador, created = ContadorDocumento.objects.select_for_update().get_or_create(
-            empresa=empresa,
             tipo_documento=tipo_documento,
             ano=ano_atual,
             serie=serie,
@@ -147,16 +140,13 @@ def gerar_numero_documento(empresa, tipo_documento, serie='A'):
         contador.ultimo_numero += 1
         contador.save()
 
-        # Montagem rigorosa conforme o campo 'numero_documento' do seu modelo fiscal
-        # Formato: TIPO SERIE/NUMERO (Ex: FR A/1)
+        # Montagem rigorosa conforme o campo 'numero_documento' do modelo fiscal
         numero_final = f"{tipo_documento} {contador.serie}/{contador.ultimo_numero}"
 
-        # Retornamos um dicionário para que o model fiscal preencha os campos 'numero' e 'numero_documento'
         return {
             'sequencial': contador.ultimo_numero,
             'formatado': numero_final
         }
-
 
 
 class DocumentoFiscalService:
@@ -165,12 +155,13 @@ class DocumentoFiscalService:
     """
     @staticmethod
     @transaction.atomic
-    def criar_documento(empresa, tipo_documento, cliente, linhas, usuario, dados_extra=None):
+    def criar_documento(empresa: Empresa, tipo_documento: str, cliente: Any, linhas: List[Dict], usuario: Any, dados_extra: Optional[Dict] = None) -> DocumentoFiscal:
+        from apps.fiscal.models import DocumentoFiscal, DocumentoFiscalLinha
+
         dados_extra = dados_extra or {}
 
         # Criar documento
         documento = DocumentoFiscal.objects.create(
-            empresa=empresa,
             tipo_documento=tipo_documento,
             cliente=cliente,
             usuario_criacao=usuario,
@@ -210,27 +201,20 @@ class DocumentoFiscalService:
         DocumentoFiscalService.recalcular_totais(documento)
 
         # ====== GERAÇÃO DE HASH E ATCUD ======
-        # Importar função utilitária do SAF-T se existir
         from apps.fiscal.utility import gerar_hash_documento, gerar_atcud_documento
 
-        # Se o hash não foi definido ainda
         if not documento.hash_documento:
             documento.hash_documento = gerar_hash_documento(documento)
 
-        # Gera ATCUD (código único do documento)
         if not documento.atcud:
             documento.atcud = gerar_atcud_documento(documento)
 
-        # Salva com os novos campos
         documento.save(update_fields=["hash_documento", "atcud"])
-
-
-
 
         return documento
 
     @staticmethod
-    def recalcular_totais(documento: DocumentoFiscal):
+    def recalcular_totais(documento: DocumentoFiscal) -> DocumentoFiscal:
         """
         Recalcula os totais do documento com base nas linhas.
         """
@@ -247,7 +231,7 @@ class DocumentoFiscalService:
         return documento
 
     @staticmethod
-    def confirmar_documento(documento: DocumentoFiscal, usuario):
+    def confirmar_documento(documento: DocumentoFiscal, usuario: Any) -> DocumentoFiscal:
         """
         Confirma e assina digitalmente o documento.
         """
@@ -258,14 +242,12 @@ class DocumentoFiscalService:
         return documento
 
     @staticmethod
-    def cancelar_documento(documento: DocumentoFiscal, usuario, motivo=''):
+    def cancelar_documento(documento: DocumentoFiscal, usuario: Any, motivo: str = '') -> DocumentoFiscal:
         """
         Cancela um documento fiscal.
         """
         documento.cancelar_documento(usuario, motivo)
         return documento
-
-
 
 
 class TaxaIVAService:
@@ -275,22 +257,10 @@ class TaxaIVAService:
     
     @staticmethod
     def criar_taxa_iva(empresa: Empresa, dados: Dict) -> TaxaIVAAGT:
-        """
-        Cria uma nova taxa de IVA com validações SAF-T
-        
-        Args:
-            empresa: Empresa proprietária da taxa
-            dados: Dicionário com dados da taxa
-            
-        Returns:
-            TaxaIVAAGT: Taxa criada
-            
-        Raises:
-            FiscalServiceError: Se houver erro na criação
-        """
+        from apps.fiscal.models import TaxaIVAAGT
+
         try:
             with transaction.atomic():
-                # Validações SAF-T específicas
                 TaxaIVAService._validar_dados_saft(dados)
                 
                 taxa = TaxaIVAAGT.objects.create(
@@ -326,36 +296,29 @@ class TaxaIVAService:
     @staticmethod
     def _validar_dados_saft(dados: Dict) -> None:
         """Valida dados conforme especificação SAF-T AO"""
-        
-        # Validar tax_type
         if dados['tax_type'] not in ['IVA', 'IS', 'NS']:
             raise ValidationError("tax_type deve ser IVA, IS ou NS")
         
-        # Se for IVA, deve ter tax_percentage
         if dados['tax_type'] == 'IVA':
             if not dados.get('tax_percentage') or dados['tax_percentage'] < 0:
                 raise ValidationError("IVA deve ter tax_percentage válida")
         
-        # Se for IS ou NS, deve ter exemption_reason
         if dados['tax_type'] in ['IS', 'NS']:
             if not dados.get('exemption_reason'):
                 raise ValidationError("Isenções e não sujeições devem ter exemption_reason")
     
     @staticmethod
     def obter_taxas_ativas(empresa: Empresa) -> List[TaxaIVAAGT]:
-        """Obtém todas as taxas ativas de uma empresa"""
+        from apps.fiscal.models import TaxaIVAAGT
+
         return TaxaIVAAGT.objects.filter(
-            empresa=empresa,
             ativa=True
         ).order_by('tax_type', '-tax_percentage')
     
     @staticmethod
-    def calcular_iva(valor_base: Decimal, taxa: TaxaIVAAGT) -> Dict[str, Decimal]:
+    def calcular_iva(valor_base: Decimal, taxa: TaxaIVAAGT) -> Dict[str, Any]:
         """
-        Calcula o IVA baseado no valor base e taxa
-        
-        Returns:
-            Dict com valor_base, valor_iva, valor_total
+        Calcula o IVA baseado no valor base e taxa.
         """
         if taxa.tax_type != 'IVA':
             return {
@@ -377,26 +340,15 @@ class TaxaIVAService:
         }
 
 
-logger = logging.getLogger(__name__)
-
-
-
 class RetencaoFonteService:
     """
-    Serviço para gestão de retenções na fonte
+    Serviço para gestão de retenções na fonte.
     """
     
     @staticmethod
     def criar_retencao(dados: Dict) -> RetencaoFonte:
-        """
-        Cria uma nova retenção na fonte com lançamentos contábeis
-        
-        Args:
-            dados: Dados da retenção
-            
-        Returns:
-            RetencaoFonte: Retenção criada
-        """
+        from apps.fiscal.models import RetencaoFonte
+
         try:
             with transaction.atomic():
                 retencao = RetencaoFonte.objects.create(**dados)
@@ -405,7 +357,7 @@ class RetencaoFonteService:
                 RetencaoFonteService._gerar_lancamento_contabil(retencao)
                 
                 logger.info(
-                    f"Retenção na fonte criada",
+                    "Retenção na fonte criada",
                     extra={
                         'retencao_id': retencao.id,
                         'tipo_retencao': retencao.tipo_retencao,
@@ -420,19 +372,10 @@ class RetencaoFonteService:
             logger.error(f"Erro ao criar retenção: {e}")
             raise FiscalServiceError(f"Erro na criação: {e}")
     
-   
     @staticmethod
     def processar_pagamento_estado(retencao_id: int, data_pagamento: date) -> RetencaoFonte:
-        """
-        Marca uma retenção como paga ao Estado
-        
-        Args:
-            retencao_id: ID da retenção
-            data_pagamento: Data do pagamento
-            
-        Returns:
-            RetencaoFonte: Retenção atualizada
-        """
+        from apps.fiscal.models import RetencaoFonte
+
         try:
             with transaction.atomic():
                 retencao = RetencaoFonte.objects.get(id=retencao_id)
@@ -440,7 +383,7 @@ class RetencaoFonteService:
                 retencao.save()
                 
                 logger.info(
-                    f"Retenção marcada como paga ao Estado",
+                    "Retenção marcada como paga ao Estado",
                     extra={
                         'retencao_id': retencao_id,
                         'data_pagamento': data_pagamento.isoformat(),
@@ -456,9 +399,6 @@ class RetencaoFonteService:
         except Exception as e:
             logger.error(f"Erro ao processar pagamento: {e}")
             raise FiscalServiceError(f"Erro no processamento: {e}")
-
-
-
 
 
 class SAFTExportService:
@@ -480,11 +420,11 @@ class SAFTExportService:
         logger.info("Validação XSD SAF-T AO concluída com sucesso.")
 
     @staticmethod
-    def gerar_saft_ao(empresa, data_inicio: date, data_fim: date) -> str:
+    def gerar_saft_ao(empresa: Empresa, data_inicio: date, data_fim: date) -> str:
         """Gera o arquivo SAF-T AO completo e validado"""
         try:
             logger.info(
-                f"Iniciando geração SAF-T AO",
+                "Iniciando geração SAF-T AO",
                 extra={'empresa_id': empresa.id, 'data_inicio': data_inicio.isoformat(),
                        'data_fim': data_fim.isoformat()}
             )
@@ -532,7 +472,7 @@ class SAFTExportService:
         return elem
 
     @staticmethod
-    def _criar_header(empresa, data_inicio: date, data_fim: date):
+    def _criar_header(empresa: Empresa, data_inicio: date, data_fim: date):
         """Cria o elemento Header conforme XSD"""
         header = SAFTExportService._criar_elemento("Header")
 
@@ -585,12 +525,12 @@ class SAFTExportService:
         return header
 
     @staticmethod
-    def _criar_master_files(empresa):
+    def _criar_master_files(empresa: Empresa):
         """Cria o elemento MasterFiles conforme XSD"""
         master_files = SAFTExportService._criar_elemento("MasterFiles")
 
         SAFTExportService._criar_general_ledger_accounts(master_files, empresa)
-        SAFTExportService._criar_customers(master_files, empresa)
+        SAFTExportService._criar_clientes(master_files, empresa)
         SAFTExportService._criar_suppliers(master_files, empresa)
         SAFTExportService._criar_products(master_files, empresa)
         SAFTExportService._criar_tax_table(master_files, empresa)
@@ -598,7 +538,7 @@ class SAFTExportService:
         return master_files
 
     @staticmethod
-    def _criar_general_ledger_accounts(master_files, empresa):
+    def _criar_general_ledger_accounts(master_files, empresa: Empresa):
         """Cria GeneralLedgerAccounts conforme XSD"""
         if not hasattr(empresa, 'planos_contas'):
             return
@@ -630,7 +570,7 @@ class SAFTExportService:
                 SAFTExportService._criar_subelemento(account, "GroupingCode", conta.conta_pai.codigo[:30])
 
     @staticmethod
-    def _determinar_grouping_category(conta):
+    def _determinar_grouping_category(conta) -> str:
         """Determina a categoria da conta"""
         if hasattr(conta, 'grouping_category'):
             return conta.grouping_category
@@ -646,7 +586,7 @@ class SAFTExportService:
         return "GM"
 
     @staticmethod
-    def _criar_customers(master_files, empresa):
+    def _criar_clientes(master_files, empresa: Empresa):
         """Cria elementos Customer conforme XSD"""
         from apps.clientes.models import Cliente
 
@@ -673,7 +613,7 @@ class SAFTExportService:
             SAFTExportService._criar_subelemento(customer, "SelfBillingIndicator", "0")
 
     @staticmethod
-    def _criar_suppliers(master_files, empresa):
+    def _criar_suppliers(master_files, empresa: Empresa):
         """Cria elementos Supplier conforme XSD"""
         from apps.fornecedores.models import Fornecedor
 
@@ -724,7 +664,7 @@ class SAFTExportService:
         SAFTExportService._criar_subelemento(address_element, "Country", pais[:2] if len(pais) >= 2 else "AO")
 
     @staticmethod
-    def _criar_products(master_files, empresa):
+    def _criar_products(master_files, empresa: Empresa):
         """Cria elementos Product conforme XSD"""
         if not hasattr(empresa, 'produtos'):
             return
@@ -749,7 +689,7 @@ class SAFTExportService:
             SAFTExportService._criar_subelemento(product, "ProductNumberCode", product_number_code[:60])
 
     @staticmethod
-    def _criar_tax_table(master_files, empresa):
+    def _criar_tax_table(master_files, empresa: Empresa):
         """Cria elemento TaxTable conforme XSD"""
         if not hasattr(empresa, 'taxas_iva'):
             return
@@ -785,46 +725,6 @@ class SAFTExportService:
                 SAFTExportService._criar_subelemento(tax_entry, "TaxAmount", f"{taxa.tax_amount:.2f}")
             else:
                 SAFTExportService._criar_subelemento(tax_entry, "TaxPercentage", "0.00")
-
-    @staticmethod
-    def _criar_general_ledger_entries(empresa, data_inicio: date, data_fim: date):
-        """Cria elemento GeneralLedgerEntries conforme XSD"""
-        from apps.financeiro.models import MovimentacaoFinanceira
-
-        if not hasattr(MovimentacaoFinanceira, 'objects'):
-            return None
-
-        movimentacoes = MovimentacaoFinanceira.objects.filter(
-            empresa=empresa,
-            data_movimentacao__gte=data_inicio,
-            data_movimentacao__lte=data_fim,
-            status="confirmada"
-        ).select_related('plano_contas', 'cliente', 'fornecedor').order_by('data_movimentacao', 'id')
-
-        if not movimentacoes.exists():
-            return None
-
-        gl_entries = SAFTExportService._criar_elemento("GeneralLedgerEntries")
-
-        SAFTExportService._criar_subelemento(gl_entries, "NumberOfEntries", str(movimentacoes.count()))
-
-        total_debit = sum(mov.debito or Decimal("0.00") for mov in movimentacoes)
-        SAFTExportService._criar_subelemento(gl_entries, "TotalDebit", f"{total_debit:.2f}")
-
-        total_credit = sum(mov.credito or Decimal("0.00") for mov in movimentacoes)
-        SAFTExportService._criar_subelemento(gl_entries, "TotalCredit", f"{total_credit:.2f}")
-
-        journals = {}
-        for mov in movimentacoes:
-            journal_id = getattr(mov, 'diario_id', None) or "GERAL"
-            if journal_id not in journals:
-                journals[journal_id] = []
-            journals[journal_id].append(mov)
-
-        for journal_id, movimentos in journals.items():
-            SAFTExportService._criar_journal(gl_entries, journal_id, movimentos)
-
-        return gl_entries
 
     @staticmethod
     def _criar_journal(gl_entries, journal_id, movimentos):
@@ -894,27 +794,27 @@ class SAFTExportService:
             SAFTExportService._criar_subelemento(credit_line, "CreditAmount", f"{mov.credito:.2f}")
 
     @staticmethod
-    def _criar_source_documents(empresa, data_inicio: date, data_fim: date):
+    def _criar_source_documents(data_inicio: date, data_fim: date):
         """Cria elemento SourceDocuments conforme XSD"""
         source_documents = SAFTExportService._criar_elemento("SourceDocuments")
         has_content = False
 
-        sales_invoices = SAFTExportService._criar_sales_invoices(empresa, data_inicio, data_fim)
+        sales_invoices = SAFTExportService._criar_sales_invoices(data_inicio, data_fim)
         if sales_invoices is not None:
             source_documents.append(sales_invoices)
             has_content = True
 
-        movement_of_goods = SAFTExportService._criar_movement_of_goods(empresa, data_inicio, data_fim)
+        movement_of_goods = SAFTExportService._criar_movement_of_goods(data_inicio, data_fim)
         if movement_of_goods is not None:
             source_documents.append(movement_of_goods)
             has_content = True
 
-        working_documents = SAFTExportService._criar_working_documents(empresa, data_inicio, data_fim)
+        working_documents = SAFTExportService._criar_working_documents(data_inicio, data_fim)
         if working_documents is not None:
             source_documents.append(working_documents)
             has_content = True
 
-        payments = SAFTExportService._criar_payments(empresa, data_inicio, data_fim)
+        payments = SAFTExportService._criar_payments(data_inicio, data_fim)
         if payments is not None:
             source_documents.append(payments)
             has_content = True
@@ -922,12 +822,12 @@ class SAFTExportService:
         return source_documents if has_content else None
 
     @staticmethod
-    def _criar_sales_invoices(empresa, data_inicio: date, data_fim: date):
-        """Cria elemento SalesInvoices conforme XSD"""
+    def _criar_sales_invoices(data_inicio: date, data_fim: date):
+        """Cria elemento SalesInvoices conforme XSD (Isolamento Físico via django-tenants)"""
         from apps.vendas.models import Venda
 
+        # No django-tenants a consulta já roda dentro do Schema do Tenant ativo!
         vendas = Venda.objects.filter(
-            empresa=empresa,
             data_venda__date__gte=data_inicio,
             data_venda__date__lte=data_fim,
             status="finalizada"
@@ -947,13 +847,16 @@ class SAFTExportService:
         SAFTExportService._criar_subelemento(sales_invoices, "TotalDebit", f"{total_debit:.2f}")
         SAFTExportService._criar_subelemento(sales_invoices, "TotalCredit", f"{total_credit:.2f}")
 
+        # Pega a empresa do tenant ativo para cálculo da hash
+        empresa = getattr(connection, 'tenant', None)
+
         for venda in vendas:
-            SAFTExportService._criar_invoice(sales_invoices, venda)
+            SAFTExportService._criar_invoice(sales_invoices, venda, empresa)
 
         return sales_invoices
 
     @staticmethod
-    def _criar_invoice(sales_invoices, venda):
+    def _criar_invoice(sales_invoices, venda, empresa=None):
         """Cria um Invoice dentro de SalesInvoices"""
         invoice = SAFTExportService._criar_subelemento(sales_invoices, "Invoice")
 
@@ -981,7 +884,11 @@ class SAFTExportService:
         SAFTExportService._criar_subelemento(document_status, "SourceBilling", source_billing)
 
         hash_control = getattr(venda, 'hash_control', None) or "0"
-        hash_input = f"{venda.empresa.nif}{invoice_no}{venda.data_venda.strftime('%Y-%m-%d')}{venda.total}"
+        
+        # Obtém NIF do tenant ativo se não passado explicitamente
+        nif_empresa = empresa.nif if empresa else getattr(getattr(connection, 'tenant', None), 'nif', '')
+        
+        hash_input = f"{nif_empresa}{invoice_no}{venda.data_venda.strftime('%Y-%m-%d')}{venda.total}"
         hash_str = hashlib.sha1(hash_input.encode('utf-8')).hexdigest()
         SAFTExportService._criar_subelemento(invoice, "Hash", hash_str[:172])
         SAFTExportService._criar_subelemento(invoice, "HashControl", str(hash_control)[:70])
@@ -1067,24 +974,24 @@ class SAFTExportService:
         SAFTExportService._criar_subelemento(document_totals, "GrossTotal", f"{gross_total:.2f}")
 
     @staticmethod
-    def _criar_movement_of_goods(empresa, data_inicio: date, data_fim: date):
+    def _criar_movement_of_goods(data_inicio: date, data_fim: date):
         """Cria elemento MovementOfGoods se existir"""
         return None
 
     @staticmethod
-    def _criar_working_documents(empresa, data_inicio: date, data_fim: date):
+    def _criar_working_documents(data_inicio: date, data_fim: date):
         """Cria elemento WorkingDocuments se existir"""
         return None
 
     @staticmethod
-    def _criar_payments(empresa, data_inicio: date, data_fim: date):
+    def _criar_payments(data_inicio: date, data_fim: date):
         """Cria elemento Payments se existir"""
         return None
 
     @staticmethod
-    def gerar_zip_assinado(xml_str: str, empresa):
-        """Gera arquivo ZIP com o XML e hash"""
-        xml_path = SAFTExportService.salvar_xml(xml_str, empresa)
+    def gerar_zip_assinado(xml_str: str) -> str:
+        """Gera arquivo ZIP com o XML e hash para o tenant ativo"""
+        xml_path = SAFTExportService.salvar_xml(xml_str)
         hash_str = hashlib.sha256(xml_str.encode('utf-8')).hexdigest()
         zip_path = xml_path.replace('.xml', '.zip')
 
@@ -1096,11 +1003,16 @@ class SAFTExportService:
         return zip_path
 
     @staticmethod
-    def salvar_xml(xml_str: str, empresa) -> str:
-        """Salva o arquivo XML"""
-        pasta = os.path.join(settings.MEDIA_ROOT, "saft", empresa.nome.replace(" ", "_"))
+    def salvar_xml(xml_str: str) -> str:
+        """Salva o arquivo XML organizando pela pasta do schema do tenant ativo"""
+        empresa = getattr(connection, 'tenant', None)
+        nome_pasta = empresa.schema_name if empresa else "default"
+        
+        pasta = os.path.join(settings.MEDIA_ROOT, "saft", nome_pasta)
         os.makedirs(pasta, exist_ok=True)
-        caminho = os.path.join(pasta, f"SAFT_{empresa.nif}_{timezone.now().strftime('%Y%m%d%H%M%S')}.xml")
+        
+        nif = empresa.nif if empresa else "000000000"
+        caminho = os.path.join(pasta, f"SAFT_{nif}_{timezone.now().strftime('%Y%m%d%H%M%S')}.xml")
 
         with open(caminho, "w", encoding="utf-8") as f:
             f.write(xml_str)
@@ -1108,74 +1020,74 @@ class SAFTExportService:
         return caminho
 
 
-
-class FiscalDashboardService:
-    """
-    Serviço para métricas e dashboard fiscal
-    """
-    
-    @staticmethod
-    def obter_metricas_fiscais(empresa: Empresa, periodo: Tuple[date, date]) -> Dict:
+    class FiscalDashboardService:
         """
-        Obtém métricas fiscais para dashboard
-        
-        Args:
-            empresa: Empresa
-            periodo: Tupla com data início e fim
-            
-        Returns:
-            Dict com métricas fiscais
+        Serviço para métricas e dashboard fiscal no padrão django-tenants.
+        As consultas operam diretamente no Schema ativo no banco de dados.
         """
-        data_inicio, data_fim = periodo
         
-        try:
-            # Retenções no período
-            retencoes = RetencaoFonte.objects.filter(
-                empresa=empresa,
-                data_retencao__range=[data_inicio, data_fim]
-            )
+        @staticmethod
+        def obter_metricas_fiscais(periodo: Tuple[date, date]) -> Dict[str, Any]:
+            """
+            Obtém métricas fiscais para o dashboard do Tenant ativo no contexto atual.
             
-            total_retencoes = sum(r.valor_retido for r in retencoes)
-            retencoes_pagas = retencoes.filter(paga_ao_estado=True).count()
-            retencoes_pendentes = retencoes.filter(paga_ao_estado=False).count()
-            
-            # Taxas ativas
-            taxas_ativas = TaxaIVAAGT.objects.filter(empresa=empresa, ativo=True).count()
-            
-            # Documentos assinados
-            assinatura = AssinaturaDigital.objects.filter(empresa=empresa).first()
-            series_ativas = len(assinatura.dados_series_fiscais) if assinatura else 0
-            
-            metricas = {
-                'retencoes': {
-                    'total_valor': float(total_retencoes),
-                    'total_count': retencoes.count(),
-                    'pagas_count': retencoes_pagas,
-                    'pendentes_count': retencoes_pendentes
-                },
-                'taxas': {
-                    'ativas_count': taxas_ativas
-                },
-                'assinatura': {
-                    'configurada': assinatura is not None,
-                    'series_ativas': series_ativas,
-                    'ultimo_hash': assinatura.ultimo_hash[:20] + '...' if assinatura and assinatura.ultimo_hash else None
-                }
-            }
-            
-            logger.info(
-                f"Métricas fiscais calculadas",
-                extra={
-                    'empresa_id': empresa.id,
-                    'periodo': f"{data_inicio} - {data_fim}",
-                    'total_retencoes': float(total_retencoes)
-                }
-            )
-            
-            return metricas
-            
-        except Exception as e:
-            logger.error(f"Erro ao calcular métricas fiscais: {e}")
-            raise FiscalServiceError(f"Erro no cálculo: {e}")
+            Args:
+                periodo: Tupla com data início e fim (ex: (date_inicio, date_fim))
+                
+            Returns:
+                Dict com métricas fiscais
+            """
+            from apps.fiscal.models import AssinaturaDigital, RetencaoFonte, TaxaIVAAGT
 
-
+            data_inicio, data_fim = periodo
+            empresa = getattr(connection, 'tenant', None)
+            
+            try:
+                # Retenções no período (sem filtro de empresa=empresa, pois o schema já é isolado)
+                retencoes = RetencaoFonte.objects.filter(
+                    data_retencao__range=[data_inicio, data_fim]
+                )
+                
+                total_retencoes = sum(r.valor_retido for r in retencoes)
+                retencoes_pagas = retencoes.filter(paga_ao_estado=True).count()
+                retencoes_pendentes = retencoes.filter(paga_ao_estado=False).count()
+                
+                # Taxas ativas no tenant
+                taxas_ativas = TaxaIVAAGT.objects.filter(ativa=True).count()
+                
+                # Documentos assinados / Assinatura digital do tenant
+                assinatura = AssinaturaDigital.objects.first()
+                series_ativas = len(assinatura.dados_series_fiscais) if assinatura and hasattr(assinatura, 'dados_series_fiscais') and assinatura.dados_series_fiscais else 0
+                
+                metricas = {
+                    'retencoes': {
+                        'total_valor': float(total_retencoes),
+                        'total_count': retencoes.count(),
+                        'pagas_count': retencoes_pagas,
+                        'pendentes_count': retencoes_pendentes
+                    },
+                    'taxas': {
+                        'ativas_count': taxas_ativas
+                    },
+                    'assinatura': {
+                        'configurada': assinatura is not None,
+                        'series_ativas': series_ativas,
+                        'ultimo_hash': assinatura.ultimo_hash[:20] + '...' if assinatura and hasattr(assinatura, 'ultimo_hash') and assinatura.ultimo_hash else None
+                    }
+                }
+                
+                logger.info(
+                    "Métricas fiscais calculadas para o tenant",
+                    extra={
+                        'schema_name': getattr(empresa, 'schema_name', 'desconhecido'),
+                        'periodo': f"{data_inicio} - {data_fim}",
+                        'total_retencoes': float(total_retencoes)
+                    }
+                )
+                
+                return metricas
+            
+            except Exception as e:
+                logger.error(f"Erro ao calcular métricas fiscais: {e}", exc_info=True)
+                raise FiscalServiceError(f"Erro no cálculo das métricas fiscais: {e}")
+                

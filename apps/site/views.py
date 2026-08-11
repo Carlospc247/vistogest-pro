@@ -29,12 +29,15 @@ from .serializers import (
 # API VIEWSETS (MOBILE / EXTERNO)
 # ==========================================
 class TenantBaseViewSet(viewsets.ModelViewSet):
+    """
+    Base para ViewSets dentro do schema do Tenant.
+    O isolamento já é feito pelo schema do PostgreSQL (django-tenants) —
+    não é necessário filtrar por 'empresa' ou 'tenant' no queryset.
+    """
     permission_classes = [permissions.IsAuthenticated]
+
     def get_queryset(self):
-        tenant = getattr(self.request.user, "empresa", None)
-        if tenant:
-            return self.queryset.filter(pagina__empresa=tenant) if hasattr(self.queryset.model, "pagina") else self.queryset.filter(empresa=tenant)
-        return self.queryset.none()
+        return self.queryset
 
 class PaginaViewSet(TenantBaseViewSet): queryset = Pagina.objects.all(); serializer_class = PaginaSerializer
 class SecaoViewSet(TenantBaseViewSet): queryset = Secao.objects.all(); serializer_class = SecaoSerializer
@@ -117,7 +120,7 @@ class SiteConfigDashboardView(LoginRequiredMixin, BaseMPAView):
 
 class PublicarSiteView(LoginRequiredMixin, View):
     def post(self, request, pk):
-        pagina = get_object_or_404(Pagina, id=pk, empresa=request.user.empresa)
+        pagina = get_object_or_404(Pagina, id=pk)
         pagina.em_rascunho = False
         pagina.ativo = True
         pagina.save()
@@ -126,7 +129,7 @@ class PublicarSiteView(LoginRequiredMixin, View):
 
 class AtualizarDesignGlobalView(LoginRequiredMixin, View):
     def post(self, request):
-        pagina = get_object_or_404(Pagina, empresa=request.user.empresa)
+        pagina = get_object_or_404(Pagina)
         pagina.conteudo_json.update({
             'cor_primaria': request.POST.get('cor_primaria'),
             'cor_secundaria': request.POST.get('cor_secundaria'),
@@ -138,7 +141,7 @@ class AtualizarDesignGlobalView(LoginRequiredMixin, View):
 
 class AdicionarSecaoView(LoginRequiredMixin, View):
     def post(self, request, pagina_id):
-        pagina = get_object_or_404(Pagina, id=pagina_id, empresa=request.user.empresa)
+        pagina = get_object_or_404(Pagina, id=pagina_id)
         tipo = request.POST.get('tipo')
         esquemas = {
             'carrossel': {"slides": [{"imagem_url": "", "titulo": "Novo Slide", "subtitulo": "", "texto_botao": "Clique Aqui", "link_botao": ""}], "autoplay": True},
@@ -157,15 +160,15 @@ class ReordenarSecoesView(LoginRequiredMixin, View):
         data = json.loads(request.body)
         with transaction.atomic():
             for item in data.get('secoes', []):
-                Secao.objects.filter(id=item['id'], pagina__empresa=request.user.empresa).update(ordem=item['posicao'])
+                Secao.objects.filter(id=item['id']).update(ordem=item['posicao'])
         return JsonResponse({'status': 'success'})
 
 class EditarConteudoSecaoView(LoginRequiredMixin, View):
     def get(self, request, secao_id):
-        secao = get_object_or_404(Secao, id=secao_id, pagina__empresa=request.user.empresa)
+        secao = get_object_or_404(Secao, id=secao_id)
         return JsonResponse({'status': 'success', 'dados': secao.dados, 'tipo': secao.tipo})
     def post(self, request, secao_id):
-        secao = get_object_or_404(Secao, id=secao_id, pagina__empresa=request.user.empresa)
+        secao = get_object_or_404(Secao, id=secao_id)
         novos_dados = request.POST.dict()
         novos_dados.pop('csrfmiddlewaretoken', None)
         secao.dados = novos_dados

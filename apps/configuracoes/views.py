@@ -135,8 +135,7 @@ class PersonalizacaoInterfaceUpdateView(ConfiguracoesBaseView, PermissaoAcaoMixi
     def get_object(self, queryset=None):
         # Prioriza a configuração do utilizador; se não existir, usa/cria a da empresa
         obj, created = PersonalizacaoInterface.objects.get_or_create(
-            usuario=self.request.user, 
-            defaults={'empresa': self.get_empresa()}
+            usuario=self.request.user
         )
         return obj
 

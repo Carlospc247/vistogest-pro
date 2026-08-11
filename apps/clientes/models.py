@@ -147,16 +147,15 @@ class Cliente(TimeStampedModel):
     observacoes = models.TextField(blank=True)
     observacoes_internas = models.TextField(blank=True, help_text="Observações internas (não visíveis ao cliente)")
     
-    empresa = models.ForeignKey(Empresa, on_delete=models.CASCADE, related_name='clientes')
     
     class Meta:
         verbose_name = "Cliente"
         verbose_name_plural = "Clientes"
-        unique_together = [['codigo_cliente', 'empresa']]
+        unique_together = [['codigo_cliente']]
         indexes = [
             models.Index(fields=['codigo_cliente']),
             models.Index(fields=['bi']),
-            models.Index(fields=['nome_completo', 'empresa']),
+            models.Index(fields=['nome_completo']),
             models.Index(fields=['telefone']),
             models.Index(fields=['email']),
             models.Index(fields=['ativo', 'bloqueado']),
@@ -185,7 +184,7 @@ class Cliente(TimeStampedModel):
         # Lógica de geração de código ATÓMICA e SEGURA (a única a manter)
         if not self.codigo_cliente:
             with transaction.atomic():
-                ultimo = Cliente.objects.filter(empresa=self.empresa).order_by('-id').first()
+                ultimo = Cliente.objects.filter().order_by('-id').first()
                 
                 if not ultimo or not ultimo.codigo_cliente.startswith('CLI'):
                     novo_codigo = "CLI0001"
@@ -262,13 +261,13 @@ class Cliente(TimeStampedModel):
     def classificacao_fidelidade(self):
         """Classificação de fidelidade baseada em compras"""
         total = self.total_compras
-        if total >= 50:
+        if total >= 150:
             return 'Diamante'
-        elif total >= 20:
+        elif total >= 120:
             return 'Ouro'
-        elif total >= 10:
+        elif total >= 100:
             return 'Prata'
-        elif total >= 5:
+        elif total >= 25:
             return 'Bronze'
         else:
             return 'Novo'
@@ -638,13 +637,9 @@ class GrupoCliente(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
-    #empresa = models.ForeignKey(
-     #   settings.AUTH_USER_MODEL,  # ou Empresa, se já tens esse model
-      #  on_delete=models.CASCADE,
-       # related_name="grupos_clientes"
-    #)
+    
     empresa = models.ForeignKey(
-        Empresa,  # ou Empresa, se já tens esse model
+        Empresa,
         on_delete=models.CASCADE,
         related_name="grupos_clientes"
     )

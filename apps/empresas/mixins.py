@@ -17,7 +17,7 @@ class BaseViewMixin(LoginRequiredMixin):
     # Exemplo: podes adicionar métodos comuns aqui
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        context['app_name'] = _("Pharmassys")
+        context['app_name'] = _("Vistogest-pro")
         return context
 
 

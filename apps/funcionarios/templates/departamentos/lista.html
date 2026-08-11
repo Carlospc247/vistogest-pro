@@ -21,7 +21,6 @@
                             <th>Código</th>
                             <th>Nome</th>
                             <th>Responsável</th>
-                            <th>Loja</th>
                             <th>Centro de Custo</th>
                             <th>Status</th>
                             <th>Ações</th>
@@ -33,7 +32,7 @@
                             <td>{{ departamento.codigo }}</td>
                             <td>{{ departamento.nome }}</td>
                             <td>{{ departamento.responsavel.nome_completo|default:"—" }}</td>
-                            <td>{{ departamento.loja.nome }}</td>
+                            <td>{{ departamento.nome }}</td>
                             <td>{{ departamento.centro_custo|default:"—" }}</td>
                             <td>
                                 {% if departamento.ativo %}

@@ -4,7 +4,7 @@ from django.db import models
 from django.core.validators import MinValueValidator, MaxValueValidator
 from django.core.exceptions import ValidationError
 from apps.core.models import TimeStampedModel, Usuario
-from apps.empresas.models import Empresa, Loja, Categoria
+from apps.empresas.models import Empresa, Categoria
 from apps.produtos.models import Produto, Categoria
 from apps.clientes.models import Cliente
 from apps.vendas.models import Venda
@@ -16,7 +16,7 @@ import uuid
 from django.contrib.contenttypes.models import ContentType
 from django.contrib.auth.models import User
 from apps.core.models import TimeStampedModel
-from apps.empresas.models import Empresa, Loja
+from apps.empresas.models import Empresa
 from django.db import models
 from django.contrib.auth.models import User
 
@@ -112,7 +112,6 @@ class RelatorioGerado(TimeStampedModel):
     data_fim = models.DateField(null=True, blank=True)
     
     # Filtros aplicados
-    lojas = models.ManyToManyField(Loja, blank=True)
     categorias = models.ManyToManyField(Categoria, blank=True)
     funcionarios = models.ManyToManyField(Funcionario, blank=True)
     
@@ -147,7 +146,6 @@ class RelatorioGerado(TimeStampedModel):
     )
     data_aprovacao = models.DateTimeField(null=True, blank=True)
     
-    empresa = models.ForeignKey(Empresa, on_delete=models.CASCADE)
     
     class Meta:
         verbose_name = "Relatório Gerado"
@@ -229,18 +227,16 @@ class MetricaKPI(TimeStampedModel):
     ], default='numero')
     
     # Filtros aplicados
-    loja = models.ForeignKey(Loja, on_delete=models.CASCADE, null=True, blank=True)
     categoria = models.ForeignKey(Categoria, on_delete=models.SET_NULL, null=True, blank=True)
     
     # Detalhes do cálculo
     detalhes_calculo = models.JSONField(default=dict, blank=True)
     
-    empresa = models.ForeignKey(Empresa, on_delete=models.CASCADE)
     
     class Meta:
         verbose_name = "Métrica KPI"
         verbose_name_plural = "Métricas KPIs"
-        unique_together = ['codigo', 'data_referencia', 'loja', 'empresa']
+        unique_together = ['codigo', 'data_referencia']
         ordering = ['-data_referencia', 'tipo_metrica', 'codigo']
     
     def __str__(self):
@@ -312,12 +308,11 @@ class DashboardConfig(TimeStampedModel):
     ativo = models.BooleanField(default=True)
     dashboard_padrao = models.BooleanField(default=False)
     
-    empresa = models.ForeignKey(Empresa, on_delete=models.CASCADE)
     
     class Meta:
         verbose_name = "Configuração de Dashboard"
         verbose_name_plural = "Configurações de Dashboards"
-        unique_together = ['codigo', 'usuario', 'empresa']
+        unique_together = ['codigo', 'usuario']
         ordering = ['nome']
     
     def __str__(self):
@@ -331,8 +326,7 @@ class AnaliseVendas(TimeStampedModel):
         ('cliente', 'Por Cliente'),
         ('vendedor', 'Por Vendedor'),
         ('forma_pagamento', 'Por Forma de Pagamento'),
-        ('periodo', 'Por Período'),
-        ('loja', 'Por Loja'),
+        ('periodo', 'Por Período')
     ]
     
     # Período da análise
@@ -341,7 +335,6 @@ class AnaliseVendas(TimeStampedModel):
     dimensao = models.CharField(max_length=20, choices=DIMENSAO_CHOICES)
     
     # Filtros aplicados
-    loja = models.ForeignKey(Loja, on_delete=models.CASCADE, null=True, blank=True)
     categoria = models.ForeignKey(Categoria, on_delete=models.SET_NULL, null=True, blank=True)
     
     # Resultados da análise
@@ -371,7 +364,6 @@ class AnaliseVendas(TimeStampedModel):
     data_processamento = models.DateTimeField(auto_now_add=True)
     usuario_solicitante = models.ForeignKey(Usuario, on_delete=models.CASCADE)
     
-    empresa = models.ForeignKey(Empresa, on_delete=models.CASCADE)
     
     class Meta:
         verbose_name = "Análise de Vendas"
@@ -397,7 +389,6 @@ class AnaliseEstoque(TimeStampedModel):
     periodo_analise_dias = models.IntegerField(default=90)
     
     # Filtros
-    loja = models.ForeignKey(Loja, on_delete=models.CASCADE, null=True, blank=True)
     categoria = models.ForeignKey(Categoria, on_delete=models.SET_NULL, null=True, blank=True)
     
     # Resultados gerais
@@ -431,7 +422,6 @@ class AnaliseEstoque(TimeStampedModel):
     data_processamento = models.DateTimeField(auto_now_add=True)
     usuario_solicitante = models.ForeignKey(Usuario, on_delete=models.CASCADE)
     
-    empresa = models.ForeignKey(Empresa, on_delete=models.CASCADE)
     
     class Meta:
         verbose_name = "Análise de Estoque"
@@ -456,8 +446,6 @@ class AnaliseClientes(TimeStampedModel):
     data_inicio = models.DateField()
     data_fim = models.DateField()
     
-    # Filtros
-    loja = models.ForeignKey(Loja, on_delete=models.CASCADE, null=True, blank=True)
     
     # Estatísticas gerais
     total_clientes_analisados = models.IntegerField(default=0)
@@ -496,8 +484,7 @@ class AnaliseClientes(TimeStampedModel):
     data_processamento = models.DateTimeField(auto_now_add=True)
     usuario_solicitante = models.ForeignKey(Usuario, on_delete=models.CASCADE)
     
-    empresa = models.ForeignKey(Empresa, on_delete=models.CASCADE)
-    
+   
     class Meta:
         verbose_name = "Análise de Clientes"
         verbose_name_plural = "Análises de Clientes"
@@ -539,7 +526,6 @@ class AlertaGerencial(TimeStampedModel):
     
     # Contexto
     data_referencia = models.DateField()
-    loja = models.ForeignKey(Loja, on_delete=models.CASCADE, null=True, blank=True)
     produto = models.ForeignKey(Produto, on_delete=models.CASCADE, null=True, blank=True)
     cliente = models.ForeignKey(Cliente, on_delete=models.CASCADE, null=True, blank=True)
     funcionario = models.ForeignKey(Funcionario, on_delete=models.CASCADE, null=True, blank=True)
@@ -558,7 +544,6 @@ class AlertaGerencial(TimeStampedModel):
     )
     observacoes_resolucao = models.TextField(blank=True)
     
-    empresa = models.ForeignKey(Empresa, on_delete=models.CASCADE)
     
     class Meta:
         verbose_name = "Alerta Gerencial"
@@ -584,8 +569,7 @@ class TemplateRelatorio(TimeStampedModel):
     """
     nome = models.CharField("Nome do Template", max_length=255)
     descricao = models.TextField("Descrição", blank=True)
-    empresa = models.ForeignKey(Empresa, on_delete=models.CASCADE, related_name='templates_relatorios')
-
+    
     # Torna o template genérico para qualquer modelo (Venda, Produto, etc.)
     modelo_base = models.ForeignKey(
         ContentType, 
@@ -601,7 +585,7 @@ class TemplateRelatorio(TimeStampedModel):
     class Meta:
         verbose_name = "Template de Relatório"
         verbose_name_plural = "Templates de Relatórios"
-        unique_together = ('empresa', 'nome')
+        unique_together = ('nome',)
         ordering = ['nome']
 
     def __str__(self):

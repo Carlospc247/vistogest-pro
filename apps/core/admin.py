@@ -1,3 +1,4 @@
+# apps/core/admin.py
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin
 from django.utils.translation import gettext_lazy as _
@@ -10,18 +11,18 @@ from .models import Usuario, AuditoriaAcesso, IPConhecido, VerificacaoSeguranca
 class UsuarioAdmin(UserAdmin):
     """
     RIGOR SOTARQ: Painel de Gestão de Utilizadores Multi-tenant.
-    Permite vincular o utilizador à Empresa (Tenant) e à Loja específica.
+    Permite vincular o utilizador à Empresa (Tenant) específica.
     """
     # Exibição na lista principal
-    list_display = ('username', 'email', 'empresa', 'loja', 'e_administrador_empresa', 'is_staff')
-    list_filter = ('is_staff', 'is_superuser', 'e_administrador_empresa', 'empresa')
+    list_display = ('username', 'email', 'e_administrador_empresa', 'is_staff')
+    list_filter = ('is_staff', 'is_superuser', 'e_administrador_empresa')
     
     # Organização dos campos no formulário de edição
     fieldsets = (
         (None, {'fields': ('username', 'password')}),
         (_('Informações Pessoais'), {'fields': ('first_name', 'last_name', 'email', 'telefone', 'foto')}),
         (_('Vínculo Empresarial (Multi-tenant)'), {
-            'fields': ('empresa', 'loja', 'e_administrador_empresa'),
+            'fields': ('e_administrador_empresa',),
             'description': 'Selecione o Tenant e a Unidade de Negócio deste utilizador.'
         }),
         (_('Permissões de Sistema'), {
@@ -33,7 +34,7 @@ class UsuarioAdmin(UserAdmin):
     # Campos para criação de novo usuário
     add_fieldsets = UserAdmin.add_fieldsets + (
         (_('Vínculo Empresarial'), {
-            'fields': ('empresa', 'loja', 'e_administrador_empresa'),
+            'fields': ('e_administrador_empresa',),
         }),
     )
 

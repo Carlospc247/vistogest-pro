@@ -56,7 +56,7 @@ class ContaReceberForm(forms.ModelForm):
         }
     
     def __init__(self, *args, **kwargs):
-        self.empresa = kwargs.pop('empresa', None)
+        
         super().__init__(*args, **kwargs)
         
         # Filtrar querysets por empresa
@@ -68,7 +68,7 @@ class ContaReceberForm(forms.ModelForm):
             )
             self.fields['centro_custo'].queryset = self.empresa.centro_custos.filter(ativo=True)
             self.fields['conta_pai'].queryset = ContaReceber.objects.filter(
-                empresa=self.empresa, conta_pai__isnull=True
+                conta_pai__isnull=True
             )
         
         # Configurar crispy forms
@@ -201,7 +201,7 @@ class ContaPagarForm(forms.ModelForm):
         }
     
     def __init__(self, *args, **kwargs):
-        self.empresa = kwargs.pop('empresa', None)
+        
         super().__init__(*args, **kwargs)
         
         # Filtrar querysets por empresa
@@ -278,7 +278,7 @@ class CentroCustoForm(forms.ModelForm):
     class Meta:
         model = CentroCusto
         fields = [
-            'codigo', 'nome', 'descricao', 'responsavel', 'ativo', 'loja'
+            'codigo', 'nome', 'descricao', 'responsavel', 'ativo'
         ]
         
         widgets = {
@@ -294,22 +294,18 @@ class CentroCustoForm(forms.ModelForm):
             'responsavel': forms.Select(
                 attrs={'class': 'form-control'}
             ),
-            'loja': forms.Select(
-                attrs={'class': 'form-control'}
-            ),
         }
     
     def __init__(self, *args, **kwargs):
-        self.empresa = kwargs.pop('empresa', None)
+        
         super().__init__(*args, **kwargs)
         
         # Filtrar querysets por empresa
         if self.empresa:
             from apps.core.models import Usuario
             self.fields['responsavel'].queryset = Usuario.objects.filter(
-                empresa=self.empresa, is_active=True
+                is_active=True
             )
-            self.fields['loja'].queryset = self.empresa.lojas.filter(ativa=True)
         
         # Configurar crispy forms
         self.helper = FormHelper()
@@ -324,7 +320,6 @@ class CentroCustoForm(forms.ModelForm):
             'descricao',
             Row(
                 Column('responsavel', css_class='form-group col-md-6 mb-0'),
-                Column('loja', css_class='form-group col-md-6 mb-0'),
                 css_class='form-row'
             ),
             'ativo',
@@ -342,8 +337,7 @@ class CentroCustoForm(forms.ModelForm):
         # Verificar se código já existe na empresa
         if self.empresa:
             existe = CentroCusto.objects.filter(
-                empresa=self.empresa,
-                codigo=codigo
+                                codigo=codigo
             ).exclude(id=self.instance.id if self.instance else None).exists()
             
             if existe:
@@ -411,8 +405,7 @@ class MovimentoCaixaForm(forms.ModelForm):
         }
     
     def __init__(self, *args, **kwargs):
-        self.empresa = kwargs.pop('empresa', None)
-        self.loja = kwargs.pop('loja', None)
+
         super().__init__(*args, **kwargs)
         
         # Filtrar querysets por empresa
@@ -550,11 +543,9 @@ class MovimentoCaixaForm(forms.ModelForm):
     def save(self, commit=True):
         movimento = super().save(commit=False)
         
-        # Definir empresa e loja
+        # Definir empresa
         if self.empresa:
             movimento.empresa = self.empresa
-        if self.loja:
-            movimento.loja = self.loja
         
         if commit:
             movimento.save()
@@ -670,8 +661,16 @@ class ReceberContaForm(forms.Form):
         })
     )
 
+from datetime import date
+from django import forms
+from .models import ContaBancaria, MovimentoCaixa
+
+
 class PagarContaForm(forms.Form):
-    """Formulário para pagar conta"""
+    """
+    Formulário para pagar conta.
+    Ajustado para django_tenants (Isolamento Físico via Schema PostgreSQL).
+    """
     
     valor_pago = forms.DecimalField(
         max_digits=12,
@@ -698,7 +697,8 @@ class PagarContaForm(forms.Form):
     
     conta_bancaria = forms.ModelChoiceField(
         queryset=ContaBancaria.objects.none(),
-        widget=forms.Select(attrs={'class': 'form-control'})
+        widget=forms.Select(attrs={'class': 'form-control'}),
+        required=True
     )
     
     observacoes = forms.CharField(
@@ -711,16 +711,12 @@ class PagarContaForm(forms.Form):
     )
     
     def __init__(self, *args, **kwargs):
-        empresa = kwargs.pop('empresa', None)
         super().__init__(*args, **kwargs)
         
-        if empresa:
-            self.fields['conta_bancaria'].queryset = ContaBancaria.objects.filter(
-                empresa=empresa, ativa=True
-            )
-
-
-from django import forms
+        # O ORM filtra automaticamente apenas as contas bancárias ativas do schema atual
+        self.fields['conta_bancaria'].queryset = ContaBancaria.objects.filter(
+            ativa=True
+        )
 
 
 

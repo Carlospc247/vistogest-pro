@@ -12,7 +12,6 @@ from cloudinary.models import CloudinaryField
 # Página principal da empresa
 # ==========================================
 class Pagina(TimeStampedModel):
-    empresa = models.ForeignKey(Empresa, on_delete=models.CASCADE, related_name="paginas")
     titulo = models.CharField(max_length=200)
     slug = models.SlugField(unique=True)
     conteudo_json = models.JSONField(default=dict)  # Estrutura no-code

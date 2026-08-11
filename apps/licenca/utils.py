@@ -66,7 +66,6 @@ class LicenseValidator:
                 'empresa': licenca.empresa.nome,
                 'tipo': licenca.tipo,
                 'max_usuarios': licenca.max_usuarios,
-                'max_lojas': licenca.max_lojas,
                 'dias_restantes': licenca.dias_para_expiracao,
                 'status': licenca.status_licenca
             }
@@ -128,8 +127,7 @@ class LicenseValidator:
             resultado['detalhes'] = {
                 'total_licencas': len(licencas_validas),
                 'max_usuarios_total': sum(l.max_usuarios for l in licencas_validas),
-                'max_lojas_total': sum(l.max_lojas for l in licencas_validas)
-            }
+                }
             
             # Log para a primeira licença válida (representativo)
             if licencas_validas:
@@ -220,7 +218,6 @@ def obter_info_licenca(license_key):
             'status': licenca.status_licenca,
             'data_expiracao': licenca.data_expiracao,
             'max_usuarios': licenca.max_usuarios,
-            'max_lojas': licenca.max_lojas,
             'esta_expirada': licenca.esta_expirada,
             'dias_restantes': licenca.dias_para_expiracao
         }

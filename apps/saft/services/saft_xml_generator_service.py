@@ -142,7 +142,7 @@ class SaftXmlGeneratorService:
         withholding_tax_entries = self.retencao_service.get_withholding_tax_entries(
              self.data_inicio, self.data_fim
         )
-        customer_entries = self.master_files_service.get_customers() 
+        customer_entries = self.master_files_service.get_clientes() 
         supplier_entries = self.master_files_service.get_suppliers() 
         product_entries = self.master_files_service.get_products() 
         tax_table_entries = self.master_files_service.get_tax_table() 

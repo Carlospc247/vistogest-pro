@@ -127,7 +127,7 @@ class FuncionariosView(LoginRequiredMixin, PermissaoAcaoMixin, ListView):
     paginate_by = 50
     
     def get_queryset(self):
-        queryset = Funcionario.objects.select_related('cargo', 'departamento', 'loja_principal')
+        queryset = Funcionario.objects.select_related('cargo', 'departamento')
         
         search = self.request.GET.get('search')
         if search:
@@ -271,7 +271,7 @@ class FuncionarioCreateView(LoginRequiredMixin, PermissaoAcaoMixin, CreateView):
         'nome_completo', 'bi', 'data_nascimento', 'sexo', 'estado_civil',
         'endereco', 'numero', 'bairro', 'cidade', 'provincia', 'postal',
         'telefone', 'whatsapp', 'email_pessoal', 'email_corporativo',
-        'cargo', 'departamento', 'loja_principal', 'supervisor',
+        'cargo', 'departamento', 'supervisor',
         'tipo_contrato', 'data_admissao', 'salario_atual',
         'vale_alimentacao', 'vale_transporte', 'escolaridade'
     ]
@@ -409,8 +409,7 @@ class CargoListView(LoginRequiredMixin, PermissaoAcaoMixin, ListView):
     paginate_by = 20
 
     def get_queryset(self):
-        return Cargo.objects.filter(empresa=self.request.user.empresa)
-
+        return Cargo.objects.all()
 class CargoDetailView(LoginRequiredMixin, PermissaoAcaoMixin, DetailView):
     acao_requerida = 'acessar_rh'
     model = Cargo
@@ -418,7 +417,7 @@ class CargoDetailView(LoginRequiredMixin, PermissaoAcaoMixin, DetailView):
     context_object_name = 'cargo'
 
     def get_queryset(self):
-        return Cargo.objects.filter(empresa=self.request.user.empresa)
+        return Cargo.objects.all()
     
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -455,7 +454,7 @@ class CargoUpdateView(LoginRequiredMixin, PermissaoAcaoMixin, UpdateView):
     success_url = reverse_lazy('funcionarios:cargo_lista')
 
     def get_queryset(self):
-        return Cargo.objects.filter(empresa=self.request.user.empresa)
+        return Cargo.objects.all()
     
 
 class CargoDeleteView(LoginRequiredMixin, PermissaoAcaoMixin, DeleteView):
@@ -465,7 +464,7 @@ class CargoDeleteView(LoginRequiredMixin, PermissaoAcaoMixin, DeleteView):
     success_url = reverse_lazy('funcionarios:cargo_lista')
 
     def get_queryset(self):
-        return Cargo.objects.filter(empresa=self.request.user.empresa)
+        return Cargo.objects.all()
 
 # =====================================
 # DEPARTAMENTOS
@@ -492,7 +491,7 @@ class DepartamentoCreateView(LoginRequiredMixin, PermissaoAcaoMixin, CreateView)
     acao_requerida = 'acessar_rh'
     model = Departamento
     template_name = 'departamentos/form.html'
-    fields = ['nome', 'codigo', 'descricao', 'responsavel', 'loja', 'centro_custo']
+    fields = ['nome', 'codigo', 'descricao', 'responsavel', 'centro_custo']
     success_url = reverse_lazy('funcionarios:departamento_lista')
 
 class DepartamentoUpdateView(LoginRequiredMixin, PermissaoAcaoMixin, UpdateView):
@@ -533,7 +532,7 @@ class JornadaTrabalhoCreateView(LoginRequiredMixin, PermissaoAcaoMixin, CreateVi
     template_name = 'jornadas/form.html'
     fields = [
         'nome', 'turno', 'horario_entrada', 'horario_saida',
-        'horario_almoco_inicio', 'horario_almoco_fim', 'departamento', 'loja'
+        'horario_almoco_inicio', 'horario_almoco_fim', 'departamento'
     ]
     success_url = reverse_lazy('funcionarios:jornada_lista')
 
@@ -554,7 +553,7 @@ class EscalaTrabalhoView(LoginRequiredMixin, PermissaoAcaoMixin, TemplateView):
         
         context['escalas'] = EscalaTrabalho.objects.filter(
             data_trabalho__range=[data_inicio, data_fim]
-        ).select_related('funcionario', 'loja', 'departamento')
+        ).select_related('funcionario', 'departamento')
         
         return context
 
@@ -627,7 +626,6 @@ class RegistrarPontoView(LoginRequiredMixin, TemplateView):
                 data_registro=hoje,
                 hora_registro=agora,
                 tipo_registro=tipo_registro.lower().replace(' ', '_'),
-                loja=funcionario.loja_principal,
                 ip_registro=request.META.get('REMOTE_ADDR')
             )
             

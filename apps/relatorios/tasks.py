@@ -15,6 +15,8 @@ from .utils import (
     detectar_alertas_automaticos
 )
 from apps.empresas.models import Empresa
+from django_tenants.utils import schema_context
+
 
 logger = logging.getLogger(__name__)
 
@@ -79,38 +81,33 @@ def executar_agendamentos_relatorios():
         logger.error(f'Erro ao executar agendamentos: {e}')
 
 
+
+
 @shared_task
 def gerar_kpis_automaticos():
     """
-    Task para gerar KPIs automáticos diários
+    Task para gerar KPIs automáticos diários em todos os tenants (empresas) ativos.
+    Utiliza o isolamento físico do django_tenants via schema_context.
     """
     try:
         hoje = date.today()
         
-        for empresa in Empresa.objects.filter(ativa=True):
-            # KPI de vendas diárias
-            criar_kpi_automatico(
-                empresa=empresa,
-                codigo='VENDAS_DIA',
-                nome='Vendas do Dia',
-                tipo_metrica='vendas',
-                periodo='diario',
-                data_referencia=hoje
-            )
-            
-            # KPI de vendas por loja
-            for loja in empresa.lojas.filter(ativa=True):
+        # Filtra empresas ativas ignorando o schema público principal
+        empresas = Empresa.objects.filter(ativa=True).exclude(schema_name='public')
+        
+        for empresa in empresas:
+            # Alterna a conexão do banco de dados para o schema físico da empresa
+            with schema_context(empresa.schema_name):
+                # KPI de vendas diárias (escopo geral da empresa/tenant)
                 criar_kpi_automatico(
-                    empresa=empresa,
-                    codigo=f'VENDAS_DIA_LOJA_{loja.id}',
-                    nome=f'Vendas do Dia - {loja.nome}',
+                    codigo='VENDAS_DIA',
+                    nome='Vendas do Dia',
                     tipo_metrica='vendas',
                     periodo='diario',
-                    data_referencia=hoje,
-                    loja=loja
+                    data_referencia=hoje
                 )
         
-        logger.info('KPIs automáticos gerados com sucesso')
+        logger.info('KPIs automáticos gerados com sucesso para todos os tenants.')
         
     except Exception as e:
         logger.error(f'Erro ao gerar KPIs automáticos: {e}')
@@ -223,7 +220,7 @@ def enviar_relatorio_email_task(resultado_processamento, relatorio_id: int, dest
         Período de Análise: {relatorio.data_inicio} a {relatorio.data_fim}
 
         Atenciosamente,
-        Sistema de Relatórios Pharmassys
+        Sistema de Relatórios Vistogest
         """
         
         from_email = settings.DEFAULT_FROM_EMAIL

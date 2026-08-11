@@ -11,13 +11,13 @@ register = template.Library()
 def currency(value):
     """Formata valor como moeda brasileira"""
     if value is None:
-        return "R$ 0,00"
+        return "AO 0,00"
     
     try:
         value = float(value)
-        return f"R$ {value:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
+        return f"AO {value:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
     except (ValueError, TypeError):
-        return "R$ 0,00"
+        return "AO 0,00"
 
 @register.filter
 def percentage(value, decimal_places=2):

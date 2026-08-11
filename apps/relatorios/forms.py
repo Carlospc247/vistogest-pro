@@ -77,7 +77,7 @@ class TipoRelatorioForm(BaseRelatoriosForm, forms.ModelForm):
         if self.empresa:
             # Filtrar cargos da empresa
             self.fields['cargos_permitidos'].queryset = Cargo.objects.filter(
-                empresa=self.empresa, ativo=True
+                ativo=True
             )
         
         # Valores iniciais para edição
@@ -138,12 +138,11 @@ class RelatorioGeradoForm(BaseRelatoriosForm, forms.ModelForm):
         model = RelatorioGerado
         fields = [
             'tipo_relatorio', 'formato', 'data_inicio', 'data_fim',
-            'parametros_text', 'lojas', 'categorias', 'funcionarios'
+            'parametros_text', 'categorias', 'funcionarios'
         ]
         widgets = {
             'data_inicio': forms.DateInput(attrs={'type': 'date'}),
             'data_fim': forms.DateInput(attrs={'type': 'date'}),
-            'lojas': forms.CheckboxSelectMultiple(),
             'categorias': forms.CheckboxSelectMultiple(),
             'funcionarios': forms.CheckboxSelectMultiple(),
         }
@@ -156,12 +155,11 @@ class RelatorioGeradoForm(BaseRelatoriosForm, forms.ModelForm):
             self.fields['tipo_relatorio'].queryset = TipoRelatorio.objects.filter(
                 ativo=True
             )
-            self.fields['lojas'].queryset = self.empresa.lojas.filter(ativa=True)
             self.fields['categorias'].queryset = Categoria.objects.filter(
-                empresa=self.empresa, ativa=True
+                ativa=True
             )
             self.fields['funcionarios'].queryset = Funcionario.objects.filter(
-                empresa=self.empresa, ativo=True
+                ativo=True
             )
         
         # Valores padrão
@@ -226,7 +224,7 @@ class MetricaKPIForm(BaseRelatoriosForm, forms.ModelForm):
         fields = [
             'codigo', 'nome', 'descricao', 'tipo_metrica', 'periodo',
             'data_referencia', 'valor_atual', 'valor_anterior', 'valor_meta',
-            'unidade_medida', 'formato_exibicao', 'loja', 'categoria',
+            'unidade_medida', 'formato_exibicao', 'categoria',
             'detalhes_calculo_text'
         ]
         widgets = {
@@ -241,9 +239,8 @@ class MetricaKPIForm(BaseRelatoriosForm, forms.ModelForm):
         super().__init__(*args, **kwargs)
         
         if self.empresa:
-            self.fields['loja'].queryset = self.empresa.lojas.filter(ativa=True)
             self.fields['categoria'].queryset = Categoria.objects.filter(
-                empresa=self.empresa, ativa=True
+                ativa=True
             )
         
         # Valores iniciais
@@ -261,16 +258,13 @@ class MetricaKPIForm(BaseRelatoriosForm, forms.ModelForm):
         if codigo:
             codigo = codigo.upper().strip()
             
-            # Verificar duplicatas considerando empresa, loja e data
+            # Verificar duplicatas considerando empresa,  e data
             data_referencia = self.cleaned_data.get('data_referencia')
-            loja = self.cleaned_data.get('loja')
-            
+           
             if data_referencia:
                 existing = MetricaKPI.objects.filter(
                     codigo=codigo,
-                    empresa=self.empresa,
                     data_referencia=data_referencia,
-                    loja=loja
                 )
                 
                 if self.instance.pk:
@@ -278,7 +272,7 @@ class MetricaKPIForm(BaseRelatoriosForm, forms.ModelForm):
                 
                 if existing.exists():
                     raise ValidationError(
-                        'Já existe uma métrica com este código para esta data e loja.'
+                        'Já existe uma métrica com este código para esta data.'
                     )
         
         return codigo
@@ -402,7 +396,6 @@ class DashboardConfigForm(BaseRelatoriosForm, forms.ModelForm):
         if dashboard_padrao and self.usuario and self.empresa:
             existing_default = DashboardConfig.objects.filter(
                 usuario=self.usuario,
-                empresa=self.empresa,
                 dashboard_padrao=True
             )
             
@@ -447,12 +440,6 @@ class FiltroAnaliseVendasForm(BaseRelatoriosForm):
         label='Data Fim'
     )
     
-    loja = forms.ModelChoiceField(
-        queryset=None,
-        required=False,
-        empty_label='Todas as lojas',
-        label='Loja'
-    )
     
     categoria = forms.ModelChoiceField(
         queryset=None,
@@ -465,9 +452,8 @@ class FiltroAnaliseVendasForm(BaseRelatoriosForm):
         super().__init__(*args, **kwargs)
         
         if self.empresa:
-            self.fields['loja'].queryset = self.empresa.lojas.filter(ativa=True)
             self.fields['categoria'].queryset = Categoria.objects.filter(
-                empresa=self.empresa, ativa=True
+                ativa=True
             )
         
         # Valores padrão
@@ -512,12 +498,6 @@ class FiltroAnaliseEstoqueForm(BaseRelatoriosForm):
         help_text='Quantos dias considerar para o cálculo'
     )
     
-    loja = forms.ModelChoiceField(
-        queryset=None,
-        required=False,
-        empty_label='Todas as lojas',
-        label='Loja'
-    )
     
     categoria = forms.ModelChoiceField(
         queryset=None,
@@ -530,9 +510,8 @@ class FiltroAnaliseEstoqueForm(BaseRelatoriosForm):
         super().__init__(*args, **kwargs)
         
         if self.empresa:
-            self.fields['loja'].queryset = self.empresa.lojas.filter(ativa=True)
             self.fields['categoria'].queryset = Categoria.objects.filter(
-                empresa=self.empresa, ativa=True
+                ativa=True
             )
         
         # Valor padrão
@@ -557,12 +536,6 @@ class FiltroAnaliseClientesForm(BaseRelatoriosForm):
         label='Data Fim'
     )
     
-    loja = forms.ModelChoiceField(
-        queryset=None,
-        required=False,
-        empty_label='Todas as lojas',
-        label='Loja'
-    )
     
     incluir_inativos = forms.BooleanField(
         required=False,
@@ -573,8 +546,6 @@ class FiltroAnaliseClientesForm(BaseRelatoriosForm):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         
-        if self.empresa:
-            self.fields['loja'].queryset = self.empresa.lojas.filter(ativa=True)
         
         # Valores padrão (últimos 6 meses)
         hoje = date.today()
@@ -616,7 +587,7 @@ class AlertaGerencialForm(BaseRelatoriosForm, forms.ModelForm):
         fields = [
             'tipo_alerta', 'prioridade', 'titulo', 'descricao',
             'valor_atual', 'valor_esperado', 'data_referencia',
-            'loja', 'produto', 'cliente', 'funcionario',
+            'produto', 'cliente', 'funcionario',
             'acoes_recomendadas_text'
         ]
         widgets = {
@@ -630,9 +601,8 @@ class AlertaGerencialForm(BaseRelatoriosForm, forms.ModelForm):
         super().__init__(*args, **kwargs)
         
         if self.empresa:
-            self.fields['loja'].queryset = self.empresa.lojas.filter(ativa=True)
             self.fields['funcionario'].queryset = Funcionario.objects.filter(
-                empresa=self.empresa, ativo=True
+                ativo=True
             )
             # Produtos e clientes da empresa também podem ser filtrados se necessário
         
@@ -784,7 +754,7 @@ class GerarRelatorioForm(BaseRelatoriosForm, forms.ModelForm):
         
         if self.empresa:
             self.fields['template'].queryset = TemplateRelatorio.objects.filter(
-                empresa=self.empresa, ativo=True
+                ativo=True
             )
     
     def clean_filtros_aplicados_text(self):
@@ -833,7 +803,7 @@ class AgendamentoRelatorioForm(BaseRelatoriosForm, forms.ModelForm):
         
         if self.empresa:
             self.fields['template'].queryset = TemplateRelatorio.objects.filter(
-                empresa=self.empresa, ativo=True
+                ativo=True
             )
         
         # Valores iniciais para edição

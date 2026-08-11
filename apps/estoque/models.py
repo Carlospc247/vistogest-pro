@@ -4,12 +4,24 @@ from django.db import models
 from django.core.validators import MinValueValidator, MaxValueValidator
 from django.core.exceptions import ValidationError
 from apps.core.models import TimeStampedModel, Usuario
-from apps.empresas.models import Empresa, Loja
+from apps.empresas.models import Empresa
 from apps.produtos.models import Produto, Lote
 from decimal import Decimal
 from datetime import date, datetime
 import uuid
 from django.db.models import Sum
+
+from datetime import date, timedelta
+from django.db import models
+from django.utils import timezone
+from django.contrib.auth import get_user_model
+
+from apps.core.models import TimeStampedModel
+from apps.produtos.models import Produto, Lote
+
+Usuario = get_user_model()
+
+
 
 
 class TipoMovimentacao(TimeStampedModel):
@@ -61,17 +73,15 @@ class MovimentacaoEstoque(TimeStampedModel):
     usuario = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name='movimentacoes_usuario')
     
     tipo = models.CharField(max_length=20, choices=TIPO_CHOICES)
-    loja = models.ForeignKey('empresas.Loja', on_delete=models.PROTECT, related_name='movimentacoes_loja')
 
     quantidade = models.IntegerField()
     motivo = models.CharField(max_length=200)
     observacoes = models.TextField(blank=True)
     
     @classmethod
-    def calcular_estoque_atual(cls, produto, loja=None):
+    def calcular_estoque_atual(cls, produto):
         filtros = {'produto': produto}
-        if loja:
-            filtros['loja'] = loja
+        
         resultado = cls.objects.filter(**filtros).aggregate(estoque_total=Sum('quantidade'))
         return resultado['estoque_total'] or 0
 
@@ -85,8 +95,12 @@ class MovimentacaoEstoque(TimeStampedModel):
 
 
 
+
 class Inventario(TimeStampedModel):
-    """Inventários de estoque"""
+    """
+    Model de Inventários de estoque.
+    Ajustado estritamente para django_tenants (Isolamento Físico por Schema PostgreSQL).
+    """
     STATUS_CHOICES = [
         ('planejado', 'Planejado'),
         ('em_andamento', 'Em Andamento'),
@@ -99,10 +113,8 @@ class Inventario(TimeStampedModel):
     titulo = models.CharField(max_length=200)
     descricao = models.TextField(blank=True)
     
-    # Escopo
-    loja = models.ForeignKey(Loja, on_delete=models.PROTECT, related_name='inventarios')
     categorias = models.ManyToManyField(
-        'empresas.Categoria',  # ✅ CORRIGIDO: referência correta
+        'empresas.Categoria',
         blank=True,
         help_text="Categorias incluídas (vazio = todas)"
     )
@@ -116,12 +128,12 @@ class Inventario(TimeStampedModel):
     
     # Responsáveis
     responsavel_planejamento = models.ForeignKey(
-        Usuario, 
+        'core.Usuario', 
         on_delete=models.PROTECT,
         related_name='inventarios_planejados'
     )
     responsaveis_contagem = models.ManyToManyField(
-        Usuario,
+        'core.Usuario',
         related_name='inventarios_contagem',
         help_text="Usuários responsáveis pela contagem"
     )
@@ -145,7 +157,6 @@ class Inventario(TimeStampedModel):
     )
     
     observacoes = models.TextField(blank=True)
-    empresa = models.ForeignKey(Empresa, on_delete=models.CASCADE)
     
     class Meta:
         verbose_name = "Inventário"
@@ -161,16 +172,18 @@ class Inventario(TimeStampedModel):
         super().save(*args, **kwargs)
     
     def gerar_numero_inventario(self):
-        """Gera número sequencial do inventário"""
+        """
+        Gera número sequencial do inventário isolado dentro do schema do Tenant ativo.
+        """
         from django.db.models import Max
-        ultimo_numero = Inventario.objects.filter(
-            empresa=self.empresa
-        ).aggregate(Max('numero_inventario'))['numero_inventario__max']
+        ultimo_numero = Inventario.objects.aggregate(
+            Max('numero_inventario')
+        )['numero_inventario__max']
         
         if ultimo_numero:
             try:
                 numero = int(ultimo_numero.split('-')[-1]) + 1
-            except:
+            except (ValueError, IndexError):
                 numero = 1
         else:
             numero = 1
@@ -183,7 +196,7 @@ class Inventario(TimeStampedModel):
             raise ValidationError("Apenas inventários planejados podem ser iniciados")
         
         self.status = 'em_andamento'
-        self.data_inicio = datetime.now()
+        self.data_inicio = timezone.now()
         
         # Gerar itens do inventário
         self.gerar_itens_inventario()
@@ -191,14 +204,15 @@ class Inventario(TimeStampedModel):
         self.save()
     
     def gerar_itens_inventario(self):
-        """Gera os itens a serem inventariados"""
-        # Filtros para produtos
-        filtros = {'empresa': self.empresa}
-        
+        """Gera os itens a serem inventariados para a empresa/tenant atual"""
+        from produtos.models import Produto
+        from .models import ItemInventario, MovimentacaoEstoque
+
+        filtros = {}
         if self.apenas_produtos_ativos:
             filtros['ativo'] = True
         
-        # Buscar produtos
+        # Buscar produtos (O ORM restringe automaticamente ao schema PostgreSQL atual)
         produtos = Produto.objects.filter(**filtros)
         
         # Filtrar por categorias se especificado
@@ -208,7 +222,7 @@ class Inventario(TimeStampedModel):
         count = 0
         for produto in produtos:
             # Calcular estoque atual
-            estoque_sistema = MovimentacaoEstoque.calcular_estoque_atual(produto, self.loja)
+            estoque_sistema = MovimentacaoEstoque.calcular_estoque_atual(produto)
             
             # Apenas produtos com estoque se especificado
             if self.apenas_com_estoque and estoque_sistema <= 0:
@@ -218,7 +232,7 @@ class Inventario(TimeStampedModel):
                 inventario=self,
                 produto=produto,
                 quantidade_sistema=estoque_sistema,
-                valor_unitario=produto.preco_custo
+                valor_unitario=getattr(produto, 'preco_custo', Decimal('0.00'))
             )
             count += 1
         
@@ -234,11 +248,13 @@ class Inventario(TimeStampedModel):
         self.processar_divergencias()
         
         self.status = 'concluido'
-        self.data_conclusao = datetime.now()
+        self.data_conclusao = timezone.now()
         self.save()
     
     def processar_divergencias(self):
-        """Processa as divergências gerando movimentações de ajuste"""
+        """Processa as divergências gerando movimentações de ajuste no schema atual"""
+        from .models import TipoMovimentacao, MovimentacaoEstoque
+
         tipo_ajuste = TipoMovimentacao.objects.filter(
             codigo='AJUSTE_INVENTARIO',
             natureza='ajuste'
@@ -256,11 +272,10 @@ class Inventario(TimeStampedModel):
         total_divergencia = Decimal('0.00')
         
         for item in self.itens.filter(tem_divergencia=True):
-            # Criar movimentação de ajuste
+            # Criar movimentação de ajuste (sem FK de empresa)
             MovimentacaoEstoque.objects.create(
                 tipo_movimentacao=tipo_ajuste,
                 produto=item.produto,
-                loja=self.loja,
                 quantidade=item.quantidade_contada,
                 quantidade_anterior=item.quantidade_sistema,
                 quantidade_atual=item.quantidade_contada,
@@ -268,8 +283,7 @@ class Inventario(TimeStampedModel):
                 usuario_responsavel=self.responsavel_planejamento,
                 observacoes=f"Ajuste por inventário {self.numero_inventario}",
                 inventario_relacionado=self,
-                status='concluida',
-                empresa=self.empresa
+                status='concluida'
             )
             
             divergencias += 1
@@ -278,7 +292,8 @@ class Inventario(TimeStampedModel):
         self.total_divergencias = divergencias
         self.valor_divergencia_total = total_divergencia
         self.save()
- 
+
+
 class ItemInventario(TimeStampedModel):
     """Itens do inventário"""
     STATUS_CHOICES = [
@@ -391,8 +406,12 @@ class ItemInventario(TimeStampedModel):
         self.status = 'finalizado'
         self.save()
 
+
 class AlertaEstoque(TimeStampedModel):
-    """Alertas de estoque baixo, vencimento, etc."""
+    """
+    Alertas de estoque baixo, vencimento, etc.
+    Reside exclusivamente no Schema Físico do Tenant (TENANT_APPS).
+    """
     TIPO_ALERTA_CHOICES = [
         ('estoque_baixo', 'Estoque Baixo'),
         ('estoque_zerado', 'Estoque Zerado'),
@@ -412,9 +431,8 @@ class AlertaEstoque(TimeStampedModel):
     tipo_alerta = models.CharField(max_length=20, choices=TIPO_ALERTA_CHOICES)
     prioridade = models.CharField(max_length=10, choices=PRIORIDADE_CHOICES)
     
-    # Produto relacionado
+    # Produto e Lote relacionados
     produto = models.ForeignKey(Produto, on_delete=models.CASCADE, related_name='alertas_estoque')
-    loja = models.ForeignKey(Loja, on_delete=models.CASCADE)
     lote = models.ForeignKey(Lote, on_delete=models.CASCADE, null=True, blank=True)
     
     # Detalhes do alerta
@@ -438,15 +456,13 @@ class AlertaEstoque(TimeStampedModel):
     notificado = models.BooleanField(default=False)
     data_notificacao = models.DateTimeField(null=True, blank=True)
     
-    empresa = models.ForeignKey(Empresa, on_delete=models.CASCADE)
-    
     class Meta:
         verbose_name = "Alerta de Estoque"
         verbose_name_plural = "Alertas de Estoque"
         indexes = [
             models.Index(fields=['tipo_alerta', 'ativo']),
             models.Index(fields=['prioridade', 'ativo']),
-            models.Index(fields=['produto', 'loja']),
+            models.Index(fields=['produto']),
         ]
         ordering = ['-prioridade', '-created_at']
     
@@ -456,31 +472,29 @@ class AlertaEstoque(TimeStampedModel):
     def resolver_alerta(self, usuario, observacoes=""):
         """Resolve o alerta"""
         self.ativo = False
-        self.data_resolucao = datetime.now()
+        self.data_resolucao = timezone.now()
         self.resolvido_por = usuario
         self.observacoes_resolucao = observacoes
         self.save()
     
     @classmethod
-    def gerar_alertas_automaticos(cls, empresa):
-        """Gera alertas automáticos para a empresa"""
-        from datetime import timedelta
+    def gerar_alertas_automaticos(cls):
+        """Gera alertas automáticos para o tenant ativo no contexto da requisição"""
+        # Importação local para evitar import de ciclo
+        from .models import MovimentacaoEstoque
         
-        # Alertas de estoque baixo
-        produtos_estoque_baixo = Produto.objects.filter(
-            empresa=empresa,
-            ativo=True
-        )
+        hoje = date.today()
         
-        for produto in produtos_estoque_baixo:
-            estoque_atual = MovimentacaoEstoque.calcular_estoque_atual(produto, loja=produto.loja_padrao)
+        # 1. Alertas de estoque baixo / zerado
+        produtos_ativos = Produto.objects.filter(ativo=True)
+        
+        for produto in produtos_ativos:
+            estoque_atual = MovimentacaoEstoque.calcular_estoque_atual(produto)
             
             if estoque_atual <= 0:
-                # Alerta de estoque zerado
                 cls.objects.get_or_create(
                     tipo_alerta='estoque_zerado',
                     produto=produto,
-                    empresa=empresa,
                     ativo=True,
                     defaults={
                         'prioridade': 'critica',
@@ -491,11 +505,9 @@ class AlertaEstoque(TimeStampedModel):
                     }
                 )
             elif estoque_atual <= produto.estoque_minimo:
-                # Alerta de estoque baixo
                 cls.objects.get_or_create(
                     tipo_alerta='estoque_baixo',
                     produto=produto,
-                    empresa=empresa,
                     ativo=True,
                     defaults={
                         'prioridade': 'alta',
@@ -506,24 +518,22 @@ class AlertaEstoque(TimeStampedModel):
                     }
                 )
         
-        # Alertas de vencimento
-        data_limite = date.today() + timedelta(days=30)
+        # 2. Alertas de vencimento próximo
+        data_limite = hoje + timedelta(days=30)
         lotes_vencendo = Lote.objects.filter(
-            produto__empresa=empresa,
-            data_validade__lte=data_limite,#era __lte=data_limite
-            data_vencimento__gt=date.today(),
+            data_validade__lte=data_limite,
+            data_vencimento__gt=hoje,
             quantidade_atual__gt=0,
             ativo=True
         )
         
         for lote in lotes_vencendo:
-            dias_restantes = (lote.data_vencimento - date.today()).days
+            dias_restantes = (lote.data_vencimento - hoje).days
             
             cls.objects.get_or_create(
                 tipo_alerta='vencimento_proximo',
                 produto=lote.produto,
                 lote=lote,
-                empresa=empresa,
                 ativo=True,
                 defaults={
                     'prioridade': 'alta' if dias_restantes <= 7 else 'media',
@@ -533,6 +543,7 @@ class AlertaEstoque(TimeStampedModel):
                 }
             )
 
+            
 class LocalizacaoEstoque(models.Model):
     nome = models.CharField(max_length=100, unique=True, help_text="Nome do local ou setor do estoque")
     descricao = models.TextField(blank=True, null=True, help_text="Descrição opcional do local")

@@ -44,13 +44,12 @@ def criar_padroes_empresa(sender, instance, created, **kwargs):
                 # Se não quiser departamentos também, basta apagar este bloco
                 depts_globais = [] 
                 with schema_context('public'):
-                    depts_globais = list(Departamento.objects.filter(loja__isnull=True))
+                    depts_globais = list(Departamento.objects.filter())
 
                 for dept in depts_globais:
                     Departamento.objects.create(
                         nome=dept.nome,
                         codigo=f"{dept.codigo}_{instance.id}",
-                        loja=None,
                         ativo=True
                     )
                 print(f"[SUCESSO SOTARQ] Tenant {instance.nome} inicializado sem cargos globais.")

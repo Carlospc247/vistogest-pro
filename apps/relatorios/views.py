@@ -2590,12 +2590,12 @@ class RelatorioVendasFormaPagamentoView(BaseViewMixin, TemplateView):
         
         # Vendas por forma de pagamento e faixa de valor
         faixas_valor = [
-            (0, 50, 'Até R$ 50'),
-            (50, 100, 'R$ 50 - R$ 100'),
-            (100, 200, 'R$ 100 - R$ 200'),
-            (200, 500, 'R$ 200 - R$ 500'),
-            (500, 1000, 'R$ 500 - R$ 1.000'),
-            (1000, float('inf'), 'Acima de R$ 1.000')
+            (0, 50, 'Até AO 50'),
+            (50, 100, 'AO 50 - AO 100'),
+            (100, 200, 'AO 100 - AO 200'),
+            (200, 500, 'AO 200 - AO 500'),
+            (500, 1000, 'AO 500 - AO 1.000'),
+            (1000, float('inf'), 'Acima de AO 1.000')
         ]
         
         vendas_por_faixa = {}

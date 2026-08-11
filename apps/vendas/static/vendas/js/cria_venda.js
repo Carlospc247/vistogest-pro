@@ -77,8 +77,7 @@ async function submeterVenda(event) {
     }
     
     const vendaData = {
-        empresa: 1, // Assumindo Empresa 1 (deve ser dinâmico no ambiente real)
-        loja: 1,    // Assumindo Loja 1
+        empresa: document.getElementById('empresa_id').value || null,
         cliente: document.getElementById('cliente_id').value || null,
         forma_pagamento: document.getElementById('forma_pagamento_id').value,
         tipo_venda: 'FR', // Fatura Recibo, o código AGT

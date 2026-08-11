@@ -106,7 +106,7 @@ class Command(BaseCommand):
             conteudo.append("\n\nAcesse o admin do sistema para renovar as licenças.")
             
             send_mail(
-                subject='[PharmasSys] Alerta de Licenças',
+                subject='[Vistogest] Alerta de Licenças',
                 message='\n'.join(conteudo),
                 from_email=settings.DEFAULT_FROM_EMAIL,
                 recipient_list=admins_emails,

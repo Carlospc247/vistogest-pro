@@ -15,7 +15,6 @@ from decimal import Decimal, ROUND_HALF_UP
 
 class Fabricante(TimeStampedModel):
     """Fabricante de produtos"""
-    empresa = models.ForeignKey(Empresa, on_delete=models.CASCADE, related_name='fabricantes')
     nome = models.CharField(max_length=200)
     nif = models.CharField(max_length=20, blank=True, verbose_name="NIF")
     origem = models.CharField(max_length=100, blank=True)
@@ -28,7 +27,7 @@ class Fabricante(TimeStampedModel):
     class Meta:
         verbose_name = 'Fabricante'
         verbose_name_plural = 'Fabricantes'
-        unique_together = ['empresa', 'nome']
+        unique_together = ['nome']
         
     def __str__(self):
         return self.nome
@@ -36,7 +35,6 @@ class Fabricante(TimeStampedModel):
 
 class Produto(TimeStampedModel):
     """Produto do estoque"""
-    empresa = models.ForeignKey(Empresa, on_delete=models.CASCADE, related_name='produtos')
     categoria = models.ForeignKey(Categoria, on_delete=models.SET_NULL, null=True, blank=True)
     fornecedor = models.ForeignKey('fornecedores.Fornecedor', on_delete=models.SET_NULL, null=True, blank=True)
     fabricante = models.ForeignKey(Fabricante, on_delete=models.SET_NULL, null=True, blank=True)
@@ -116,7 +114,7 @@ class Produto(TimeStampedModel):
     class Meta:
         verbose_name = 'Produto'
         verbose_name_plural = 'Produtos'
-        unique_together = ['empresa', 'codigo_interno']
+        unique_together = ['codigo_interno']
         
     def __str__(self):
         return self.nome_produto
@@ -186,9 +184,7 @@ class PrincipioAtivo(TimeStampedModel):
     descricao = models.TextField(blank=True, null=True)
     ativo = models.BooleanField(default=True)
     
-    # Vínculo Multi-tenant
-    empresa = models.ForeignKey('empresas.Empresa', on_delete=models.CASCADE, related_name='principios_ativos')
-
+    
     class Meta:
         verbose_name = "Princípio Ativo"
         verbose_name_plural = "Princípios Ativos"
@@ -320,7 +316,6 @@ class HistoricoPreco(models.Model):
 class AlertaProdutoExpiracao(TimeStampedModel):
     """Alerta para produtos com lote prestes a vencer"""
     lote = models.ForeignKey('produtos.Lote', on_delete=models.CASCADE, related_name="alertas_expiracao")
-    empresa = models.ForeignKey(Empresa, on_delete=models.CASCADE)
     dias_alerta = models.IntegerField(default=30)
     enviado = models.BooleanField(default=False)  # se já geramos a notificação
 

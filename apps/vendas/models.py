@@ -3,10 +3,8 @@ from django.db import models
 from django.forms import ValidationError
 from django.utils import timezone
 import uuid
-from django.db import models
 from django.conf import settings
-from apps.empresas.models import Empresa, Loja
-from django.conf import settings
+from apps.empresas.models import Empresa
 from decimal import Decimal
 from apps.core.models import TimeStampedModel
 from apps.clientes.models import Cliente
@@ -81,7 +79,7 @@ class FormaPagamento(models.Model):
         verbose_name = "Forma de Pagamento"
         verbose_name_plural = "Formas de Pagamento"
         # Garante que não há duas formas de pagamento com o mesmo nome para a mesma empresa
-        unique_together = ('nome', 'empresa')
+        unique_together = ('nome',)
         ordering = ['ordem_exibicao', 'nome']
 
     def __str__(self):
@@ -98,8 +96,6 @@ class Venda(TimeStampedModel):
             ('online', 'Online'),
         ]
     
-    empresa = models.ForeignKey('empresas.Empresa', on_delete=models.CASCADE, related_name='vendas')
-    loja = models.ForeignKey('empresas.Loja', on_delete=models.SET_NULL, null=True, blank=True)
     cliente = models.ForeignKey('clientes.Cliente', on_delete=models.SET_NULL, null=True, blank=True, related_name='vendas')
     vendedor = models.ForeignKey('funcionarios.Funcionario', on_delete=models.SET_NULL, null=True, blank=True, related_name='vendas')
     forma_pagamento = models.ForeignKey(FormaPagamento, on_delete=models.PROTECT, default=1)
@@ -165,7 +161,6 @@ class Venda(TimeStampedModel):
         from apps.fiscal.services.utils import DocumentoFiscalService
         service = DocumentoFiscalService()
         documento = service.criar_documento(
-            empresa=self.empresa,
             tipo_documento='FR',
             cliente=self.cliente,
             usuario=usuario,
@@ -481,7 +476,7 @@ class Convenio(models.Model):
     class Meta:
         verbose_name = "Convênio"
         verbose_name_plural = "Convênios"
-        unique_together = ('nome', 'empresa')
+        unique_together = ('nome',)
         ordering = ['nome']
 
     def __str__(self):
@@ -535,7 +530,6 @@ class Orcamento(models.Model):
         ('expirado', 'Expirado'),
     ]
     
-    empresa = models.ForeignKey('empresas.Empresa', on_delete=models.PROTECT)
     numero_orcamento = models.CharField("Número do Orçamento", max_length=50, unique=True)
     cliente = models.ForeignKey('clientes.Cliente', on_delete=models.PROTECT, related_name='orcamentos')
     vendedor = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name='orcamentos_criados')
@@ -891,12 +885,12 @@ class MetaVenda(models.Model):
         verbose_name_plural = 'Metas de Vendas'
         ordering = ['-ano', '-mes', 'vendedor']
         unique_together = [
-            ['empresa', 'vendedor', 'tipo_periodo', 'mes', 'ano'],
-            ['empresa', 'vendedor', 'tipo_periodo', 'trimestre', 'ano'],
-            ['empresa', 'vendedor', 'tipo_periodo', 'semestre', 'ano'],
+            ['vendedor', 'tipo_periodo', 'mes', 'ano'],
+            ['vendedor', 'tipo_periodo', 'trimestre', 'ano'],
+            ['vendedor', 'tipo_periodo', 'semestre', 'ano'],
         ]
         indexes = [
-            models.Index(fields=['empresa', 'vendedor', 'status']),
+            models.Index(fields=['vendedor', 'status']),
             models.Index(fields=['ano', 'mes']),
             models.Index(fields=['data_inicio', 'data_fim']),
             models.Index(fields=['codigo_meta']),
@@ -948,7 +942,6 @@ class MetaVenda(models.Model):
     def calcular_realizado(self):
         """Calcular valores realizados no período"""
         vendas = Venda.objects.filter(
-            empresa=self.empresa,
             data_venda__gte=self.data_inicio,
             data_venda__lte=self.data_fim,
             status='finalizada'
@@ -974,7 +967,6 @@ class MetaVenda(models.Model):
         novos_clientes = 0
         for cliente_data in clientes_periodo:
             primeira_compra = Venda.objects.filter(
-                empresa=self.empresa,
                 cliente_id=cliente_data['cliente'],
                 status='finalizada'
             ).order_by('data_venda').first()
@@ -1141,8 +1133,6 @@ class FaturaCredito(TimeStampedModel):
         ('outros', 'Outros'),
     ]
     
-    empresa = models.ForeignKey('empresas.Empresa', on_delete=models.CASCADE, related_name='faturas_credito')
-    loja = models.ForeignKey('empresas.Loja', on_delete=models.SET_NULL, null=True, blank=True)
     cliente = models.ForeignKey('clientes.Cliente', on_delete=models.SET_NULL, null=True, blank=True)
     vendedor = models.ForeignKey('funcionarios.Funcionario', on_delete=models.SET_NULL, null=True, blank=True, related_name='faturas_credito')
     forma_pagamento = models.ForeignKey('vendas.FormaPagamento', on_delete=models.PROTECT, default=1)
@@ -1203,7 +1193,6 @@ class FaturaCredito(TimeStampedModel):
         from apps.fiscal.services.utils import DocumentoFiscalService
         service = DocumentoFiscalService()
         documento = service.criar_documento(
-            empresa=self.empresa,
             tipo_documento='FT',
             cliente=self.cliente,
             usuario=usuario,
@@ -1254,8 +1243,6 @@ class Recibo(TimeStampedModel):
         ('outros', 'Outros'),
     ]
     
-    empresa = models.ForeignKey('empresas.Empresa', on_delete=models.CASCADE, related_name='recibos')
-    loja = models.ForeignKey('empresas.Loja', on_delete=models.SET_NULL, null=True, blank=True)
     cliente = models.ForeignKey('clientes.Cliente', on_delete=models.SET_NULL, null=True, blank=True)
     vendedor = models.ForeignKey('funcionarios.Funcionario', on_delete=models.SET_NULL, null=True, blank=True, related_name='recibos')
     forma_pagamento = models.ForeignKey('vendas.FormaPagamento', on_delete=models.PROTECT, default=1)
@@ -1311,7 +1298,6 @@ class Recibo(TimeStampedModel):
         from apps.fiscal.services.utils import DocumentoFiscalService
         service = DocumentoFiscalService()
         documento = service.criar_documento(
-            empresa=self.empresa,
             tipo_documento='REC',
             cliente=self.cliente,
             usuario=self.vendedor.user,
@@ -1440,8 +1426,6 @@ class FaturaProforma(TimeStampedModel):
         ('outros', 'Outros'),
     ]
     
-    empresa = models.ForeignKey('empresas.Empresa', on_delete=models.CASCADE, related_name='faturas_proforma')
-    loja = models.ForeignKey('empresas.Loja', on_delete=models.SET_NULL, null=True, blank=True)
     cliente = models.ForeignKey('clientes.Cliente', on_delete=models.SET_NULL, null=True, blank=True)
     vendedor = models.ForeignKey('funcionarios.Funcionario', on_delete=models.SET_NULL, null=True, blank=True, related_name='faturas_proforma')
     forma_pagamento = models.ForeignKey('vendas.FormaPagamento', on_delete=models.PROTECT, default=1)
@@ -1507,7 +1491,6 @@ class FaturaProforma(TimeStampedModel):
                 raise ValueError("É necessário fornecer um usuário para criar o documento fiscal.")
 
             documento = service.criar_documento(
-                empresa=self.empresa,
                 tipo_documento='FP',
                 cliente=self.cliente,
                 usuario=usuario,
@@ -1611,8 +1594,6 @@ class NotaCredito(TimeStampedModel):
         ('outros', 'Outros'),
     ]
     
-    empresa = models.ForeignKey('empresas.Empresa', on_delete=models.CASCADE, related_name='notas_credito')
-    loja = models.ForeignKey('empresas.Loja', on_delete=models.SET_NULL, null=True, blank=True)
     cliente = models.ForeignKey('clientes.Cliente', on_delete=models.SET_NULL, null=True, blank=True)
     vendedor = models.ForeignKey('funcionarios.Funcionario', on_delete=models.SET_NULL, null=True, blank=True, related_name='notas_credito')
     forma_pagamento = models.ForeignKey('vendas.FormaPagamento', on_delete=models.PROTECT, default=1)
@@ -1702,7 +1683,6 @@ class NotaCredito(TimeStampedModel):
     
             service = DocumentoFiscalService()
             documento = service.criar_documento(
-                empresa=self.empresa,
                 tipo_documento='NC',
                 cliente=self.cliente,
                 usuario=self.vendedor.user if self.vendedor else None,
@@ -1814,8 +1794,6 @@ class NotaDebito(TimeStampedModel):
         ('outros', 'Outros'),
     ]
     
-    empresa = models.ForeignKey('empresas.Empresa', on_delete=models.CASCADE, related_name='notas_debito')
-    loja = models.ForeignKey('empresas.Loja', on_delete=models.SET_NULL, null=True, blank=True)
     cliente = models.ForeignKey('clientes.Cliente', on_delete=models.SET_NULL, null=True, blank=True)
     vendedor = models.ForeignKey('funcionarios.Funcionario', on_delete=models.SET_NULL, null=True, blank=True, related_name='notas_debito')
     forma_pagamento = models.ForeignKey('vendas.FormaPagamento', on_delete=models.PROTECT, default=1)
@@ -1910,7 +1888,6 @@ class NotaDebito(TimeStampedModel):
 
             service = DocumentoFiscalService()
             documento = service.criar_documento(
-                empresa=self.empresa,
                 tipo_documento='ND',
                 cliente=self.cliente,
                 usuario=self.vendedor.user if self.vendedor else None,
@@ -2007,387 +1984,4 @@ class ItemNotaDebito(TimeStampedModel):
 
     def __str__(self):
         return f"{self.descricao_item} - Qtd: {self.quantidade}"
-
-
-class DocumentoTransporte(TimeStampedModel):
-    """Documento de Transporte (GT) - Documento que acompanha mercadorias em trânsito"""
-    TIPO_TRANSPORTE_CHOICES = [
-        ('proprio', 'Transporte Próprio'),
-        ('terceirizado', 'Transporte Terceirizado'),
-        ('correios', 'Correios'),
-        ('transportadora', 'Transportadora'),
-        ('entrega_propria', 'Entrega Própria'),
-    ]
-
-    TIPO_OPERACAO_CHOICES = [
-        ('venda', 'Venda de Mercadoria'),
-        ('transferencia', 'Transferência entre Lojas'),
-        ('consignacao', 'Consignação'),
-        ('demonstracao', 'Demonstração'),
-        ('devolucao', 'Devolução'),
-        ('garantia', 'Garantia'),
-        ('outros', 'Outros'),
-    ]
-    
-    empresa = models.ForeignKey('empresas.Empresa', on_delete=models.CASCADE, related_name='documentos_transporte')
-    loja = models.ForeignKey('empresas.Loja', on_delete=models.SET_NULL, null=True, blank=True)
-    cliente = models.ForeignKey('clientes.Cliente', on_delete=models.SET_NULL, null=True, blank=True)
-    vendedor = models.ForeignKey('funcionarios.Funcionario', on_delete=models.SET_NULL, null=True, blank=True, related_name='documentos_transporte')
-    forma_pagamento = models.ForeignKey('vendas.FormaPagamento', on_delete=models.PROTECT, default=1)
-    
-    iva_valor = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal('0.00'), verbose_name="Valor do IVA")
-    
-    # Identificação
-    numero_documento = models.CharField(max_length=200, unique=True, verbose_name="Nº Documento de Transporte")
-    tipo_operacao = models.CharField(max_length=20, choices=TIPO_OPERACAO_CHOICES, default='venda')
-    tipo_transporte = models.CharField(max_length=20, choices=TIPO_TRANSPORTE_CHOICES, default='proprio')
-    observacoes = models.TextField(blank=True, null=True)
-
-    subtotal = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal('0.00'))
-    desconto_valor = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal('0.00'))
-    total = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal('0.00'))
-    troco = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal('0.00'))
-    valor_pago = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal('0.00'))
-    
-    hash_documento = models.CharField(
-        max_length=256, 
-        unique=True, 
-        null=True, 
-        blank=True,
-        verbose_name="Hash Criptográfico (SAF-T)"
-    )
-    atcud = models.CharField(
-        max_length=100, 
-        null=True, 
-        blank=True,
-        verbose_name="ATCUD (Código Único do Documento)"
-    )
-    
-    # Data
-    data_documento = models.DateTimeField(auto_now_add=True)
-    data_inicio_transporte = models.DateTimeField(verbose_name="Data/Hora de Início do Transporte")
-    data_previsao_entrega = models.DateTimeField(verbose_name="Previsão de Entrega")
-    data_entrega_real = models.DateTimeField(null=True, blank=True, verbose_name="Data/Hora da Entrega Real")
-
-    # Status
-    STATUS_CHOICES = [
-        ('preparando', 'Preparando Carga'),
-        ('em_transito', 'Em Trânsito'),
-        ('entregue', 'Entregue'),
-        ('devolvido', 'Devolvido'),
-        ('cancelado', 'Cancelado'),
-    ]
-    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='preparando')
-
-    tem_fatura = models.BooleanField(default=False)
-    tem_recibo = models.BooleanField(default=False)
-    tem_nota_liquidacao = models.BooleanField(default=False)
-    tem_fatura_proforma = models.BooleanField(default=False)
-
-    # Documento de Origem
-    venda_origem = models.ForeignKey(
-        'Venda', 
-        on_delete=models.PROTECT, 
-        null=True, blank=True,
-        related_name='documentos_transporte',
-        verbose_name="Venda de Origem"
-    )
-    fatura_credito_origem = models.ForeignKey(
-        'FaturaCredito', 
-        on_delete=models.PROTECT, 
-        null=True, blank=True,
-        related_name='documentos_transporte',
-        verbose_name="Fatura Crédito de Origem"
-    )
-
-    # === REMETENTE (Empresa) ===
-    remetente_nome = models.CharField(max_length=200, verbose_name="Nome do Remetente")
-    remetente_nif = models.CharField(max_length=20, verbose_name="NIF do Remetente")
-    remetente_endereco = models.CharField(max_length=300, verbose_name="Endereço do Remetente")
-    remetente_telefone = models.CharField(max_length=20, verbose_name="Telefone do Remetente")
-    remetente_provincia = models.CharField(max_length=50, verbose_name="Província do Remetente")
-    
-    # === DESTINATÁRIO ===
-    destinatario_cliente = models.ForeignKey(
-        'clientes.Cliente', 
-        on_delete=models.PROTECT, 
-        null=True, blank=True,
-        related_name='documentos_transporte_destinatario'
-    )
-    destinatario_nome = models.CharField(max_length=200, verbose_name="Nome do Destinatário")
-    destinatario_nif = models.CharField(max_length=20, blank=True, verbose_name="NIF/BI do Destinatário")
-    destinatario_endereco = models.CharField(max_length=300, verbose_name="Endereço de Entrega")
-    destinatario_telefone = models.CharField(max_length=20, verbose_name="Telefone do Destinatário")
-    destinatario_provincia = models.CharField(max_length=50, verbose_name="Província do Destinatário")
-    
-    # === TRANSPORTADOR ===
-    transportador_nome = models.CharField(max_length=200, verbose_name="Nome do Transportador")
-    transportador_nif = models.CharField(max_length=20, blank=True, verbose_name="NIF do Transportador")
-    transportador_telefone = models.CharField(max_length=20, verbose_name="Telefone do Transportador")
-    
-    # === VEÍCULO ===
-    veiculo_matricula = models.CharField(max_length=20, verbose_name="Matrícula do Veículo")
-    veiculo_modelo = models.CharField(max_length=100, verbose_name="Modelo do Veículo")
-    condutor_nome = models.CharField(max_length=200, verbose_name="Nome do Condutor")
-    condutor_carta = models.CharField(max_length=20, verbose_name="Número da Carta de Condução")
-    
-    # === ITINERÁRIO ===
-    local_carregamento = models.CharField(max_length=300, verbose_name="Local de Carregamento")
-    local_descarga = models.CharField(max_length=300, verbose_name="Local de Descarga")
-    itinerario = models.TextField(verbose_name="Itinerário Detalhado")
-    
-    # === VALORES ADICIONAIS DE TRANSPORTE ===
-    valor_transporte = models.DecimalField(
-        max_digits=10, 
-        decimal_places=2, 
-        default=Decimal('0.00'),
-        verbose_name="Valor do Transporte"
-    )
-    peso_total = models.DecimalField(
-        max_digits=10, 
-        decimal_places=3, 
-        default=Decimal('0.000'),
-        verbose_name="Peso Total (Kg)"
-    )
-    volume_total = models.DecimalField(
-        max_digits=10, 
-        decimal_places=3, 
-        default=Decimal('0.000'),
-        verbose_name="Volume Total (m³)"
-    )
-    quantidade_volumes = models.PositiveIntegerField(default=1, verbose_name="Quantidade de Volumes")
-    
-    # Instruções e Controle
-    instrucoes_especiais = models.TextField(blank=True, verbose_name="Instruções Especiais")
-    
-    # Assinaturas e Confirmações
-    assinatura_remetente = models.CharField(max_length=200, blank=True, verbose_name="Assinatura do Remetente")
-    assinatura_transportador = models.CharField(max_length=200, blank=True, verbose_name="Assinatura do Transportador")
-    assinatura_destinatario = models.CharField(max_length=200, blank=True, verbose_name="Assinatura do Destinatário")
-    
-    # Auditoria
-    emitido_por = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
-        on_delete=models.PROTECT,
-        related_name='documentos_transporte_emitidos'
-    )
-    confirmado_entrega_por = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
-        on_delete=models.SET_NULL,
-        null=True, blank=True,
-        related_name='documentos_transporte_confirmados'
-    )
-
-    def save(self, *args, criar_documento=True, **kwargs):
-        is_new = self._state.adding
-        
-        # Preencher dados do remetente automaticamente
-        if not self.remetente_nome and self.empresa:
-            config_fiscal = getattr(self.empresa, 'config_fiscal', None)
-            if config_fiscal:
-                self.remetente_nome = config_fiscal.razao_social or self.empresa.nome
-                self.remetente_nif = config_fiscal.nif
-                self.remetente_endereco = config_fiscal.endereco
-                self.remetente_telefone = config_fiscal.telefone
-        
-        # Preencher dados do destinatário se cliente selecionado
-        if self.destinatario_cliente and not self.destinatario_nome:
-            cliente = self.destinatario_cliente
-            self.destinatario_nome = cliente.nome_completo
-            self.destinatario_nif = cliente.nif or cliente.bi or ''
-            self.destinatario_telefone = cliente.telefone
-            
-            # Buscar endereço principal
-            endereco_principal = cliente.enderecos.filter(endereco_principal=True).first()
-            if endereco_principal:
-                self.destinatario_endereco = endereco_principal.endereco_completo
-                self.destinatario_provincia = endereco_principal.provincia
-
-        super().save(*args, **kwargs)
-
-        # Só gera hash e numeração se for um novo documento
-        if criar_documento and is_new and self.status in ['preparando', 'em_transito']:
-            from apps.fiscal.services.utils import DocumentoFiscalService
-
-            service = DocumentoFiscalService()
-            documento = service.criar_documento(
-                empresa=self.empresa,
-                tipo_documento='GT',
-                cliente=self.cliente or self.destinatario_cliente,
-                usuario=self.vendedor.user if self.vendedor else self.emitido_por,
-                linhas=[],
-                dados_extra={'data_emissao': self.data_documento, 'valor_total': self.total},
-            )
-
-            self.numero_documento = documento.numero
-            self.hash_documento = documento.hash_documento
-            self.atcud = documento.atcud
-            super().save(update_fields=['numero_documento', 'hash_documento', 'atcud'])
-
-    def __str__(self):
-        return f"GT {self.numero_documento}"
-
-    class Meta:
-        verbose_name = 'Documento de Transporte'
-        verbose_name_plural = 'Documentos de Transporte'
-        ordering = ['-data_documento']
-        permissions = [
-            ("emitir_documentotransporte", "Pode emitir Documentos de Transporte"),
-            ("confirmar_entrega", "Pode confirmar entregas"),
-        ]
-    
-    def desconto_percentual(self):
-        if self.subtotal > Decimal('0.00'):
-            return (self.desconto_valor / self.subtotal) * Decimal('100.00')
-        return Decimal('0.00')
-    desconto_percentual.short_description = 'Desconto %'
-    
-    def margem_lucro_total(self):
-        return self.total - sum(item.produto.preco_custo * item.quantidade for item in self.itens.all() if item.produto)
-    margem_lucro_total.short_description = 'Margem de Lucro'
-    
-    def quantidade_itens(self):
-        return self.itens.count()
-    quantidade_itens.short_description = 'Qtd Itens'
-
-    @property
-    def documento_origem(self):
-        """Retorna o documento de origem"""
-        return self.venda_origem or self.fatura_credito_origem
-
-    @property
-    def numero_documento_origem(self):
-        """Retorna o número do documento de origem"""
-        if self.venda_origem:
-            return self.venda_origem.numero_documento
-        elif self.fatura_credito_origem:
-            return self.fatura_credito_origem.numero_documento
-        return "N/A"
-
-    @property
-    def tempo_transporte(self):
-        """Calcula o tempo de transporte"""
-        if self.data_entrega_real:
-            return self.data_entrega_real - self.data_inicio_transporte
-        return None
-
-    @property
-    def esta_atrasado(self):
-        """Verifica se a entrega está atrasada"""
-        if self.status in ['entregue', 'cancelado']:
-            return False
-        return timezone.now() > self.data_previsao_entrega
-
-    def confirmar_entrega(self, usuario, assinatura_destinatario=None):
-        """Confirma a entrega da mercadoria"""
-        if self.status != 'em_transito':
-            raise ValidationError("Só é possível confirmar entregas em trânsito")
-        
-        self.status = 'entregue'
-        self.data_entrega_real = timezone.now()
-        self.confirmado_entrega_por = usuario
-        if assinatura_destinatario:
-            self.assinatura_destinatario = assinatura_destinatario
-        
-        self.save()
-
-    def iniciar_transporte(self):
-        """Inicia o transporte"""
-        if self.status != 'preparando':
-            raise ValidationError("Transporte já foi iniciado")
-        
-        self.status = 'em_transito'
-        self.data_inicio_transporte = timezone.now()
-        self.save()
-
-class ItemDocumentoTransporte(TimeStampedModel):
-    """Itens do Documento de Transporte"""
-    documento = models.ForeignKey(DocumentoTransporte, on_delete=models.CASCADE, related_name='itens')
-    
-    # Referência ao item original
-    item_venda_original = models.ForeignKey(
-        ItemVenda, 
-        on_delete=models.PROTECT, 
-        null=True, blank=True
-    )
-    item_fatura_original = models.ForeignKey(
-        ItemFatura, 
-        on_delete=models.PROTECT, 
-        null=True, blank=True
-    )
-    
-    # Produto
-    produto = models.ForeignKey('produtos.Produto', on_delete=models.PROTECT, null=True, blank=True)
-    
-    # Dados do item (snapshot)
-    codigo_produto = models.CharField(max_length=50, verbose_name="Código do Produto")
-    descricao_produto = models.CharField(max_length=255, verbose_name="Descrição do Produto")
-    unidade_medida = models.CharField(max_length=10, default='UN', verbose_name="Unidade de Medida")
-    
-    # Quantidades
-    quantidade_enviada = models.DecimalField(max_digits=10, decimal_places=2, verbose_name="Quantidade Enviada")
-    quantidade_recebida = models.DecimalField(
-        max_digits=10, 
-        decimal_places=2, 
-        default=Decimal('0.00'),
-        verbose_name="Quantidade Recebida"
-    )
-    
-    # Características físicas
-    peso_unitario = models.DecimalField(
-        max_digits=10, 
-        decimal_places=3, 
-        default=Decimal('0.000'),
-        verbose_name="Peso Unitário (Kg)"
-    )
-    peso_total = models.DecimalField(
-        max_digits=10, 
-        decimal_places=3, 
-        default=Decimal('0.000'),
-        verbose_name="Peso Total (Kg)"
-    )
-    
-    # Embalagem
-    tipo_embalagem = models.CharField(max_length=50, blank=True, verbose_name="Tipo de Embalagem")
-    numero_serie = models.CharField(max_length=100, blank=True, verbose_name="Número de Série")
-    lote = models.CharField(max_length=50, blank=True, verbose_name="Lote")
-    
-    # Valores (para fins de seguro)
-    valor_unitario = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal('0.00'))
-    valor_total = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal('0.00'))
-    
-    # Estado da mercadoria
-    observacoes_item = models.TextField(blank=True, verbose_name="Observações do Item")
-
-    class Meta:
-        verbose_name = 'Item do Documento de Transporte'
-        verbose_name_plural = 'Itens do Documento de Transporte'
-
-    def save(self, *args, **kwargs):
-        # Calcular peso total e valor total
-        self.peso_total = self.quantidade_enviada * self.peso_unitario
-        self.valor_total = self.quantidade_enviada * self.valor_unitario
-        
-        # Preencher dados do produto se disponível
-        if self.produto and not self.descricao_produto:
-            self.codigo_produto = self.produto.codigo or ''
-            self.descricao_produto = self.produto.nome_produto
-            self.unidade_medida = getattr(self.produto, 'unidade_medida', 'UN')
-            self.peso_unitario = getattr(self.produto, 'peso', Decimal('0.000'))
-            self.valor_unitario = self.produto.preco_venda
-        
-        super().save(*args, **kwargs)
-
-    def __str__(self):
-        return f"{self.descricao_produto} - Qtd: {self.quantidade_enviada}"
-
-    @property
-    def divergencia_quantidade(self):
-        """Calcula a divergência entre enviado e recebido"""
-        return self.quantidade_enviada - self.quantidade_recebida
-
-    @property
-    def tem_divergencia(self):
-        """Verifica se há divergência na quantidade"""
-        return self.divergencia_quantidade != Decimal('0.00')
 

@@ -1,6 +1,6 @@
 {% load custom_filters %}
 <?xml version="1.0" encoding="UTF-8"?>
-<PedidoCompra xmlns="http://pharmassys.com/schemas/pedido" versao="1.0">
+<PedidoCompra xmlns="http://vistogest.com/schemas/pedido" versao="1.0">
     <Cabecalho>
         <NumeroPedido>{{ pedido.numero_pedido }}</NumeroPedido>
         <DataEmissao>{{ pedido.data_pedido|date:"Y-m-d" }}</DataEmissao>

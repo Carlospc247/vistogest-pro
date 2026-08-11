@@ -65,9 +65,9 @@ class VendaForm(BaseVendaForm):
         
         if self.empresa:
             # Filtrar opções pela empresa
-            self.fields['cliente'].queryset = Cliente.objects.filter(empresa=self.empresa, ativo=True)
-            self.fields['vendedor'].queryset = Funcionario.objects.filter(empresa=self.empresa, ativo=True)
-            self.fields['forma_pagamento'].queryset = FormaPagamento.objects.filter(empresa=self.empresa, ativa=True)
+            self.fields['cliente'].queryset = Cliente.objects.filter(ativo=True)
+            self.fields['vendedor'].queryset = Funcionario.objects.filter(ativo=True)
+            self.fields['forma_pagamento'].queryset = FormaPagamento.objects.filter(ativa=True)
         
         # Campos opcionais
         self.fields['cliente'].required = False
@@ -95,7 +95,6 @@ class ItemVendaForm(forms.ModelForm):
         
         if self.empresa:
             self.fields['produto'].queryset = Produto.objects.filter(
-                empresa=self.empresa, 
                 ativo=True
             ).order_by('nome_comercial')
         
@@ -140,7 +139,7 @@ class PagamentoVendaForm(BaseVendaForm):
         
         if self.empresa:
             self.fields['forma_pagamento'].queryset = FormaPagamento.objects.filter(
-                empresa=self.empresa, ativa=True
+                ativa=True
             )
         
         # Campos opcionais
@@ -202,7 +201,7 @@ class ConvenioForm(forms.ModelForm):
         nome = self.cleaned_data.get('nome')
         if self.empresa:
             exists = Convenio.objects.filter(
-                empresa=self.empresa, 
+                
                 nome__iexact=nome
             ).exclude(pk=self.instance.pk).exists()
             
@@ -229,12 +228,11 @@ class DevolucaoForm(BaseVendaForm):
         if self.empresa:
             # Filtrar vendas finalizadas da empresa
             self.fields['venda'].queryset = Venda.objects.filter(
-                empresa=self.empresa,
                 status='finalizada'
             ).order_by('-data_venda')
             
             self.fields['cliente'].queryset = Cliente.objects.filter(
-                empresa=self.empresa, ativo=True
+                ativo=True
             )
         
         # Campos obrigatórios
@@ -276,12 +274,11 @@ class DevolucaoForm(BaseVendaForm):
         
         if self.empresa:
             self.fields['venda_original'].queryset = Venda.objects.filter(
-                empresa=self.empresa,
                 status='finalizada'
             ).order_by('-data_venda')
             
             self.fields['cliente'].queryset = Cliente.objects.filter(
-                empresa=self.empresa, ativo=True
+                ativo=True
             )
         
         # Campos opcionais
@@ -334,7 +331,7 @@ class EntregaForm(BaseVendaForm):
             
             # Filtrar entregadores ativos
             self.fields['entregador'].queryset = Funcionario.objects.filter(
-                empresa=self.empresa, ativo=True
+                ativo=True
             )
         
         # Campos opcionais
@@ -388,7 +385,7 @@ class MetaVendaForm(BaseVendaForm):
         
         if self.empresa:
             self.fields['vendedor'].queryset = Funcionario.objects.filter(
-                empresa=self.empresa, ativo=True
+                ativo=True
             )
         
         # Choices para mês
@@ -428,10 +425,10 @@ class ComissaoForm(BaseVendaForm):
         
         if self.empresa:
             self.fields['vendedor'].queryset = Funcionario.objects.filter(
-                empresa=self.empresa, ativo=True
+                ativo=True
             )
             self.fields['venda'].queryset = Venda.objects.filter(
-                empresa=self.empresa, status='finalizada'
+                status='finalizada'
             )
         
         # Campos opcionais

@@ -87,7 +87,7 @@ from .forms import (
 from .services import validar_itens_por_regime
 from .tasks import verificar_margem_critica
 
-
+from django.core.cache import cache as bi_cache
 
 logger = logging.getLogger(__name__)
 
@@ -460,8 +460,7 @@ class OrcamentoListView(LoginRequiredMixin, PermissionRequiredMixin, ListView):
 
     def get_queryset(self):
         # Filtrar apenas orçamentos da empresa do usuário logado
-        return Orcamento.objects.filter(empresa=self.request.user.empresa)
-
+        return Orcamento.objects.all()
 class OrcamentoDetailView(DetailView):
     model = Orcamento
     template_name = "orcamentos/orcamento_detail.html"
@@ -624,7 +623,7 @@ class OrcamentoConverterView(LoginRequiredMixin, PermissionRequiredMixin, View):
     permission_required = "vendas.add_venda"
 
     def post(self, request, pk):
-        orcamento = get_object_or_404(Orcamento, pk=pk, empresa=request.user.empresa)
+        orcamento = get_object_or_404(Orcamento, pk=pk)
 
         if orcamento.status in ["convertido", "cancelado", "expirado"]:
             messages.error(request, "Este orçamento não pode ser convertido.")
@@ -669,7 +668,7 @@ class OrcamentoListView(LoginRequiredMixin, PermissionRequiredMixin, ListView):
     permission_required = "vendas.view_orcamento"
 
     def get_queryset(self):
-        qs = Orcamento.objects.filter(empresa=self.request.user.empresa).select_related("cliente", "vendedor")
+        qs = Orcamento.objects.all().select_related("cliente", "vendedor")
         status = self.request.GET.get("status")
         if status:
             qs = qs.filter(status=status)
@@ -767,7 +766,7 @@ class EstornarPagamentoView(PermissaoAcaoMixin, BaseVendaView, View):
                     # 3. Atualizar o status da Venda (se a venda estava totalmente paga)
                     pagamento.venda.calcular_saldo_e_atualizar_status() # Método que você deve ter ou criar na Venda
                     
-                    messages.success(request, f'Pagamento de R$ {pagamento.valor_pago} estornado com sucesso. Verifique o impacto no Caixa/Contas.')
+                    messages.success(request, f'Pagamento de AO {pagamento.valor_pago} estornado com sucesso. Verifique o impacto no Caixa/Contas.')
             except Exception as e:
                 # O rollback da transação será automático.
                 messages.error(request, f'Falha crítica ao estornar pagamento. Transação revertida. Erro: {e}')
@@ -1752,7 +1751,7 @@ def formas_pagamento_api(request):
 # path('fatura/<int:venda_id>/pdf/', ...)
 def fatura_pdf_view(request, venda_id, tipo='a4'):
     """Gera PDF para Vendas (Fatura-Recibo / FR)"""
-    venda = get_object_or_404(Venda, id=venda_id, empresa=request.user.empresa)
+    venda = get_object_or_404(Venda, id=venda_id)
     return _gerar_response_pdf(venda, "FR")
 
 @require_GET
@@ -1761,7 +1760,7 @@ def fatura_pdf_view(request, venda_id, tipo='a4'):
 # path('api/fatura-credito/<int:fatura_id>/<str:tipo>/', ...)
 def fatura_credito_pdf_view(request, fatura_id, tipo='a4'):
     """Gera PDF para Faturas de Crédito (FT)"""
-    fatura = get_object_or_404(FaturaCredito, id=fatura_id, empresa=request.user.empresa)
+    fatura = get_object_or_404(FaturaCredito, id=fatura_id)
     return _gerar_response_pdf(fatura, "FT")
 
 @requer_permissao("emitir_recibos")
@@ -1769,7 +1768,7 @@ def fatura_credito_pdf_view(request, fatura_id, tipo='a4'):
 # path('recibo/<int:recibo_id>/pdf/', ...)
 def recibo_pdf_view(request, recibo_id):
     """Gera PDF para Recibos de Quitação (REC)"""
-    recibo = get_object_or_404(Recibo, id=recibo_id, empresa=request.user.empresa)
+    recibo = get_object_or_404(Recibo, id=recibo_id)
     return _gerar_response_pdf(recibo, "REC")
 
 @require_GET
@@ -1778,7 +1777,7 @@ def recibo_pdf_view(request, recibo_id):
 # path('proforma/<int:proforma_id>/pdf/', ...)
 def proforma_pdf_view(request, proforma_id):
     """Gera PDF para Faturas Proforma (FP)"""
-    proforma = get_object_or_404(FaturaProforma, id=proforma_id, empresa=request.user.empresa)
+    proforma = get_object_or_404(FaturaProforma, id=proforma_id)
     return _gerar_response_pdf(proforma, "FP")
 
 
@@ -1792,15 +1791,12 @@ def finalizar_venda_api(request):
     try:
         data = json.loads(request.body)
         funcionario = request.user.funcionario
-        empresa = funcionario.loja_principal.empresa
         
         # 1. RIGOR DE REGIME (Server-side validation)
-        validar_itens_por_regime(empresa, data['itens'])
+        validar_itens_por_regime(data['itens'])
 
         # 2. Criar cabeçalho da Venda
         venda = Venda.objects.create(
-            empresa=empresa,
-            loja=funcionario.loja_principal,
             cliente_id=data.get('cliente_id'),
             vendedor=funcionario,
             forma_pagamento_id=data['forma_pagamento_id'],
@@ -1883,7 +1879,7 @@ def finalizar_proforma_api(request):
 def finalizar_fatura_credito_api(request, fatura_id):
     """Finaliza Fatura de Crédito (FT) e gera rastro AGT."""
     try:
-        fatura = get_object_or_404(FaturaCredito, id=fatura_id, empresa=request.user.empresa)
+        fatura = get_object_or_404(FaturaCredito, id=fatura_id)
         if fatura.status != 'emitida':
              return JsonResponse({'success': False, 'message': 'Fatura já processada.'})
         
@@ -1900,7 +1896,7 @@ def finalizar_fatura_credito_api(request, fatura_id):
 def finalizar_nota_debito_api(request, nota_id):
     """Finaliza Nota de Débito (ND) e gera rastro AGT."""
     try:
-        nota = get_object_or_404(NotaDebito, id=nota_id, empresa=request.user.empresa)
+        nota = get_object_or_404(NotaDebito, id=nota_id)
         nota.save() # O save do model ND dispara o service fiscal
         return JsonResponse({'success': True, 'numero': nota.numero_nota})
     except Exception as e:
@@ -1983,7 +1979,7 @@ def finalizar_recibo_api(request):
     """Finaliza Recibo (RC) de quitação de fatura."""
     try:
         data = json.loads(request.body)
-        fatura = get_object_or_404(FaturaCredito, id=data['fatura_id'], empresa=request.user.empresa)
+        fatura = get_object_or_404(FaturaCredito, id=data['fatura_id'])
         
         recibo = Recibo.objects.create(
             empresa=fatura.empresa,
@@ -2114,8 +2110,7 @@ def liquidar_fatura_api(request, fatura_id):
     """
     try:
         funcionario = request.user.funcionario
-        empresa = funcionario.loja_principal.empresa
-        fatura = get_object_or_404(FaturaCredito, pk=fatura_id, empresa=empresa)
+        fatura = get_object_or_404(FaturaCredito, pk=fatura_id)
         
         if fatura.status == 'liquidada':
             return JsonResponse({'success': False, 'message': 'Esta fatura já se encontra liquidada.'})
@@ -2126,16 +2121,14 @@ def liquidar_fatura_api(request, fatura_id):
         # Aqui assumimos que o pagamento foi integral para liquidação direta
         forma_pagamento_id = request.POST.get('forma_pagamento_id')
         if forma_pagamento_id:
-            forma = get_object_or_404(FormaPagamento, id=forma_pagamento_id, empresa=empresa)
+            forma = get_object_or_404(FormaPagamento, id=forma_pagamento_id)
         else:
             # Fallback para a primeira forma ativa da empresa
-            forma = FormaPagamento.objects.filter(empresa=empresa, ativa=True).first()
+            forma = FormaPagamento.objects.filter(ativa=True).first()
 
         with transaction.atomic():
             # 2. Criar o Recibo (REC) - Documento de Quitação
             recibo = Recibo.objects.create(
-                empresa=empresa,
-                loja=funcionario.loja_principal,
                 fatura=fatura,
                 cliente=fatura.cliente,
                 vendedor=funcionario,
@@ -2153,7 +2146,6 @@ def liquidar_fatura_api(request, fatura_id):
             conta_destino = forma.conta_destino
             if conta_destino:
                 MovimentacaoFinanceira.objects.create(
-                    empresa=empresa,
                     tipo_movimentacao='entrada',
                     tipo_documento='recibo',
                     data_movimentacao=timezone.now().date(),
@@ -2198,7 +2190,7 @@ def converter_proforma_api(request, proforma_id):
         
         # Correção técnica: Obter o funcionário logado para garantir o isolamento do tenant
         funcionario = request.user.funcionario
-        proforma = get_object_or_404(FaturaProforma, id=proforma_id, empresa=funcionario.loja_principal.empresa)
+        proforma = get_object_or_404(FaturaProforma, id=proforma_id)
         
         if proforma.status != 'emitida':
             return JsonResponse({'success': False, 'message': 'Apenas proformas pendentes podem ser convertidas.'})
@@ -2250,8 +2242,6 @@ def _converter_para_fatura_recibo(proforma, user):
     funcionario = user.funcionario
     
     venda = Venda.objects.create(
-        empresa=proforma.empresa,
-        loja=funcionario.loja_principal,
         cliente=proforma.cliente,
         vendedor=funcionario,
         subtotal=proforma.subtotal,
@@ -2353,7 +2343,7 @@ def recibos_lista(request):
     
     recibos = Recibo.objects.filter(
         empresa=request.user.empresa
-    ).select_related('empresa', 'loja', 'cliente', 'vendedor', 'forma_pagamento').order_by('-data_recibo')  # ✅ CORRIGIDO
+    ).select_related('empresa', 'cliente', 'vendedor', 'forma_pagamento').order_by('-data_recibo')
 
     
     context = {
@@ -2413,7 +2403,7 @@ def atualizar_status_proforma_api(request, proforma_id):
             return JsonResponse({'success': False, 'message': 'Status inválido'})
         
         # Obter a proforma
-        proforma = get_object_or_404(FaturaProforma, id=proforma_id, empresa=request.user.empresa)
+        proforma = get_object_or_404(FaturaProforma, id=proforma_id)
         
         # Atualizar status
         status_anterior = proforma.status
@@ -2527,7 +2517,7 @@ def buscar_documentos_origem_api(request):
 @requer_permissao("aplicar_notacrediito")
 def nota_credito_pdf_view(request, nota_id):
     """Gera PDF para Notas de Crédito (NC) - Rectificativos"""
-    nota = get_object_or_404(NotaCredito, id=nota_id, empresa=request.user.empresa)
+    nota = get_object_or_404(NotaCredito, id=nota_id)
     return _gerar_response_pdf(nota, "NC")
 
 
@@ -2537,7 +2527,7 @@ def nota_credito_pdf_view(request, nota_id):
 @requer_permissao("aplicar_notacredito")
 def nota_debito_pdf_view(request, nota_id):
     """Gera PDF para Notas de Débito (ND)"""
-    nota = get_object_or_404(NotaDebito, id=nota_id, empresa=request.user.empresa)
+    nota = get_object_or_404(NotaDebito, id=nota_id)
     return _gerar_response_pdf(nota, "ND")
 
 
@@ -2546,7 +2536,7 @@ def nota_debito_pdf_view(request, nota_id):
 @requer_permissao("emitir_documentotransporte")
 def documento_transporte_pdf_view(request, documento_id):
     """Gera PDF para Guias de Transporte/Remessa (GT/GR)"""
-    doc = get_object_or_404(DocumentoTransporte, id=documento_id, empresa=request.user.empresa)
+    doc = get_object_or_404(DocumentoTransporte, id=documento_id)
     return _gerar_response_pdf(doc, "GT")
 
 
@@ -2691,7 +2681,7 @@ def adicionar_item_nota_credito_api(request):
     """Adiciona item à NC validando integridade."""
     try:
         data = json.loads(request.body)
-        nota = get_object_or_404(NotaCredito, id=data['nota_id'], empresa=request.user.empresa)
+        nota = get_object_or_404(NotaCredito, id=data['nota_id'])
         
         item = ItemNotaCredito.objects.create(
             nota_credito=nota,
@@ -2712,7 +2702,7 @@ def adicionar_item_nota_debito_api(request):
     """Adiciona item à ND."""
     try:
         data = json.loads(request.body)
-        nota = get_object_or_404(NotaDebito, id=data['nota_id'], empresa=request.user.empresa)
+        nota = get_object_or_404(NotaDebito, id=data['nota_id'])
         
         item = ItemNotaDebito.objects.create(
             nota_debito=nota,
@@ -2733,7 +2723,7 @@ def adicionar_item_documento_transporte_api(request):
     """Adiciona item à Guia de Transporte (GT)."""
     try:
         data = json.loads(request.body)
-        doc = get_object_or_404(DocumentoTransporte, id=data['documento_id'], empresa=request.user.empresa)
+        doc = get_object_or_404(DocumentoTransporte, id=data['documento_id'])
         
         item = ItemDocumentoTransporte.objects.create(
             documento=doc,
@@ -3812,6 +3802,26 @@ class VendaCreateAPIView(generics.CreateAPIView):
             )
 
 
+from rest_framework import serializers
+
+
+class RentabilidadeItemSerializer(serializers.Serializer):
+    """
+    Serializer para estruturar os dados agregados do relatório de rentabilidade.
+    Mapeia os campos calculados via annotate e values() do QuerySet.
+    """
+    produto_id = serializers.IntegerField(read_only=True)
+    produto_nome = serializers.CharField(source='produto__nome', read_only=True)
+    total_vendido = serializers.DecimalField(max_digits=15, decimal_places=2, read_only=True)
+    custo_total = serializers.DecimalField(max_digits=15, decimal_places=2, read_only=True)
+    margem_bruta = serializers.DecimalField(max_digits=15, decimal_places=2, read_only=True)
+    percentual_margem_bruta = serializers.DecimalField(
+        max_digits=7, 
+        decimal_places=2, 
+        read_only=True,
+        coerce_to_string=False  # Retorna como número float/decimal no JSON em vez de string
+    )
+
 
 class RentabilidadeAPIView(APIView):
     """
@@ -3847,7 +3857,7 @@ class RentabilidadeAPIView(APIView):
             filtros['venda__data_venda__lte'] = data_fim
 
         # Lógica de Agregação (A mesma lógica de cálculo pesado de Margem Bruta)
-        resultados = VendaItem.objects.filter(**filtros).select_related('produto').values(
+        resultados = ItemVenda.objects.filter(**filtros).select_related('produto').values(
             'produto_id', 'produto__nome'
         ).annotate(
             total_vendido=Sum(F('quantidade') * F('preco_venda')),
@@ -3871,17 +3881,18 @@ class RentabilidadeAPIView(APIView):
         
         return Response(response_data)
 
+
 class NotaCreditoListView(LoginRequiredMixin, ListView):
     model = NotaCredito
     template_name = 'vendas/nota_credito_lista.html'
-    def get_queryset(self): return NotaCredito.objects.filter(empresa=self.request.user.empresa)
+    def get_queryset(self): return NotaCredito.objects.all()
 
 
 class NotaDebitoListView(LoginRequiredMixin, ListView):
     model = NotaDebito
-    def get_queryset(self): return NotaDebito.objects.filter(empresa=self.request.user.empresa)
+    def get_queryset(self): return NotaDebito.objects.all()
 
 class DocumentoTransporteListView(LoginRequiredMixin, ListView):
     model = DocumentoTransporte
-    def get_queryset(self): return DocumentoTransporte.objects.filter(empresa=self.request.user.empresa)
+    def get_queryset(self): return DocumentoTransporte.objects.all()
 

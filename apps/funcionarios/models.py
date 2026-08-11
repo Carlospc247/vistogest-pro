@@ -161,7 +161,7 @@ class Cargo(TimeStampedModel):
 
 
 class Departamento(TimeStampedModel):
-    """Departamentos 100% personalizados por Empresa/Loja"""
+    """Departamentos 100% personalizados por Empresa/"""
     nome = models.CharField(max_length=100)
     codigo = models.CharField(max_length=20, unique=True)
     descricao = models.TextField(blank=True)
@@ -174,12 +174,7 @@ class Departamento(TimeStampedModel):
         related_name='departamentos_responsavel'
     )
 
-    # RIGOR: Tornou-se obrigatório. Não existe departamento sem loja.
-    loja = models.ForeignKey(
-        'empresas.Loja',
-        on_delete=models.CASCADE,
-        related_name='departamentos'
-    )
+    # RIGOR: Tornou-se obrigatório. Não existe departamento sem .
 
     centro_custo = models.CharField(max_length=20, blank=True)
     ativo = models.BooleanField(default=True)
@@ -187,16 +182,30 @@ class Departamento(TimeStampedModel):
     class Meta:
         verbose_name = "Departamento"
         verbose_name_plural = "Departamentos"
-        unique_together = ['nome', 'loja']
-        ordering = ['loja', 'nome']
+        unique_together = ['nome']
+        ordering = ['nome']
 
     def __str__(self):
-        return f"{self.nome} - {self.loja.nome}"
+        return f"{self.nome}"
 
+
+from datetime import date
+from decimal import Decimal
+from django.db import models, transaction
+from django.contrib.auth.models import Group
+from django.core.exceptions import ValidationError
+from cloudinary.models import CloudinaryField
+
+# Supondo que TimeStampedModel, Cargo e Departamento venham dos seus respectivos módulos do tenant
+# ex: from apps.core.models import TimeStampedModel
+# ex: from .models import Cargo, Departamento
 
 
 class Funcionario(TimeStampedModel):
-    """Funcionários da empresa"""
+    """
+    Funcionários da empresa.
+    Ajustado para django_tenants (Isolamento Físico via Schema PostgreSQL).
+    """
 
     TIPO_CONTRATO_CHOICES = [
         ('pf', 'Pessoa Física'),
@@ -235,22 +244,22 @@ class Funcionario(TimeStampedModel):
         editable=False,
         help_text="Gerada automaticamente no formato FUNC-00001"
     )
-    
+
     usuario = models.OneToOneField(
         'core.Usuario',
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
-        related_name='+' # RIGOR: O '+' diz ao Django: "NÃO crie relação reversa automática"
+        related_name='funcionario'  # CORRIGIDO: era '+' (desativava request.user.funcionario)
     )
 
     recebe_copia_faturamento_email = models.BooleanField(
-        "Receber Cópia de Faturamento?", 
+        "Receber Cópia de Faturamento?",
         default=False,
         help_text="Diretores e Gerentes recebem uma cópia de cada documento fiscal emitido."
     )
     recebe_copia_faturamento_whatsapp = models.BooleanField(
-        "Receber via WhatsApp?", 
+        "Receber via WhatsApp?",
         default=False
     )
 
@@ -282,14 +291,8 @@ class Funcionario(TimeStampedModel):
     email_corporativo = models.EmailField(blank=True)
 
     # Dados profissionais
-    cargo = models.ForeignKey(Cargo, null=True, blank=True, on_delete=models.PROTECT, related_name='funcionarios')
-    departamento = models.ForeignKey(Departamento, on_delete=models.PROTECT, related_name='funcionarios')
-    loja_principal = models.ForeignKey('empresas.Loja', on_delete=models.PROTECT, related_name='funcionarios')
-    lojas_acesso = models.ManyToManyField(
-        'empresas.Loja',
-        related_name='funcionarios_com_acesso',
-        help_text="Lojas que o funcionário tem acesso"
-    )
+    cargo = models.ForeignKey('Cargo', null=True, blank=True, on_delete=models.PROTECT, related_name='funcionarios')
+    departamento = models.ForeignKey('Departamento', on_delete=models.PROTECT, related_name='funcionarios')
 
     # Hierarquia
     supervisor = models.ForeignKey(
@@ -325,7 +328,6 @@ class Funcionario(TimeStampedModel):
     instituicao_ensino = models.CharField(max_length=200, blank=True)
     ano_conclusao = models.IntegerField(null=True, blank=True)
 
-    
     outros_registros = models.TextField(blank=True, help_text="Outros registros profissionais")
 
     # Dados bancários
@@ -359,11 +361,7 @@ class Funcionario(TimeStampedModel):
     observacoes = models.TextField(blank=True)
     observacoes_rh = models.TextField(blank=True, help_text="Observações confidenciais do RH")
 
-    #foto = models.ImageField(upload_to='funcionarios/fotos/', null=True, blank=True, default='https://res.cloudinary.com/drb9m2gwz/image/upload/v1762087442/logo_wovikm.png')
     foto = CloudinaryField('foto', blank=True, null=True)
-
-
-    empresa = models.ForeignKey('empresas.Empresa', on_delete=models.CASCADE, related_name='funcionarios')
 
     class Meta:
         verbose_name = "Funcionário"
@@ -371,24 +369,21 @@ class Funcionario(TimeStampedModel):
         indexes = [
             models.Index(fields=['matricula']),
             models.Index(fields=['bi']),
-            models.Index(fields=['nome_completo', 'empresa']),
-            models.Index(fields=['empresa', 'ativo']),
+            models.Index(fields=['nome_completo']),
+            models.Index(fields=['ativo']),  # Ajustado: removido 'empresa'
             models.Index(fields=['cargo', 'ativo']),
-            models.Index(fields=['loja_principal', 'ativo']),
             models.Index(fields=['data_admissao']),
         ]
         ordering = ['nome_completo']
 
     def __str__(self):
         return f"{self.matricula} - {self.nome_exibicao}"
-    
-    def gerar_matricula(self):
-        """Gera matrícula sequencial segura por empresa"""
-        from django.db import transaction
 
+    def gerar_matricula(self):
+        """Gera matrícula sequencial isolada automaticamente dentro do schema do Tenant ativo"""
         with transaction.atomic():
-            funcionarios = Funcionario.objects.select_for_update().filter(empresa=self.empresa)
-            ultima = funcionarios.order_by('-id').first()
+            # No django_tenants, o ORM restringe a busca automaticamente ao schema atual
+            ultima = Funcionario.objects.select_for_update().order_by('-id').first()
 
             if ultima and ultima.matricula:
                 try:
@@ -400,8 +395,6 @@ class Funcionario(TimeStampedModel):
 
             return f"FUNC-{numero:05d}"
 
-
-
     def save(self, *args, **kwargs):
         criando = self._state.adding  # indica se é um registro novo
 
@@ -409,21 +402,14 @@ class Funcionario(TimeStampedModel):
         if not self.matricula:
             self.matricula = self.gerar_matricula()
 
-        # 2️⃣ Sincroniza empresa do usuário
-        if self.usuario and getattr(self.usuario, 'empresa', None) != self.empresa:
-            self.usuario.empresa = self.empresa
-            self.usuario.save(update_fields=['empresa'])
-
-        # ⚠️ 3️⃣ Antes de salvar, valida apenas se for criação e cargo estiver vazio
-        from django.core.exceptions import ValidationError
-
+        # 2️⃣ Validação no momento da criação
         if criando and not self.cargo:
             raise ValidationError({"cargo": "O campo 'cargo' é obrigatório ao criar o funcionário."})
 
-        # 4️⃣ Salva o funcionário (isso já garante que o cargo_id seja persistido)
+        # 3️⃣ Salva o funcionário no schema do tenant
         super().save(*args, **kwargs)
 
-        # 5️⃣ Após salvar, sincroniza grupo e permissões
+        # 4️⃣ Após salvar, sincroniza grupo e permissões
         if self.usuario and self.cargo_id:
             group, _ = Group.objects.get_or_create(name=self.cargo.nome)
             if hasattr(self.cargo, "permissions"):
@@ -432,9 +418,6 @@ class Funcionario(TimeStampedModel):
             self.usuario.groups.clear()
             self.usuario.groups.add(group)
 
-
-
-    
     def clean(self):
         if self.data_demissao and self.data_demissao <= self.data_admissao:
             raise ValidationError("Data de demissão deve ser posterior à admissão")
@@ -449,13 +432,12 @@ class Funcionario(TimeStampedModel):
         return hoje.year - self.data_nascimento.year - (
             (hoje.month, hoje.day) < (self.data_nascimento.month, self.data_nascimento.day)
         )
-    
+
     @property
     def permissoes_cargo(self):
         if not self.cargo:
             return {}
         return {k: getattr(self.cargo, k, False) for k in vars(self.cargo) if k.startswith('pode_')}
-
 
     @property
     def tempo_empresa_dias(self):
@@ -465,12 +447,6 @@ class Funcionario(TimeStampedModel):
     @property
     def tempo_empresa_anos(self):
         return self.tempo_empresa_dias / 365.25
-
-    #@property
-    #def ofa_vencido(self):
-    #    if self.data_validade_ofa:
-    #        return self.data_validade_ofa < date.today()
-    #    return False
 
     @property
     def endereco_completo(self):
@@ -501,7 +477,7 @@ class Funcionario(TimeStampedModel):
 
 
 class Equipe(models.Model):
-    nome = models.CharField(max_length=100) 
+    nome = models.CharField(max_length=100)
 
 class EscalaTrabalho(TimeStampedModel):
     """Escalas de trabalho dos funcionários"""
@@ -512,69 +488,67 @@ class EscalaTrabalho(TimeStampedModel):
         ('madrugada', 'Madrugada'),
         ('integral', 'Integral'),
     ]
-    
+
     funcionario = models.ForeignKey(Funcionario, on_delete=models.CASCADE, related_name='escalas')
-    
+
     # Data e turno
     data_trabalho = models.DateField()
     turno = models.CharField(max_length=15, choices=TURNO_CHOICES)
-    
+
     # Horários
     horario_entrada = models.TimeField()
     horario_saida = models.TimeField()
     horario_almoco_inicio = models.TimeField(null=True, blank=True)
     horario_almoco_fim = models.TimeField(null=True, blank=True)
-    
-    # Local
-    loja = models.ForeignKey('empresas.Loja', on_delete=models.CASCADE)
+
     departamento = models.ForeignKey(Departamento, on_delete=models.CASCADE, null=True, blank=True)
-    
+
     # Função específica do dia
     funcao_dia = models.CharField(max_length=100, blank=True, help_text="Função específica para este dia")
-    
+
     # Status
     confirmada = models.BooleanField(default=False)
     trabalhada = models.BooleanField(default=False)
     observacoes = models.TextField(blank=True)
-    
+
     # Quem criou a escala
     criada_por = models.ForeignKey(
-        Funcionario, 
+        Funcionario,
         on_delete=models.PROTECT,
         related_name='escalas_criadas'
     )
-    
+
     class Meta:
         verbose_name = "Escala de Trabalho"
         verbose_name_plural = "Escalas de Trabalho"
         unique_together = ['funcionario', 'data_trabalho', 'turno']
         ordering = ['data_trabalho', 'turno', 'funcionario']
-    
+
     def __str__(self):
         return f"{self.funcionario.nome_exibicao} - {self.data_trabalho} ({self.get_turno_display()})"
-    
+
     @property
     def horas_trabalhadas(self):
         """Calcula horas trabalhadas no dia"""
         if not (self.horario_entrada and self.horario_saida):
             return 0
-        
+
         entrada = datetime.combine(date.today(), self.horario_entrada)
         saida = datetime.combine(date.today(), self.horario_saida)
-        
+
         # Se saída é menor que entrada, considera que passou da meia-noite
         if saida < entrada:
             saida += timedelta(days=1)
-        
+
         total = saida - entrada
-        
+
         # Descontar horário de almoço
         if self.horario_almoco_inicio and self.horario_almoco_fim:
             almoco_inicio = datetime.combine(date.today(), self.horario_almoco_inicio)
             almoco_fim = datetime.combine(date.today(), self.horario_almoco_fim)
             almoco_duracao = almoco_fim - almoco_inicio
             total -= almoco_duracao
-        
+
         return total.total_seconds() / 3600  # Retorna em horas
 
 
@@ -589,36 +563,35 @@ class RegistroPonto(TimeStampedModel):
         ('entrada_extra', 'Entrada Extra'),
         ('saida_extra', 'Saída Extra'),
     ]
-    
+
     funcionario = models.ForeignKey(Funcionario, on_delete=models.CASCADE, related_name='registros_ponto')
-    
+
     # Data e hora
     data_registro = models.DateField()
     hora_registro = models.TimeField()
     tipo_registro = models.CharField(max_length=15, choices=TIPO_REGISTRO_CHOICES)
-    
+
     # Localização
-    loja = models.ForeignKey('empresas.Loja', on_delete=models.CASCADE)
     ip_registro = models.GenericIPAddressField(null=True, blank=True)
-    
+
     # Justificativa (para registros manuais)
     registro_manual = models.BooleanField(default=False)
     justificativa = models.TextField(blank=True)
     aprovado_por = models.ForeignKey(
-        Funcionario, 
-        on_delete=models.SET_NULL, 
-        null=True, 
+        Funcionario,
+        on_delete=models.SET_NULL,
+        null=True,
         blank=True,
         related_name='pontos_aprovados'
     )
-    
+
     observacoes = models.TextField(blank=True)
-    
+
     class Meta:
         verbose_name = "Registro de Ponto"
         verbose_name_plural = "Registros de Ponto"
         ordering = ['-data_registro', '-hora_registro']
-    
+
     def __str__(self):
         return f"{self.funcionario.nome_exibicao} - {self.data_registro} {self.hora_registro} ({self.get_tipo_registro_display()})"
 
@@ -634,48 +607,48 @@ class Ferias(TimeStampedModel):
         ('concluida', 'Concluída'),
         ('cancelada', 'Cancelada'),
     ]
-    
+
     funcionario = models.ForeignKey(Funcionario, on_delete=models.CASCADE, related_name='ferias')
-    
+
     # Período aquisitivo
     periodo_aquisitivo_inicio = models.DateField(help_text="Início do período aquisitivo")
     periodo_aquisitivo_fim = models.DateField(help_text="Fim do período aquisitivo")
-    
+
     # Período de gozo
     data_inicio = models.DateField()
     data_fim = models.DateField()
     dias_ferias = models.IntegerField(help_text="Quantidade de dias de férias")
-    
+
     # Valores
     valor_ferias = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     valor_um_terco = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     total = models.DecimalField(max_digits=10, decimal_places=2, default=0)
-    
+
     # Adiantamento salarial
     adiantamento_13 = models.DecimalField(max_digits=10, decimal_places=2, default=0)
-    
+
     # Status e aprovação
     status = models.CharField(max_length=15, choices=STATUS_CHOICES, default='planejada')
     data_solicitacao = models.DateField(auto_now_add=True)
     aprovada_por = models.ForeignKey(
-        Funcionario, 
-        on_delete=models.SET_NULL, 
-        null=True, 
+        Funcionario,
+        on_delete=models.SET_NULL,
+        null=True,
         blank=True,
         related_name='ferias_aprovadas'
     )
     data_aprovacao = models.DateField(null=True, blank=True)
-    
+
     observacoes = models.TextField(blank=True)
-    
+
     class Meta:
         verbose_name = "Férias"
         verbose_name_plural = "Férias"
         ordering = ['-data_inicio']
-    
+
     def __str__(self):
         return f"{self.funcionario.nome_exibicao} - {self.data_inicio} a {self.data_fim}"
-    
+
     def save(self, *args, **kwargs):
         # Calcular valores das férias
         if self.funcionario:
@@ -683,9 +656,9 @@ class Ferias(TimeStampedModel):
             self.valor_ferias = (salario_base / 30) * self.dias_ferias
             self.valor_um_terco = self.valor_ferias / 3
             self.total = self.valor_ferias + self.valor_um_terco + self.adiantamento_13
-        
+
         super().save(*args, **kwargs)
-    
+
     @property
     def dias_calendario(self):
         """Total de dias de calendário"""
@@ -703,7 +676,7 @@ class Capacitacao(TimeStampedModel):
         ('certificacao', 'Certificação'),
         ('reciclagem', 'Reciclagem'),
     ]
-    
+
     STATUS_CHOICES = [
         ('planejada', 'Planejada'),
         ('inscrito', 'Inscrito'),
@@ -712,20 +685,20 @@ class Capacitacao(TimeStampedModel):
         ('cancelada', 'Cancelada'),
         ('reprovado', 'Reprovado'),
     ]
-    
+
     funcionario = models.ForeignKey(Funcionario, on_delete=models.CASCADE, related_name='capacitacoes')
-    
+
     # Dados da capacitação
     titulo = models.CharField(max_length=200)
     descricao = models.TextField()
     tipo = models.CharField(max_length=15, choices=TIPO_CHOICES)
     carga_horaria = models.IntegerField(help_text="Carga horária em horas")
-    
+
     # Datas
     data_inicio = models.DateField()
     data_fim = models.DateField()
     data_inscricao = models.DateField(auto_now_add=True)
-    
+
     # Instituição
     instituicao = models.CharField(max_length=200)
     instrutor = models.CharField(max_length=200, blank=True)
@@ -736,44 +709,44 @@ class Capacitacao(TimeStampedModel):
         ('hibrido', 'Híbrido'),
         ('ead', 'EAD'),
     ], default='presencial')
-    
+
     # Custos
     valor_inscricao = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     valor_transporte = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     valor_hospedagem = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     valor_alimentacao = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     total = models.DecimalField(max_digits=10, decimal_places=2, default=0)
-    
+
     # Resultado
     status = models.CharField(max_length=15, choices=STATUS_CHOICES, default='planejada')
     nota_final = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
     certificado = models.FileField(upload_to='funcionarios/certificados/', null=True, blank=True)
-    
+
     # Aprovação
     aprovada_por = models.ForeignKey(
-        Funcionario, 
-        on_delete=models.SET_NULL, 
-        null=True, 
+        Funcionario,
+        on_delete=models.SET_NULL,
+        null=True,
         blank=True,
         related_name='capacitacoes_aprovadas'
     )
-    
+
     observacoes = models.TextField(blank=True)
-    
+
     class Meta:
         verbose_name = "Capacitação"
         verbose_name_plural = "Capacitações"
         ordering = ['-data_inicio']
-    
+
     def __str__(self):
         return f"{self.funcionario.nome_exibicao} - {self.titulo}"
-    
+
     def save(self, *args, **kwargs):
         # Calcular valor total
         self.total = (
-            self.valor_inscricao + 
-            self.valor_transporte + 
-            self.valor_hospedagem + 
+            self.valor_inscricao +
+            self.valor_transporte +
+            self.valor_hospedagem +
             self.valor_alimentacao
         )
         super().save(*args, **kwargs)
@@ -787,22 +760,22 @@ class AvaliacaoDesempenho(TimeStampedModel):
         ('promocao', 'Avaliação para Promoção'),
         ('extraordinaria', 'Avaliação Extraordinária'),
     ]
-    
+
     funcionario = models.ForeignKey(Funcionario, on_delete=models.CASCADE, related_name='avaliacoes')
-    
+
     # Período da avaliação
     tipo_avaliacao = models.CharField(max_length=15, choices=PERIODO_CHOICES)
     periodo_inicio = models.DateField()
     periodo_fim = models.DateField()
     data_avaliacao = models.DateField()
-    
+
     # Avaliador
     avaliador = models.ForeignKey(
-        Funcionario, 
+        Funcionario,
         on_delete=models.PROTECT,
         related_name='avaliacoes_realizadas'
     )
-    
+
     # Critérios de avaliação (notas de 1 a 5)
     pontualidade = models.IntegerField(validators=[MinValueValidator(1), MaxValueValidator(5)])
     assiduidade = models.IntegerField(validators=[MinValueValidator(1), MaxValueValidator(5)])
@@ -812,31 +785,31 @@ class AvaliacaoDesempenho(TimeStampedModel):
     relacionamento_interpessoal = models.IntegerField(validators=[MinValueValidator(1), MaxValueValidator(5)])
     conhecimento_tecnico = models.IntegerField(validators=[MinValueValidator(1), MaxValueValidator(5)])
     lideranca = models.IntegerField(validators=[MinValueValidator(1), MaxValueValidator(5)], null=True, blank=True)
-    
+
     # Média geral
     nota_geral = models.DecimalField(max_digits=3, decimal_places=2, null=True, blank=True)
-    
+
     # Comentários
     pontos_fortes = models.TextField()
     pontos_melhorar = models.TextField()
     metas_objetivos = models.TextField()
     plano_desenvolvimento = models.TextField(blank=True)
-    
+
     # Recomendações
     recomenda_promocao = models.BooleanField(default=False)
     recomenda_aumento = models.BooleanField(default=False)
     recomenda_capacitacao = models.BooleanField(default=False)
-    
+
     observacoes = models.TextField(blank=True)
-    
+
     class Meta:
         verbose_name = "Avaliação de Desempenho"
         verbose_name_plural = "Avaliações de Desempenho"
         ordering = ['-data_avaliacao']
-    
+
     def __str__(self):
         return f"{self.funcionario.nome_exibicao} - {self.get_tipo_avaliacao_display()} - {self.data_avaliacao}"
-    
+
     def save(self, *args, **kwargs):
         # Calcular nota geral
         notas = [
@@ -844,10 +817,10 @@ class AvaliacaoDesempenho(TimeStampedModel):
             self.produtividade, self.iniciativa, self.relacionamento_interpessoal,
             self.conhecimento_tecnico
         ]
-        
+
         if self.lideranca:
             notas.append(self.lideranca)
-        
+
         self.nota_geral = sum(notas) / len(notas)
         super().save(*args, **kwargs)
 
@@ -869,7 +842,6 @@ class JornadaTrabalho(models.Model):
     horario_almoco_inicio = models.TimeField(null=True, blank=True)
     horario_almoco_fim = models.TimeField(null=True, blank=True)
     departamento = models.ForeignKey(Departamento, on_delete=models.SET_NULL, null=True, blank=True)
-    loja = models.ForeignKey('empresas.Loja', on_delete=models.CASCADE)
 
     class Meta:
         verbose_name = "Jornada de Trabalho"
@@ -895,7 +867,6 @@ class JornadaTrabalho(models.Model):
             horario_almoco_inicio=self.horario_almoco_inicio,
             horario_almoco_fim=self.horario_almoco_fim,
             departamento=self.departamento,
-            loja=self.loja,
             funcao_dia=funcao_dia,
             criada_por=criada_por or funcionario,
         )
@@ -921,7 +892,7 @@ class Afastamento(TimeStampedModel):
     data_inicio = models.DateField()
     data_fim = models.DateField()
     descricao = models.TextField(blank=True, help_text="Motivo ou observações adicionais")
-    
+
     # Aprovação (opcional)
     aprovado_por = models.ForeignKey(
         Funcionario,
@@ -931,15 +902,9 @@ class Afastamento(TimeStampedModel):
         related_name='afastamentos_aprovados'
     )
     aprovado = models.BooleanField(default=False)
-    
+
     # Localização/Departamento (opcional)
-    loja = models.ForeignKey(
-        'empresas.Loja',
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name='afastamentos'
-    )
+
     departamento = models.ForeignKey(
         Departamento,
         on_delete=models.SET_NULL,
@@ -1010,7 +975,7 @@ class PontoEletronico(TimeStampedModel):
     saida_almoco = models.TimeField("Saída Almoço", null=True, blank=True)
     entrada_tarde = models.TimeField("Entrada Tarde", null=True, blank=True)
     saida = models.TimeField("Saída", null=True, blank=True)
-    
+
     # --- Controlo e Auditoria ---
     status = models.CharField("Status do Dia", max_length=20, choices=STATUS_CHOICES, default='presente')
     observacoes = models.TextField("Observações / Justificativa", blank=True)
@@ -1026,12 +991,12 @@ class PontoEletronico(TimeStampedModel):
         return f"Ponto de {self.funcionario} em {self.data.strftime('%d/%m/%Y')}"
 
     # --- Propriedades Calculadas (Lógica de Negócio) ---
-    
+
     def _calcular_duracao(self, inicio, fim):
         """Função auxiliar para calcular a duração entre dois horários no mesmo dia."""
         if not inicio or not fim:
             return timezone.timedelta(0)
-        
+
         datetime_inicio = datetime.combine(self.data, inicio)
         datetime_fim = datetime.combine(self.data, fim)
         return datetime_fim - datetime_inicio
@@ -1039,15 +1004,15 @@ class PontoEletronico(TimeStampedModel):
     @property
     def horas_periodo_manha(self):
         return self._calcular_duracao(self.entrada_manha, self.saida_almoco)
-        
+
     @property
     def horas_periodo_tarde(self):
         return self._calcular_duracao(self.entrada_tarde, self.saida)
-        
+
     @property
     def horas_almoco(self):
         return self._calcular_duracao(self.saida_almoco, self.entrada_tarde)
-        
+
     @property
     def horas_trabalhadas_dia(self):
         """Calcula o total de horas trabalhadas no dia."""
@@ -1087,8 +1052,8 @@ class Meta(models.Model):
     data_fim = models.DateField(verbose_name="Data Limite")
     concluida = models.BooleanField(default=False, verbose_name="Concluída")
     progresso = models.DecimalField(
-        max_digits=5, 
-        decimal_places=2, 
+        max_digits=5,
+        decimal_places=2,
         default=0.00,
         verbose_name="Progresso (%)"
     )
@@ -1103,7 +1068,7 @@ class Meta(models.Model):
 
     def __str__(self):
         return f"{self.titulo} - {self.funcionario}"
-    
+
     def esta_atrasada(self):
         """Verifica se a meta está atrasada"""
         return not self.concluida and timezone.now().date() > self.data_fim
@@ -1186,7 +1151,7 @@ class Comunicado(models.Model):
 
 class FolhaPagamento(TimeStampedModel):
     """Folha de pagamento mensal"""
-    
+
     STATUS_CHOICES = [
         ('em_elaboracao', 'Em Elaboração'),
         ('calculada', 'Calculada'),
@@ -1195,20 +1160,19 @@ class FolhaPagamento(TimeStampedModel):
         ('paga', 'Paga'),
         ('cancelada', 'Cancelada'),
     ]
-    
+
     # Identificação
-    empresa = models.ForeignKey('empresas.Empresa', on_delete=models.CASCADE, related_name='folhas_pagamento')
     mes = models.IntegerField(validators=[MinValueValidator(1), MaxValueValidator(12)])
     ano = models.IntegerField(validators=[MinValueValidator(2020), MaxValueValidator(2050)])
-    
+
     # Dados da folha
     descricao = models.CharField(max_length=200, help_text="Ex: Folha Janeiro 2024")
     data_fechamento = models.DateField(null=True, blank=True)
     data_pagamento = models.DateField(null=True, blank=True)
-    
+
     # Status e controle
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='em_elaboracao')
-    
+
     # Totalizadores
     total_funcionarios = models.IntegerField(default=0)
     total_salario_bruto = models.DecimalField(max_digits=15, decimal_places=2, default=0)
@@ -1217,33 +1181,33 @@ class FolhaPagamento(TimeStampedModel):
     total_liquido = models.DecimalField(max_digits=15, decimal_places=2, default=0)
     total_inss_empresa = models.DecimalField(max_digits=15, decimal_places=2, default=0)
     total_fgts = models.DecimalField(max_digits=15, decimal_places=2, default=0)
-    
+
     # Responsáveis
     elaborada_por = models.ForeignKey(
-        settings.AUTH_USER_MODEL, 
+        settings.AUTH_USER_MODEL,
         on_delete=models.PROTECT,
         related_name='folhas_elaboradas'
     )
     aprovada_por = models.ForeignKey(
-        settings.AUTH_USER_MODEL, 
+        settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
-        null=True, 
+        null=True,
         blank=True,
         related_name='folhas_aprovadas'
     )
-    
+
     # Observações
     observacoes = models.TextField(blank=True)
-    
+
     class Meta:
         verbose_name = 'Folha de Pagamento'
         verbose_name_plural = 'Folhas de Pagamento'
-        unique_together = ['empresa', 'mes', 'ano']
+        unique_together = ['mes', 'ano']
         ordering = ['-ano', '-mes']
-        
+
     def __str__(self):
         return f"Folha {self.mes:02d}/{self.ano} - {self.empresa.nome}"
-    
+
     @property
     def mes_nome(self):
         """Retorna o nome do mês"""
@@ -1252,27 +1216,27 @@ class FolhaPagamento(TimeStampedModel):
             'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'
         ]
         return meses[self.mes]
-    
+
     @property
     def pode_editar(self):
         """Verifica se a folha pode ser editada"""
         return self.status in ['em_elaboracao', 'calculada']
-    
+
     @property
     def pode_aprovar(self):
         """Verifica se a folha pode ser aprovada"""
         return self.status == 'calculada'
-    
+
     @property
     def pode_fechar(self):
         """Verifica se a folha pode ser fechada"""
         return self.status == 'aprovada'
-    
+
     def calcular_folha(self):
         """Calcula todos os valores da folha"""
         if not self.pode_editar:
             raise ValidationError("Folha não pode ser recalculada neste status")
-        
+
         # Resetar totalizadores
         self.total_funcionarios = 0
         self.total_salario_bruto = Decimal('0.00')
@@ -1281,11 +1245,11 @@ class FolhaPagamento(TimeStampedModel):
         self.total_liquido = Decimal('0.00')
         self.total_inss_empresa = Decimal('0.00')
         self.total_fgts = Decimal('0.00')
-        
+
         # Calcular cada item da folha
         for item in self.itens.all():
             item.calcular()
-            
+
             # Somar aos totalizadores
             self.total_funcionarios += 1
             self.total_salario_bruto += item.salario_bruto
@@ -1294,50 +1258,50 @@ class FolhaPagamento(TimeStampedModel):
             self.total_liquido += item.salario_liquido
             self.total_inss_empresa += item.inss_empresa
             self.total_fgts += item.fgts
-        
+
         self.status = 'calculada'
         self.save()
-    
+
     def aprovar_folha(self, usuario):
         """Aprova a folha de pagamento"""
         if not self.pode_aprovar:
             raise ValidationError("Folha não pode ser aprovada neste status")
-        
+
         self.status = 'aprovada'
         self.aprovada_por = usuario
         self.save()
-    
+
     def fechar_folha(self):
         """Fecha a folha de pagamento"""
         if not self.pode_fechar:
             raise ValidationError("Folha não pode ser fechada neste status")
-        
+
         self.status = 'fechada'
         self.data_fechamento = date.today()
         self.save()
-    
+
     def marcar_como_paga(self, data_pagamento=None):
         """Marca a folha como paga"""
         if self.status != 'fechada':
             raise ValidationError("Apenas folhas fechadas podem ser marcadas como pagas")
-        
+
         self.status = 'paga'
         self.data_pagamento = data_pagamento or date.today()
         self.save()
 
 class ItemFolhaPagamento(TimeStampedModel):
     """Item individual da folha de pagamento por funcionário"""
-    
+
     folha = models.ForeignKey(FolhaPagamento, on_delete=models.CASCADE, related_name='itens')
     funcionario = models.ForeignKey(Funcionario, on_delete=models.CASCADE)
-    
+
     # Dados base para cálculo
     salario_base = models.DecimalField(max_digits=10, decimal_places=2)
     dias_trabalhados = models.IntegerField(default=30)
     dias_uteis_mes = models.IntegerField(default=22)
     horas_extras = models.DecimalField(max_digits=6, decimal_places=2, default=0)
     valor_hora_extra = models.DecimalField(max_digits=10, decimal_places=2, default=0)
-    
+
     # Proventos
     salario_bruto = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     valor_horas_extras = models.DecimalField(max_digits=10, decimal_places=2, default=0)
@@ -1347,7 +1311,7 @@ class ItemFolhaPagamento(TimeStampedModel):
     comissoes = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     bonus = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     outros_proventos = models.DecimalField(max_digits=10, decimal_places=2, default=0)
-    
+
     # Descontos
     inss_funcionario = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     irrf = models.DecimalField(max_digits=10, decimal_places=2, default=0)
@@ -1357,42 +1321,42 @@ class ItemFolhaPagamento(TimeStampedModel):
     adiantamentos = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     faltas = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     outros_descontos = models.DecimalField(max_digits=10, decimal_places=2, default=0)
-    
+
     # Encargos do empregador
     inss_empresa = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     fgts = models.DecimalField(max_digits=10, decimal_places=2, default=0)
-    
+
     # Totalizadores calculados
     total_proventos = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     total_descontos = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     total_beneficios = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     salario_liquido = models.DecimalField(max_digits=10, decimal_places=2, default=0)
-    
+
     # Observações específicas
     observacoes = models.TextField(blank=True)
-    
+
     class Meta:
         verbose_name = 'Item da Folha de Pagamento'
         verbose_name_plural = 'Itens da Folha de Pagamento'
         unique_together = ['folha', 'funcionario']
         ordering = ['funcionario__nome_completo']
-        
+
     def __str__(self):
         return f"{self.funcionario.nome_completo} - {self.folha}"
-    
+
     def calcular(self):
         """Calcula todos os valores do item"""
-        
+
         # 1. Calcular salário proporcional
         if self.dias_trabalhados < 30:
             self.salario_bruto = (self.salario_base / 30) * self.dias_trabalhados
         else:
             self.salario_bruto = self.salario_base
-        
+
         # 2. Calcular horas extras
         if self.horas_extras > 0 and self.valor_hora_extra > 0:
             self.valor_horas_extras = self.horas_extras * self.valor_hora_extra
-        
+
         # 3. Calcular total de proventos
         self.total_proventos = (
             self.salario_bruto +
@@ -1404,13 +1368,13 @@ class ItemFolhaPagamento(TimeStampedModel):
             self.bonus +
             self.outros_proventos
         )
-        
+
         # 4. Calcular INSS do funcionário
         self.inss_funcionario = self.calcular_inss()
-        
+
         # 5. Calcular IRRF
         self.irrf = self.calcular_irrf()
-        
+
         # 6. Calcular total de descontos
         self.total_descontos = (
             self.inss_funcionario +
@@ -1420,26 +1384,26 @@ class ItemFolhaPagamento(TimeStampedModel):
             self.faltas +
             self.outros_descontos
         )
-        
+
         # 7. Calcular benefícios (não descontados)
         self.total_beneficios = (
             self.vale_refeicao +
             self.plano_saude
         )
-        
+
         # 8. Calcular salário líquido
         self.salario_liquido = self.total_proventos - self.total_descontos
-        
+
         # 9. Calcular encargos do empregador
         self.inss_empresa = self.total_proventos * Decimal('0.20')  # 20% INSS empresa
         self.fgts = self.total_proventos * Decimal('0.08')  # 8% FGTS
-        
+
         self.save()
-    
+
     def calcular_inss(self):
         """Calcula o INSS do funcionário baseado na tabela atual"""
         salario = self.total_proventos
-        
+
         # Tabela INSS 2024 (valores de exemplo - ajustar conforme legislação)
         if salario <= Decimal('1412.00'):
             return salario * Decimal('0.075')  # 7.5%
@@ -1451,15 +1415,15 @@ class ItemFolhaPagamento(TimeStampedModel):
             return salario * Decimal('0.14')   # 14%
         else:
             return Decimal('1089.72')  # Teto do INSS
-    
+
     def calcular_irrf(self):
         """Calcula o IRRF baseado na tabela atual"""
         base_calculo = self.total_proventos - self.inss_funcionario
-        
+
         # Dedução por dependente (valor de exemplo)
         deducao_dependentes = Decimal('189.59') * 0  # Assumindo 0 dependentes
         base_calculo -= deducao_dependentes
-        
+
         # Tabela IRRF 2024 (valores de exemplo - ajustar conforme legislação)
         if base_calculo <= Decimal('2112.00'):
             return Decimal('0.00')  # Isento
@@ -1474,7 +1438,7 @@ class ItemFolhaPagamento(TimeStampedModel):
 
 class EventoFolha(TimeStampedModel):
     """Eventos específicos que afetam a folha de pagamento"""
-    
+
     TIPO_EVENTO_CHOICES = [
         ('bonus', 'Bônus'),
         ('comissao', 'Comissão'),
@@ -1487,54 +1451,54 @@ class EventoFolha(TimeStampedModel):
         ('decimo_terceiro', '13º Salário'),
         ('outro', 'Outro'),
     ]
-    
+
     item_folha = models.ForeignKey(ItemFolhaPagamento, on_delete=models.CASCADE, related_name='eventos')
     tipo_evento = models.CharField(max_length=20, choices=TIPO_EVENTO_CHOICES)
     descricao = models.CharField(max_length=200)
     valor = models.DecimalField(max_digits=10, decimal_places=2)
     quantidade = models.DecimalField(max_digits=6, decimal_places=2, default=1)
     data_evento = models.DateField()
-    
+
     # Controle
     aplicado = models.BooleanField(default=False)
     observacoes = models.TextField(blank=True)
-    
+
     class Meta:
         verbose_name = 'Evento da Folha'
         verbose_name_plural = 'Eventos da Folha'
         ordering = ['data_evento']
-        
+
     def __str__(self):
         return f"{self.get_tipo_evento_display()} - {self.item_folha.funcionario.nome_completo}"
-    
+
     @property
     def total(self):
         return self.valor * self.quantidade
 
 class HistoricoSalarial(TimeStampedModel):
     """Histórico de alterações salariais"""
-    
+
     funcionario = models.ForeignKey(Funcionario, on_delete=models.CASCADE, related_name='historico_salarial')
     salario_anterior = models.DecimalField(max_digits=10, decimal_places=2)
     salario_novo = models.DecimalField(max_digits=10, decimal_places=2)
     data_vigencia = models.DateField()
     motivo = models.CharField(max_length=200)
     observacoes = models.TextField(blank=True)
-    
+
     # Responsável pela alteração
     alterado_por = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.PROTECT
     )
-    
+
     class Meta:
         verbose_name = 'Histórico Salarial'
         verbose_name_plural = 'Históricos Salariais'
         ordering = ['-data_vigencia']
-        
+
     def __str__(self):
         return f"{self.funcionario.nome_completo} - {self.data_vigencia}"
-    
+
     @property
     def percentual_aumento(self):
         if self.salario_anterior > 0:
@@ -1546,48 +1510,47 @@ class FechamentoTurno(TimeStampedModel):
     """Registro de fechamento de turno do funcionário"""
     funcionario = models.ForeignKey(Funcionario, on_delete=models.CASCADE, related_name='fechamentos_turno')
     data_fechamento = models.DateTimeField(default=timezone.now)
-    
+
     # Valores informados pelo usuário
     valor_informado_caixa = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     valor_informado_tpa = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     valor_informado_transferencia = models.DecimalField(max_digits=10, decimal_places=2, default=0)
-    
+
     # Valores calculados pelo sistema
     valor_sistema_caixa = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     valor_sistema_tpa = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     valor_sistema_transferencia = models.DecimalField(max_digits=10, decimal_places=2, default=0)
-    
+
     observacoes = models.TextField(blank=True)
-    
+
     class Meta:
         verbose_name = "Fechamento de Turno"
         verbose_name_plural = "Fechamentos de Turno"
         ordering = ['-data_fechamento']
-        
+
     def __str__(self):
         return f"Fechamento {self.funcionario.nome_exibicao} - {self.data_fechamento.strftime('%d/%m/%Y %H:%M')}"
-    
+
     @property
     def diferenca_caixa(self):
         return self.valor_informado_caixa - self.valor_sistema_caixa
-        
+
     @property
     def diferenca_tpa(self):
         return self.valor_informado_tpa - self.valor_sistema_tpa
-        
+
     @property
     def diferenca_transferencia(self):
         return self.valor_informado_transferencia - self.valor_sistema_transferencia
-        
+
     @property
     def total_informado(self):
         return self.valor_informado_caixa + self.valor_informado_tpa + self.valor_informado_transferencia
-        
+
     @property
     def total_sistema(self):
         return self.valor_sistema_caixa + self.valor_sistema_tpa + self.valor_sistema_transferencia
-        
+
     @property
     def diferenca_total(self):
         return self.total_informado - self.total_sistema
-

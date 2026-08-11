@@ -6,6 +6,7 @@ from django.utils import timezone
 from decimal import Decimal
 
 from apps.fiscal.services.assinatura_service import VerificadorIntegridadeService
+from apps.fiscal.tasks import processar_assinatura_documento
 
 from .models import TaxaIVAAGT, AssinaturaDigital, RetencaoFonte
 from apps.vendas.models import Venda, FaturaCredito, NotaCredito, NotaDebito, Recibo

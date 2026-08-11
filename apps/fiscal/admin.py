@@ -13,20 +13,21 @@ from cryptography.hazmat.backends import default_backend
 
 from .models import AssinaturaDigital
 
+
 # FORM SIMPLIFICADO
 class AssinaturaDigitalForm(forms.ModelForm):
     class Meta:
         model = AssinaturaDigital
-        # Exibe apenas a empresa. O resto é gerado ou readonly.
-        fields = ['empresa']
+        # No django_tenants, o registro reside no schema do Tenant.
+        # Não existe o campo 'empresa'.
+        fields = []
 
     def clean(self):
         cleaned_data = super().clean()
-        empresa = cleaned_data.get('empresa')
 
-        # Bloqueia duplicidade (já existe OneToOne, mas reforçamos na UI)
-        if empresa and AssinaturaDigital.objects.filter(empresa=empresa).exists() and not self.instance.pk:
-            raise ValidationError("⚠️ Já existe uma assinatura digital configurada para esta empresa.")
+        # Garante a regra de 1 Assinatura Digital por Tenant/Schema
+        if AssinaturaDigital.objects.exists() and not self.instance.pk:
+            raise ValidationError("⚠️ Já existe uma assinatura digital configurada para este Tenant.")
 
         return cleaned_data
 
@@ -35,12 +36,11 @@ class AssinaturaDigitalForm(forms.ModelForm):
 class AssinaturaDigitalAdmin(admin.ModelAdmin):
     form = AssinaturaDigitalForm
     
-    # Lista de visibilidade
-    list_display = ['empresa', 'status_chave', 'data_geracao', 'acoes_download', 'acoes_rapidas']
+    # Lista de visibilidade (Removida referência a 'empresa')
+    list_display = ['status_chave', 'data_geracao', 'acoes_download', 'acoes_rapidas']
     
     # Campos no formulário de edição
-    # 'gerar_chaves_btn' é o nosso botão customizado
-    fields = ['empresa', 'gerar_chaves_btn', 'acoes_download', 'ver_chave_publica', 'data_geracao']
+    fields = ['gerar_chaves_btn', 'acoes_download', 'ver_chave_publica', 'data_geracao']
     readonly_fields = ['gerar_chaves_btn', 'acoes_download', 'ver_chave_publica', 'data_geracao']
 
     def get_urls(self):
@@ -72,8 +72,6 @@ class AssinaturaDigitalAdmin(admin.ModelAdmin):
             )
 
             # 2. Serializar Chave Privada (PEM)
-            # Nota: Idealmente seria cifrada, mas para simplicidade e funcionalidade imediata armazenamos PEM puro
-            # ou cifrado se houver mecanismo de chave mestra.
             pem_private = private_key.private_bytes(
                 encoding=serialization.Encoding.PEM,
                 format=serialization.PrivateFormat.PKCS8,
@@ -91,13 +89,9 @@ class AssinaturaDigitalAdmin(admin.ModelAdmin):
             obj.chave_publica = pem_public.decode('utf-8')
             obj.data_geracao = timezone.now()
             
-            # Resetar hashes para garantir consistência com nova chave (opcional, mas seguro)
-            # obj.ultimo_hash = '' 
-            # obj.dados_series_fiscais = {} 
-            
             obj.save()
 
-            messages.success(request, f"✅ Chaves RSA geradas com sucesso para a empresa {obj.empresa}!")
+            messages.success(request, "✅ Chaves RSA geradas com sucesso para o Tenant!")
             
         except Exception as e:
             messages.error(request, f"Erro ao gerar chaves: {str(e)}")
@@ -108,23 +102,24 @@ class AssinaturaDigitalAdmin(admin.ModelAdmin):
         if not obj.chave_publica:
             return "-"
             
-        url_base = reverse("fiscal:baixar_chave_publica", args=[obj.empresa.id])
+        # As URLs no contexto do tenant não necessitam receber o id da empresa
+        url_base = reverse("fiscal:baixar_chave_publica")
         
         botoes = [
-            f'<div style="margin-bottom: 5px;"><strong>Chave Pública:</strong></div>',
+            '<div style="margin-bottom: 5px;"><strong>Chave Pública:</strong></div>',
             f'<a class="button" href="{url_base}?formato=pem" title="Formato PEM (Padrão)">PEM</a>',
             f'<a class="button" href="{url_base}?formato=txt" title="Formato Texto">TXT</a>',
             f'<a class="button" href="{url_base}?formato=pdf" title="Documento PDF">PDF</a>',
-            f'<br><div style="margin-top: 8px; margin-bottom: 5px;"><strong>Documentos Fiscais:</strong></div>',
-            f'<a class="button" href="{reverse("fiscal:baixar_pdf_submissao", args=[obj.empresa.id])}">📄 PDF AGT</a>',
-            f'<a class="button" href="{reverse("fiscal:download_pdf_agt", args=[obj.empresa.id])}">⚙️ Fluxo ATCUD</a>',
+            '<br><div style="margin-top: 8px; margin-bottom: 5px;"><strong>Documentos Fiscais:</strong></div>',
+            f'<a class="button" href="{reverse("fiscal:baixar_pdf_submissao")}">📄 PDF AGT</a>',
+            f'<a class="button" href="{reverse("fiscal:download_pdf_agt")}">⚙️ Fluxo ATCUD</a>',
         ]
         return format_html(" ".join(botoes))
     acoes_download.short_description = "Downloads & Fluxo Fiscal"
 
     def gerar_chaves_btn(self, obj):
         if not obj.pk:
-            return "Salve a empresa primeiro para gerar as chaves."
+            return "Grave a configuração primeiro para gerar as chaves."
         
         url = reverse('admin:fiscal_assinaturadigital_gerar_chaves', args=[obj.pk])
         return format_html(
@@ -139,7 +134,6 @@ class AssinaturaDigitalAdmin(admin.ModelAdmin):
             url
         )
     gerar_chaves_btn.short_description = "Ação Necessária"
-    gerar_chaves_btn.allow_tags = True
 
     def ver_chave_publica(self, obj):
         if not obj.chave_publica:
@@ -160,4 +154,3 @@ class AssinaturaDigitalAdmin(admin.ModelAdmin):
         # Atalho para o botão na listagem
         return self.gerar_chaves_btn(obj)
     acoes_rapidas.short_description = "Gerar Chaves"
-

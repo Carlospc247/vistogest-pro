@@ -8,8 +8,7 @@ class ConfiguracaoFiscalForm(forms.ModelForm):
     """
     class Meta:
         model = ConfiguracaoFiscal
-        # Excluímos 'empresa' porque será definida automaticamente pela view.
-        exclude = ['empresa']
+        exclude = []
         
         # Widgets para aplicar classes CSS e tipos de input adequados
         widgets = {
@@ -41,7 +40,7 @@ class BackupConfiguracoesForm(forms.ModelForm):
     class Meta:
         model = BackupConfiguracao
         # Excluímos campos geridos automaticamente pelo sistema
-        exclude = ['empresa', 'ultimo_backup', 'status_ultimo_backup']
+        exclude = ['ultimo_backup', 'status_ultimo_backup']
         
         widgets = {
             'backup_automatico': forms.CheckboxInput(attrs={'class': 'form-check-input'}),
@@ -64,7 +63,7 @@ class PersonalizacaoInterfaceForm(forms.ModelForm):
     class Meta:
         model = PersonalizacaoInterface
         # Excluímos os campos de escopo, que são definidos pela view
-        exclude = ['empresa', 'usuario']
+        exclude = ['usuario']
         
         widgets = {
             'tema': forms.Select(attrs={'class': 'form-select'}),

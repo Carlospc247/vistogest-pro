@@ -210,43 +210,35 @@ class MovimentacaoListView(MovimentacaoPermissionMixin, ListView):
         context['title'] = "Histórico de Movimentações de Estoque"
         return context
 
+
+
 class MovimentacaoCreateView(LoginRequiredMixin, CreateView):
+    """
+    View para criar nova movimentação de estoque.
+    Ajustada para django_tenants (Isolamento Físico via Schema PostgreSQL).
+    """
     model = MovimentacaoEstoque
     form_class = MovimentacaoEstoqueForm
     template_name = 'estoque/movimentacao_form.html'
     success_url = reverse_lazy('estoque:movimentacao_lista')
 
-    def get_empresa(self):
-        """ Método seguro para obter a empresa. """
-        user = self.request.user
-        if hasattr(user, 'funcionario') and user.funcionario and user.funcionario.empresa:
-            return user.funcionario.empresa
-        return None
-
-    def get_form_kwargs(self):
-        """ Passa a empresa para o formulário. """
-        kwargs = super().get_form_kwargs()
-        kwargs['empresa'] = self.get_empresa()
-        return kwargs
-    
     def form_valid(self, form):
-        # --- MELHORIA DE CÓDIGO APLICADA ---
-        # Prepara o objeto sem o salvar ainda.
+        # Prepara o objeto sem salvar na base de dados ainda
         movimentacao = form.save(commit=False)
-        # Associa o utilizador logado.
-        movimentacao.usuario = self.request.user
-        # O campo 'empresa' não existe no modelo, não precisa ser definido aqui.
-        # A associação é feita através do 'produto' selecionado no formulário.
         
+        # Associa o utilizador logado responsável pela movimentação
+        movimentacao.usuario = self.request.user
+
         messages.success(self.request, "Movimentação criada com sucesso.")
         
-        # Deixa a CreateView original tratar do save() e do redirecionamento.
+        # O super().form_valid() executa o save() final e o redirecionamento
         return super().form_valid(form)
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         context['title'] = "Registar Nova Movimentação"
         return context
+    
 
 class MovimentacaoDetailView(MovimentacaoPermissionMixin, DetailView):
     template_name = 'estoque/movimentacao_detail.html'
@@ -259,42 +251,49 @@ class MovimentacaoDetailView(MovimentacaoPermissionMixin, DetailView):
         return context
 
 
+from django.contrib import messages
+from django.contrib.auth.mixins import LoginRequiredMixin
+from django.urls import reverse_lazy
+from django.views.generic import UpdateView
+
+from .forms import MovimentacaoEstoqueForm
+from .models import MovimentacaoEstoque
+
+
 class MovimentacaoUpdateView(LoginRequiredMixin, UpdateView):
+    """
+    View para editar/atualizar movimentação de estoque existente.
+    Ajustada para django_tenants (Isolamento Físico via Schema PostgreSQL).
+    """
     model = MovimentacaoEstoque
     form_class = MovimentacaoEstoqueForm
     template_name = 'estoque/movimentacao_form.html'
     success_url = reverse_lazy('estoque:movimentacao_lista')
 
     def form_valid(self, form):
+        # Prepara o objeto alterado sem salvar na base de dados imediatamente
         movimentacao = form.save(commit=False)
-        movimentacao.usuario = self.request.user  # mantém atualizado quem editou
-        movimentacao.save()
-        messages.success(self.request, "Movimentação atualizada com sucesso.")
-        return redirect(self.success_url)
+        
+        # Mantém registado o utilizador que efetuou a alteração
+        movimentacao.usuario = self.request.user
 
-    def get_form_kwargs(self):
-        """
-        Passa a empresa para o formulário para filtrar o campo 'produto'.
-        """
-        kwargs = super().get_form_kwargs()
-        if hasattr(self.request.user, 'funcionario'):
-            kwargs['empresa'] = self.request.user.funcionario.empresa
-        return kwargs
+        messages.success(self.request, "Movimentação atualizada com sucesso.")
+        
+        # O super().form_valid() executa o save() final e trata o redirecionamento
+        return super().form_valid(form)
 
     def get_context_data(self, **kwargs):
-        """ Adiciona o título à página. """
+        """Adiciona o título à página."""
         context = super().get_context_data(**kwargs)
         context['title'] = "Editar Movimentação"
         return context
-
-#######################################
-
+    
 
 class EstornarMovimentacaoView(LoginRequiredMixin, TemplateView):
     template_name = 'estoque/movimentacao_estornar.html'
 
     def post(self, request, pk):
-        movimentacao = get_object_or_404(MovimentacaoEstoque, pk=pk, empresa=request.user.empresa)
+        movimentacao = get_object_or_404(MovimentacaoEstoque, pk=pk)
         try:
             movimentacao.cancelar_movimentacao(motivo="Estornada pelo usuário")
             messages.success(request, "Movimentação estornada com sucesso.")
@@ -429,56 +428,39 @@ class InventarioListView(InventarioBaseView, ListView):
         return context
 
 
+from django.contrib import messages
+from django.contrib.auth.mixins import LoginRequiredMixin
+from django.urls import reverse_lazy
+from django.views.generic import CreateView
+
+from .forms import InventarioForm
+from .models import Inventario
+
 
 class InventarioCreateView(LoginRequiredMixin, CreateView):
+    """
+    View para planear/criar um novo inventário.
+    Ajustada para django_tenants (Isolamento Físico via Schema PostgreSQL).
+    """
     model = Inventario
     form_class = InventarioForm
     template_name = 'estoque/inventario_form.html'
-    
+
     def get_success_url(self):
-        """
-        Redireciona para a página de detalhes do inventário recém-criado.
-        Este método agora irá funcionar porque self.object será definido.
-        """
+        """Redireciona para a página de detalhes do inventário recém-criado."""
         return reverse_lazy('estoque:inventario_detail', kwargs={'pk': self.object.pk})
 
-    def get_empresa(self):
-        """ Método seguro para obter a empresa do utilizador logado. """
-        user = self.request.user
-        if hasattr(user, 'funcionario') and user.funcionario and user.funcionario.empresa:
-            return user.funcionario.empresa
-        return None
-
-    def dispatch(self, request, *args, **kwargs):
-        """ Garante que o utilizador tem uma empresa antes de prosseguir. """
-        if not self.get_empresa():
-            messages.error(request, "O seu utilizador não está associado a nenhuma empresa.")
-            return redirect('estoque:inventario_lista')
-        return super().dispatch(request, *args, **kwargs)
-
-    def get_form_kwargs(self):
-        """ Passa a empresa para o formulário. """
-        kwargs = super().get_form_kwargs()
-        kwargs['empresa'] = self.get_empresa()
-        return kwargs
-
     def form_valid(self, form):
-        """
-        Define os campos automáticos e deixa a CreateView tratar do resto.
-        """
-        # --- A CORREÇÃO ESTÁ AQUI ---
-        
-        # 1. Define os campos automáticos na instância do formulário, antes de guardar.
-        form.instance.empresa = self.get_empresa()
+        # 1. Associa o utilizador logado como responsável pelo planeamento
         form.instance.responsavel_planejamento = self.request.user
         
-        # 2. Adiciona a mensagem de sucesso ANTES de chamar o super().
-        messages.success(self.request, f"Inventário '{form.instance.titulo}' planeado com sucesso. Agora pode iniciá-lo.")
+        # 2. Adiciona a mensagem de sucesso
+        messages.success(
+            self.request, 
+            f"Inventário '{form.instance.titulo}' planeado com sucesso. Agora pode iniciá-lo."
+        )
         
-        # 3. Chama o form_valid original da CreateView. Ele irá:
-        #    - Salvar o objeto (e definir self.object para nós)
-        #    - Chamar form.save_m2m() automaticamente
-        #    - Retornar o HttpResponseRedirect para a get_success_url
+        # 3. Chama o form_valid padrão que guarda a instância e os relacionamentos M2M
         return super().form_valid(form)
 
     def get_context_data(self, **kwargs):
@@ -486,7 +468,7 @@ class InventarioCreateView(LoginRequiredMixin, CreateView):
         context['title'] = "Planear Novo Inventário"
         return context
 
-
+        
 class InventarioDetailView(InventarioBaseView, DetailView):
     template_name = 'estoque/inventario_detail.html'
     context_object_name = 'inventario'

@@ -2,7 +2,7 @@
 from decimal import Decimal
 from django import forms
 from django.core.exceptions import ValidationError
-from django.contrib.auth import get_user_model
+from django.contrib.auth import get_user_model, models
 from .models import Funcionario, Cargo, Departamento, EscalaTrabalho, Ferias, Capacitacao, AvaliacaoDesempenho, JornadaTrabalho, RegistroPonto, Comunicado
 from datetime import date, timedelta
 
@@ -53,7 +53,7 @@ class EscalaTrabalhoForm(forms.ModelForm):
         model = EscalaTrabalho
         fields = [
             'funcionario', 'data_trabalho', 'turno', 'horario_entrada', 'horario_saida',
-            'horario_almoco_inicio', 'horario_almoco_fim', 'loja', 'departamento',
+            'horario_almoco_inicio', 'horario_almoco_fim', 'departamento',
             'funcao_dia', 'confirmada', 'trabalhada', 'observacoes', 'criada_por'
         ]
         widgets = {
@@ -240,7 +240,7 @@ class DepartamentoForm(forms.ModelForm):
             'codigo',
             'descricao',
             'responsavel',
-            'loja',
+
             'centro_custo',
             'ativo',
         ]
@@ -249,15 +249,13 @@ class DepartamentoForm(forms.ModelForm):
             'codigo': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Código único'}),
             'descricao': forms.Textarea(attrs={'class': 'form-control', 'rows': 3, 'placeholder': 'Descrição do departamento'}),
             'responsavel': forms.Select(attrs={'class': 'form-control'}),
-            'loja': forms.Select(attrs={'class': 'form-control'}),
             'centro_custo': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Centro de custo'}),
         }
 
     def clean_nome(self):
         nome = self.cleaned_data['nome'].strip()
-        loja = self.cleaned_data.get('loja')
-        if Departamento.objects.filter(nome__iexact=nome, loja=loja).exists():
-            raise forms.ValidationError("Já existe um departamento com este nome nesta loja.")
+        if Departamento.objects.filter(nome__iexact=nome).exists():
+            raise forms.ValidationError("Já existe um departamento com este nome nesta.")
         return nome
 
     def clean_codigo(self):
@@ -275,7 +273,6 @@ class RegistroPontoForm(forms.ModelForm):
             'data_registro',
             'hora_registro',
             'tipo_registro',
-            'loja',
             'ip_registro',
             'registro_manual',
             'justificativa',
@@ -287,7 +284,6 @@ class RegistroPontoForm(forms.ModelForm):
             'data_registro': forms.DateInput(attrs={'class': 'form-control', 'type': 'date'}),
             'hora_registro': forms.TimeInput(attrs={'class': 'form-control', 'type': 'time'}),
             'tipo_registro': forms.Select(attrs={'class': 'form-control'}),
-            'loja': forms.Select(attrs={'class': 'form-control'}),
             'ip_registro': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'IP do registro'}),
             'registro_manual': forms.CheckboxInput(attrs={'class': 'form-check-input'}),
             'justificativa': forms.Textarea(attrs={'class': 'form-control', 'rows': 3, 'placeholder': 'Justificativa'}),
@@ -316,7 +312,6 @@ class JornadaTrabalhoForm(forms.ModelForm):
             'horario_almoco_inicio',
             'horario_almoco_fim',
             'departamento',
-            'loja',
         ]
         widgets = {
             'nome': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Nome da jornada'}),
@@ -326,7 +321,6 @@ class JornadaTrabalhoForm(forms.ModelForm):
             'horario_almoco_inicio': forms.TimeInput(attrs={'class': 'form-control', 'type': 'time'}),
             'horario_almoco_fim': forms.TimeInput(attrs={'class': 'form-control', 'type': 'time'}),
             'departamento': forms.Select(attrs={'class': 'form-control'}),
-            'loja': forms.Select(attrs={'class': 'form-control'}),
         }
 
     def clean(self):

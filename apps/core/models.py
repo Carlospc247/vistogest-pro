@@ -13,11 +13,6 @@ import random
 
 class TimeStampedModel(models.Model):
     """Modelo base com timestamps"""
-    tenant = models.ForeignKey(
-        'customers.Client', 
-        on_delete=models.CASCADE,
-        null=True, blank=True # Null=True para não quebrar tabelas já existentes
-    ) 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     
@@ -28,30 +23,13 @@ class TimeStampedModel(models.Model):
 
 
 class Usuario(AbstractUser):
-    # --- Campos de Relacionamento ---
-    empresa = models.ForeignKey(
-        'empresas.Empresa', 
-        on_delete=models.CASCADE, 
-        related_name='usuarios',
-        null=True,
-        blank=True
-    )
-    loja = models.ForeignKey(
-        'empresas.Loja', 
-        on_delete=models.SET_NULL, 
-        null=True, 
-        blank=True, 
-        related_name='usuarios'
-    )
-
-    # --- Campos de Identificação e Perfil ---
     telefone = models.CharField(max_length=20, blank=True)
     foto = CloudinaryField('foto', blank=True, null=True)
     
     e_administrador_empresa = models.BooleanField(
         "É Administrador da Empresa?",
         default=False,
-        help_text="Se marcado, este utilizador pode gerir todas as lojas e utilizadores da sua empresa."
+        help_text="Se marcado, este utilizador pode gerir todos utilizadores da sua empresa."
     )
 
     # --- Propriedades de Blindagem Multi-tenant (O Cérebro) ---
@@ -128,7 +106,6 @@ class AuditoriaAcesso(models.Model):
         verbose_name_plural = "Auditorias de Acessos"
         ordering = ['-timestamp']
 
-# apps/core/models.py
 
 class IPConhecido(models.Model):
     usuario = models.ForeignKey(Usuario, on_delete=models.CASCADE, related_name='ips_conhecidos')

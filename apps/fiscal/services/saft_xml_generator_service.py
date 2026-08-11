@@ -36,7 +36,7 @@ class SaftXmlGeneratorService:
         
         # 2. MasterFiles
         master_files = ET.SubElement(root, f"{{{self.namespace}}}MasterFiles")
-        self._build_customers(master_files)
+        self._build_clientes(master_files)
         self._build_products(master_files)
         self._build_tax_table(master_files)
         
@@ -74,7 +74,7 @@ class SaftXmlGeneratorService:
 
     def _build_tax_table(self, parent):
         tax_table = ET.SubElement(parent, f"{{{self.namespace}}}TaxTable")
-        taxas = TaxaIVAAGT.objects.filter(empresa=self.empresa, ativo=True)
+        taxas = TaxaIVAAGT.objects.filter(ativo=True)
         for taxa in taxas:
             entry = ET.SubElement(tax_table, f"{{{self.namespace}}}TaxTableEntry")
             ET.SubElement(entry, f"{{{self.namespace}}}TaxType").text = taxa.tax_type
@@ -90,7 +90,7 @@ class SaftXmlGeneratorService:
         Referência: SAF-T AO 1.01_01 - Tabela Product
         """
         # 1. Processar Mercadorias (Produtos)
-        produtos = Produto.objects.filter(empresa=self.empresa, ativo=True)
+        produtos = Produto.objects.filter(ativo=True)
         for prod in produtos:
             product_el = ET.SubElement(parent, f"{{{self.namespace}}}Product")
             ET.SubElement(product_el, f"{{{self.namespace}}}ProductType").text = "P" # P = Produtos
@@ -100,7 +100,7 @@ class SaftXmlGeneratorService:
 
         # 2. Processar Serviços (Catálogo de Serviços)
         # Importante: No SOTARQ VENDOR, serviços também são 'produtos' para a AGT
-        servicos = Servico.objects.filter(empresa=self.empresa, ativo=True)
+        servicos = Servico.objects.filter(ativo=True)
         for serv in servicos:
             product_el = ET.SubElement(parent, f"{{{self.namespace}}}Product")
             ET.SubElement(product_el, f"{{{self.namespace}}}ProductType").text = "S" # S = Serviços
@@ -116,7 +116,6 @@ class SaftXmlGeneratorService:
         """
         # Filtragem rigorosa por Empresa e Período (Multi-tenant safe)
         invoices = Venda.objects.filter(
-            empresa=self.empresa, 
             data_venda__range=(self.data_inicio, self.data_fim),
             status='finalizada'
         ).order_by('data_venda')

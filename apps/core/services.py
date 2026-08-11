@@ -1,7 +1,11 @@
-# apps/core/services.py
-from django.db import transaction
+
+
 from django.utils import timezone
+
+from django.db import transaction
+
 from apps.fiscal.models import ContadorDocumento
+
 
 def gerar_numero_documento(empresa, tipo_documento, serie='A'):
     """
@@ -14,7 +18,6 @@ def gerar_numero_documento(empresa, tipo_documento, serie='A'):
     with transaction.atomic():
         # select_for_update() bloqueia a linha para evitar duplicidade no PDV
         contador, created = ContadorDocumento.objects.select_for_update().get_or_create(
-            empresa=empresa,
             tipo_documento=tipo_documento,
             ano=ano_atual,
             serie=serie,
@@ -33,4 +36,5 @@ def gerar_numero_documento(empresa, tipo_documento, serie='A'):
             'sequencial': contador.ultimo_numero,
             'formatado': numero_final
         }
+
 

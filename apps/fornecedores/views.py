@@ -33,7 +33,7 @@ class EmpresaQuerysetMixin:
     """
     def get_queryset(self):
         qs = super().get_queryset()  # super() deve ser ListView com model definido
-        return qs.filter(empresa=self.request.user.empresa)
+        return qs.all()
 
 
 class PermissaoAcaoMixin(AccessMixin):
@@ -76,7 +76,7 @@ class FornecedorViewSet(viewsets.ModelViewSet):
         ).select_related('empresa').prefetch_related('contatos', 'documentos')
     
     def perform_create(self, serializer):
-        serializer.save(empresa=self.request.user.empresa)
+        serializer.save()
     
     @action(detail=False, methods=['get'])
     def dashboard_stats(self, request):
@@ -99,7 +99,6 @@ class FornecedorViewSet(viewsets.ModelViewSet):
         """Total comprado no mês atual"""
         inicio_mes = date.today().replace(day=1)
         return Pedido.objects.filter(
-            empresa=self.request.user.empresa,
             data_pedido__gte=inicio_mes,
             status='finalizado'
         ).aggregate(Sum('total'))['total__sum'] or 0
@@ -107,7 +106,6 @@ class FornecedorViewSet(viewsets.ModelViewSet):
     def get_pedidos_pendentes(self):
         """Número de pedidos pendentes"""
         return Pedido.objects.filter(
-            empresa=self.request.user.empresa,
             status__in=['enviado', 'confirmado', 'entregue_parcial']
         ).count()
     
@@ -174,7 +172,6 @@ class FornecedorViewSet(viewsets.ModelViewSet):
         """Fornecedores com pedidos atrasados"""
         hoje = date.today()
         fornecedores_ids = Pedido.objects.filter(
-            empresa=self.request.user.empresa,
             status__in=['enviado', 'confirmado', 'entregue_parcial'],
             data_prevista_entrega__lt=hoje
         ).values_list('fornecedor_id', flat=True).distinct()
@@ -196,12 +193,11 @@ class PedidoCompraViewSet(viewsets.ModelViewSet):
     
     def get_queryset(self):
         return Pedido.objects.filter(
-            empresa=self.request.user.empresa
+            
         ).select_related('fornecedor', 'usuario_criacao').prefetch_related('itens')
     
     def perform_create(self, serializer):
         serializer.save(
-            empresa=self.request.user.empresa,
             usuario_criacao=self.request.user
         )
     
@@ -293,7 +289,7 @@ class BaseFornecedorMixin(LoginRequiredMixin):
     def get_queryset(self):
         """Filtra objetos apenas para a empresa do utilizador logado."""
         # Assume que request.user.empresa existe
-        return self.model.objects.filter(empresa=self.request.user.empresa)
+        return self.model.objects.all()
 
 
 class FornecedorListView(EmpresaQuerysetMixin, PermissaoAcaoMixin, ListView):
@@ -769,7 +765,7 @@ class ExportarFornecedoresView(View):
         ])
 
         # Dados
-        fornecedores = Fornecedor.objects.filter(empresa=self.request.user.empresa).select_related('condicao_pagamento_padrao')
+        fornecedores = Fornecedor.objects.all().select_related('condicao_pagamento_padrao')
         for f in fornecedores:
             writer.writerow([
                 f.codigo_fornecedor,

@@ -46,7 +46,7 @@ from functools import wraps
 from django.shortcuts import redirect
 from django.urls import reverse_lazy
 from django.http import HttpResponseForbidden
-
+from django.views.decorators.http import require_POST
 
 
 
@@ -167,9 +167,7 @@ class MovimentacaoFinanceiraListView(LoginRequiredMixin, PermissaoAcaoMixin, Lis
     paginate_by = 50
     
     def get_queryset(self):
-        queryset = MovimentacaoFinanceira.objects.filter(
-            empresa=self.request.user.empresa
-        ).select_related(
+        queryset = MovimentacaoFinanceira.objects.all().select_related(
             'conta_bancaria', 'centro_custo',
             'fornecedor', 'cliente', 'usuario_responsavel'
         ).order_by('-data_movimentacao', '-created_at')
@@ -214,7 +212,7 @@ class MovimentacaoFinanceiraListView(LoginRequiredMixin, PermissaoAcaoMixin, Lis
         
         # Contas para filtro
         context['contas_bancarias'] = ContaBancaria.objects.filter(
-            empresa=self.request.user.empresa, ativa=True
+            ativa=True
         )
         
         return context
@@ -234,7 +232,6 @@ class MovimentacaoFinanceiraCreateView(LoginRequiredMixin, PermissaoAcaoMixin, C
     success_url = reverse_lazy('financeiro:movimentacao_lista')
     
     def form_valid(self, form):
-        form.instance.empresa = self.request.user.empresa
         form.instance.usuario_responsavel = self.request.user
         
         messages.success(self.request, 'Movimentação criada com sucesso!')
@@ -242,23 +239,22 @@ class MovimentacaoFinanceiraCreateView(LoginRequiredMixin, PermissaoAcaoMixin, C
     
     def get_form(self, form_class=None):
         form = super().get_form(form_class)
-        empresa = self.request.user.empresa
         
         # Filtrar por empresa
         form.fields['conta_bancaria'].queryset = ContaBancaria.objects.filter(
-            empresa=empresa, ativa=True
+           ativa=True
         )
         form.fields['conta_destino'].queryset = ContaBancaria.objects.filter(
-            empresa=empresa, ativa=True
+           ativa=True
         )
         form.fields['centro_custo'].queryset = CentroCusto.objects.filter(
-            empresa=empresa, ativo=True
+           ativo=True
         )
         form.fields['fornecedor'].queryset = Fornecedor.objects.filter(
-            empresa=empresa, ativo=True
+           ativo=True
         )
         form.fields['cliente'].queryset = Cliente.objects.filter(
-            empresa=empresa, ativo=True
+           ativo=True
         )
         
         return form
@@ -329,9 +325,7 @@ class FluxoCaixaListView(LoginRequiredMixin, PermissaoAcaoMixin, ListView):
     paginate_by = 31  # Um mês
     
     def get_queryset(self):
-        queryset = FluxoCaixa.objects.filter(
-            empresa=self.request.user.empresa
-        ).select_related('conta_bancaria', 'centro_custo').order_by('data_referencia')
+        queryset = FluxoCaixa.objects.all().select_related('conta_bancaria', 'centro_custo').order_by('data_referencia')
         
         # Filtro por período
         data_inicio = self.request.GET.get('data_inicio')
@@ -409,7 +403,6 @@ class FluxoCaixaCreateView(LoginRequiredMixin, PermissaoAcaoMixin, CreateView):
     success_url = reverse_lazy('financeiro:fluxo_caixa_lista')
     
     def form_valid(self, form):
-        form.instance.empresa = self.request.user.empresa
         messages.success(self.request, 'Projeção de fluxo criada com sucesso!')
         return super().form_valid(form)
 
@@ -450,7 +443,7 @@ class GerarFluxoAutomaticoView(LoginRequiredMixin, PermissaoAcaoMixin, View):
         
         # Limpar fluxos existentes do período
         FluxoCaixa.objects.filter(
-            empresa=request.user.empresa,
+            
             data_referencia__range=[data_inicio, data_fim]
         ).delete()
         
@@ -458,21 +451,21 @@ class GerarFluxoAutomaticoView(LoginRequiredMixin, PermissaoAcaoMixin, View):
         
         # Contas a receber em aberto
         contas_receber = ContaReceber.objects.filter(
-            empresa=request.user.empresa,
+            
             status__in=['aberta', 'vencida'],
             data_vencimento__range=[data_inicio, data_fim]
         )
         
         for conta in contas_receber:
             FluxoCaixa.objects.create(
-                empresa=request.user.empresa,
+                
                 data_referencia=conta.data_vencimento,
                 tipo='entrada',
                 valor_previsto=conta.valor_saldo,
                 categoria='Recebimento de Clientes',
                 descricao=f"Recebimento: {conta.descricao}",
                 conta_bancaria=ContaBancaria.objects.filter(
-                    empresa=request.user.empresa, conta_principal=True
+                     conta_principal=True
                 ).first(),
                 conta_receber=conta
             )
@@ -480,21 +473,21 @@ class GerarFluxoAutomaticoView(LoginRequiredMixin, PermissaoAcaoMixin, View):
         
         # Contas a pagar em aberto
         contas_pagar = ContaPagar.objects.filter(
-            empresa=request.user.empresa,
+            
             status__in=['aberta', 'vencida'],
             data_vencimento__range=[data_inicio, data_fim]
         )
         
         for conta in contas_pagar:
             FluxoCaixa.objects.create(
-                empresa=request.user.empresa,
+                
                 data_referencia=conta.data_vencimento,
                 tipo='saida',
                 valor_previsto=conta.valor_saldo,
                 categoria='Pagamento a Fornecedores',
                 descricao=f"Pagamento: {conta.descricao}",
                 conta_bancaria=ContaBancaria.objects.filter(
-                    empresa=request.user.empresa, conta_principal=True
+                     conta_principal=True
                 ).first(),
                 conta_pagar=conta
             )
@@ -515,8 +508,7 @@ class ConciliacaoBancariaListView(LoginRequiredMixin, PermissaoAcaoMixin, ListVi
     paginate_by = 20
     
     def get_queryset(self):
-        return ConciliacaoBancaria.objects.filter(
-            conta_bancaria__empresa=self.request.user.empresa
+        return ConciliacaoBancaria.objects.all(
         ).select_related('conta_bancaria', 'responsavel').order_by('-data_fim')
 
 class ConciliacaoBancariaCreateView(LoginRequiredMixin, PermissaoAcaoMixin, CreateView):
@@ -579,7 +571,7 @@ class ConciliacaoBancariaCreateView(LoginRequiredMixin, PermissaoAcaoMixin, Crea
     def get_form(self, form_class=None):
         form = super().get_form(form_class)
         form.fields['conta_bancaria'].queryset = ContaBancaria.objects.filter(
-            empresa=self.request.user.empresa, ativa=True
+            ativa=True
         )
         return form
 
@@ -645,9 +637,7 @@ class ContaBancariaListView(LoginRequiredMixin, PermissaoAcaoMixin, ListView):
     context_object_name = 'contas'
     
     def get_queryset(self):
-        return ContaBancaria.objects.filter(
-            empresa=self.request.user.empresa
-        ).order_by('-conta_principal', 'banco', 'conta')
+        return ContaBancaria.objects.all().order_by('-conta_principal', 'banco', 'conta')
     
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -674,13 +664,11 @@ class ContaBancariaCreateView(LoginRequiredMixin, PermissaoAcaoMixin, CreateView
     success_url = reverse_lazy('financeiro:conta_bancaria_lista')
     
     def form_valid(self, form):
-        form.instance.empresa = self.request.user.empresa
         form.instance.saldo_atual = form.instance.saldo_inicial
         
         # Se marcada como principal, desmarcar outras
         if form.instance.conta_principal:
             ContaBancaria.objects.filter(
-                empresa=self.request.user.empresa,
                 conta_principal=True
             ).update(conta_principal=False)
         
@@ -746,7 +734,6 @@ class ContaBancariaUpdateView(LoginRequiredMixin, PermissaoAcaoMixin, UpdateView
         # Se marcada como principal, desmarcar outras
         if form.instance.conta_principal:
             ContaBancaria.objects.filter(
-                empresa=self.request.user.empresa,
                 conta_principal=True
             ).exclude(id=form.instance.id).update(conta_principal=False)
         
@@ -781,7 +768,7 @@ class FinanceiroDashboardView(LoginRequiredMixin, PermissaoAcaoMixin, TemplateVi
     
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        empresa = self.request.user.empresa  # ou self.get_empresa()
+        empresa =   # ou self.get_empresa()
         hoje = date.today()
         inicio_mes = hoje.replace(day=1)
         
@@ -996,8 +983,7 @@ class FluxoCaixaView(LoginRequiredMixin, ListView):
     paginate_by = 25
 
     def get_queryset(self):
-        empresa = self.request.user.empresa
-        qs = FluxoCaixa.objects.filter(empresa=empresa)
+        qs = FluxoCaixa.objects.all()
         data_inicio = self.request.GET.get('data_inicio')
         data_fim = self.request.GET.get('data_fim')
 
@@ -1037,7 +1023,6 @@ class FluxoCaixaCreateView(LoginRequiredMixin, PermissaoAcaoMixin, CreateView):
 
     def form_valid(self, form):
         # Associa automaticamente a empresa do usuário
-        form.instance.empresa = self.request.user.empresa
         return super().form_valid(form)
 
 
@@ -1824,8 +1809,7 @@ class ImpostoTributoListView(LoginRequiredMixin, PermissaoAcaoMixin, ListView):
     paginate_by = 20
 
     def get_queryset(self):
-        empresa = self.request.user.empresa
-        return ImpostoTributo.objects.filter(empresa=empresa).order_by('-ano_referencia', '-mes_referencia')
+        return ImpostoTributo.objects.filter().order_by('-ano_referencia', '-mes_referencia')
 
 
 class ImpostoTributoDetailView(LoginRequiredMixin, PermissaoAcaoMixin, DetailView):
@@ -1845,7 +1829,6 @@ class ImpostoTributoCreateView(LoginRequiredMixin, PermissaoAcaoMixin, CreateVie
     def form_valid(self, form):
         imposto = form.save(commit=False)
         imposto.usuario_responsavel = self.request.user
-        imposto.empresa = self.request.user.empresa
         imposto.save()
         messages.success(self.request, 'Imposto/Tributo criado com sucesso.')
         return super().form_valid(form)
@@ -1877,7 +1860,7 @@ class ImpostoTributoDeleteView(LoginRequiredMixin, PermissaoAcaoMixin, DeleteVie
 class ImpostoCalcularView(LoginRequiredMixin, PermissaoAcaoMixin, View):
     acao_requerida = 'acessar_financeiro'
     def get(self, request, pk):
-        imposto = get_object_or_404(ImpostoTributo, pk=pk, empresa=request.user.empresa)
+        imposto = get_object_or_404(ImpostoTributo, pk=pk)
         try:
             imposto.calcular_imposto_angola(forcar_recalculo=True)
             messages.success(request, 'Cálculo do imposto efetuado com sucesso.')
@@ -1896,14 +1879,14 @@ class ImpostoPagarView(LoginRequiredMixin, PermissaoAcaoMixin, View):
     """
     acao_requerida = 'acessar_financeiro'
     def post(self, request, pk):
-        imposto = get_object_or_404(ImpostoTributo, pk=pk, empresa=request.user.empresa)
+        imposto = get_object_or_404(ImpostoTributo, pk=pk)
         try:
             with transaction.atomic():
                 resultado = imposto.pagar_imposto_agt()
                 # Aqui você pode adicionar integração real com o módulo financeiro:
                 # exemplo:
                 MovimentacaoFinanceira.objects.create(
-                    empresa=request.user.empresa,
+                    
                     valor=imposto.valor_devido,
                     descricao=f"Pagamento do imposto {imposto.nome}",
                     tipo='saída',
@@ -1921,24 +1904,11 @@ class ImpostoPagarView(LoginRequiredMixin, PermissaoAcaoMixin, View):
     
 
 
-def pagar_imposto(request, empresa_id):
-    empresa = get_object_or_404('empresas.Empresa', id=empresa_id)
-    impostos = empresa.impostos_angola.all()
-    total = 0
-
-    for imposto in impostos:
-        if hasattr(imposto, 'pagar_imposto_agt'):
-            imposto.pagar_imposto_agt()
-            total += 1
-
-    messages.success(request, f'{total} impostos pagos à AGT com sucesso.')
-    return redirect('financeiro:detalhe_empresa', empresa_id=empresa_id)
-
 
 @login_required
 def estornar_imposto_view(request, pk):
     """View pública para usuários solicitarem estorno de imposto"""
-    imposto = get_object_or_404(ImpostoTributo, pk=pk, empresa=request.user.empresa)
+    imposto = get_object_or_404(ImpostoTributo, pk=pk)
 
     if imposto.situacao != "pago":
         messages.error(request, "⚠️ Este imposto não está pago, portanto não pode ser estornado.")

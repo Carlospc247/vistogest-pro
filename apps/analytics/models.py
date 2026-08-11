@@ -10,7 +10,7 @@ from django.db import models
 from django.conf import settings
 from django.contrib.contenttypes.models import ContentType
 from django.contrib.contenttypes.fields import GenericForeignKey
-from apps.core.models import TimeStampedModel
+from apps.core.models import TimeStampedModel, Usuario
 from apps.produtos.models import Lote, Fabricante
 from apps.empresas.models import Empresa
 
@@ -34,7 +34,6 @@ class EventoAnalytics(models.Model):
         ('erro', 'Erro'),
     ]
     
-    empresa = models.ForeignKey(Empresa, on_delete=models.CASCADE, related_name='eventos_analytics')
     usuario = models.ForeignKey('core.Usuario', on_delete=models.SET_NULL, null=True, blank=True)
     
     categoria = models.CharField(max_length=20, choices=CATEGORIA_CHOICES)
@@ -71,12 +70,11 @@ class AuditoriaAlteracao(models.Model):
         ('delete', 'Exclusão'),
     ]
     
-    empresa = models.ForeignKey(Empresa, on_delete=models.CASCADE, related_name='auditorias')
     usuario = models.ForeignKey('core.Usuario', on_delete=models.PROTECT)
     
     content_type = models.ForeignKey(ContentType, on_delete=models.CASCADE)
     object_id = models.PositiveIntegerField()
-    content_object = GenericForeignKey('content_type', 'object_id')
+    #content_object = GenericForeignKey('content_type', 'object_id')
     
     tipo_operacao = models.CharField(max_length=10, choices=TIPO_OPERACAO_CHOICES)
     
@@ -124,8 +122,7 @@ class AlertaInteligente(models.Model):
         ('ignorado', 'Ignorado'),
     ]
     
-    empresa = models.ForeignKey(Empresa, on_delete=models.CASCADE, related_name='alertas')
-    
+
     tipo = models.CharField(max_length=20, choices=TIPO_CHOICES)
     prioridade = models.CharField(max_length=10, choices=PRIORIDADE_CHOICES)
     status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='ativo')
@@ -138,9 +135,9 @@ class AlertaInteligente(models.Model):
     
     created_at = models.DateTimeField(auto_now_add=True)
     resolvido_em = models.DateTimeField(null=True, blank=True)
-    resolvido_por = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True)
+    resolvido_por = models.ForeignKey(Usuario, on_delete=models.SET_NULL, null=True, blank=True)
     
-    usuarios_notificados = models.ManyToManyField(settings.AUTH_USER_MODEL, through='NotificacaoAlerta', related_name='alertas_recebidos')
+    usuarios_notificados = models.ManyToManyField(Usuario, through='NotificacaoAlerta', related_name='alertas_recebidos')
     
     class Meta:
         managed = is_managed()
@@ -153,7 +150,7 @@ class AlertaInteligente(models.Model):
 class NotificacaoAlerta(models.Model):
     """Notificações de alertas para usuários"""
     alerta = models.ForeignKey(AlertaInteligente, on_delete=models.CASCADE)
-    usuario = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    usuario = models.ForeignKey(Usuario, on_delete=models.CASCADE)
     
     enviada = models.BooleanField(default=False)
     lida = models.BooleanField(default=False)
@@ -172,9 +169,8 @@ class NotificacaoAlerta(models.Model):
 
 class DashboardPersonalizado(models.Model):
     """Dashboards personalizados por usuário"""
-    usuario = models.ForeignKey('core.Usuario', on_delete=models.CASCADE, related_name='dashboards')
-    empresa = models.ForeignKey(Empresa, on_delete=models.CASCADE)
-    
+    usuario = models.ForeignKey(Usuario, on_delete=models.CASCADE, related_name='dashboards')
+
     nome = models.CharField(max_length=100)
     descricao = models.TextField(blank=True)
     
@@ -239,8 +235,7 @@ class RegistroAuditoriaOperacional(models.Model):
         ('SECURITY', 'Segurança/Permissão'),
     ]
 
-    empresa = models.ForeignKey(Empresa, on_delete=models.CASCADE, related_name='logs_auditoria')
-    usuario = models.ForeignKey('core.Usuario', on_delete=models.SET_NULL, null=True)
+    usuario = models.ForeignKey(Usuario, on_delete=models.SET_NULL, null=True)
     
     # Rastreio genérico (ContentType)
     content_type = models.ForeignKey(ContentType, on_delete=models.CASCADE)

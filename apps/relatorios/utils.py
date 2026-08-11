@@ -11,6 +11,7 @@ from django.conf import settings
 from django.core.files.base import ContentFile
 from django.template.loader import render_to_string
 from django.http import HttpResponse
+import numpy as np
 import pandas as pd
 import openpyxl
 from reportlab.pdfgen import canvas
@@ -44,7 +45,7 @@ from django.db.models.functions import TruncMonth
 logger = logging.getLogger(__name__)
 
 
-def calcular_metricas_vendas(empresa, data_inicio: date, data_fim: date, loja=None) -> Dict[str, Any]:
+def calcular_metricas_vendas(empresa, data_inicio: date, data_fim: date) -> Dict[str, Any]:
     """
     Calcular métricas de vendas para o período especificado
     """
@@ -57,8 +58,6 @@ def calcular_metricas_vendas(empresa, data_inicio: date, data_fim: date, loja=No
             status='finalizada'
         )
         
-        if loja:
-            vendas = vendas.filter(loja=loja)
         
         # Métricas básicas
         total_vendas = vendas.count()
@@ -112,8 +111,6 @@ def calcular_metricas_vendas(empresa, data_inicio: date, data_fim: date, loja=No
             status='finalizada'
         )
         
-        if loja:
-            vendas_anterior = vendas_anterior.filter(loja=loja)
         
         faturamento_anterior = vendas_anterior.aggregate(Sum('total'))['total__sum'] or 0
         
@@ -143,7 +140,7 @@ def calcular_metricas_vendas(empresa, data_inicio: date, data_fim: date, loja=No
         return {}
 
 
-def calcular_analise_abc_produtos(empresa, data_inicio: date, data_fim: date, loja=None) -> Dict[str, Any]:
+def calcular_analise_abc_produtos(empresa, data_inicio: date, data_fim: date) -> Dict[str, Any]:
     """
     Calcular análise ABC de produtos baseada em faturamento
     """
@@ -156,8 +153,6 @@ def calcular_analise_abc_produtos(empresa, data_inicio: date, data_fim: date, lo
             status='finalizada'
         )
         
-        if loja:
-            vendas = vendas.filter(loja=loja)
         
         # Faturamento por produto
         produtos_faturamento = ItemVenda.objects.filter(
@@ -235,7 +230,7 @@ def calcular_analise_abc_produtos(empresa, data_inicio: date, data_fim: date, lo
         return {}
 
 
-def calcular_segmentacao_rfm_clientes(empresa, data_inicio: date, data_fim: date, loja=None) -> Dict[str, Any]:
+def calcular_segmentacao_rfm_clientes(empresa, data_inicio: date, data_fim: date) -> Dict[str, Any]:
     """
     Calcular segmentação RFM (Recência, Frequência, Valor Monetário) de clientes
     """
@@ -249,8 +244,6 @@ def calcular_segmentacao_rfm_clientes(empresa, data_inicio: date, data_fim: date
             cliente__isnull=False
         )
         
-        if loja:
-            vendas = vendas.filter(loja=loja)
         
         # Calcular métricas RFM por cliente
         clientes_rfm = []
@@ -335,15 +328,15 @@ def calcular_segmentacao_rfm_clientes(empresa, data_inicio: date, data_fim: date
             if r >= 4 and f >= 4 and m >= 4:
                 cliente['segmento'] = 'Champions'
             elif r >= 3 and f >= 3 and m >= 3:
-                cliente['segmento'] = 'Loyal Customers'
+                cliente['segmento'] = 'Cliente Leal'
             elif r >= 4 and f <= 2:
-                cliente['segmento'] = 'New Customers'
+                cliente['segmento'] = 'Novo Cliente'
             elif r <= 2 and f >= 3 and m >= 3:
-                cliente['segmento'] = 'At Risk'
+                cliente['segmento'] = 'Em Risco'
             elif r <= 2 and f <= 2:
-                cliente['segmento'] = 'Lost'
+                cliente['segmento'] = 'Perdido'
             else:
-                cliente['segmento'] = 'Others'
+                cliente['segmento'] = 'Outros'
         
         # Agrupar por segmento
         segmentos = {}
@@ -594,8 +587,7 @@ def processar_relatorio_vendas(relatorio: RelatorioGerado) -> Dict[str, Any]:
         empresa=relatorio.empresa,
         data_inicio=relatorio.data_inicio,
         data_fim=relatorio.data_fim,
-        loja=relatorio.lojas.first() if relatorio.lojas.exists() else None
-    )
+       )
     
     # Estruturar dados para o relatório
     return {
@@ -603,8 +595,8 @@ def processar_relatorio_vendas(relatorio: RelatorioGerado) -> Dict[str, Any]:
         'periodo': dados.get('periodo', {}),
         'resumo': {
             'Total de Vendas': dados.get('total_vendas', 0),
-            'Faturamento Total': f"R$ {dados.get('faturamento_total', 0):,.2f}",
-            'Ticket Médio': f"R$ {dados.get('ticket_medio', 0):,.2f}",
+            'Faturamento Total': f"AO {dados.get('faturamento_total', 0):,.2f}",
+            'Ticket Médio': f"AO {dados.get('ticket_medio', 0):,.2f}",
             'Total de Itens': dados.get('total_itens', 0),
             'Variação vs Período Anterior': f"{dados.get('variacao_faturamento', 0):.1f}%"
         },
@@ -625,14 +617,13 @@ def processar_relatorio_abc(relatorio: RelatorioGerado) -> Dict[str, Any]:
         empresa=relatorio.empresa,
         data_inicio=relatorio.data_inicio,
         data_fim=relatorio.data_fim,
-        loja=relatorio.lojas.first() if relatorio.lojas.exists() else None
     )
     
     return {
         'titulo': 'Análise ABC de Produtos',
         'periodo': dados.get('periodo', {}),
         'resumo': {
-            'Faturamento Total': f"R$ {dados.get('faturamento_total', 0):,.2f}",
+            'Faturamento Total': f"AO {dados.get('faturamento_total', 0):,.2f}",
             'Total de Produtos': dados.get('total_produtos', 0),
             'Produtos Classe A': dados.get('classe_a', {}).get('quantidade', 0),
             'Produtos Classe B': dados.get('classe_b', {}).get('quantidade', 0),
@@ -656,7 +647,6 @@ def processar_relatorio_rfm(relatorio: RelatorioGerado) -> Dict[str, Any]:
         empresa=relatorio.empresa,
         data_inicio=relatorio.data_inicio,
         data_fim=relatorio.data_fim,
-        loja=relatorio.lojas.first() if relatorio.lojas.exists() else None
     )
     
     # Preparar resumo por segmento
@@ -696,7 +686,6 @@ def processar_relatorio_generico(relatorio: RelatorioGerado) -> Dict[str, Any]:
         'dados_detalhados': {
             'parametros': relatorio.parametros,
             'filtros_aplicados': {
-                'lojas': [loja.nome for loja in relatorio.lojas.all()],
                 'categorias': [cat.nome for cat in relatorio.categorias.all()],
                 'funcionarios': [func.user.get_full_name() for func in relatorio.funcionarios.all()]
             }
@@ -706,7 +695,7 @@ def processar_relatorio_generico(relatorio: RelatorioGerado) -> Dict[str, Any]:
 
 
 def criar_kpi_automatico(empresa, codigo: str, nome: str, tipo_metrica: str, 
-                        periodo: str, data_referencia: date, loja=None) -> Optional[MetricaKPI]:
+                        periodo: str, data_referencia: date) -> Optional[MetricaKPI]:
     """
     Criar KPI automaticamente baseado em regras de negócio
     """
@@ -715,8 +704,7 @@ def criar_kpi_automatico(empresa, codigo: str, nome: str, tipo_metrica: str,
         existing = MetricaKPI.objects.filter(
             empresa=empresa,
             codigo=codigo,
-            data_referencia=data_referencia,
-            loja=loja
+            data_referencia=data_referencia
         ).first()
         
         if existing:
@@ -733,8 +721,6 @@ def criar_kpi_automatico(empresa, codigo: str, nome: str, tipo_metrica: str,
                 data_venda=data_referencia,
                 status='finalizada'
             )
-            if loja:
-                vendas_dia = vendas_dia.filter(loja=loja)
             
             valor_atual = vendas_dia.aggregate(Sum('total'))['total__sum'] or 0
             
@@ -745,8 +731,6 @@ def criar_kpi_automatico(empresa, codigo: str, nome: str, tipo_metrica: str,
                 data_venda=data_anterior,
                 status='finalizada'
             )
-            if loja:
-                vendas_anterior = vendas_anterior.filter(loja=loja)
             
             valor_anterior = vendas_anterior.aggregate(Sum('total'))['total__sum'] or 0
             
@@ -765,7 +749,6 @@ def criar_kpi_automatico(empresa, codigo: str, nome: str, tipo_metrica: str,
             data_referencia=data_referencia,
             valor_atual=valor_atual,
             valor_anterior=valor_anterior,
-            loja=loja,
             detalhes_calculo=detalhes_calculo,
             formato_exibicao='moeda' if 'vendas' in codigo.lower() else 'numero'
         )
@@ -810,7 +793,7 @@ def detectar_alertas_automaticos(empresa):
                 tipo_alerta='queda_vendas',
                 prioridade='alta',
                 titulo=f'Vendas baixas detectadas',
-                descricao=f'Vendas de hoje (R$ {vendas_hoje:,.2f}) estão 30% abaixo da média semanal (R$ {media_diaria:,.2f})',
+                descricao=f'Vendas de hoje (AO {vendas_hoje:,.2f}) estão 30% abaixo da média semanal (AO {media_diaria:,.2f})',
                 valor_atual=vendas_hoje,
                 valor_esperado=media_diaria,
                 data_referencia=hoje,
@@ -1098,7 +1081,7 @@ def calcular_tendencias(empresa, data_inicio: date, data_fim: date) -> Dict[str,
 def gerar_cubo_olap(empresa, data_inicio: date, data_fim: date, dimensoes: List[str], metrica: str) -> Dict[str, Any]:
     """
     Gerar um cubo de dados (pivot table) para análise multidimensional.
-    Ex: dimensoes=['categoria__nome', 'loja__nome'], metrica='total'
+    Ex: dimensoes=['categoria__nome'], metrica='total'
     """
     try:
         dados_flat = Venda.objects.filter(

@@ -1,23 +1,11 @@
 # apps/core/utils.py
-from reportlab.pdfgen import canvas
-from reportlab.lib.pagesizes import A4
-from reportlab.lib.units import cm, mm
-from reportlab.lib.colors import black, darkblue
-from reportlab.platypus import Table, TableStyle
-from reportlab.lib import colors
-from django.core.exceptions import PermissionDenied
-import io
-import qrcode
-from PIL import Image
-from django.conf import settings
-from django.utils import timezone
-import uuid
-import requests
-import json
 import logging
+
+import requests
 from django.conf import settings
+from django.db import connection
 
-
+logger = logging.getLogger(__name__)
 
 
 def get_current_user():
@@ -27,44 +15,37 @@ def get_current_user():
     """
     from apps.core.middleware import get_current_authenticated_user
     user = get_current_authenticated_user()
-    
+
     # Se o usuário estiver autenticado (não for AnonymousUser), retorna o objeto
     if user and user.is_authenticated:
         return user
     return None
 
 
-
-
 def get_user_empresa(user):
     """
-    Retorna a empresa associada ao utilizador autenticado.
-    Lógica multi-tenant centralizada.
+    Retorna a Empresa/Tenant ativo para o utilizador, baseado no schema
+    atual da conexão (django_tenants) — não num FK no model Usuario.
+
+    Confirma também que o utilizador tem acesso a esse tenant, quando
+    a relação 'tenants' existir no model de utilizador.
     """
-    if not user or not user.is_authenticated:
+    tenant = getattr(connection, 'tenant', None)
+
+    if not tenant or getattr(tenant, 'schema_name', 'public') == 'public':
         return None
 
-    empresa = getattr(user, 'empresa', None)
+    if user and hasattr(user, 'tenants'):
+        if not user.tenants.filter(pk=tenant.pk).exists():
+            return None
 
-    if not empresa and hasattr(user, 'usuario'):
-        empresa = getattr(user.usuario, 'empresa', None)
+    return tenant
 
-    if not empresa and hasattr(user, 'funcionario'):
-        empresa = getattr(user.funcionario, 'empresa', None)
-
-    if not empresa and not user.is_superuser:
-        raise PermissionDenied("Utilizador não associado a nenhuma empresa.")
-
-    return empresa
-
-
-
-logger = logging.getLogger(__name__)
 
 class WhatsAppService:
     def __init__(self):
         self.token = settings.WHATSAPP_API_TOKEN
-        self.url_base = settings.WHATSAPP_API_URL # Ex: https://graph.facebook.com/v23.0/ID_TELEFONE/messages
+        self.url_base = settings.WHATSAPP_API_URL  # Ex: https://graph.facebook.com/v23.0/ID_TELEFONE/messages
         self.headers = {
             "Authorization": f"Bearer {self.token}",
             "Content-Type": "application/json"
@@ -78,7 +59,7 @@ class WhatsAppService:
         try:
             # Higienizar telefone (deve ter código do país 244...)
             telefone = str(telefone).replace("+", "").replace(" ", "")
-            
+
             # Passo A: Upload do Media
             upload_url = self.url_base.replace("/messages", "/media")
             files = {
@@ -88,11 +69,11 @@ class WhatsAppService:
                 "messaging_product": "whatsapp",
                 "type": "application/pdf"
             }
-            
+
             response_upload = requests.post(
-                upload_url, 
-                headers={"Authorization": f"Bearer {self.token}"}, 
-                files=files, 
+                upload_url,
+                headers={"Authorization": f"Bearer {self.token}"},
+                files=files,
                 data=data
             )
             media_id = response_upload.json().get('id')
@@ -118,4 +99,3 @@ class WhatsAppService:
         except Exception as e:
             logger.error(f"Falha crítica WhatsApp Service: {str(e)}")
             return False
-

@@ -27,7 +27,7 @@ class PainelCandidaturaView(LoginRequiredMixin, PermissionRequiredMixin, ListVie
 
     def get_queryset(self):
         # Filtra candidaturas vinculadas à empresa do usuário logado
-        return Candidatura.objects.filter(concurso__pagina__empresa=self.request.user.empresa).order_by('-created_at')
+        return Candidatura.objects.select_related('concurso', 'concurso__pagina').all().order_by('-created_at')
 
 class AdmitirCandidatoView(LoginRequiredMixin, PermissionRequiredMixin, View):
     """
@@ -36,22 +36,21 @@ class AdmitirCandidatoView(LoginRequiredMixin, PermissionRequiredMixin, View):
     permission_required = 'funcionarios.pode_gerenciar_funcionarios'
 
     def post(self, request, candidato_id):
-        candidato = get_object_or_404(Candidatura, id=candidato_id, concurso__pagina__empresa=request.user.empresa)
-        empresa = request.user.empresa
-
+        candidato = get_object_or_404(Candidatura, id=candidato_id)
         try:
             # 1. Criar o Funcionário com dados da candidatura
             # Nota: Campos como 'cargo' e 'departamento' devem ser preenchidos no form de admissão.
             # Aqui fazemos um provisionamento básico.
+            departamento_padrao = (
+                Departamento.objects.filter().first() or Departamento.objects.first()
+            )
             novo_funcionario = Funcionario.objects.create(
-                empresa=empresa,
                 nome_completo=candidato.nome,
                 email_pessoal=candidato.email,
                 telefone=candidato.telefone,
                 data_admissao=timezone.now().date(),
                 salario_atual=0, # Deve ser editado após a admissão
-                departamento=Departamento.objects.filter(loja__empresa=empresa).first(),
-                loja_principal=request.user.loja or empresa.lojas.first(),
+                departamento=departamento_padrao,
                 ativo=True
             )
 
@@ -76,21 +75,21 @@ class AdmitirCandidatoView(LoginRequiredMixin, PermissionRequiredMixin, View):
     permission_required = 'funcionarios.pode_gerenciar_funcionarios'
 
     def post(self, request, candidato_id):
-        candidato = get_object_or_404(Candidatura, id=candidato_id, concurso__pagina__empresa=request.user.empresa)
-        empresa = request.user.empresa
+        candidato = get_object_or_404(Candidatura, id=candidato_id)
 
         try:
             with transaction.atomic():
                 # 1. Criar o Funcionário (A matrícula é gerada no save() do modelo)
+                departamento_padrao = (
+                    Departamento.objects.filter().first() or Departamento.objects.first()
+                )
                 novo_funcionario = Funcionario.objects.create(
-                    empresa=empresa,
                     nome_completo=candidato.nome,
                     email_pessoal=candidato.email,
                     telefone=candidato.telefone,
                     data_admissao=timezone.now().date(),
                     salario_atual=0, 
-                    departamento=Departamento.objects.filter(loja__empresa=empresa).first(),
-                    loja_principal=request.user.loja or empresa.lojas.first(),
+                    departamento=departamento_padrao,
                     ativo=True
                 )
 
@@ -137,7 +136,7 @@ class RejeitarCandidatoView(LoginRequiredMixin, PermissionRequiredMixin, View):
     permission_required = 'funcionarios.pode_gerenciar_funcionarios'
 
     def post(self, request, candidato_id):
-        candidato = get_object_or_404(Candidatura, id=candidato_id, concurso__pagina__empresa=request.user.empresa)
+        candidato = get_object_or_404(Candidatura, id=candidato_id)
         
         try:
             # 1. Atualizar Status para Rejeitada

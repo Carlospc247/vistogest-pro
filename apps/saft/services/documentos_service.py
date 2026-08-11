@@ -5,6 +5,8 @@ from apps.empresas.models import Empresa
 from datetime import datetime
 from decimal import Decimal
 
+from apps.vendas.models import Venda
+
 # Assumindo que você tem estes modelos:
 # from apps.vendas.models import Venda # Fatura/Fatura Recibo
 
@@ -21,16 +23,15 @@ class SaftDocumentosService:
 
     def get_sales_invoices(self) -> List[Dict]:
         """
-        Extrai e formata as faturas de venda (Fatura Recibo no seu caso).
+        Extrai e formata as faturas de venda (Fatura Recibo nesse caso).
         Requer um grande detalhe, incluindo o bloco <Line> de cada item.
         """
         # 🚨 Implementação de Produção:
-        # faturas = Venda.objects.filter(
-        #     empresa=self.empresa,
-        #     data_venda__range=[self.data_inicio, self.data_fim],
-        #     status='validado'
-        # )
-        # return [self._map_venda_to_saft(f) for f in faturas]
+        faturas = Venda.objects.filter(
+            data_venda__range=[self.data_inicio, self.data_fim],
+            status='validado'
+        )
+        return [self._map_venda_to_saft(f) for f in faturas]
 
         # Placeholder Mínimo Funcional:
         print(f"DocumentosService: Faturas de {self.data_inicio.date()} a {self.data_fim.date()} extraídas.")
@@ -50,7 +51,7 @@ class SaftDocumentosService:
 
     def get_working_documents(self) -> List[Dict]:
         """
-        Extrai Documentos de Conferência/Proformas (WorkingDocuments).
+        Extrai Proformas (WorkingDocuments).
         """
         # Placeholder
         return []

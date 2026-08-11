@@ -74,41 +74,39 @@ from apps.licenca.models import ComissaoBypass
 
 
 
+from django.views.generic import TemplateView
+from django.core.exceptions import PermissionDenied
+from django.db import connection
+
 class BaseMPAView(TemplateView):
     """
-    RIGOR SOTARQ: Base para todas as views MPA. 
-    Nota: O LoginRequiredMixin é aplicado nas classes filhas ou aqui.
+    RIGOR SOTARQ: Base para todas as views MPA.
+    Alinhada ao padrão django_tenants (Isolamento Físico via Schema PostgreSQL).
     """
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        empresa = self.get_empresa()
+        
         context.update({
             'user': self.request.user,
-            'empresa_atual': empresa,
             'current_module': getattr(self, 'module_name', 'dashboard'),
         })
         return context
 
     def get_empresa(self):
-        """Obtém a empresa do utilizador logado com rigor multi-tenant."""
-        user = self.request.user
-        if not user.is_authenticated:
+        """
+        Retorna o Tenant (Empresa) ativo associado ao schema da requisição HTTP atual.
+        """
+        # 1. Obtém o tenant injetado no request pela middleware do django_tenants
+        tenant = getattr(self.request, 'tenant', None) or getattr(connection, 'tenant', None)
+
+        # 2. Validação: Schema 'public' representa a plataforma global, não uma empresa/tenant
+        if not tenant or getattr(tenant, 'schema_name', 'public') == 'public':
+            # Se a view exigir obrigatoriamente o contexto de uma empresa:
+            if getattr(self, 'exigir_empresa', False):
+                raise PermissionDenied("Ação permitida apenas no contexto de uma empresa/tenant ativo.")
             return None
 
-        # Busca hierárquica de vínculo empresarial
-        empresa = getattr(user, 'empresa', None)
-        
-        if not empresa and hasattr(user, 'usuario'):
-            empresa = getattr(user.usuario, 'empresa', None)
-        
-        if not empresa and hasattr(user, 'funcionario'):
-            empresa = getattr(user.funcionario, 'empresa', None)
-
-        if not empresa and not user.is_superuser:
-            raise PermissionDenied("O utilizador não está associado a nenhuma empresa.")
-
-        return empresa
-
+        return tenant
 
 
 
@@ -142,7 +140,6 @@ class PlanoBypassView(LoginRequiredMixin, BaseMPAView):
                 comissao = faturamento_liquido * Decimal('0.02')
                 
                 relatorio_geral.append({
-                    'empresa': emp,
                     'faturamento': faturamento_liquido,
                     'nossa_parte': comissao,
                 })
@@ -187,7 +184,7 @@ class DashboardView(LoginRequiredMixin, BaseMPAView):
         if connection.schema_name == 'public':
             return Venda.objects.none()
         
-        qs = Venda.objects.filter(empresa=empresa, status='finalizada')
+        qs = Venda.objects.filter(status='finalizada')
         try:
             vinculo = AuditoriaInvestimento.objects.get(usuario=user)
             if not user.is_superuser and not vinculo.pode_auditar_tudo:
@@ -542,7 +539,6 @@ class CriarCategoriaView(LoginRequiredMixin, View):
     def post(self, request):
         try:
             user = request.user
-            empresa = getattr(user, 'empresa', Empresa.objects.first()) # Fallback seguro
             nome = request.POST.get('nome', '').strip()
             
             if not nome:

@@ -36,7 +36,7 @@ class VendaSerializer(serializers.ModelSerializer):
         model = Venda
         fields = [
             'id', 'numero_documento', 'cliente', 'cliente_nome',
-            'vendedor', 'vendedor_nome', 'loja', 'forma_pagamento', 
+            'vendedor', 'vendedor_nome', 'forma_pagamento', 
             'forma_pagamento_nome', 'tipo_venda', 'status', 
             'subtotal', 'desconto_valor', 'iva_valor', 'total', 
             'valor_pago', 'troco', 'hash_documento', 'atcud', 

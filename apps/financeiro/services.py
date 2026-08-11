@@ -14,7 +14,6 @@ class CashFlowService:
         # 1. Saldo Inicial (Saldo das contas no início do dia)
         # Nota: Calculamos o saldo atual e subtraímos o que aconteceu hoje
         total_hoje = MovimentacaoFinanceira.objects.filter(
-            empresa=self.empresa,
             data_movimentacao=target_date,
             confirmada=True
         )
@@ -22,8 +21,7 @@ class CashFlowService:
         entradas_hoje = total_hoje.filter(tipo_movimentacao='entrada').aggregate(s=Sum('valor'))['s'] or Decimal('0.00')
         saidas_hoje = total_hoje.filter(tipo_movimentacao='saida').aggregate(s=Sum('valor'))['s'] or Decimal('0.00')
 
-        saldo_atual_total = ContaBancaria.objects.filter(
-            empresa=self.empresa, 
+        saldo_atual_total = ContaBancaria.objects.filter( 
             ativa=True
         ).aggregate(s=Sum('saldo_atual'))['s'] or Decimal('0.00')
 

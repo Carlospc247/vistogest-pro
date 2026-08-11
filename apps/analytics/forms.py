@@ -16,7 +16,6 @@ class BaseAnalyticsForm(forms.Form):
     """Form base para analytics com métodos comuns"""
     
     def __init__(self, *args, **kwargs):
-        self.empresa = kwargs.pop('empresa', None)
         self.usuario = kwargs.pop('usuario', None)
         super().__init__(*args, **kwargs)
         
@@ -87,7 +86,6 @@ class AlertaInteligenteForm(BaseAnalyticsForm, forms.ModelForm):
         if self.empresa:
             # Filtrar usuários da empresa
             self.fields['usuarios_notificar'].queryset = Usuario.objects.filter(
-                funcionario__empresa=self.empresa,
                 funcionario__ativo=True
             ).order_by('first_name', 'username')
         
@@ -254,7 +252,6 @@ class DashboardPersonalizadoForm(BaseAnalyticsForm, forms.ModelForm):
             if self.usuario:
                 existing = DashboardPersonalizado.objects.filter(
                     usuario=self.usuario,
-                    empresa=self.empresa,
                     nome__iexact=nome
                 )
                 if self.instance.pk:
@@ -320,7 +317,6 @@ class DashboardPersonalizadoForm(BaseAnalyticsForm, forms.ModelForm):
         if padrao and self.usuario and self.empresa:
             existing_default = DashboardPersonalizado.objects.filter(
                 usuario=self.usuario,
-                empresa=self.empresa,
                 padrao=True
             )
             
@@ -432,7 +428,6 @@ class FiltroEventosForm(BaseAnalyticsForm):
         if self.empresa:
             # Filtrar usuários da empresa
             self.fields['usuario'].queryset = Usuario.objects.filter(
-                funcionario__empresa=self.empresa
             ).order_by('first_name', 'username')
     
     def clean(self):
@@ -555,12 +550,10 @@ class FiltroAuditoriaForm(BaseAnalyticsForm):
         if self.empresa:
             # Filtrar usuários da empresa
             self.fields['usuario'].queryset = Usuario.objects.filter(
-                funcionario__empresa=self.empresa
             ).order_by('first_name', 'username')
             
             # Filtrar content types que têm auditorias na empresa
             self.fields['content_type'].queryset = ContentType.objects.filter(
-                auditoriaaltercao__empresa=self.empresa
             ).distinct().order_by('model')
     
     def clean(self):

@@ -26,13 +26,8 @@ def registrar_login_sucesso(sender, request, user, **kwargs):
     if connection.schema_name == 'public':
         return
 
-    empresa = getattr(user, 'empresa', None)
     
-    # RIGOR 2: Se o usuário não tiver empresa vinculada, não há o que auditar no tenant
-    if not empresa:
-        return
-        
-    analytics_service = AnalyticsService(empresa=empresa, usuario=user)
+    analytics_service = AnalyticsService(usuario=user)
     analytics_service.track_login(request)
 
 # ============================================================
@@ -53,11 +48,7 @@ def auditoria_pos_salvamento(sender, instance, created, **kwargs):
 
         operacao = 'CREATE' if created else 'UPDATE'
         
-        # RIGOR 4: Blindagem contra objetos sem empresa (ex: Superuser criando algo)
-        empresa = getattr(instance, 'empresa', None)
-        if not empresa:
-            return
-
+        
         user = getattr(instance, 'usuario_modificacao', None) or getattr(instance, 'usuario', None)
 
         # Rastreio de Ativos
@@ -72,7 +63,6 @@ def auditoria_pos_salvamento(sender, instance, created, **kwargs):
             lote = instance.lote
 
         RegistroAuditoriaOperacional.objects.create(
-            empresa=empresa,
             usuario=user,
             app_origem=app_label,
             operacao=operacao,
@@ -93,10 +83,6 @@ def auditoria_pos_exclusao(sender, instance, **kwargs):
     
     if app_label in APPS_MONITORADAS:
         if sender == RegistroAuditoriaOperacional:
-            return
-
-        empresa = getattr(instance, 'empresa', None)
-        if not empresa:
             return
 
         user = getattr(instance, 'usuario', None)

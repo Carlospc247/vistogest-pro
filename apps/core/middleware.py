@@ -6,11 +6,13 @@ from django.http import HttpResponseForbidden, HttpResponseRedirect
 from django.db import connection # RIGOR: Essencial para detectar o schema
 import logging
 from django.utils.deprecation import MiddlewareMixin
-from apps.core.utils import get_user_empresa
 from django.shortcuts import redirect
 from django.urls import reverse
-from .models import IPConhecido, VerificacaoSeguranca
 
+from apps.core.utils import get_user_empresa
+from .models import IPConhecido, VerificacaoSeguranca
+from django.core.exceptions import PermissionDenied
+from django.http import HttpResponseForbidden
 
 
 # ==============================================================
@@ -43,46 +45,69 @@ class DocumentLogMiddleware(MiddlewareMixin):
 # 🔹 3. ACESSO A MÓDULOS (Blindado contra Public)
 # ==============================================================
 
-class ModuloAccessMiddleware:
+class ModuloAcessMiddleware:
+    """
+    Middleware responsável por:
+    1. Garantir que o usuário pertence ao Tenant (Schema) atual
+    2. Garantir que o Tenant possui licença para acessar o módulo da URL.
+    
+    100% aderente ao isolamento físico do django-tenants.
+    """  
+    # Rotas base que NUNCA devem ser bloqueadas por licença de módulo
+    EXEMPT_PREFIXES = {
+        'admin',
+        'static',
+        'media',
+        'login',
+        'logout',
+        'perfil',
+        'dashboard',
+        'auth',
+    }
+
     def __init__(self, get_response):
         self.get_response = get_response
 
     def __call__(self, request):
-
-        if connection.schema_name == 'public':
+        # 1. Ignorar verificações no Schema Public (Landing pages, Painel SaaS Global, etc)
+        if request.tenant.schema_name == 'public':
             return self.get_response(request)
 
-        if not request.user.is_authenticated:
+        # ===========================================================================
+        # ETAPA 1: ISOLAMENTO DE ACESSO AO TENANT (SCHEMA)
+        # ===========================================================================
+        # Se os seus Usuários forem globais (SHARED_APPS), validamos a relação ManyToMany
+        # do usuário com as empresas/tenants às quais ele tem permissão de acesso.
+        if hasattr(request.user, 'tenants'):
+            if not request.user.tenants.filter(pk=request.tenant.pk).exists():
+                raise PermissionDenied("Você não tem permissão a esta empresa/tenant.")
+
+        # ===========================================================================
+        # ETAPA 2: ISOLAMENTO DE MÓDULO POR LICENÇA DO TENANT
+        # ===========================================================================
+        # Extrai o primeiro segmento da URL (Exemplo: /financeiro/contas/ -> 'financeiro')
+        path_segments = [seg for seg in request.path.strip("/").split("/") if seg]
+        path_module = path_segments[0] if path_segments else ""
+
+        # Se for uma rota isenta de checagem de módulos (admin, static, logout...), libera
+        if path_module in self.EXEMPT_PREFIXES:
             return self.get_response(request)
 
-        empresa = get_user_empresa(request.user)
-        if not empresa:
-            return self.get_response(request)
+        # O Tenant atual é o modelo da Empresa. Acessamos a licença DIRETO do request.tenant:
+        licenca = getattr(request.tenant, "licenca", None)
 
-        licenca = getattr(empresa, "licenca", None)
-        modulos_ativos = (
-            licenca.plano.modulos.values_list("slug", flat=True)
-            if licenca else []
-        )
+        # O(1) Search via set()
+        if licenca and hasattr(licenca, "plano"):
+            modulos_ativos = set(licenca.plano.modulos.values_list("slug", flat=True))
+        else:
+            modulos_ativos = set()
 
-        # Em vez de usar in, também pode-se udar set(). É mais eficiente:
-        # Busca O(1) | Evita consultas repetidas
-        #modulos_ativos = set(
-        #    licenca.plano.modulos.values_list("slug", flat=True)
-        #) if licenca else set()
-
-        # ✅ EXTRAÇÃO DO MÓDULO DA URL
-        path_module = request.path.strip("/").split("/")[0]
-
-        # Rotas que nunca devem ser bloqueadas
-        if path_module in ["admin", "static", "media", "login", "logout"]:
-            return self.get_response(request)
-
+        # Se a URL acessa um módulo que o Tennat não contratou
         if path_module and path_module not in modulos_ativos:
-            return HttpResponseForbidden("Módulo não ativo.")
+            return HttpResponseForbidden("O seu plano não possui acesso a este módulo.")
 
         return self.get_response(request)
-   
+    
 # ==============================================================
 # 🔹 4. LICENÇA VENCIDA (Blindado contra Public)
 # ==============================================================

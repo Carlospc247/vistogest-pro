@@ -1,4 +1,4 @@
-# apps/configuracoews/models.py
+# apps/configuracoes/models.py
 import os
 from django.db import models
 from django.core.validators import RegexValidator
@@ -13,7 +13,6 @@ from cloudinary.models import CloudinaryField
 
 class ConfiguracaoFiscal(TimeStampedModel):
     
-    empresa = models.OneToOneField('empresas.Empresa', on_delete=models.CASCADE, related_name='config_fiscal', help_text="Ex: Farmácia Neway LDA")
     
     # Dados da empresa para documentos fiscais
     razao_social = models.CharField(max_length=255)
@@ -75,8 +74,7 @@ class BackupConfiguracao(TimeStampedModel):
     """
     Configurações de backup do sistema para cada empresa. Essencial para a segurança dos dados.
     """
-    empresa = models.OneToOneField('empresas.Empresa', on_delete=models.CASCADE, related_name='config_backup')
-    
+   
     # Configurações de backup
     backup_automatico = models.BooleanField("Ativar Backup Automático", default=True)
     frequencia_backup = models.CharField(
@@ -115,7 +113,6 @@ class BackupConfiguracao(TimeStampedModel):
 
 class PersonalizacaoInterface(TimeStampedModel):
     
-    empresa = models.ForeignKey('empresas.Empresa', on_delete=models.CASCADE, null=True, blank=True)
     usuario = models.ForeignKey('core.Usuario', on_delete=models.CASCADE, null=True, blank=True)
     
     # Tema e cores
@@ -138,7 +135,7 @@ class PersonalizacaoInterface(TimeStampedModel):
     class Meta:
         verbose_name = "Personalização de Interface"
         verbose_name_plural = "Personalizações de Interface"
-        unique_together = [['empresa', 'usuario']]
+        unique_together = [['usuario']]
     
     def __str__(self):
         if self.usuario:
@@ -162,7 +159,6 @@ class HistoricoBackup(TimeStampedModel):
         ('erro', 'Erro'),
     ]
 
-    empresa = models.ForeignKey('empresas.Empresa', on_delete=models.CASCADE, related_name='historico_backups')
     
     tipo = models.CharField("Tipo de Backup", max_length=15, choices=TIPO_CHOICES)
     status = models.CharField("Status", max_length=15, choices=STATUS_CHOICES, default='processando')

@@ -1,3 +1,4 @@
+# vistogest-pro/config/urls_tenants.py
 print(">>> CARREGANDO URLS DO TENANT")
 from django.contrib import admin
 from django.urls import path, include

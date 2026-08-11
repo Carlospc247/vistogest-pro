@@ -19,7 +19,6 @@ class SaftRetencaoService:
         """
         # 1. Buscar Retenções confirmadas (retidas) no período
         retenções = RetencaoFonte.objects.filter(
-            empresa=self.empresa,
             data_retencao__range=[data_inicio.date(), data_fim.date()]
         ).select_related('fornecedor', 'conta_pagar') # Otimização de queries
 

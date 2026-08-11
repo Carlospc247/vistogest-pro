@@ -13,11 +13,18 @@ from .models import (
     ItemInventario, AlertaEstoque, LocalizacaoEstoque
 )
 
-User = get_user_model()
+
+from django import forms
+from django.core.exceptions import ValidationError
+from .models import TipoMovimentacao
+
 
 class TipoMovimentacaoForm(forms.ModelForm):
-    """Formulário para Tipo de Movimentação"""
-    
+    """
+    Formulário para Tipo de Movimentação.
+    Ajustado para django_tenants (Isolamento Físico via Schema PostgreSQL).
+    """
+
     class Meta:
         model = TipoMovimentacao
         fields = [
@@ -48,19 +55,34 @@ class TipoMovimentacaoForm(forms.ModelForm):
             }),
             'ativo': forms.CheckboxInput(attrs={'class': 'form-check-input'})
         }
-    
+
     def clean_codigo(self):
-        codigo = self.cleaned_data['codigo'].upper()
+        codigo = self.cleaned_data.get('codigo', '').upper()
+
+        # No django_tenants, esta query roda isolada no schema do Tenant ativo.
+        # Valida a unicidade do código dentro da empresa atual sem precisar de 'empresa=empresa'.
+        query = TipoMovimentacao.objects.filter(codigo=codigo)
         
-        # Verificar se já existe outro tipo com este código
-        if TipoMovimentacao.objects.filter(codigo=codigo).exclude(pk=self.instance.pk).exists():
-            raise ValidationError('Já existe um tipo de movimentação com este código.')
-        
+        if self.instance and self.instance.pk:
+            query = query.exclude(pk=self.instance.pk)
+
+        if query.exists():
+            raise ValidationError('Já existe um tipo de movimentação com este código nesta empresa.')
+
         return codigo
 
-class MovimentacaoEstoqueForm(forms.ModelForm):
-    """Formulário para Movimentação de Estoque"""
     
+from django import forms
+from django.apps import apps
+from .models import MovimentacaoEstoque
+
+
+class MovimentacaoEstoqueForm(forms.ModelForm):
+    """
+    Formulário para Movimentação de Estoque.
+    Ajustado para django_tenants (Isolamento Físico via Schema PostgreSQL).
+    """
+
     class Meta:
         model = MovimentacaoEstoque
         fields = ['produto', 'tipo', 'quantidade', 'motivo', 'observacoes']
@@ -86,42 +108,47 @@ class MovimentacaoEstoqueForm(forms.ModelForm):
                 'placeholder': 'Observações adicionais (opcional)'
             })
         }
-    
+
     def __init__(self, *args, **kwargs):
-        empresa = kwargs.pop('empresa', None)
         super().__init__(*args, **kwargs)
-        
-        if empresa:
-            # Usar get_model para evitar problemas de import
-            from django.apps import apps
-            Produto = apps.get_model('produtos', 'Produto')
-            self.fields['produto'].queryset = Produto.objects.filter(
-                empresa=empresa, 
-                ativo=True
-            ).order_by('nome_produto')
-        
+
+        # No django_tenants, a query busca automaticamente apenas os produtos
+        # pertencentes ao schema/tenant ativo no momento da requisição.
+        Produto = apps.get_model('produtos', 'Produto')
+        self.fields['produto'].queryset = Produto.objects.filter(
+            ativo=True
+        ).order_by('nome_produto')
+
         # Observações é opcional
         self.fields['observacoes'].required = False
 
 
-
-
-# Em apps/estoque/forms.py
-
 from django import forms
-from .models import Inventario, Loja, Usuario
+from .models import Inventario, Usuario
 from apps.empresas.models import Categoria
 
 # ... (suas outras classes de estilo) ...
 form_field_classes = 'block w-full rounded-md border-0 py-1.5 text-gray-900 dark:text-white shadow-sm ring-1 ring-inset ring-gray-300 dark:ring-gray-600 placeholder:text-gray-400 focus:ring-2 focus:ring-inset focus:ring-blue-600 sm:text-sm sm:leading-6 dark:bg-gray-700'
 checkbox_classes = 'h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-600'
 
+from django import forms
+from .models import Inventario
+
+# Definição das classes de estilo (Tailwind / Bootstrap)
+CHECKBOX_CLASSES = 'form-check-input'
+FORM_FIELD_CLASSES = 'form-control'
+
 
 class InventarioForm(forms.ModelForm):
+    """
+    Formulário para Gestão de Inventário.
+    Ajustado para django_tenants (Isolamento Físico via Schema PostgreSQL).
+    """
+
     class Meta:
         model = Inventario
         fields = [
-            'titulo', 'descricao', 'loja', 'data_planejada', 
+            'titulo', 'descricao', 'data_planejada', 
             'categorias', 'responsaveis_contagem', 'requer_dupla_contagem',
             'apenas_produtos_ativos', 'apenas_com_estoque', 'bloqueio_movimentacao'
         ]
@@ -132,31 +159,25 @@ class InventarioForm(forms.ModelForm):
             'responsaveis_contagem': forms.SelectMultiple(),
         }
 
-    # --- A CORREÇÃO ESTÁ AQUI ---
     def __init__(self, *args, **kwargs):
-        # 1. "Apanha" o argumento 'empresa' antes de o passar ao ModelForm.
-        empresa = kwargs.pop('empresa', None)
-        
-        # 2. Chama o __init__ original, mas já sem o argumento 'empresa'.
+        # 1. Assinatura padrão do Django ModelForm (sem kwargs extras de empresa)
         super().__init__(*args, **kwargs)
         
-        # 3. Agora, aplica estilos e usa a 'empresa' para filtrar os campos.
+        # 2. As opções dos campos 'categorias' e 'responsaveis_contagem' 
+        # já vêm filtradas nativamente pelo schema PostgreSQL do Tenant ativo.
+
+        # 3. Aplicação dinâmica de estilos UI
         for field_name, field in self.fields.items():
             if isinstance(field.widget, forms.CheckboxInput):
-                field.widget.attrs['class'] = checkbox_classes
+                field.widget.attrs['class'] = CHECKBOX_CLASSES
             elif isinstance(field.widget, forms.SelectMultiple):
                 field.widget.attrs['class'] = 'select2 w-full'
             else:
-                field.widget.attrs['class'] = form_field_classes
+                field.widget.attrs['class'] = FORM_FIELD_CLASSES
 
-        # Filtra os campos ForeignKey/ManyToMany para a empresa correta
-        if empresa:
-            if 'loja' in self.fields:
-                self.fields['loja'].queryset = Loja.objects.filter(empresa=empresa)
-            if 'categorias' in self.fields:
-                self.fields['categorias'].queryset = Categoria.objects.filter(empresa=empresa, ativa=True)
-            if 'responsaveis_contagem' in self.fields:
-                self.fields['responsaveis_contagem'].queryset = Usuario.objects.filter(funcionario__empresa=empresa)
+
+from django import forms
+from django.apps import apps
 
 
 class InventarioCategoriasForm(forms.Form):
@@ -173,16 +194,14 @@ class InventarioCategoriasForm(forms.Form):
     )
     
     def __init__(self, *args, **kwargs):
-        empresa = kwargs.pop('empresa', None)
         super().__init__(*args, **kwargs)
         
-        if empresa:
-            from django.apps import apps
-            Categoria = apps.get_model('produtos', 'Categoria')
-            self.fields['categorias'].queryset = Categoria.objects.filter(
-                empresa=empresa,
-                ativa=True
-            )
+        # No django_tenants, a busca retorna apenas as categorias do schema ativo
+        Categoria = apps.get_model('produtos', 'Categoria')
+        self.fields['categorias'].queryset = Categoria.objects.filter(
+            ativa=True
+        )
+
 
 class InventarioResponsaveisForm(forms.Form):
     """Formulário separado para responsáveis do inventário"""
@@ -197,15 +216,14 @@ class InventarioResponsaveisForm(forms.Form):
     )
     
     def __init__(self, *args, **kwargs):
-        empresa = kwargs.pop('empresa', None)
         super().__init__(*args, **kwargs)
         
-        if empresa:
-            from django.apps import apps
-            Usuario = apps.get_model('core', 'Usuario')
-            self.fields['responsaveis_contagem'].queryset = Usuario.objects.filter(
-                empresa=empresa
-            )
+        # No django_tenants, retorna apenas os utilizadores do schema ativo
+        Usuario = apps.get_model('core', 'Usuario')
+        self.fields['responsaveis_contagem'].queryset = Usuario.objects.filter(
+            is_active=True
+        )
+
 
 class ItemInventarioForm(forms.ModelForm):
     """Formulário para Item do Inventário"""
@@ -264,13 +282,18 @@ class ContagemRapidaForm(forms.Form):
         label='Observações'
     )
 
+
+
 class AlertaEstoqueForm(forms.ModelForm):
-    """Formulário para Alerta de Estoque"""
-    
+    """
+    Formulário para Alerta de Estoque.
+    Ajustado para django_tenants (Isolamento Físico via Schema PostgreSQL).
+    """
+
     class Meta:
         model = AlertaEstoque
         fields = [
-            'tipo_alerta', 'prioridade', 'produto', 'loja',
+            'tipo_alerta', 'prioridade', 'produto',
             'titulo', 'descricao', 'quantidade_atual', 
             'quantidade_recomendada'
         ]
@@ -280,11 +303,6 @@ class AlertaEstoqueForm(forms.ModelForm):
             'produto': forms.Select(attrs={
                 'class': 'form-control select2',
                 'data-placeholder': 'Selecione o produto'
-            }),
-            'loja': forms.Select(attrs={'class': 'form-control'}),
-            'titulo': forms.TextInput(attrs={
-                'class': 'form-control',
-                'placeholder': 'Título do alerta'
             }),
             'descricao': forms.Textarea(attrs={
                 'class': 'form-control',
@@ -300,28 +318,20 @@ class AlertaEstoqueForm(forms.ModelForm):
                 'min': '0'
             })
         }
-    
+
     def __init__(self, *args, **kwargs):
-        empresa = kwargs.pop('empresa', None)
         super().__init__(*args, **kwargs)
-        
-        if empresa:
-            from django.apps import apps
-            Produto = apps.get_model('produtos', 'Produto')
-            Loja = apps.get_model('core', 'Loja')
-            
-            self.fields['produto'].queryset = Produto.objects.filter(
-                empresa=empresa,
-                ativo=True
-            ).order_by('nome_produto')
-            
-            self.fields['loja'].queryset = Loja.objects.filter(
-                empresa=empresa,
-                ativa=True
-            )
-        
+
+        # No django_tenants, o ORM filtra automaticamente apenas 
+        # os produtos pertencentes ao schema do Tenant ativo.
+        Produto = apps.get_model('produtos', 'Produto')
+        self.fields['produto'].queryset = Produto.objects.filter(
+            ativo=True
+        ).order_by('nome_produto')
+
         # Campos opcionais
         self.fields['quantidade_recomendada'].required = False
+
 
 class LocalizacaoEstoqueForm(forms.ModelForm):
     """Formulário para Localização de Estoque"""

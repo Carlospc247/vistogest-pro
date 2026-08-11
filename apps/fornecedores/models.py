@@ -1,14 +1,13 @@
 # apps/fornecedores/models.py
-from django.utils import timezone
-from django.db import models
-from django.core.validators import RegexValidator, MinValueValidator, MaxValueValidator
-from django.core.exceptions import ValidationError
-from apps.core.models import TimeStampedModel
+from datetime import date, datetime
 from decimal import Decimal
-from datetime import date, datetime, timedelta
-import uuid
-from cloudinary.models import CloudinaryField
 from django.conf import settings
+from django.core.exceptions import ValidationError
+from django.core.validators import MaxValueValidator, MinValueValidator, RegexValidator
+from django.db import models
+from django.utils import timezone
+from cloudinary.models import CloudinaryField
+from apps.core.models import TimeStampedModel
 
 
 class CondicaoPagamento(TimeStampedModel):
@@ -20,8 +19,6 @@ class CondicaoPagamento(TimeStampedModel):
     prazo_dias = models.IntegerField(help_text="Prazo em dias para pagamento")
     parcelas = models.IntegerField(default=1, validators=[MinValueValidator(1)])
     intervalo_parcelas = models.IntegerField(default=30, help_text="Intervalo entre parcelas em dias")
-    
-    
     
     # Descontos
     desconto_a_vista = models.DecimalField(
@@ -39,8 +36,6 @@ class CondicaoPagamento(TimeStampedModel):
     
     # Configurações adicionais
     permite_cartao = models.BooleanField(default=False)
-
-    
     ativa = models.BooleanField(default=True)
     
     class Meta:
@@ -51,12 +46,10 @@ class CondicaoPagamento(TimeStampedModel):
     def __str__(self):
         if self.parcelas == 1:
             return f"{self.nome} ({self.prazo_dias} dias)"
-        else:
-            return f"{self.nome} ({self.parcelas}x de {self.intervalo_parcelas} dias)"
+        return f"{self.nome} ({self.parcelas}x de {self.intervalo_parcelas} dias)"
 
 
 class Fornecedor(TimeStampedModel):
-
     TIPO_PESSOA_CHOICES = [
         ('fisica', 'Pessoa Física'),
         ('juridica', 'Pessoa Jurídica'),
@@ -87,19 +80,16 @@ class Fornecedor(TimeStampedModel):
     tipo_pessoa = models.CharField(max_length=10, choices=TIPO_PESSOA_CHOICES, default='juridica')
     categoria = models.CharField(max_length=20, choices=CATEGORIA_CHOICES, default='distribuidor')
     porte = models.CharField(max_length=10, choices=PORTE_CHOICES, default='medio')
-    
-    #foto = models.ImageField(upload_to='fornecedores/fotos/', null=True, blank=True, default='https://res.cloudinary.com/drb9m2gwz/image/upload/v1762087442/logo_wovikm.png')
     foto = CloudinaryField('foto', blank=True, null=True)
     
     # Documentos
     nif_bi = models.CharField(
         verbose_name="NIF / BI",
-        max_length=14,  # Mantém 14 para acomodar o BI que é mais longo
+        max_length=14,
         unique=True,
         validators=[RegexValidator(
-            # Regex CORRIGIDA para aceitar 10 dígitos para NIF
             regex=r'^(\d{10}|\d{9}[A-Z]{2}\d{3})$',
-            message="Formato inválido. O NIF deve conter 10 dígitos (ex: 5001304461) ou o BI deve estar no formato 008693558LA042."
+            message="Formato inválido. O NIF deve conter 10 dígitos ou o BI no formato 008693558LA042."
         )]
     )
     
@@ -108,30 +98,17 @@ class Fornecedor(TimeStampedModel):
     numero = models.CharField(max_length=10)
     bairro = models.CharField(max_length=100)
     cidade = models.CharField(max_length=100)
-    provincia = models.CharField(max_length=50,
-    choices=[
-        ('BGO', 'Bengo'),
-        ('ICB', 'Icolo e Bengo'),
-        ('BGU', 'Benguela'),
-        ('BIE', 'Bié'),
-        ('CAB', 'Cabinda'),
-        ('CCU', 'Cuando Cubango'),
-        ('CNO', 'Cuanza Norte'),
-        ('CUS', 'Cuanza Sul'),
-        ('CUN', 'Cunene'),
-        ('HUA', 'Huambo'),
-        ('HUI', 'Huíla'),
-        ('LUA', 'Luanda'),
-        ('LNO', 'Lunda Norte'),
-        ('LSU', 'Lunda Sul'),
-        ('MAL', 'Malanje'),
-        ('MOX', 'Moxico'),
-        ('NAM', 'Namibe'),
-        ('UIG', 'Uíge'),
-        ('ZAI', 'Zaire'),
-    ]
-)
-
+    provincia = models.CharField(
+        max_length=50,
+        choices=[
+            ('BGO', 'Bengo'), ('ICB', 'Icolo e Bengo'), ('BGU', 'Benguela'),
+            ('BIE', 'Bié'), ('CAB', 'Cabinda'), ('CCU', 'Cuando Cubango'),
+            ('CNO', 'Cuanza Norte'), ('CUS', 'Cuanza Sul'), ('CUN', 'Cunene'),
+            ('HUA', 'Huambo'), ('HUI', 'Huíla'), ('LUA', 'Luanda'),
+            ('LNO', 'Lunda Norte'), ('LSU', 'Lunda Sul'), ('MAL', 'Malanje'),
+            ('MOX', 'Moxico'), ('NAM', 'Namibe'), ('UIG', 'Uíge'), ('ZAI', 'Zaire'),
+        ]
+    )
     postal = models.CharField(max_length=9, validators=[
         RegexValidator(regex=r'^\d{5}-\d{3}$', message="Código postal deve estar no formato XXXXX-XXX")
     ])
@@ -156,8 +133,6 @@ class Fornecedor(TimeStampedModel):
     agencia = models.CharField(max_length=20, blank=True)
     conta_corrente = models.CharField(max_length=30, blank=True)
     
-    # Certificações e regulamentações #AGT
- 
     # Configurações comerciais
     permite_devolucao = models.BooleanField(default=True)
     prazo_devolucao_dias = models.IntegerField(default=30)
@@ -197,19 +172,15 @@ class Fornecedor(TimeStampedModel):
     
     # Observações
     observacoes = models.TextField(blank=True)
-    observacoes_internas = models.TextField(blank=True, help_text="Observações internas (não visíveis ao fornecedor)")
-    
-    # Relacionamento
-    empresa = models.ForeignKey('empresas.Empresa', on_delete=models.CASCADE, related_name='fornecedores')
-    
+    observacoes_internas = models.TextField(blank=True, help_text="Observações internas")
+
     class Meta:
         verbose_name = "Fornecedor"
         verbose_name_plural = "Fornecedores"
-        unique_together = [['codigo_fornecedor', 'empresa']]
         indexes = [
             models.Index(fields=['codigo_fornecedor']),
             models.Index(fields=['nif_bi']),
-            models.Index(fields=['razao_social', 'empresa']),
+            models.Index(fields=['razao_social']),
             models.Index(fields=['categoria', 'ativo']),
             models.Index(fields=['ativo', 'bloqueado']),
         ]
@@ -219,44 +190,44 @@ class Fornecedor(TimeStampedModel):
         return f"{self.codigo_fornecedor} - {self.razao_social}"
     
     def save(self, *args, **kwargs):
-        # Gera código automático se não fornecido
         if not self.codigo_fornecedor:
             self.codigo_fornecedor = self.gerar_codigo_fornecedor()
-        
         super().save(*args, **kwargs)
     
     def gerar_codigo_fornecedor(self):
-        """Gera código sequencial do fornecedor"""
+        """Gera código sequencial global do fornecedor"""
         from django.db.models import Max
-        ultimo_codigo = Fornecedor.objects.filter(
-            empresa=self.empresa
-        ).aggregate(Max('codigo_fornecedor'))['codigo_fornecedor__max']
+        ultimo_codigo = Fornecedor.objects.aggregate(Max('codigo_fornecedor'))['codigo_fornecedor__max']
         
         if ultimo_codigo:
             try:
                 numero = int(ultimo_codigo.split('-')[-1]) + 1
-            except:
+            except (ValueError, IndexError):
                 numero = 1
         else:
             numero = 1
         
         return f"FOR-{numero:05d}"
+
+    def atualizar_nota_avaliacao(self):
+        """Recalcula a nota média do fornecedor com base nas avaliações"""
+        from django.db.models import Avg
+        media = self.avaliacoes.aggregate(Avg('nota_geral'))['nota_geral__avg']
+        self.nota_avaliacao = media or Decimal('0.00')
+        self.save(update_fields=['nota_avaliacao'])
     
     def clean(self):
-        # Validação de NIF/BI
         if self.tipo_pessoa == 'juridica' and len(self.nif_bi.replace('.', '').replace('/', '').replace('-', '')) != 10:
             raise ValidationError("NIF deve ter 10 dígitos")
-        elif self.tipo_pessoa == 'fisica' and len(self.nif_bi.replace('.', '').replace('-', '')) != 13:
-            raise ValidationError("bi deve ter 13 dígitos")
+        elif self.tipo_pessoa == 'fisica' and len(self.nif_bi.replace('.', '').replace('-', '')) != 14:
+            raise ValidationError("BI deve ter 14 caracteres (ex: 008693558LA042)")
     
     @property
     def nome_exibicao(self):
-        """Nome para exibição (fantasia ou razão social)"""
         return self.nome_fantasia or self.razao_social
     
     @property
     def endereco_completo(self):
-        """Endereço completo formatado"""
         endereco_parts = [
             f"{self.endereco}, {self.numero}",
             self.bairro,
@@ -267,12 +238,10 @@ class Fornecedor(TimeStampedModel):
     
     @property
     def total_pedidos(self):
-        """Total de pedidos realizados"""
         return self.pedidos.filter(status__in=['aprovado', 'recebido', 'finalizado']).count()
     
     @property
     def total_comprado(self):
-        """Valor total comprado do fornecedor"""
         total = self.pedidos.filter(
             status__in=['aprovado', 'recebido', 'finalizado']
         ).aggregate(total=models.Sum('total'))['total']
@@ -280,22 +249,12 @@ class Fornecedor(TimeStampedModel):
     
     @property
     def dias_sem_pedido(self):
-        """Dias desde o último pedido"""
         if self.data_ultimo_pedido:
             return (date.today() - self.data_ultimo_pedido).days
         return None
-    """
-    @property
-    def licenca_vencida(self):
-        
-        if self.data_validade_licenca:
-            return self.data_validade_licenca < date.today()
-        return False"""
-
 
 
 class ContatoFornecedor(TimeStampedModel):
-    """Contatos do fornecedor"""
     TIPO_CONTATO_CHOICES = [
         ('comercial', 'Comercial'),
         ('financeiro', 'Financeiro'),
@@ -306,20 +265,16 @@ class ContatoFornecedor(TimeStampedModel):
     ]
     
     fornecedor = models.ForeignKey(Fornecedor, on_delete=models.CASCADE, related_name='contatos')
-    
-    # Dados pessoais
     nome = models.CharField(max_length=200)
     cargo = models.CharField(max_length=100, blank=True)
     departamento = models.CharField(max_length=100, blank=True)
     tipo_contato = models.CharField(max_length=15, choices=TIPO_CONTATO_CHOICES)
     
-    # Contato
     telefone = models.CharField(max_length=20, blank=True)
     celular = models.CharField(max_length=20, blank=True)
     whatsapp = models.CharField(max_length=20, blank=True)
     email = models.EmailField(blank=True)
     
-    # Configurações
     contato_principal = models.BooleanField(default=False)
     recebe_pedidos = models.BooleanField(default=False)
     recebe_cobrancas = models.BooleanField(default=False)
@@ -337,7 +292,6 @@ class ContatoFornecedor(TimeStampedModel):
 
 
 class Pedido(TimeStampedModel):
-    """Pedidos de compra para fornecedores"""
     STATUS_CHOICES = [
         ('rascunho', 'Rascunho'),
         ('enviado', 'Enviado'),
@@ -358,22 +312,18 @@ class Pedido(TimeStampedModel):
         ('urgente', 'Urgente'),
     ]
     
-    # Identificação
     numero_pedido = models.CharField(max_length=20, unique=True, db_index=True)
     fornecedor = models.ForeignKey(Fornecedor, on_delete=models.PROTECT, related_name='pedidos')
     
-    # Datas
     data_pedido = models.DateField(default=date.today)
     data_envio = models.DateTimeField(null=True, blank=True)
     data_confirmacao = models.DateTimeField(null=True, blank=True)
     data_entrega_prevista = models.DateField(null=True, blank=True)
     data_entrega_real = models.DateField(null=True, blank=True)
     
-    # Status e urgência
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='rascunho')
     urgencia = models.CharField(max_length=10, choices=URGENCIA_CHOICES, default='normal')
     
-    # Valores
     subtotal = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     desconto_percentual = models.DecimalField(max_digits=5, decimal_places=2, default=0)
     desconto_valor = models.DecimalField(max_digits=10, decimal_places=2, default=0)
@@ -382,7 +332,6 @@ class Pedido(TimeStampedModel):
     outras_despesas = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     total = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     
-    # Condições comerciais
     condicao_pagamento = models.ForeignKey(
         CondicaoPagamento, 
         on_delete=models.PROTECT,
@@ -391,12 +340,10 @@ class Pedido(TimeStampedModel):
     )
     forma_pagamento = models.CharField(max_length=50, blank=True)
     
-    # Entrega
     endereco_entrega = models.TextField(blank=True, help_text="Endereço de entrega se diferente do padrão")
     transportadora = models.CharField(max_length=200, blank=True)
     numero_rastreamento = models.CharField(max_length=50, blank=True)
     
-    # Responsáveis
     solicitante = models.ForeignKey('core.Usuario', on_delete=models.PROTECT, related_name='pedidos_solicitados')
     aprovador = models.ForeignKey(
         'core.Usuario', 
@@ -407,24 +354,20 @@ class Pedido(TimeStampedModel):
     )
     data_aprovacao = models.DateTimeField(null=True, blank=True)
     
-    # Observações
     observacoes = models.TextField(blank=True)
     observacoes_internas = models.TextField(blank=True)
     motivo_cancelamento = models.TextField(blank=True)
     
-    # Documentos
     arquivo_pedido = models.FileField(upload_to='pedidos/documentos/', null=True, blank=True)
     numero_orcamento_fornecedor = models.CharField(max_length=50, blank=True)
-    
-    empresa = models.ForeignKey('empresas.Empresa', on_delete=models.CASCADE)
-    
+
     class Meta:
         verbose_name = "Pedido"
         verbose_name_plural = "Pedidos"
         indexes = [
             models.Index(fields=['numero_pedido']),
             models.Index(fields=['fornecedor', 'status']),
-            models.Index(fields=['data_pedido', 'empresa']),
+            models.Index(fields=['data_pedido']),
             models.Index(fields=['status', 'urgencia']),
         ]
         ordering = ['-data_pedido', '-numero_pedido']
@@ -433,26 +376,20 @@ class Pedido(TimeStampedModel):
         return f"{self.numero_pedido} - {self.fornecedor.razao_social}"
     
     def save(self, *args, **kwargs):
-        # Gera número automático se não fornecido
         if not self.numero_pedido:
             self.numero_pedido = self.gerar_numero_pedido()
-        
-        # Calcula valores totais
         self.calcular_totais()
-        
         super().save(*args, **kwargs)
     
     def gerar_numero_pedido(self):
         """Gera número sequencial do pedido"""
         from django.db.models import Max
-        ultimo_numero = Pedido.objects.filter(
-            empresa=self.empresa
-        ).aggregate(Max('numero_pedido'))['numero_pedido__max']
+        ultimo_numero = Pedido.objects.aggregate(Max('numero_pedido'))['numero_pedido__max']
         
         if ultimo_numero:
             try:
                 numero = int(ultimo_numero.split('-')[-1]) + 1
-            except:
+            except (ValueError, IndexError):
                 numero = 1
         else:
             numero = 1
@@ -460,15 +397,11 @@ class Pedido(TimeStampedModel):
         return f"PED-{numero:06d}"
     
     def calcular_totais(self):
-        """Calcula os totais do pedido"""
-        # Subtotal dos itens
-        self.subtotal = sum(item.total for item in self.itens.all())
+        self.subtotal = sum(item.total for item in self.itens.all()) if self.pk else Decimal('0.00')
         
-        # Desconto em valor se percentual informado
         if self.desconto_percentual and not self.desconto_valor:
-            self.desconto_valor = (self.subtotal * self.desconto_percentual) / 100
+            self.desconto_valor = (self.subtotal * self.desconto_percentual) / Decimal('100')
         
-        # Total final
         self.total = (
             self.subtotal - 
             self.desconto_valor + 
@@ -476,12 +409,10 @@ class Pedido(TimeStampedModel):
             self.valor_seguro + 
             self.outras_despesas
         )
-    
+
     def enviar_pedido(self, usuario):
-        """Envia o pedido para o fornecedor"""
         if self.status != 'rascunho':
             raise ValidationError("Apenas pedidos em rascunho podem ser enviados")
-        
         if not self.itens.exists():
             raise ValidationError("Pedido deve ter pelo menos um item")
         
@@ -489,7 +420,6 @@ class Pedido(TimeStampedModel):
         self.data_envio = datetime.now()
         self.save()
         
-        # Registrar histórico
         HistoricoPedido.objects.create(
             pedido=self,
             status_anterior='rascunho',
@@ -497,92 +427,16 @@ class Pedido(TimeStampedModel):
             usuario=usuario,
             observacoes='Pedido enviado para o fornecedor'
         )
-    
-    def confirmar_pedido(self, usuario, data_entrega_prevista=None):
-        """Confirma o pedido pelo fornecedor"""
-        if self.status != 'enviado':
-            raise ValidationError("Apenas pedidos enviados podem ser confirmados")
-        
-        self.status = 'confirmado'
-        self.data_confirmacao = datetime.now()
-        if data_entrega_prevista:
-            self.data_entrega_prevista = data_entrega_prevista
-        self.save()
-        
-        # Registrar histórico
-        HistoricoPedido.objects.create(
-            pedido=self,
-            status_anterior='enviado',
-            status_novo='confirmado',
-            usuario=usuario,
-            observacoes='Pedido confirmado pelo fornecedor'
-        )
-    
-    def cancelar_pedido(self, usuario, motivo):
-        """Cancela o pedido"""
-        if self.status in ['recebido', 'finalizado']:
-            raise ValidationError("Pedidos recebidos/finalizados não podem ser cancelados")
-        
-        status_anterior = self.status
-        self.status = 'cancelado'
-        self.motivo_cancelamento = motivo
-        self.save()
-        
-        # Registrar histórico
-        HistoricoPedido.objects.create(
-            pedido=self,
-            status_anterior=status_anterior,
-            status_novo='cancelado',
-            usuario=usuario,
-            observacoes=f'Pedido cancelado: {motivo}'
-        )
-    
-    @property
-    def percentual_recebido(self):
-        """Percentual de itens recebidos"""
-        total_itens = self.itens.count()
-        if total_itens == 0:
-            return 0
-        
-        itens_recebidos = sum(1 for item in self.itens.all() if item.quantidade_recebida >= item.quantidade)
-        return (itens_recebidos / total_itens) * 100
-    
-    @property
-    def dias_em_atraso(self):
-        """Dias de atraso na entrega"""
-        if self.data_entrega_prevista and not self.data_entrega_real:
-            atraso = (date.today() - self.data_entrega_prevista).days
-            return max(0, atraso)
-        return 0
-    
-    @property
-    def cor_status(self):
-        """Cor para exibição do status"""
-        cores = {
-            'rascunho': 'gray',
-            'enviado': 'blue',
-            'confirmado': 'orange',
-            'aprovado': 'green',
-            'em_producao': 'purple',
-            'em_transito': 'yellow',
-            'recebido_parcial': 'orange',
-            'recebido': 'green',
-            'finalizado': 'green',
-            'cancelado': 'red',
-        }
-        return cores.get(self.status, 'gray')
+
 
 class ItemPedido(TimeStampedModel):
-    """Itens do pedido"""
     pedido = models.ForeignKey(Pedido, on_delete=models.CASCADE, related_name='itens')
     produto = models.ForeignKey('produtos.Produto', on_delete=models.PROTECT)
     
-    # Quantidades
     quantidade = models.IntegerField(validators=[MinValueValidator(1)])
     quantidade_recebida = models.IntegerField(default=0)
     quantidade_devolvida = models.IntegerField(default=0)
     
-    # Preços
     preco_unitario = models.DecimalField(max_digits=10, decimal_places=2)
     preco_custo_atual = models.DecimalField(
         max_digits=10, 
@@ -592,12 +446,10 @@ class ItemPedido(TimeStampedModel):
     desconto_item = models.DecimalField(max_digits=5, decimal_places=2, default=0)
     total = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     
-    # Lote e validade (para produtos que exigem)
     numero_lote = models.CharField(max_length=50, blank=True)
     data_fabricacao = models.DateField(null=True, blank=True)
     data_vencimento = models.DateField(null=True, blank=True)
     
-    # Recebimento
     data_recebimento = models.DateField(null=True, blank=True)
     usuario_recebimento = models.ForeignKey(
         'core.Usuario', 
@@ -605,7 +457,6 @@ class ItemPedido(TimeStampedModel):
         null=True, 
         blank=True
     )
-    
     observacoes = models.TextField(blank=True)
     
     class Meta:
@@ -618,41 +469,17 @@ class ItemPedido(TimeStampedModel):
         return f"{self.produto.nome_comercial} ({self.quantidade})"
     
     def save(self, *args, **kwargs):
-        # Calcula valor total do item
-        self.total = (self.preco_unitario * self.quantidade) * (1 - self.desconto_item / 100)
+        self.total = (self.preco_unitario * self.quantidade) * (Decimal('1') - self.desconto_item / Decimal('100'))
         super().save(*args, **kwargs)
-        
-        # Recalcular totais do pedido
         self.pedido.calcular_totais()
         self.pedido.save()
-    
-    @property
-    def saldo_pendente(self):
-        """Quantidade ainda pendente de recebimento"""
-        return max(0, self.quantidade - self.quantidade_recebida)
-    
-    @property
-    def percentual_recebido(self):
-        """Percentual recebido do item"""
-        if self.quantidade:
-            return (self.quantidade_recebida / self.quantidade) * 100
-        return 0
-    
-    @property
-    def variacao_preco(self):
-        """Variação do preço em relação ao preço atual"""
-        if self.preco_custo_atual:
-            return ((self.preco_unitario - self.preco_custo_atual) / self.preco_custo_atual) * 100
-        return 0
+
 
 class HistoricoPedido(TimeStampedModel):
-    """Histórico de alterações do pedido"""
     pedido = models.ForeignKey(Pedido, on_delete=models.CASCADE, related_name='historico')
-    
     status_anterior = models.CharField(max_length=20)
     status_novo = models.CharField(max_length=20)
     usuario = models.ForeignKey('core.Usuario', on_delete=models.PROTECT)
-    
     observacoes = models.TextField(blank=True)
     dados_alterados = models.JSONField(default=dict, blank=True)
     
@@ -664,45 +491,21 @@ class HistoricoPedido(TimeStampedModel):
     def __str__(self):
         return f"{self.pedido.numero_pedido} - {self.status_anterior} → {self.status_novo}"
 
+
 class AvaliacaoFornecedor(TimeStampedModel):
-    """Avaliações dos fornecedores"""
     fornecedor = models.ForeignKey(Fornecedor, on_delete=models.CASCADE, related_name='avaliacoes')
     pedido = models.OneToOneField(Pedido, on_delete=models.CASCADE, related_name='avaliacao')
     avaliador = models.ForeignKey('core.Usuario', on_delete=models.PROTECT)
     
-    # Notas (0 a 10)
-    nota_pontualidade = models.DecimalField(
-        max_digits=3, 
-        decimal_places=2,
-        validators=[MinValueValidator(0), MaxValueValidator(10)]
-    )
-    nota_qualidade = models.DecimalField(
-        max_digits=3, 
-        decimal_places=2,
-        validators=[MinValueValidator(0), MaxValueValidator(10)]
-    )
-    nota_atendimento = models.DecimalField(
-        max_digits=3, 
-        decimal_places=2,
-        validators=[MinValueValidator(0), MaxValueValidator(10)]
-    )
-    nota_preco = models.DecimalField(
-        max_digits=3, 
-        decimal_places=2,
-        validators=[MinValueValidator(0), MaxValueValidator(10)]
-    )
-    nota_geral = models.DecimalField(
-        max_digits=3, 
-        decimal_places=2,
-        validators=[MinValueValidator(0), MaxValueValidator(10)]
-    )
+    nota_pontualidade = models.DecimalField(max_digits=3, decimal_places=2, validators=[MinValueValidator(0), MaxValueValidator(10)])
+    nota_qualidade = models.DecimalField(max_digits=3, decimal_places=2, validators=[MinValueValidator(0), MaxValueValidator(10)])
+    nota_atendimento = models.DecimalField(max_digits=3, decimal_places=2, validators=[MinValueValidator(0), MaxValueValidator(10)])
+    nota_preco = models.DecimalField(max_digits=3, decimal_places=2, validators=[MinValueValidator(0), MaxValueValidator(10)])
+    nota_geral = models.DecimalField(max_digits=3, decimal_places=2, validators=[MinValueValidator(0), MaxValueValidator(10)])
     
-    # Comentários
     pontos_positivos = models.TextField(blank=True)
     pontos_negativos = models.TextField(blank=True)
     sugestoes = models.TextField(blank=True)
-    
-    # Recomendação
     recomendaria = models.BooleanField(help_text="Recomendaria este fornecedor?", default=True)
     
     class Meta:
@@ -714,18 +517,16 @@ class AvaliacaoFornecedor(TimeStampedModel):
         return f"Avaliação {self.fornecedor.razao_social} - Nota {self.nota_geral}"
     
     def save(self, *args, **kwargs):
-        # Calcula nota geral como média das outras notas
         notas = [self.nota_pontualidade, self.nota_qualidade, self.nota_atendimento, self.nota_preco]
         self.nota_geral = sum(notas) / len(notas)
         super().save(*args, **kwargs)
-        
-        # Atualizar nota média do fornecedor
         self.fornecedor.atualizar_nota_avaliacao()
     
     def delete(self, *args, **kwargs):
         fornecedor = self.fornecedor
         super().delete(*args, **kwargs)
         fornecedor.atualizar_nota_avaliacao()
+
 
 class DocumentoFornecedor(models.Model):
     TIPO_DOCUMENTO_CHOICES = [
@@ -735,25 +536,13 @@ class DocumentoFornecedor(models.Model):
         ('OUTRO', 'Outro'),
     ]
 
-    fornecedor = models.ForeignKey(
-        'Fornecedor',
-        on_delete=models.CASCADE,
-        related_name='documentos'
-    )
-    tipo_documento = models.CharField(
-        max_length=50,
-        choices=TIPO_DOCUMENTO_CHOICES
-    )
+    fornecedor = models.ForeignKey(Fornecedor, on_delete=models.CASCADE, related_name='documentos')
+    tipo_documento = models.CharField(max_length=50, choices=TIPO_DOCUMENTO_CHOICES)
     nome_documento = models.CharField(max_length=255)
     arquivo = models.FileField(upload_to='documentos_fornecedor/')
     data_validade = models.DateField(null=True, blank=True)
     observacoes = models.TextField(blank=True, null=True)
-    usuario_upload = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True
-    )
+    usuario_upload = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -762,7 +551,7 @@ class DocumentoFornecedor(models.Model):
         ordering = ['-created_at']
 
     def __str__(self):
-        return f"{self.nome_documento} - {self.fornecedor.nome}"
+        return f"{self.nome_documento} - {self.fornecedor.razao_social}"
 
     @property
     def vencido(self):
@@ -770,26 +559,16 @@ class DocumentoFornecedor(models.Model):
             return timezone.now().date() > self.data_validade
         return False
 
+
 class CotacaoFornecedor(models.Model):
-    fornecedor = models.ForeignKey(
-        Fornecedor,
-        on_delete=models.CASCADE,
-        related_name='cotacoes'
-    )
+    fornecedor = models.ForeignKey(Fornecedor, on_delete=models.CASCADE, related_name='cotacoes')
     titulo = models.CharField(max_length=255)
     descricao = models.TextField(blank=True, null=True)
     data_criacao = models.DateTimeField(auto_now_add=True)
     data_validade = models.DateField(default=timezone.now)
-    total = models.DecimalField(
-        max_digits=12, decimal_places=2, default=0.00
-    )
+    total = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
     ativo = models.BooleanField(default=True)
-    usuario_criador = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True
-    )
+    usuario_criador = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True)
 
     class Meta:
         verbose_name = "Cotação de Fornecedor"
@@ -797,14 +576,11 @@ class CotacaoFornecedor(models.Model):
         ordering = ['-data_criacao']
 
     def __str__(self):
-        return f"{self.titulo} - {self.fornecedor.nome}"
+        return f"{self.titulo} - {self.fornecedor.razao_social}"
+
 
 class ContratoFornecedor(models.Model):
-    fornecedor = models.ForeignKey(
-        Fornecedor,
-        on_delete=models.CASCADE,
-        related_name='contratos'
-    )
+    fornecedor = models.ForeignKey(Fornecedor, on_delete=models.CASCADE, related_name='contratos')
     titulo = models.CharField(max_length=255)
     descricao = models.TextField(blank=True, null=True)
     data_inicio = models.DateField(default=timezone.now)
@@ -819,13 +595,8 @@ class ContratoFornecedor(models.Model):
         ordering = ['-data_inicio']
 
     def __str__(self):
-        return f"{self.titulo} - {self.fornecedor.nome}"
+        return f"{self.titulo} - {self.fornecedor.razao_social}"
 
     def esta_ativo(self):
-        """Verifica se o contrato está vigente."""
         hoje = timezone.now().date()
         return self.ativo and self.data_inicio <= hoje <= self.data_fim
-
-
-
-

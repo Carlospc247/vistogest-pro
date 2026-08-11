@@ -57,7 +57,7 @@ LOGGING = {
             "level": "INFO",
             "propagate": True,
         },
-        "produtos": {  # substitui pelo nome do teu app se for outro
+        "produtos": {
             "handlers": ["console"],
             "level": "DEBUG",
             "propagate": False,
@@ -128,9 +128,9 @@ TenantMainMiddleware.get_tenant = debug_get_tenant
 
 
 # Configurações Multi-tenant de URL
-ROOT_URLCONF = 'pharmassys.urls_public' 
-PUBLIC_SCHEMA_URLCONF = 'pharmassys.urls_public'
-TENANT_URLCONF = 'pharmassys.urls_tenants'
+ROOT_URLCONF = 'config.urls_public' 
+PUBLIC_SCHEMA_URLCONF = 'config.urls_public'
+TENANT_URLCONF = 'config.urls_tenants'
 
 TENANT_MODEL = "empresas.Empresa"
 TENANT_DOMAIN_MODEL = "empresas.Domain"
@@ -163,6 +163,7 @@ MIDDLEWARE = [
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
+    'apps.core.middleware.ModuloAcessMiddleware',
     'apps.core.middleware.TwoFactorIPMiddleware',
     'apps.core.middleware.ThreadLocalUserMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
@@ -197,30 +198,6 @@ MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / "media"
 
 
-#REDIS_URL = os.getenv("REDIS_URL", "redis://127.0.0.1:6379")  # VAR na Render (SEM ?ssl_cert_reqs na URL!)
-
-
-#CACHES = {
-#    "default": {
-#        "BACKEND": "django.core.cache.backends.redis.RedisCache",
-#        "LOCATION": REDIS_URL,
-#        "OPTIONS": {
-#            "ssl_cert_reqs": ssl.CERT_REQUIRED,
-#            "ssl_ca_certs": "/etc/ssl/certs/ca-certificates.crt",  # Ubuntu padrão
-#        },
-#        "TIMEOUT": 60 * 15,  # 15 min
-#    },
-
-#    "B_I": {  # dashboard BI que usas nas views
-#        "BACKEND": "django.core.cache.backends.redis.RedisCache",
-#        "LOCATION": REDIS_URL,
-#        "OPTIONS": {
-#            "ssl_cert_reqs": ssl.CERT_REQUIRED,
-#        },
-#        "TIMEOUT": 60 * 5,  # mais curto, BI deve ser fresco
-#    }
-#}
-
 CACHES = {
     "default": {
         "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
@@ -251,8 +228,8 @@ EMAIL_USE_SSL = True
 EMAIL_USE_TLS = False
 EMAIL_HOST_USER = 'geral@vistogest.pro' # Usuário do provedor
 EMAIL_HOST_PASSWORD = os.getenv('EMAIL_HOST_PASSWORD') # Senha ou API Key
-DEFAULT_FROM_EMAIL = 'VistoGEST <suporte@vistogest.com>'
-SUPPORT_EMAIL = 'suporte@vistogest.com'
+DEFAULT_FROM_EMAIL = os.getenv('DEFAULT_FROM_EMAIL')
+SUPPORT_EMAIL = os.getenv('SUPPORT_EMAIL')
 
 TEMPLATES = [
     {
@@ -308,7 +285,7 @@ SESSION_COOKIE_DOMAIN = None
 CSRF_COOKIE_DOMAIN = None
 SESSION_COOKIE_HTTPONLY = True
 
-WSGI_APPLICATION = 'pharmassys.wsgi.application'
+WSGI_APPLICATION = 'config.wsgi.application'
 AUTH_USER_MODEL = 'core.Usuario'
 SITE_ID = 1
 LANGUAGE_CODE = 'pt-pt'
@@ -323,7 +300,7 @@ LOGIN_URL = 'core:login'
 LOGIN_REDIRECT_URL = 'core:dashboard'
 LOGOUT_REDIRECT_URL = 'core:login'
 # funciona também com root_redirect em core/urls.py
-# A ioutra forma é esta:
+# A outra forma é esta:
 #LOGIN_URL = '/login/'
 #LOGIN_REDIRECT_URL = '/'
 #LOGOUT_REDIRECT_URL = '/login/'

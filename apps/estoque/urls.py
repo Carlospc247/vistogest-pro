@@ -38,7 +38,7 @@ urlpatterns = [
     path('perda/', views.PerdaEstoqueView.as_view(), name='perda'),
     
     # =====================================
-    # TRANSFERÊNCIAS ENTRE LOJAS
+    # TRANSFERÊNCIAS ENTRE ARMAZENS
     # =====================================
     path('transferencias/', views.TransferenciaListView.as_view(), name='transferencia_lista'),
     path('transferencias/nova/', views.TransferenciaCreateView.as_view(), name='transferencia_create'),

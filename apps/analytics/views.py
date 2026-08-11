@@ -87,13 +87,12 @@ class AnalyticsDashboardView(BaseViewMixin, TemplateView):
     
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        empresa = self.get_empresa()
+    
         usuario = self.request.user
         
         # Verificar se há dashboard personalizado padrão
         dashboard_padrao = DashboardPersonalizado.objects.filter(
             usuario=usuario,
-            empresa=empresa,
             padrao=True
         ).first()
         
@@ -108,12 +107,10 @@ class AnalyticsDashboardView(BaseViewMixin, TemplateView):
         
         # Eventos hoje vs ontem
         eventos_hoje = EventoAnalytics.objects.filter(
-            empresa=empresa,
             timestamp__date=hoje
         ).count()
         
         eventos_ontem = EventoAnalytics.objects.filter(
-            empresa=empresa,
             timestamp__date=ontem
         ).count()
         
@@ -121,7 +118,6 @@ class AnalyticsDashboardView(BaseViewMixin, TemplateView):
         
         # Vendas do período
         vendas_mes = Venda.objects.filter(
-            empresa=empresa,
             data_venda__gte=mes_atual,
             status='finalizada'
         ).aggregate(
@@ -130,7 +126,6 @@ class AnalyticsDashboardView(BaseViewMixin, TemplateView):
         )
         
         vendas_mes_anterior = Venda.objects.filter(
-            empresa=empresa,
             data_venda__gte=mes_anterior,
             data_venda__lt=mes_atual,
             status='finalizada'
@@ -146,13 +141,11 @@ class AnalyticsDashboardView(BaseViewMixin, TemplateView):
         
         # Alertas ativos
         alertas_ativos = AlertaInteligente.objects.filter(
-            empresa=empresa,
             status='ativo'
         ).count()
         
         # Top eventos por categoria
         eventos_por_categoria = EventoAnalytics.objects.filter(
-            empresa=empresa,
             timestamp__gte=timezone.now() - timedelta(days=7)
         ).values('categoria').annotate(
             total=Count('id')
@@ -160,7 +153,6 @@ class AnalyticsDashboardView(BaseViewMixin, TemplateView):
         
         # Eventos por hora (últimas 24h)
         eventos_por_hora = EventoAnalytics.objects.filter(
-            empresa=empresa,
             timestamp__gte=timezone.now() - timedelta(hours=24)
         ).extra(
             select={'hora': 'EXTRACT(hour FROM timestamp)'}
@@ -170,7 +162,6 @@ class AnalyticsDashboardView(BaseViewMixin, TemplateView):
         
         # Usuários mais ativos
         usuarios_ativos = EventoAnalytics.objects.filter(
-            empresa=empresa,
             timestamp__gte=timezone.now() - timedelta(days=7),
             usuario__isnull=False
         ).values(
@@ -207,22 +198,20 @@ class AnalyticsOverviewView(BaseViewMixin, TemplateView):
     
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        empresa = self.get_empresa()
+    
         
         # Período para análise
         periodo = int(self.request.GET.get('periodo', 30))
         data_inicio = timezone.now() - timedelta(days=periodo)
         
         # Estatísticas gerais
-        total_eventos = EventoAnalytics.objects.filter(empresa=empresa).count()
+        total_eventos = EventoAnalytics.objects.filter().count()
         total_usuarios = EventoAnalytics.objects.filter(
-            empresa=empresa,
             usuario__isnull=False
         ).values('usuario').distinct().count()
         
         # Eventos por período
         eventos_periodo = EventoAnalytics.objects.filter(
-            empresa=empresa,
             timestamp__gte=data_inicio
         )
         
@@ -300,7 +289,7 @@ class EventoAnalyticsListView(BaseViewMixin, ListView):
     
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        empresa = self.get_empresa()
+    
         
         # Estatísticas dos filtros aplicados
         queryset_filtrado = self.get_queryset()
@@ -313,12 +302,11 @@ class EventoAnalyticsListView(BaseViewMixin, ListView):
         
         # Categorias disponíveis
         categorias = EventoAnalytics.objects.filter(
-            empresa=empresa
+            
         ).values_list('categoria', flat=True).distinct()
         
         # Usuários disponíveis
-        usuarios = User.objects.filter(
-            evento_analytics__empresa=empresa
+        usuarios = User.objects.all(
         ).distinct().order_by('first_name', 'username')
         
         context.update({
@@ -337,17 +325,15 @@ class EventosTempoRealView(BaseViewMixin, TemplateView):
     
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        empresa = self.get_empresa()
+    
         
         # Eventos das últimas 2 horas
         eventos_recentes = EventoAnalytics.objects.filter(
-            empresa=empresa,
             timestamp__gte=timezone.now() - timedelta(hours=2)
         ).select_related('usuario').order_by('-timestamp')[:100]
         
         # Usuários online (eventos nos últimos 5 minutos)
         usuarios_online = EventoAnalytics.objects.filter(
-            empresa=empresa,
             timestamp__gte=timezone.now() - timedelta(minutes=5),
             usuario__isnull=False
         ).values('usuario').distinct().count()
@@ -366,7 +352,7 @@ class EventosPorCategoriaView(BaseViewMixin, TemplateView):
     
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        empresa = self.get_empresa()
+    
         categoria = kwargs.get('categoria')
         
         # Período para análise
@@ -375,7 +361,6 @@ class EventosPorCategoriaView(BaseViewMixin, TemplateView):
         
         # Eventos da categoria
         eventos = EventoAnalytics.objects.filter(
-            empresa=empresa,
             categoria=categoria,
             timestamp__gte=data_inicio
         )
@@ -424,7 +409,7 @@ class EventosPorUsuarioView(BaseViewMixin, TemplateView):
     
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        empresa = self.get_empresa()
+    
         usuario_id = kwargs.get('usuario_id')
         
         try:
@@ -438,7 +423,6 @@ class EventosPorUsuarioView(BaseViewMixin, TemplateView):
         
         # Eventos do usuário
         eventos = EventoAnalytics.objects.filter(
-            empresa=empresa,
             usuario=usuario,
             timestamp__gte=data_inicio
         ).order_by('-timestamp')
@@ -489,7 +473,7 @@ class EventosMapaView(BaseViewMixin, TemplateView):
     
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        empresa = self.get_empresa()
+    
         
         # Período para análise
         periodo = int(self.request.GET.get('periodo', 7))
@@ -497,7 +481,6 @@ class EventosMapaView(BaseViewMixin, TemplateView):
         
         # Eventos por país
         eventos_por_pais = EventoAnalytics.objects.filter(
-            empresa=empresa,
             timestamp__gte=data_inicio
         ).exclude(pais='').values('pais').annotate(
             total=Count('id'),
@@ -506,7 +489,6 @@ class EventosMapaView(BaseViewMixin, TemplateView):
         
         # Eventos por cidade (top 20)
         eventos_por_cidade = EventoAnalytics.objects.filter(
-            empresa=empresa,
             timestamp__gte=data_inicio
         ).exclude(cidade='').values('cidade', 'pais').annotate(
             total=Count('id')
@@ -527,7 +509,7 @@ class FunilConversaoView(BaseViewMixin, TemplateView):
     
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        empresa = self.get_empresa()
+    
         
         # Período para análise
         periodo = int(self.request.GET.get('periodo', 30))
@@ -547,7 +529,6 @@ class FunilConversaoView(BaseViewMixin, TemplateView):
         
         for acao, nome in etapas_funil:
             total = EventoAnalytics.objects.filter(
-                empresa=empresa,
                 acao=acao,
                 timestamp__gte=data_inicio
             ).count()
@@ -614,7 +595,7 @@ class AuditoriaListView(BaseViewMixin, ListView):
     
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        empresa = self.get_empresa()
+    
         
         # Estatísticas
         stats = self.get_queryset().aggregate(
@@ -638,13 +619,11 @@ class AuditoriaListView(BaseViewMixin, ListView):
         ).order_by('-total')[:10]
         
         # Content types disponíveis
-        content_types = ContentType.objects.filter(
-            auditoriaaltercao__empresa=empresa
+        content_types = ContentType.objects.all(
         ).distinct().order_by('model')
         
         # Usuários disponíveis
-        usuarios = User.objects.filter(
-            auditoriaaltercao__empresa=empresa
+        usuarios = User.objects.all(
         ).distinct().order_by('first_name', 'username')
         
         context.update({
@@ -700,7 +679,7 @@ class AuditoriaObjetoView(BaseViewMixin, TemplateView):
     
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        empresa = self.get_empresa()
+    
         content_type_id = kwargs.get('content_type_id')
         object_id = kwargs.get('object_id')
         
@@ -711,7 +690,6 @@ class AuditoriaObjetoView(BaseViewMixin, TemplateView):
         
         # Histórico de alterações do objeto
         historico = AuditoriaAlteracao.objects.filter(
-            empresa=empresa,
             content_type=content_type,
             object_id=object_id
         ).select_related('usuario').order_by('-timestamp')
@@ -749,7 +727,7 @@ class AuditoriaPorUsuarioView(BaseViewMixin, TemplateView):
     
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        empresa = self.get_empresa()
+    
         usuario_id = kwargs.get('usuario_id')
         
         try:
@@ -763,7 +741,6 @@ class AuditoriaPorUsuarioView(BaseViewMixin, TemplateView):
         
         # Auditorias do usuário
         auditorias = AuditoriaAlteracao.objects.filter(
-            empresa=empresa,
             usuario=usuario,
             timestamp__gte=data_inicio
         ).select_related('content_type').order_by('-timestamp')
@@ -813,7 +790,7 @@ class AuditoriaRelatorioView(BaseViewMixin, TemplateView):
     
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        empresa = self.get_empresa()
+    
         
         # Período para análise
         periodo = int(self.request.GET.get('periodo', 30))
@@ -821,7 +798,6 @@ class AuditoriaRelatorioView(BaseViewMixin, TemplateView):
         
         # Auditorias do período
         auditorias = AuditoriaAlteracao.objects.filter(
-            empresa=empresa,
             timestamp__gte=data_inicio
         )
         
@@ -883,7 +859,7 @@ class AuditoriaRelatorioView(BaseViewMixin, TemplateView):
 
 class ExportarAuditoriaView(BaseViewMixin, View):
     def get(self, request):
-        empresa = self.get_empresa()
+    
         
         # Parâmetros de filtro
         data_inicio = request.GET.get('data_inicio')
@@ -893,7 +869,7 @@ class ExportarAuditoriaView(BaseViewMixin, View):
         
         # Query base
         queryset = AuditoriaAlteracao.objects.filter(
-            empresa=empresa
+            
         ).select_related('usuario', 'content_type')
         
         # Aplicar filtros
@@ -965,10 +941,10 @@ class AlertasListView(BaseViewMixin, ListView):
     
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        empresa = self.get_empresa()
+    
         
         # Estatísticas
-        stats = AlertaInteligente.objects.filter(empresa=empresa).aggregate(
+        stats = AlertaInteligente.objects.filter().aggregate(
             total=Count('id'),
             ativos=Count(Case(When(status='ativo', then=1))),
             resolvidos=Count(Case(When(status='resolvido', then=1))),
@@ -977,7 +953,7 @@ class AlertasListView(BaseViewMixin, ListView):
         
         # Distribuição por tipo
         por_tipo = AlertaInteligente.objects.filter(
-            empresa=empresa
+            
         ).values('tipo').annotate(
             total=Count('id')
         ).order_by('-total')
@@ -1028,7 +1004,7 @@ class AlertaCreateView(BaseViewMixin, CreateView):
     success_url = reverse_lazy('analytics:alertas_lista')
     
     def form_valid(self, form):
-        form.instance.empresa = self.get_empresa()
+        form.instance
         
         with transaction.atomic():
             response = super().form_valid(form)
@@ -1158,7 +1134,7 @@ class DashboardCreateView(BaseViewMixin, CreateView):
     
     def form_valid(self, form):
         form.instance.usuario = self.request.user
-        form.instance.empresa = self.get_empresa()
+        form.instance
         
         messages.success(self.request, 'Dashboard criado com sucesso!')
         return super().form_valid(form)
@@ -1196,7 +1172,7 @@ class DashboardPersonalizadoDetailView(BaseViewMixin, DetailView):
     
     def _carregar_dados_widgets(self, dashboard):
         """Carregar dados para os widgets do dashboard"""
-        empresa = self.get_empresa()
+    
         dados = {}
         
         for widget in dashboard.widgets:
@@ -1204,20 +1180,19 @@ class DashboardPersonalizadoDetailView(BaseViewMixin, DetailView):
             widget_type = widget.get('type')
             
             if widget_type == 'vendas_hoje':
-                dados[widget_id] = self._dados_vendas_hoje(empresa)
+                dados[widget_id] = self._dados_vendas_hoje()
             elif widget_type == 'top_produtos':
-                dados[widget_id] = self._dados_top_produtos(empresa)
+                dados[widget_id] = self._dados_top_produtos()
             elif widget_type == 'alertas_ativos':
-                dados[widget_id] = self._dados_alertas_ativos(empresa)
+                dados[widget_id] = self._dados_alertas_ativos()
             elif widget_type == 'eventos_tempo_real':
-                dados[widget_id] = self._dados_eventos_tempo_real(empresa)
+                dados[widget_id] = self._dados_eventos_tempo_real()
         
         return dados
     
     def _dados_vendas_hoje(self, empresa):
         hoje = timezone.now().date()
         return Venda.objects.filter(
-            empresa=empresa,
             data_venda__date=hoje,
             status='finalizada'
         ).aggregate(
@@ -1231,13 +1206,11 @@ class DashboardPersonalizadoDetailView(BaseViewMixin, DetailView):
     
     def _dados_alertas_ativos(self, empresa):
         return AlertaInteligente.objects.filter(
-            empresa=empresa,
             status='ativo'
         ).count()
     
     def _dados_eventos_tempo_real(self, empresa):
         return EventoAnalytics.objects.filter(
-            empresa=empresa,
             timestamp__gte=timezone.now() - timedelta(hours=1)
         ).count()
 
@@ -1387,7 +1360,7 @@ class RelatorioVendasView(BaseViewMixin, TemplateView):
     
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        empresa = self.get_empresa()
+    
         
         # Período para análise
         periodo = int(self.request.GET.get('periodo', 30))
@@ -1395,7 +1368,6 @@ class RelatorioVendasView(BaseViewMixin, TemplateView):
         
         # Vendas do período
         vendas = Venda.objects.filter(
-            empresa=empresa,
             data_venda__gte=data_inicio,
             status='finalizada'
         )
@@ -1430,7 +1402,7 @@ class RelatorioUsuariosView(BaseViewMixin, TemplateView):
     
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        empresa = self.get_empresa()
+    
         
         # Período para análise
         periodo = int(self.request.GET.get('periodo', 30))
@@ -1438,14 +1410,12 @@ class RelatorioUsuariosView(BaseViewMixin, TemplateView):
         
         # Usuários ativos
         usuarios_ativos = EventoAnalytics.objects.filter(
-            empresa=empresa,
             timestamp__gte=data_inicio,
             usuario__isnull=False
         ).values('usuario').distinct().count()
         
         # Sessões por usuário
         sessoes_por_usuario = EventoAnalytics.objects.filter(
-            empresa=empresa,
             timestamp__gte=data_inicio,
             usuario__isnull=False
         ).values(
@@ -1720,11 +1690,10 @@ class WidgetVendasHojeView(BaseViewMixin, TemplateView):
     
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        empresa = self.get_empresa()
+    
         hoje = timezone.now().date()
         
         vendas_hoje = Venda.objects.filter(
-            empresa=empresa,
             data_venda__date=hoje,
             status='finalizada'
         ).aggregate(
@@ -1758,10 +1727,9 @@ class WidgetAlertasAtivosView(BaseViewMixin, TemplateView):
     
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        empresa = self.get_empresa()
+    
         
         alertas_ativos = AlertaInteligente.objects.filter(
-            empresa=empresa,
             status='ativo'
         ).order_by('-created_at')[:5]
         
@@ -1874,7 +1842,7 @@ class ExportarDadosView(BaseViewMixin, TemplateView):
 
 class ExportarEventosView(BaseViewMixin, View):
     def get(self, request):
-        empresa = self.get_empresa()
+    
         
         # Parâmetros de filtro
         data_inicio = request.GET.get('data_inicio')
@@ -1882,7 +1850,7 @@ class ExportarEventosView(BaseViewMixin, View):
         categoria = request.GET.get('categoria')
         
         # Query base
-        queryset = EventoAnalytics.objects.filter(empresa=empresa)
+        queryset = EventoAnalytics.objects.filter()
         
         # Aplicar filtros
         if data_inicio:
@@ -1985,7 +1953,7 @@ class RegistrarEventoAjaxView(BaseViewMixin, View):
 
 class MetricasTempoRealAjaxView(BaseViewMixin, View):
     def get(self, request):
-        empresa = self.get_empresa()
+    
         
         # Últimas 24 horas
         agora = timezone.now()
@@ -1993,20 +1961,17 @@ class MetricasTempoRealAjaxView(BaseViewMixin, View):
         
         # Eventos de hoje
         eventos_hoje = EventoAnalytics.objects.filter(
-            empresa=empresa,
             timestamp__gte=inicio_dia
         ).count()
         
         # Usuários online (últimos 5 minutos)
         usuarios_online = EventoAnalytics.objects.filter(
-            empresa=empresa,
             timestamp__gte=agora - timedelta(minutes=5),
             usuario__isnull=False
         ).values('usuario').distinct().count()
         
         # Eventos por hora
         eventos_por_hora = EventoAnalytics.objects.filter(
-            empresa=empresa,
             timestamp__gte=agora - timedelta(hours=24)
         ).extra(
             select={'hora': 'EXTRACT(hour FROM timestamp)'}
@@ -2023,10 +1988,9 @@ class MetricasTempoRealAjaxView(BaseViewMixin, View):
 
 class AlertasCountAjaxView(BaseViewMixin, View):
     def get(self, request):
-        empresa = self.get_empresa()
+    
         
         alertas_count = AlertaInteligente.objects.filter(
-            empresa=empresa,
             status='ativo'
         ).count()
         
@@ -2075,7 +2039,7 @@ class DashboardDadosAjaxView(BaseViewMixin, View):
         if widget_type == 'vendas_hoje':
             hoje = timezone.now().date()
             return Venda.objects.filter(
-                empresa=empresa,
+                ,
                 data_venda__date=hoje,
                 status='finalizada'
             ).aggregate(
@@ -2090,12 +2054,12 @@ class DashboardDadosAjaxView(BaseViewMixin, View):
 class WidgetDadosAjaxView(BaseViewMixin, View):
     def get(self, request):
         widget_type = request.GET.get('type')
-        empresa = self.get_empresa()
+    
         
         if widget_type == 'vendas_hoje':
             hoje = timezone.now().date()
             dados = Venda.objects.filter(
-                empresa=empresa,
+                ,
                 data_venda__date=hoje,
                 status='finalizada'
             ).aggregate(
@@ -2105,14 +2069,14 @@ class WidgetDadosAjaxView(BaseViewMixin, View):
         elif widget_type == 'alertas_ativos':
             dados = {
                 'count': AlertaInteligente.objects.filter(
-                    empresa=empresa,
+                    ,
                     status='ativo'
                 ).count()
             }
         elif widget_type == 'eventos_tempo_real':
             dados = {
                 'count': EventoAnalytics.objects.filter(
-                    empresa=empresa,
+                    ,
                     timestamp__gte=timezone.now() - timedelta(hours=1)
                 ).count()
             }
@@ -2131,10 +2095,10 @@ class FiltrarDadosAjaxView(BaseViewMixin, View):
             data = json.loads(request.body)
             tipo_dados = data.get('tipo')
             filtros = data.get('filtros', {})
-            empresa = self.get_empresa()
+        
             
             if tipo_dados == 'eventos':
-                queryset = EventoAnalytics.objects.filter(empresa=empresa)
+                queryset = EventoAnalytics.objects.filter()
                 
                 if filtros.get('categoria'):
                     queryset = queryset.filter(categoria=filtros['categoria'])
@@ -2177,7 +2141,7 @@ class EventoAnalyticsViewSet(viewsets.ModelViewSet):
     
     def get_queryset(self):
         empresa = self.request.user.funcionario.empresa
-        return EventoAnalytics.objects.filter(empresa=empresa)
+        return EventoAnalytics.objects.filter()
     
     @action(detail=False, methods=['post'])
     def registrar(self, request):
@@ -2201,7 +2165,7 @@ class AuditoriaAlteracaoViewSet(viewsets.ReadOnlyModelViewSet):
     
     def get_queryset(self):
         empresa = self.request.user.funcionario.empresa
-        return AuditoriaAlteracao.objects.filter(empresa=empresa)
+        return AuditoriaAlteracao.objects.filter()
 
 
 class AlertaInteligenteViewSet(viewsets.ModelViewSet):
@@ -2211,7 +2175,7 @@ class AlertaInteligenteViewSet(viewsets.ModelViewSet):
     
     def get_queryset(self):
         empresa = self.request.user.funcionario.empresa
-        return AlertaInteligente.objects.filter(empresa=empresa)
+        return AlertaInteligente.objects.filter()
     
     @action(detail=True, methods=['post'])
     def resolver(self, request, pk=None):
@@ -2235,7 +2199,7 @@ class DashboardPersonalizadoViewSet(viewsets.ModelViewSet):
         empresa = self.request.user.funcionario.empresa
         return DashboardPersonalizado.objects.filter(
             Q(usuario=self.request.user) | Q(publico=True),
-            empresa=empresa
+            
         )
 
 
@@ -2278,13 +2242,13 @@ class RegistrarEventoAPIView(BaseViewMixin, View):
 class MetricasAPIView(BaseViewMixin, View):
     def get(self, request):
         try:
-            empresa = self.get_empresa()
+        
             periodo = int(request.GET.get('periodo', 7))
             data_inicio = timezone.now() - timedelta(days=periodo)
             
             # Eventos do período
             eventos = EventoAnalytics.objects.filter(
-                empresa=empresa,
+                ,
                 timestamp__gte=data_inicio
             )
             
@@ -2319,10 +2283,10 @@ class MetricasAPIView(BaseViewMixin, View):
 class AlertasAtivosAPIView(BaseViewMixin, View):
     def get(self, request):
         try:
-            empresa = self.get_empresa()
+        
             
             alertas = AlertaInteligente.objects.filter(
-                empresa=empresa,
+                ,
                 status='ativo'
             ).order_by('-created_at')
             
@@ -2356,11 +2320,11 @@ class DashboardDadosAPIView(BaseViewMixin, View):
     def get(self, request):
         try:
             dashboard_id = request.GET.get('dashboard_id')
-            empresa = self.get_empresa()
+        
             
             dashboard = DashboardPersonalizado.objects.get(
                 id=dashboard_id,
-                empresa=empresa
+                
             )
             
             # Verificar permissão
@@ -2407,7 +2371,7 @@ class DashboardDadosAPIView(BaseViewMixin, View):
         if widget_type == 'vendas_hoje':
             hoje = timezone.now().date()
             return Venda.objects.filter(
-                empresa=empresa,
+                ,
                 data_venda__date=hoje,
                 status='finalizada'
             ).aggregate(
@@ -2417,7 +2381,7 @@ class DashboardDadosAPIView(BaseViewMixin, View):
         elif widget_type == 'alertas_ativos':
             return {
                 'count': AlertaInteligente.objects.filter(
-                    empresa=empresa,
+                    ,
                     status='ativo'
                 ).count()
             }
@@ -2428,7 +2392,7 @@ class DashboardDadosAPIView(BaseViewMixin, View):
 class AuditoriaAPIView(BaseViewMixin, View):
     def get(self, request):
         try:
-            empresa = self.get_empresa()
+        
             
             # Parâmetros de filtro
             limit = int(request.GET.get('limit', 50))
@@ -2438,7 +2402,7 @@ class AuditoriaAPIView(BaseViewMixin, View):
             usuario_id = request.GET.get('usuario_id')
             
             # Query base
-            queryset = AuditoriaAlteracao.objects.filter(empresa=empresa)
+            queryset = AuditoriaAlteracao.objects.filter()
             
             # Aplicar filtros
             if objeto_id and content_type_id:

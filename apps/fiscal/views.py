@@ -1589,7 +1589,7 @@ def ajax_validar_nif(request):
         if not nif or len(nif) < 9:
             return JsonResponse({"success": False, "message": "NIF inválido."}, status=400)
 
-        existe = Fornecedor.objects.filter(nif=nif, empresa=request.user.empresa).exists()
+        existe = Fornecedor.objects.filter(nif=nif).exists()
         return JsonResponse({
             "success": True,
             "valid": not existe,
@@ -1701,24 +1701,30 @@ def ajax_grafico_retencoes(request):
 # -------------------------
 # 🔹 AJAX: Verificar Documento
 # -------------------------
-@login_required
-#@empresa_required
+
 @require_POST
 def ajax_verificar_documento(request):
     """Valida integridade de documento via hash e assinatura digital."""
     try:
         documento_hash = request.POST.get('hash', '')
-        assinatura = AssinaturaDigital.objects.get(empresa=request.user.empresa)
+
+        # ✅ Padrão django-tenants: O schema ativo já isola os dados da empresa.
+        # Não precisa passar nenhum filtro de empresa.
+        assinatura = AssinaturaDigital.objects.get() 
 
         if assinatura.ultimo_hash == documento_hash:
             return JsonResponse({"success": True, "valid": True, "message": "Documento íntegro."})
+            
         return JsonResponse({"success": True, "valid": False, "message": "Documento alterado ou corrompido."})
-    except ObjectDoesNotExist:
+
+    except AssinaturaDigital.DoesNotExist:
         return JsonResponse({"success": False, "message": "Assinatura digital não configurada."}, status=404)
+    except AssinaturaDigital.MultipleObjectsReturned:
+        logger.error("Mais de uma assinatura digital configurada no schema do tenant.")
+        return JsonResponse({"success": False, "message": "Erro de configuração da assinatura."}, status=500)
     except Exception as e:
         logger.exception("Erro ao verificar documento.")
         return JsonResponse({"success": False, "message": "Erro ao verificar documento.", "error": str(e)}, status=500)
-
 
 # -------------------------
 # 🔹 AJAX: Status da Assinatura Digital
@@ -1730,7 +1736,7 @@ def ajax_status_assinatura(request):
     acao_requerida = 'ver_status_atual_assinatura_digital'
     """Retorna o status da assinatura digital da empresa."""
     try:
-        assinatura = AssinaturaDigital.objects.filter(empresa=request.user.empresa).first()
+        assinatura = AssinaturaDigital.objects.all().first()
         if not assinatura:
             return JsonResponse({"success": False, "message": "Assinatura digital não configurada."}, status=404)
 

@@ -1,4 +1,4 @@
-# vistogest-pro/pharmassys/tasks_celery.py
+# vistogest-pro/config/tasks_celery.py
 import ssl
 import os
 from celery import Celery
@@ -6,9 +6,9 @@ from django.conf import settings
 
 # RIGOR: Em produção, o Render define essa variável automaticamente. 
 # Se não estiver definida, ele usa development.
-os.environ.setdefault("DJANGO_SETTINGS_MODULE", "pharmassys.settings.development")
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings.development")
 
-app = Celery("pharmassys")
+app = Celery("config")
 
 # Configurações prefixadas com CELERY_ no settings.py
 app.config_from_object("django.conf:settings", namespace="CELERY")

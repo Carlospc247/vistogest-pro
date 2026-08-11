@@ -14,13 +14,13 @@ class SaftMasterFilesService:
     def __init__(self, empresa: Empresa):
         self.empresa = empresa
 
-    def get_customers(self) -> List[Dict]:
+    def get_clientes(self) -> List[Dict]:
         """
         Extrai e formata a lista de clientes.
         Requer campos cruciais: CustomerID, AccountID (Contabilidade), CompanyName, TaxRegistrationNumber.
         """
         # 🚨 Implementação de Produção:
-        # clientes = Cliente.objects.filter(empresa=self.empresa, ativo=True)
+        # clientes = Cliente.objects.filter(ativo=True)
         # return [
         #     {
         #         'CustomerID': c.codigo_cliente,
@@ -37,7 +37,7 @@ class SaftMasterFilesService:
     def get_suppliers(self) -> List[Dict]:
         
         # 🚨 Implementação de Produção:
-        # fornecedores = Fornecedor.objects.filter(empresa=self.empresa, ativo=True)
+        # fornecedores = Fornecedor.objects.filter(ativo=True)
         # return [
         #     {
         #         'SupplierID': f.codigo_fornecedor,
@@ -56,7 +56,7 @@ class SaftMasterFilesService:
         Requer campos cruciais: ProductType (P ou S), ProductCode, ProductDescription, ProductGroup.
         """
         # 🚨 Implementação de Produção:
-        # produtos = Produto.objects.filter(empresa=self.empresa, ativo=True)
+        # produtos = Produto.objects.filter(ativo=True)
         # return [
         #     {
         #         'ProductType': 'P' if p.is_stock else 'S',

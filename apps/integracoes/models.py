@@ -35,7 +35,6 @@ class TipoIntegracao(models.Model):
 
 class ConfiguracaoIntegracao(models.Model):
     """Configurações de integração por empresa"""
-    empresa = models.ForeignKey('empresas.Empresa', on_delete=models.CASCADE, related_name='integracoes_sistema')
     tipo_integracao = models.ForeignKey(TipoIntegracao, on_delete=models.CASCADE)
     
     # Status
@@ -63,7 +62,7 @@ class ConfiguracaoIntegracao(models.Model):
     class Meta:
         verbose_name = 'Configuração de Integração'
         verbose_name_plural = 'Configurações de Integração'
-        unique_together = ['empresa', 'tipo_integracao']
+        unique_together = ['tipo_integracao']
         
     def __str__(self):
         return f"{self.empresa.nome} - {self.tipo_integracao.nome}"

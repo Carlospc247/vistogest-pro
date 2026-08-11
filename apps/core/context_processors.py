@@ -5,34 +5,35 @@ from apps.servicos.models import NotificacaoAgendamento
 from apps.vendas.models import Venda
 from apps.produtos.models import Lote
 
+
 def dashboard_data(request):
     """Context processor para dados globais do dashboard"""
-    if not request.user.is_authenticated or not hasattr(request.user, 'empresa'):
+    if not request.user.is_authenticated or not hasattr(request.user, 'funcionario') or not request.user.funcionario:
         return {}
-    
-    empresa = request.user.empresa
+
+    empresa = request.user.funcionario.empresa
     if not empresa:
         return {}
-    
+
     hoje = timezone.now().date()
-    
+
     # Notificações rápidas
     notificacoes = []
-    
+
     # Produtos vencendo hoje
     vencendo_hoje = Lote.objects.filter(
         produto__ativo=True,
         data_validade=hoje,
         quantidade_atual__gt=0
     ).count()
-    
+
     if vencendo_hoje > 0:
         notificacoes.append({
             'tipo': 'warning',
             'mensagem': f'{vencendo_hoje} produto(s) vencem hoje!',
             'url': '/produtos/vencimentos/'
         })
-    
+
     # Vendas sem pagamento há mais de 1 hora
     uma_hora_atras = timezone.now() - timedelta(hours=1)
     vendas_pendentes = Venda.objects.filter(
@@ -40,22 +41,22 @@ def dashboard_data(request):
         status='aguardando_pagamento',
         created_at__lt=uma_hora_atras
     ).count()
-    
+
     if vendas_pendentes > 0:
         notificacoes.append({
             'tipo': 'info',
             'mensagem': f'{vendas_pendentes} venda(s) aguardando pagamento',
             'url': '/vendas/pendentes/'
         })
-    
+
     return {
         'notificacoes_globais': notificacoes,
         'count_notificacoes': len(notificacoes)
     }
 
 
-
 from apps.produtos.models import AlertaProdutoExpiracao
+
 
 def notifications_context(request):
     user = request.user
@@ -92,7 +93,7 @@ def notifications_context(request):
                 'url': f"/produtos/lotes/{a.lote.id}/",
                 'icon': 'exclamation-triangle',
                 'type': 'red',
-                'created_at': a.created_at,#dicionário
+                'created_at': a.created_at,  # dicionário
             })
 
     return {
@@ -101,15 +102,14 @@ def notifications_context(request):
     }
 
 
-
 def modules_context(request):
-    if not request.user.is_authenticated or not hasattr(request.user, 'empresa'):
+    if not request.user.is_authenticated or not hasattr(request.user, 'funcionario') or not request.user.funcionario:
         return {}
-    
-    empresa = request.user.empresa
+
+    empresa = request.user.funcionario.empresa
     licenca = getattr(empresa, "licenca", None)
     modulos_ativos = []
-    
+
     if licenca:
         modulos_ativos = list(licenca.plano.modulos.filter(ativo=True).values_list('slug', flat=True))
 
@@ -117,16 +117,18 @@ def modules_context(request):
         "modulos_ativos": modulos_ativos
     }
 
+
 from django.db import connection
+
 
 def regime_context(request):
     """Atalhos globais para controle de interface por regime e schema."""
     if not request.user.is_authenticated:
         return {}
 
-    empresa = getattr(request.user, 'empresa', None)
-    regime = getattr(empresa, 'regime_empresa', 'COMERCIO')
-    
+    empresa_atual = getattr(request, 'tenant', None)
+    regime = getattr(empresa_atual, 'regime', 'COMERCIO')
+
     return {
         'IS_PUBLIC': connection.schema_name == 'public',
         'IS_COMERCIO': regime == 'COMERCIO',

@@ -4,7 +4,7 @@ from django.db import models
 from django.core.validators import MinValueValidator, MaxValueValidator
 from django.core.exceptions import ValidationError
 from apps.core.models import TimeStampedModel, Usuario
-from apps.empresas.models import Empresa, Loja
+from apps.empresas.models import Empresa
 from apps.fornecedores.models import Fornecedor
 from apps.clientes.models import Cliente
 from apps.vendas.models import Venda
@@ -47,14 +47,11 @@ class CentroCusto(TimeStampedModel):
     
     # Configurações
     ativo = models.BooleanField(default=True)
-    loja = models.ForeignKey(Loja, on_delete=models.CASCADE, null=True, blank=True)
-    
-    empresa = models.ForeignKey(Empresa, on_delete=models.CASCADE)
     
     class Meta:
         verbose_name = "Centro de Custo"
         verbose_name_plural = "Centros de Custo"
-        unique_together = [['codigo', 'empresa']]
+        unique_together = [['codigo']]
         ordering = ['codigo']
     
     def __str__(self):
@@ -111,7 +108,6 @@ class ContaBancaria(TimeStampedModel):
     ultima_conciliacao = models.DateField(null=True, blank=True)
     
     observacoes = models.TextField(blank=True)
-    empresa = models.ForeignKey(Empresa, on_delete=models.CASCADE)
     
     class Meta:
         verbose_name = "Conta Bancária"
@@ -153,12 +149,11 @@ class CategoriaFinanceira(TimeStampedModel):
     nome = models.CharField(max_length=100)
     tipo = models.CharField(max_length=10, choices=TIPO_CHOICES, default='receita')
     ativa = models.BooleanField(default=True)
-    empresa = models.ForeignKey(Empresa, on_delete=models.CASCADE)
-
+    
     class Meta:
         verbose_name = "Categoria Financeira"
         verbose_name_plural = "Categorias Financeiras"
-        unique_together = [['nome', 'empresa', 'tipo']]
+        unique_together = [['nome', 'tipo']]
 
     def __str__(self):
         return f"{self.nome} ({self.get_tipo_display()})"
@@ -255,15 +250,13 @@ class MovimentacaoFinanceira(TimeStampedModel):
     
 
     
-    empresa = models.ForeignKey(Empresa, on_delete=models.CASCADE)
-
-    
+   
     
     class Meta:
         verbose_name = "Movimentação Financeira"
         verbose_name_plural = "Movimentações Financeiras"
         indexes = [
-            models.Index(fields=['data_movimentacao', 'empresa']),
+            models.Index(fields=['data_movimentacao']),
             models.Index(fields=['conta_bancaria', 'confirmada']),
             models.Index(fields=['status', 'data_vencimento']),
             models.Index(fields=['tipo_movimentacao', 'data_movimentacao']),
@@ -272,7 +265,7 @@ class MovimentacaoFinanceira(TimeStampedModel):
     
     def __str__(self):
         sinal = '+' if self.tipo_movimentacao == 'entrada' else '-'
-        return f"{sinal}R$ {self.valor} - {self.descricao}"
+        return f"{sinal}AO {self.valor} - {self.descricao}"
     
     def save(self, *args, **kwargs):
         # Calcular valor total
@@ -378,7 +371,6 @@ class ContaPai(models.Model):
     observacoes = models.TextField(blank=True)
 
     # Relacionamentos opcionais para integração com contas a pagar ou receber
-    empresa = models.ForeignKey('empresas.Empresa', on_delete=models.CASCADE)
     cliente = models.ForeignKey('clientes.Cliente', on_delete=models.SET_NULL, null=True, blank=True)
     fornecedor = models.ForeignKey('fornecedores.Fornecedor', on_delete=models.SET_NULL, null=True, blank=True)
     centro_custo = models.ForeignKey(CentroCusto, on_delete=models.PROTECT, null=True, blank=True)
@@ -388,12 +380,12 @@ class ContaPai(models.Model):
         verbose_name_plural = "Contas Principais"
         indexes = [
             models.Index(fields=['data_vencimento', 'status']),
-            models.Index(fields=['status', 'empresa']),
+            models.Index(fields=['status']),
         ]
         ordering = ['data_vencimento']
 
     def __str__(self):
-        return f"{self.numero_documento} - {self.descricao} - R$ {self.valor_original}"
+        return f"{self.numero_documento} - {self.descricao} - AO {self.valor_original}"
 
     def atualizar_saldo_status(self):
         """Atualiza saldo e status baseado nas parcelas"""
@@ -502,20 +494,19 @@ class ContaPagar(TimeStampedModel):
     status = models.CharField(max_length=15, choices=STATUS_CHOICES, default='aberta')
     observacoes = models.TextField(blank=True)
     
-    empresa = models.ForeignKey(Empresa, on_delete=models.CASCADE)
-    
+   
     class Meta:
         verbose_name = "Conta a Pagar"
         verbose_name_plural = "Contas a Pagar"
         indexes = [
             models.Index(fields=['data_vencimento', 'status']),
             models.Index(fields=['fornecedor', 'status']),
-            models.Index(fields=['status', 'empresa']),
+            models.Index(fields=['status']),
         ]
         ordering = ['data_vencimento']
     
     def __str__(self):
-        return f"{self.numero_documento} - {self.descricao} - R$ {self.valor_original}"
+        return f"{self.numero_documento} - {self.descricao} - AO {self.valor_original}"
     
     
     def save(self, *args, **kwargs):
@@ -672,8 +663,7 @@ class ContaReceber(TimeStampedModel):
     status = models.CharField(max_length=15, choices=STATUS_CHOICES, default='aberta')
     observacoes = models.TextField(blank=True)
     
-    empresa = models.ForeignKey(Empresa, on_delete=models.CASCADE)
-
+   
     objects = ContaReceberManager()
     
     class Meta:
@@ -682,12 +672,12 @@ class ContaReceber(TimeStampedModel):
         indexes = [
             models.Index(fields=['data_vencimento', 'status']),
             models.Index(fields=['cliente', 'status']),
-            models.Index(fields=['status', 'empresa']),
+            models.Index(fields=['status']),
         ]
         ordering = ['data_vencimento']
     
     def __str__(self):
-        return f"{self.numero_documento} - {self.descricao} - R$ {self.valor_original}"
+        return f"{self.numero_documento} - {self.descricao} - AO {self.valor_original}"
     
 
     def save(self, *args, **kwargs):
@@ -774,7 +764,6 @@ class FluxoCaixa(models.Model):
         ('saida', 'Saída'),
     ]
 
-    empresa = models.ForeignKey('empresas.Empresa', on_delete=models.CASCADE)
     data_referencia = models.DateField()
     tipo = models.CharField(max_length=10, choices=TIPO_CHOICES)
     valor_previsto = models.DecimalField(max_digits=12, decimal_places=2)
@@ -801,12 +790,10 @@ class FluxoCaixa(models.Model):
     def saldo_acumulado(self):
         # Calcula dinamicamente
         entradas = FluxoCaixa.objects.filter(
-            empresa=self.empresa,
             data_referencia__lte=self.data_referencia,
             tipo='entrada'
         ).aggregate(total=models.Sum('valor_previsto'))['total'] or Decimal('0')
         saidas = FluxoCaixa.objects.filter(
-            empresa=self.empresa,
             data_referencia__lte=self.data_referencia,
             tipo='saida'
         ).aggregate(total=models.Sum('valor_previsto'))['total'] or Decimal('0')
@@ -944,8 +931,7 @@ class MovimentoCaixa(TimeStampedModel):
         on_delete=models.PROTECT,
         help_text="Usuário responsável pelo movimento"
     )
-    loja = models.ForeignKey(Loja, on_delete=models.CASCADE)
-    
+
     # Venda relacionada (se aplicável)
     venda_relacionada = models.ForeignKey(
         'vendas.Venda', 
@@ -1015,13 +1001,12 @@ class MovimentoCaixa(TimeStampedModel):
         help_text="Movimento original que está sendo estornado"
     )
     
-    empresa = models.ForeignKey(Empresa, on_delete=models.CASCADE)
     
     class Meta:
         verbose_name = "Movimento de Caixa"
         verbose_name_plural = "Movimentos de Caixa"
         indexes = [
-            models.Index(fields=['data_movimento', 'loja']),
+            models.Index(fields=['data_movimento']),
             models.Index(fields=['tipo_movimento', 'status']),
             models.Index(fields=['usuario', 'data_movimento']),
             models.Index(fields=['venda_relacionada']),
@@ -1030,7 +1015,7 @@ class MovimentoCaixa(TimeStampedModel):
     
     def __str__(self):
         sinal = '+' if self.valor >= 0 else ''
-        return f"{self.data_movimento} - {sinal}R$ {self.valor} - {self.get_tipo_movimento_display()}"
+        return f"{self.data_movimento} - {sinal}AO {self.valor} - {self.get_tipo_movimento_display()}"
     
     def save(self, *args, **kwargs):
         # Gerar número do movimento se não existir
@@ -1039,8 +1024,7 @@ class MovimentoCaixa(TimeStampedModel):
             prefixo = f"CX{hoje.strftime('%Y%m%d')}"
             
             ultimo_numero = MovimentoCaixa.objects.filter(
-                numero_movimento__startswith=prefixo,
-                loja=self.loja
+                numero_movimento__startswith=prefixo
             ).count() + 1
             
             self.numero_movimento = f"{prefixo}{ultimo_numero:04d}"
@@ -1077,7 +1061,6 @@ class MovimentoCaixa(TimeStampedModel):
             descricao=f"Estorno: {self.descricao}",
             observacoes=f"Estorno do movimento {self.numero_movimento}. Motivo: {motivo}",
             usuario=usuario_estorno or self.usuario,
-            loja=self.loja,
             venda_relacionada=self.venda_relacionada,
             movimento_original=self,
             status='confirmado',
@@ -1094,7 +1077,6 @@ class MovimentoCaixa(TimeStampedModel):
     def _criar_movimentacao_financeira(self):
         """Cria movimentação financeira correspondente sem dependência de plano de contas"""
         conta_principal = ContaBancaria.objects.filter(
-            empresa=self.empresa,
             conta_principal=True,
             ativa=True
         ).first()
@@ -1137,13 +1119,12 @@ class MovimentoCaixa(TimeStampedModel):
         return self.valor < 0
     
     @classmethod
-    def calcular_saldo_caixa(cls, loja, data=None):
+    def calcular_saldo_caixa(cls, data=None):
         """Calcula saldo atual do caixa"""
         if data is None:
             data = date.today()
         
         movimentos = cls.objects.filter(
-            loja=loja,
             data_movimento__lte=data,
             confirmado=True
         )
@@ -1155,30 +1136,28 @@ class MovimentoCaixa(TimeStampedModel):
         return saldo
     
     @classmethod
-    def obter_ultimo_fechamento(cls, loja):
-        """Obtém o último fechamento de caixa da loja"""
+    def obter_ultimo_fechamento(cls):
+        """Obtém o último fechamento de caixa"""
         return cls.objects.filter(
-            loja=loja,
             tipo_movimento='fechamento',
             confirmado=True
         ).order_by('-data_movimento', '-hora_movimento').first()
     
     @classmethod
-    def caixa_esta_aberto(cls, loja, data=None):
+    def caixa_esta_aberto(cls,  data=None):
         """Verifica se o caixa está aberto"""
         if data is None:
             data = date.today()
         
         # Buscar última abertura e último fechamento do dia
         ultima_abertura = cls.objects.filter(
-            loja=loja,
+            
             data_movimento=data,
             tipo_movimento='abertura',
             confirmado=True
         ).order_by('-hora_movimento').first()
         
         ultimo_fechamento = cls.objects.filter(
-            loja=loja,
             data_movimento=data,
             tipo_movimento='fechamento',
             confirmado=True
@@ -1573,19 +1552,18 @@ class ImpostoTributo(TimeStampedModel):
         help_text="Usuário responsável pela apuração"
     )
     
-    empresa = models.ForeignKey(Empresa, on_delete=models.CASCADE)
-    
+   
     class Meta:
         verbose_name = "Imposto/Tributo Angola"
         verbose_name_plural = "Impostos/Tributos Angola"
         unique_together = [
-            ['empresa', 'codigo_receita_agt', 'ano_referencia', 'mes_referencia']
+            ['codigo_receita_agt', 'ano_referencia', 'mes_referencia']
         ]
         indexes = [
             models.Index(fields=['codigo_receita_agt', 'situacao']),
             models.Index(fields=['data_vencimento', 'situacao']),
             models.Index(fields=['ano_referencia', 'mes_referencia']),
-            models.Index(fields=['regime_tributario', 'empresa']),
+            models.Index(fields=['regime_tributario']),
         ]
         ordering = ['-ano_referencia', '-mes_referencia', 'data_vencimento']
     
@@ -1614,7 +1592,6 @@ class ImpostoTributo(TimeStampedModel):
         sufixo = f"{self.ano_referencia}{self.mes_referencia:02d}"
         
         contador = ImpostoTributo.objects.filter(
-            empresa=self.empresa,
             codigo_imposto_interno__startswith=f"{prefixo}{sufixo}"
         ).count() + 1
         
@@ -1731,7 +1708,6 @@ class ImpostoTributo(TimeStampedModel):
     def _obter_receitas_periodo(self):
         """Obtém receitas do período para cálculo"""
         receitas = MovimentacaoFinanceira.objects.filter(
-            empresa=self.empresa,
             tipo_movimentacao='entrada',
             data_movimentacao__range=[self.data_inicio_periodo, self.data_fim_periodo],
             confirmada=True
@@ -1744,7 +1720,6 @@ class ImpostoTributo(TimeStampedModel):
     def _obter_despesas_dedutiveis(self):
         """Obtém despesas dedutíveis para Imposto Industrial"""
         despesas = MovimentacaoFinanceira.objects.filter(
-            empresa=self.empresa,
             tipo_movimentacao='saida',
             data_movimentacao__range=[self.data_inicio_periodo, self.data_fim_periodo],
             confirmada=True,
@@ -1809,12 +1784,6 @@ class ConfiguracaoImposto(TimeStampedModel):
     Configurações de impostos por empresa angolana
     Baseado na legislação da AGT (Administração Geral Tributária)
     """
-    
-    empresa = models.OneToOneField(
-        Empresa, 
-        on_delete=models.CASCADE,
-        related_name='configuracao_impostos_angola'
-    )
     
     # Regime tributário principal (baseado na legislação angolana)
     regime_tributario_principal = models.CharField(
@@ -2157,7 +2126,6 @@ class ConfiguracaoImposto(TimeStampedModel):
         for codigo_agt in self.impostos_aplicaveis:
             # Verificar se já existe
             exists = ImpostoTributo.objects.filter(
-                empresa=self.empresa,
                 codigo_receita_agt=codigo_agt,
                 ano_referencia=ano,
                 mes_referencia=mes
@@ -2183,7 +2151,6 @@ class ConfiguracaoImposto(TimeStampedModel):
         
         # Criar imposto
         return ImpostoTributo.objects.create(
-            empresa=self.empresa,
             codigo_receita_agt=codigo_agt,
             nome=nome_imposto,
             regime_tributario=regime,

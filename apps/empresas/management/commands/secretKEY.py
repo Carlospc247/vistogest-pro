@@ -6,7 +6,7 @@ import secrets
 from pathlib import Path
 from django.core.management.base import BaseCommand
 
-from pharmassys.settings import SECRET_KEY
+from config.settings import SECRET_KEY
 
 # Alfabeto compatível com o gerador oficial do Django
 ALPHABET = "abcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*(-_=+)"

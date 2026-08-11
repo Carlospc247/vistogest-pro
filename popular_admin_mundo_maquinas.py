@@ -3,7 +3,7 @@ import os
 import django
 from django.db import connection
 
-os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'pharmassys.settings.development')
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'config.settings.development')
 django.setup()
 
 from apps.funcionarios.models import Cargo, Departamento
