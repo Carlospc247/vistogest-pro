@@ -68,22 +68,32 @@ class ConfiguracaoIntegracao(models.Model):
         return f"{self.empresa.nome} - {self.tipo_integracao.nome}"
     
     def set_credenciais(self, credenciais_dict):
-        """Criptografar e armazenar credenciais"""
-        if hasattr(settings, 'ENCRYPTION_KEY'):
-            f = Fernet(settings.ENCRYPTION_KEY)
-            credenciais_json = json.dumps(credenciais_dict)
-            self.credenciais_criptografadas = f.encrypt(credenciais_json.encode()).decode()
-    
+        """Criptografar e armazenar credenciais com Fernet."""
+        encryption_key = getattr(settings, 'ENCRYPTION_KEY', None)
+        if not encryption_key:
+            raise ValueError(
+                "ENCRYPTION_KEY não configurada nas settings. "
+                "Defina ENCRYPTION_KEY no .env antes de guardar credenciais."
+            )
+        from cryptography.fernet import Fernet
+        f = Fernet(encryption_key.encode() if isinstance(encryption_key, str) else encryption_key)
+        credenciais_json = json.dumps(credenciais_dict)
+        self.credenciais_criptografadas = f.encrypt(credenciais_json.encode()).decode()
+
     def get_credenciais(self):
-        """Descriptografar e retornar credenciais"""
+        """Descriptografar e retornar credenciais."""
         if not self.credenciais_criptografadas:
             return {}
-        
-        if hasattr(settings, 'ENCRYPTION_KEY'):
-            f = Fernet(settings.ENCRYPTION_KEY)
-            credenciais_json = f.decrypt(self.credenciais_criptografadas.encode()).decode()
-            return json.loads(credenciais_json)
-        return {}
+        encryption_key = getattr(settings, 'ENCRYPTION_KEY', None)
+        if not encryption_key:
+            raise ValueError(
+                "ENCRYPTION_KEY não configurada nas settings. "
+                "Não é possível descriptografar as credenciais."
+            )
+        from cryptography.fernet import Fernet
+        f = Fernet(encryption_key.encode() if isinstance(encryption_key, str) else encryption_key)
+        credenciais_json = f.decrypt(self.credenciais_criptografadas.encode()).decode()
+        return json.loads(credenciais_json)
 
 class LogIntegracao(models.Model):
     """Log de chamadas para integrações"""

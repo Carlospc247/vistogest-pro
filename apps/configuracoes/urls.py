@@ -18,7 +18,6 @@ urlpatterns = [
 
     path('fiscal/detalhes/', views.ConfiguracaoFiscalDetailView.as_view(), name='fiscal_detail'),
 
-    # 📝 Página para editar os dados da empresa e as configurações fiscais.
     path('fiscal/editar/', views.ConfiguracaoFiscalUpdateView.as_view(), name='fiscal_update'),
     
     # 📝 URL para eliminar a configuração fiscal.
@@ -30,7 +29,6 @@ urlpatterns = [
     # ==============================================================================
     # PERSONALIZAÇÃO
     # ==============================================================================
-    # Página para o utilizador ou empresa alterar a aparência do sistema.
     path('interface/', views.PersonalizacaoInterfaceUpdateView.as_view(), name='interface'),
 
     # Página para contactar o suporte.

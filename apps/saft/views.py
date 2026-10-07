@@ -264,19 +264,17 @@ class SaftHistoricoView(LoginRequiredMixin, PermissaoAcaoMixin, PermissionRequir
         
         try:
             total_exports = SAFTExportService.objects.filter(empresa=empresa).count()
-            exports_sucesso = SAFTExportService.objects.filter(empresa=empresa, sucesso=True).count()
+            exports_sucesso = SAFTExportService.objects.filter(sucesso=True).count()
             exports_erro = total_exports - exports_sucesso
             
             # Últimos 30 dias
             data_limite = timezone.now() - timedelta(days=30)
             exports_recentes = SAFTExportService.objects.filter(
-                empresa=empresa,
                 data_exportacao__gte=data_limite
             ).count()
             
             # Tamanho total aproximado (se disponível)
             total_size = SAFTExportService.objects.filter(
-                empresa=empresa,
                 sucesso=True
             ).aggregate(
                 total=models.Sum('tamanho_arquivo')
@@ -772,7 +770,6 @@ class SaftStatusAjaxView(LoginRequiredMixin, PermissaoAcaoMixin, View):
             # Exportações recentes (últimas 24h)
             data_limite = timezone.now() - timedelta(hours=24)
             exports_recentes = SAFTExportService.objects.filter(
-                empresa=empresa,
                 data_exportacao__gte=data_limite
             ).order_by('-data_exportacao')[:5]
             

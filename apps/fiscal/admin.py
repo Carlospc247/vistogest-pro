@@ -18,8 +18,7 @@ from .models import AssinaturaDigital
 class AssinaturaDigitalForm(forms.ModelForm):
     class Meta:
         model = AssinaturaDigital
-        # No django_tenants, o registro reside no schema do Tenant.
-        # Não existe o campo 'empresa'.
+
         fields = []
 
     def clean(self):
@@ -36,7 +35,6 @@ class AssinaturaDigitalForm(forms.ModelForm):
 class AssinaturaDigitalAdmin(admin.ModelAdmin):
     form = AssinaturaDigitalForm
     
-    # Lista de visibilidade (Removida referência a 'empresa')
     list_display = ['status_chave', 'data_geracao', 'acoes_download', 'acoes_rapidas']
     
     # Campos no formulário de edição

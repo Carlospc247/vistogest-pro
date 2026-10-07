@@ -1,115 +1,341 @@
 {% extends 'base_auth.html' %}
 
-{% block title %}Login - VistoGEST{% endblock %}
+{% block title %}Login — VistoGEST{% endblock %}
 
 {% block content %}
-<div class="space-y-6">
-    <div class="text-center text-2xl">
-        <span class="text-blue-800 font-bold">Fazer</span> <span class="text-orange-600 font-bold">Login</span>
-        <p class="text-sm text-gray-600">Entre com suas credenciais para acessar o sistema</p>
-    </div>
-    <div class="mx-auto mt-3 mb-6 w-60 border-b-4 border-orange-500 rounded-full"></div>
+<div class="space-y-5">
 
-    <!-- Mensagens de Erro -->
-    {% if form.errors %}
-    <div class="bg-red-50 border border-red-200 rounded-lg p-4">
-        <div class="flex items-center">
-            <i class="fas fa-exclamation-triangle text-red-500 mr-2"></i>
-            <span class="text-red-700 text-sm font-medium">Erro de autenticação</span>
-        </div>
-        {% for field, errors in form.errors.items %}
-            {% for error in errors %}
-            <p class="text-red-600 text-xs mt-1">{{ error }}</p>
-            {% endfor %}
-        {% endfor %}
+  <!-- Cabeçalho -->
+  <div class="text-center">
+    <h1 class="text-2xl font-bold">
+      <span class="text-blue-800">Fazer</span>
+      <span class="text-orange-600">Login</span>
+    </h1>
+    <p class="text-sm text-gray-500 mt-1">Entre com as suas credenciais para aceder ao sistema</p>
+  </div>
+  <div class="mx-auto w-48 border-b-4 border-orange-500 rounded-full"></div>
+
+  <!-- ══════════════════════════════════════════════════════════
+       ESTADO: CONTA BLOQUEADA (lockout activo)
+       ══════════════════════════════════════════════════════════ -->
+  {% if locked_out %}
+  <div id="lockout-panel"
+       class="rounded-xl bg-red-50 border-2 border-red-200 p-5 text-center space-y-3">
+    <div class="flex justify-center">
+      <div class="h-14 w-14 rounded-full bg-red-100 flex items-center justify-center">
+        <i class="fas fa-shield-alt text-red-500 text-2xl"></i>
+      </div>
     </div>
+    <h2 class="font-bold text-red-700 text-base">Acesso temporariamente bloqueado</h2>
+    <p class="text-red-600 text-sm">
+      Demasiadas tentativas falhadas. Por segurança, o acesso foi suspenso.
+    </p>
+
+    <!-- Contador regressivo -->
+    <div class="bg-red-100 rounded-lg py-3 px-4 inline-block">
+      <span class="text-red-700 font-mono font-bold text-xl" id="lockout-timer">
+        {{ lockout_tempo_legivel }}
+      </span>
+    </div>
+
+    <p class="text-xs text-red-500">
+      Se acredita que isto é um engano, contacte o administrador.
+    </p>
+
+    <!-- Barra de progresso do lockout -->
+    <div class="w-full bg-red-200 rounded-full h-1.5 mt-2">
+      <div id="lockout-bar"
+           class="bg-red-500 h-1.5 rounded-full transition-all duration-1000"
+           style="width: 100%"></div>
+    </div>
+  </div>
+
+  <!-- Script do contador regressivo -->
+  <script>
+  (function () {
+    let remaining = {{ lockout_seconds|default:0 }};
+    const total   = remaining;
+    const timerEl = document.getElementById('lockout-timer');
+    const barEl   = document.getElementById('lockout-bar');
+
+    function fmt(s) {
+      const m = Math.floor(s / 60), sec = s % 60;
+      return m > 0
+        ? `${m}m ${String(sec).padStart(2,'0')}s`
+        : `${s}s`;
+    }
+
+    function tick() {
+      if (remaining <= 0) {
+        timerEl.textContent = 'A recarregar...';
+        window.location.reload();
+        return;
+      }
+      timerEl.textContent = fmt(remaining);
+      if (barEl) barEl.style.width = ((remaining / total) * 100) + '%';
+      remaining--;
+      setTimeout(tick, 1000);
+    }
+
+    if (remaining > 0) tick();
+  })();
+  </script>
+
+  {% else %}
+  <!-- ══════════════════════════════════════════════════════════
+       ESTADO NORMAL: Formulário de login
+       ══════════════════════════════════════════════════════════ -->
+
+  <!-- Mensagens Django (erros de autenticação, warnings, etc.) -->
+  {% if messages %}
+  {% for msg in messages %}
+  <div class="rounded-lg p-3 flex items-start gap-x-2 text-sm
+              {% if msg.level_tag == 'error' %}bg-red-50 border border-red-200 text-red-700
+              {% elif msg.level_tag == 'warning' %}bg-yellow-50 border border-yellow-200 text-yellow-700
+              {% else %}bg-blue-50 border border-blue-200 text-blue-700{% endif %}">
+    <i class="fas fa-{% if msg.level_tag == 'error' %}exclamation-circle{% elif msg.level_tag == 'warning' %}exclamation-triangle{% else %}info-circle{% endif %} mt-0.5 flex-shrink-0"></i>
+    <span>{{ msg }}</span>
+  </div>
+  {% endfor %}
+  {% endif %}
+
+  <!-- Erros do form (credenciais inválidas) -->
+  {% if form.errors %}
+  <div class="rounded-lg bg-red-50 border border-red-200 p-3 flex items-start gap-x-2">
+    <i class="fas fa-lock text-red-400 mt-0.5 flex-shrink-0"></i>
+    <div>
+      <p class="text-red-700 text-sm font-medium">Utilizador ou password incorrectos.</p>
+      {% if login_attempts and login_attempts >= captcha_threshold %}
+      <p class="text-red-500 text-xs mt-0.5">
+        <i class="fas fa-exclamation-triangle mr-1"></i>
+        {{ login_attempts }} tentativa(s) registada(s).
+      </p>
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- ── Formulário ─────────────────────────────────────────── -->
+  <form id="login-form" method="post" class="space-y-4" novalidate>
+    {% csrf_token %}
+
+    <!-- Username -->
+    <div>
+      <label for="{{ form.username.id_for_label }}"
+             class="block text-sm font-medium text-gray-700 mb-1">
+        <i class="fas fa-user mr-1 text-gray-400"></i>Utilizador
+      </label>
+      <input type="text"
+             name="{{ form.username.name }}"
+             id="{{ form.username.id_for_label }}"
+             autocomplete="username"
+             class="w-full px-4 py-3 border border-gray-300 rounded-lg
+                    focus:ring-2 focus:ring-blue-500 focus:border-blue-500
+                    text-base transition-all input-field"
+             placeholder="Digite o seu utilizador"
+             required
+             {% if form.username.value %}value="{{ form.username.value }}"{% endif %}>
+    </div>
+
+    <!-- Password -->
+    <div>
+      <label for="{{ form.password.id_for_label }}"
+             class="block text-sm font-medium text-gray-700 mb-1">
+        <i class="fas fa-lock mr-1 text-gray-400"></i>Password
+      </label>
+      <div class="relative">
+        <input type="password"
+               name="{{ form.password.name }}"
+               id="{{ form.password.id_for_label }}"
+               autocomplete="current-password"
+               class="w-full px-4 py-3 pr-12 border border-gray-300 rounded-lg
+                      focus:ring-2 focus:ring-blue-500 focus:border-blue-500
+                      text-base transition-all input-field"
+               placeholder="Digite a sua password"
+               required>
+        <button type="button"
+                id="toggle-pwd"
+                aria-label="Mostrar/ocultar password"
+                class="absolute right-3 top-1/2 -translate-y-1/2
+                       text-gray-400 hover:text-gray-600 transition-colors focus:outline-none">
+          <i id="toggleIcon" class="fas fa-eye"></i>
+        </button>
+      </div>
+    </div>
+
+    <!-- Lembrar + Esqueceu -->
+    <div class="flex items-center justify-between">
+      <label class="flex items-center gap-x-2 cursor-pointer">
+        <input type="checkbox" name="remember_me"
+               class="rounded border-gray-300 text-blue-600 focus:ring-blue-500">
+        <span class="text-sm text-gray-600">Lembrar-me</span>
+      </label>
+      <a href="{% url 'core:password_reset' %}"
+         class="text-sm text-blue-600 hover:text-blue-800 hover:underline transition-colors">
+        Esqueceu a password?
+      </a>
+    </div>
+
+    <!-- ── hCAPTCHA (aparece após LOGIN_CAPTCHA_THRESHOLD falhas) ── -->
+    {% if show_captcha %}
+    <div class="rounded-lg bg-yellow-50 border border-yellow-200 p-3">
+      <p class="text-xs text-yellow-700 mb-3 flex items-center gap-x-1">
+        <i class="fas fa-shield-alt"></i>
+        <span>Por segurança, complete o desafio abaixo para continuar.</span>
+      </p>
+      <div class="h-captcha flex justify-center"
+           data-sitekey="{{ hcaptcha_site_key }}"
+           data-theme="light"
+           data-size="normal">
+      </div>
+    </div>
+    <script src="https://js.hcaptcha.com/1/api.js" async defer></script>
     {% endif %}
 
-    <!-- Formulário de Login -->
-    <form method="post" class="space-y-4">
-        {% csrf_token %}
-        
-        <!-- Campo Username -->
-        <div>
-            <label for="{{ form.username.id_for_label }}" class="block text-sm font-medium text-gray-700 mb-1">
-                <i class="fas fa-user mr-1"></i>Usuário
-            </label>
-            <input type="text" 
-                   name="{{ form.username.name }}" 
-                   id="{{ form.username.id_for_label }}"
-                   class="input-field w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-primary text-base"
-                   placeholder="Digite seu usuário"
-                   required
-                   {% if form.username.value %}value="{{ form.username.value }}"{% endif %}>
-        </div>
+    <!-- Botão de Login com debounce -->
+    <button type="submit"
+            id="login-btn"
+            class="w-full py-3 px-4 rounded-lg font-semibold text-base text-white
+                   transition-all duration-200 select-none
+                   bg-gradient-to-r from-green-700 to-green-500
+                   hover:from-green-800 hover:to-green-600
+                   focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2
+                   disabled:opacity-60 disabled:cursor-not-allowed disabled:transform-none
+                   active:scale-95">
+      <span id="btn-text">
+        <i class="fas fa-sign-in-alt mr-2"></i>Entrar
+      </span>
+      <span id="btn-loading" class="hidden">
+        <svg class="animate-spin inline-block h-5 w-5 mr-2 -mt-1"
+             fill="none" viewBox="0 0 24 24">
+          <circle class="opacity-25" cx="12" cy="12" r="10"
+                  stroke="currentColor" stroke-width="4"></circle>
+          <path class="opacity-75" fill="currentColor"
+                d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+        </svg>A verificar...
+      </span>
+    </button>
+  </form>
 
-        <!-- Campo Password -->
-        <div>
-            <label for="{{ form.password.id_for_label }}" class="block text-sm font-medium text-gray-700 mb-1">
-                <i class="fas fa-lock mr-1"></i>Senha
-            </label>
-            <div class="relative">
-                <input type="password" 
-                       name="{{ form.password.name }}" 
-                       id="{{ form.password.id_for_label }}"
-                       class="input-field w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary focus:border-primary text-base pr-12"
-                       placeholder="Digite sua senha"
-                       required>
-                <button type="button" 
-                        onclick="togglePassword()"
-                        class="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-500 hover:text-gray-700">
-                    <i id="toggleIcon" class="fas fa-eye"></i>
-                </button>
-            </div>
-        </div>
+  {% endif %}{# fim {% if locked_out %} #}
 
-        <!-- Remember Me -->
-        <div class="flex items-center justify-between">
-            <label class="flex items-center">
-                <input type="checkbox" class="rounded border-gray-300 text-primary focus:ring-primary">
-                <span class="ml-2 text-sm text-gray-600">Lembrar-me</span>
-            </label>
-            <a href="{% url 'core:password_reset' %}" class="text-sm text-primary hover:text-primary-dark">Esqueceu a senha?</a>
-        </div>
-           <!--{% csrf_token %}
-                {{ form.as_p }}-->
-        <!-- Botão de Login -->
-        <button type="submit" 
-                class="btn-primary w-full py-3 px-4 text-white font-medium rounded-lg text-base">
-            <i class="fas fa-sign-in-alt mr-2"></i>Entrar
-        </button>
-    </form>
+  <!-- Links de suporte -->
+  <div class="text-center">
+    <p class="text-xs text-gray-400">
+      Problemas de acesso?
+      <a href="#" class="text-blue-600 hover:underline">Contactar suporte</a>
+    </p>
+  </div>
 
-    <!-- Links Adicionais -->
-    <div class="text-center">
-        <p class="text-sm text-gray-600">
-            Problemas para acessar? 
-            <a href="#" class="text-primary hover:text-primary-dark font-medium">Entre em contato</a>
-        </p>
-    </div>
 </div>
 {% endblock %}
 
-{% block scripts %}
-<script>
-function togglePassword() {
-    const passwordField = document.getElementById('{{ form.password.id_for_label }}');
-    const toggleIcon = document.getElementById('toggleIcon');
-    
-    if (passwordField.type === 'password') {
-        passwordField.type = 'text';
-        toggleIcon.classList.remove('fa-eye');
-        toggleIcon.classList.add('fa-eye-slash');
-    } else {
-        passwordField.type = 'password';
-        toggleIcon.classList.remove('fa-eye-slash');
-        toggleIcon.classList.add('fa-eye');
-    }
-}
 
-// Auto-focus no primeiro campo
-document.addEventListener('DOMContentLoaded', function() {
-    document.getElementById('{{ form.username.id_for_label }}').focus();
-});
+{% block scripts %}
+{% url "core:login_status" as LOGIN_STATUS_URL %}
+<script>
+/* =============================================================
+   SEGURANÇA NO FRONTEND — VistoGEST Login
+   S13 · Brute-Force Protection
+   ============================================================= */
+(function () {
+  'use strict';
+
+  const form    = document.getElementById('login-form');
+  const btn     = document.getElementById('login-btn');
+  const btnText = document.getElementById('btn-text');
+  const btnLoad = document.getElementById('btn-loading');
+  const STATUS_URL = '{{ LOGIN_STATUS_URL }}';
+
+  if (!form || !btn) return;   // Página de lockout — nada a fazer
+
+  // ── 1. Toggle de visibilidade da password ───────────────────
+  const toggleBtn  = document.getElementById('toggle-pwd');
+  const pwdField   = document.getElementById('{{ form.password.id_for_label }}');
+  const toggleIcon = document.getElementById('toggleIcon');
+
+  if (toggleBtn && pwdField) {
+    toggleBtn.addEventListener('click', function () {
+      const isHidden = pwdField.type === 'password';
+      pwdField.type  = isHidden ? 'text' : 'password';
+      toggleIcon.className = isHidden ? 'fas fa-eye-slash' : 'fas fa-eye';
+    });
+  }
+
+  // ── 2. Debounce do botão de submit ──────────────────────────
+  // Impede múltiplos cliques rápidos (double-submit / clique frenético).
+  // Após o primeiro submit, o botão fica desactivado durante 3 s.
+  const DEBOUNCE_MS   = 3000;
+  let   submitBlocked = false;
+
+  function lockButton(label) {
+    submitBlocked    = true;
+    btn.disabled     = true;
+    btnText.classList.add('hidden');
+    btnLoad.classList.remove('hidden');
+    if (label) btnLoad.querySelector('span, text') && (btnLoad.textContent = label);
+  }
+
+  function unlockButton() {
+    submitBlocked    = false;
+    btn.disabled     = false;
+    btnText.classList.remove('hidden');
+    btnLoad.classList.add('hidden');
+  }
+
+  form.addEventListener('submit', function (e) {
+    if (submitBlocked) {
+      e.preventDefault();
+      return;
+    }
+    lockButton();
+    // Desbloqueio automático após DEBOUNCE_MS (caso o servidor responda devagar)
+    setTimeout(unlockButton, DEBOUNCE_MS);
+  });
+
+  // ── 3. Polling do estado de lockout (a cada 5 s) ────────────
+  // Se o utilizador abrir duas abas e for bloqueado numa, a outra
+  // também actualiza o estado sem precisar de recarregar.
+  let pollingInterval = null;
+
+  function startPolling() {
+    pollingInterval = setInterval(function () {
+      fetch(STATUS_URL, {
+        headers: { 'X-Requested-With': 'XMLHttpRequest' }
+      })
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (!data) return;
+        if (data.locked) {
+          clearInterval(pollingInterval);
+          // Forçar reload para mostrar a UI de lockout correcta
+          window.location.reload();
+        }
+      })
+      .catch(function () { /* falha silenciosa */ });
+    }, 5000);
+  }
+
+  // Só iniciar polling se o utilizador já tiver tentativas registadas
+  const attempts = parseInt('{{ login_attempts|default:0 }}', 10);
+  const threshold = parseInt('{{ captcha_threshold|default:3 }}', 10);
+  if (attempts >= threshold) {
+    startPolling();
+  }
+
+  // ── 4. Auto-focus no primeiro campo ─────────────────────────
+  const userField = document.getElementById('{{ form.username.id_for_label }}');
+  if (userField && !userField.value) {
+    userField.focus();
+  }
+
+  // ── 5. Prevenir submit com Enter em modo bloqueado ──────────
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter' && submitBlocked) {
+      e.preventDefault();
+    }
+  });
+
+})();
 </script>
 {% endblock %}

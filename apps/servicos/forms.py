@@ -2,7 +2,7 @@
 
 from django import forms
 from .models import Servico, AgendamentoServico
-from apps.empresas.models import Categoria
+from apps.produtos.models import Categoria
 from apps.clientes.models import Cliente
 from apps.funcionarios.models import Funcionario
 
@@ -63,7 +63,7 @@ class ServicoForm(forms.ModelForm):
         
         if empresa:
             if 'categoria' in self.fields:
-                self.fields['categoria'].queryset = Categoria.objects.filter(empresa=empresa, ativa=True)
+                self.fields['categoria'].queryset = Categoria.objects.filter(ativa=True)
 
 
 class AgendamentoServicoForm(forms.ModelForm):
@@ -105,9 +105,9 @@ class AgendamentoServicoForm(forms.ModelForm):
              field.widget.attrs['class'] = form_field_classes
 
         if empresa:
-            self.fields['servico'].queryset = Servico.objects.filter(empresa=empresa, ativo=True)
-            self.fields['cliente'].queryset = Cliente.objects.filter(empresa=empresa, ativo=True)
-            self.fields['funcionario'].queryset = Funcionario.objects.filter(empresa=empresa, ativo=True)
+            self.fields['servico'].queryset = Servico.objects.filter(ativo=True)
+            self.fields['cliente'].queryset = Cliente.objects.filter(ativo=True)
+            self.fields['funcionario'].queryset = Funcionario.objects.filter(ativo=True)
 
 # -----------------------------------------------------------------------------
 # FORMULÁRIO PARA AÇÃO DE FINALIZAR SERVIÇO

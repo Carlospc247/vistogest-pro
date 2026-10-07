@@ -1,13 +1,9 @@
 # apps/produtos/forms.py
 from apps.fiscal.models import TaxaIVAAGT
 from .models import PrincipioAtivo, Produto, Lote, Categoria, Fabricante
-from .models import Lote
 from django import forms
-from apps.empresas.models import Categoria  # Importa o modelo da app 'core'
 from django.core.exceptions import ValidationError
-from .models import Produto, Fabricante
 from apps.fornecedores.models import Fornecedor
-from django.core.exceptions import ValidationError
 import openpyxl
 from openpyxl import Workbook
 
@@ -87,19 +83,19 @@ class ProdutoForm(forms.ModelForm):
         # FILTROS DE SEGURANÇA MULTI-TENANT
         if empresa:
             if 'categoria' in self.fields:
-                self.fields['categoria'].queryset = Categoria.objects.filter(empresa=empresa, ativa=True)
+                self.fields['categoria'].queryset = Categoria.objects.filter(ativa=True)
             if 'fabricante' in self.fields:
                 self.fields['fabricante'].queryset = Fabricante.objects.filter(empresa=empresa)
             if 'fornecedor' in self.fields:
-                self.fields['fornecedor'].queryset = Fornecedor.objects.filter(empresa=empresa, ativo=True)
+                self.fields['fornecedor'].queryset = Fornecedor.objects.filter(ativo=True)
             
             # RIGOR SOTARQ: Filtra princípios ativos apenas da empresa logada
             if 'principio_ativo' in self.fields:
-                self.fields['principio_ativo'].queryset = PrincipioAtivo.objects.filter(empresa=empresa, ativo=True)
+                self.fields['principio_ativo'].queryset = PrincipioAtivo.objects.filter(ativo=True)
                 
             if 'taxa_iva' in self.fields:
                 # Nota: Garanta que o model TaxaIVAAGT tenha o campo empresa se for multi-tenant
-                self.fields['taxa_iva'].queryset = TaxaIVAAGT.objects.filter(empresa=empresa, ativo=True).order_by('-tax_percentage')
+                self.fields['taxa_iva'].queryset = TaxaIVAAGT.objects.filter(ativo=True).order_by('-tax_percentage')
 
         # Valor inicial da margem de lucro ao editar
         if self.instance and self.instance.pk:

@@ -1,243 +1,317 @@
 # apps/fiscal/services/assinatura_service.py
+"""
+Serviço de assinatura fiscal AGT.
+
+Duas classes, duas responsabilidades e duas chaves totalmente separadas:
+
+- AssinaturaSoftwareService: assina o objeto softwareInfo (jwsSoftwareSignature)
+  com a chave ÚNICA da SOTARQ, lida do ambiente. Chamado uma vez por
+  requisição à API da AGT, igual para qualquer tenant.
+
+- AssinaturaDigitalService: assina documentos (jwsDocumentSignature) e
+  requisições (jwsSignature) com a chave DO CONTRIBUINTE, configurada por
+  tenant. Também gere a cadeia de hash interna do VistoGest (auditoria
+  própria, independente da validação remota da AGT).
+
+RIGOR: RS256 (JWS) = RSASSA-PKCS1-v1_5 + SHA-256, conforme RFC 7518.
+NÃO é RSA-PSS — essa era a implementação anterior e estava incorrecta;
+um validador RS256 padrão (como o da AGT) rejeita assinaturas PSS.
+"""
+
 import base64
 import hashlib
-import logging
-from typing import Dict
-from django.db import transaction
-from django.utils import timezone
-from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import padding, rsa
-from apps.fiscal.models import AssinaturaDigital
-from apps.fiscal.utility.crypto import AESService
-from apps.empresas.models import Empresa
-from .utils import FiscalServiceError, gerar_rsa_local
-from apps.fiscal.utility import calcular_hash_documento as calc_hash_util, gerar_atcud as gerar_atcud_util
-
-import base64
 import json
 import logging
-from typing import List, Tuple
-from django.db.models import QuerySet
+from datetime import datetime
+from typing import Any, Dict, Optional
+
+from django.conf import settings
+from django.db import transaction
+from django.utils import timezone
+
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding
-from apps.fiscal.models import DocumentoFiscal, AssinaturaDigital
+
+from apps.fiscal.models import AssinaturaDigital
 from apps.fiscal.utility.crypto import AESService
+from .utils import FiscalServiceError
+
+logger = logging.getLogger('fiscal.assinatura')
 
 
+# =====================================
+# Helpers JWS (RFC 7515 / RFC 7518, RS256)
+# =====================================
+
+def _b64url(data: bytes) -> str:
+    """Base64URL sem padding, conforme JWS compact serialization."""
+    return base64.urlsafe_b64encode(data).rstrip(b'=').decode('ascii')
 
 
+def _json_canonico(obj: Dict[str, Any]) -> bytes:
+    """
+    Serialização JSON canónica para assinatura: chaves não reordenadas
+    (mantém a ordem de inserção do dict, que deve seguir a ordem dos
+    campos tal como listados no Anexo I para cada assinatura), sem
+    espaços, UTF-8.
+    """
+    return json.dumps(obj, separators=(',', ':'), ensure_ascii=False).encode('utf-8')
 
-logger = logging.getLogger(__name__)
 
+def gerar_jws_rs256(payload: Dict[str, Any], private_key_pem: str) -> str:
+    """Gera um JWS compacto (header.payload.signature) usando RS256."""
+    header = {"alg": "RS256", "typ": "JWT"}
+    header_b64 = _b64url(_json_canonico(header))
+    payload_b64 = _b64url(_json_canonico(payload))
+    signing_input = f"{header_b64}.{payload_b64}".encode('ascii')
+
+    private_key = serialization.load_pem_private_key(
+        private_key_pem.encode('utf-8'), password=None
+    )
+    assinatura = private_key.sign(
+        signing_input,
+        padding.PKCS1v15(),   # RS256 real — não PSS
+        hashes.SHA256()
+    )
+    return f"{header_b64}.{payload_b64}.{_b64url(assinatura)}"
+
+
+def verificar_jws_rs256(jws: str, public_key_pem: str) -> Dict[str, Any]:
+    """Verifica um JWS RS256 e devolve o payload decodificado se válido."""
+    try:
+        header_b64, payload_b64, sig_b64 = jws.split('.')
+    except ValueError:
+        raise FiscalServiceError("JWS mal formado (esperado header.payload.signature).")
+
+    def _pad(s):
+        return s + '=' * (-len(s) % 4)
+
+    signing_input = f"{header_b64}.{payload_b64}".encode('ascii')
+    assinatura = base64.urlsafe_b64decode(_pad(sig_b64))
+
+    public_key = serialization.load_pem_public_key(public_key_pem.encode('utf-8'))
+    public_key.verify(assinatura, signing_input, padding.PKCS1v15(), hashes.SHA256())
+
+    payload_json = base64.urlsafe_b64decode(_pad(payload_b64))
+    return json.loads(payload_json)
+
+
+# =====================================
+# Chave do SOFTWARE (SOTARQ) — única, vem do ambiente
+# =====================================
+
+class AssinaturaSoftwareService:
+    """
+    Assina o objeto `softwareInfo` (jwsSoftwareSignature) com a chave ÚNICA
+    da SOTARQ. Esta chave é a mesma para todos os tenants e NUNCA é gerada
+    em runtime nem guardada em base de dados — vive apenas no ambiente do
+    servidor (AGT_SOFTWARE_PRIVATE_KEY_PEM ou _PATH).
+    """
+
+    @staticmethod
+    def _carregar_chave_privada() -> str:
+        pem = getattr(settings, 'AGT_SOFTWARE_PRIVATE_KEY_PEM', '')
+        if pem:
+            return pem.replace('\\n', '\n')
+
+        path = getattr(settings, 'AGT_SOFTWARE_PRIVATE_KEY_PATH', '')
+        if path:
+            try:
+                with open(path, 'r') as f:
+                    return f.read()
+            except FileNotFoundError:
+                pass
+
+        raise FiscalServiceError(
+            "Chave privada do Software não configurada. Defina "
+            "AGT_SOFTWARE_PRIVATE_KEY_PEM ou AGT_SOFTWARE_PRIVATE_KEY_PATH no ambiente."
+        )
+
+    @staticmethod
+    def _software_info_detail() -> Dict[str, str]:
+        return {
+            "productId": settings.AGT_SOFTWARE_PRODUCT_ID,
+            "productVersion": settings.AGT_SOFTWARE_PRODUCT_VERSION,
+            "softwareValidationNumber": settings.AGT_SOFTWARE_VALIDATION_NUMBER,
+        }
+
+    @classmethod
+    def montar_software_info(cls) -> Dict[str, Any]:
+        """
+        Monta o objeto `softwareInfo` completo do Anexo I: softwareInfoDetail
+        + jwsSoftwareSignature (assinatura de todos os campos de detail).
+        """
+        detail = cls._software_info_detail()
+        private_pem = cls._carregar_chave_privada()
+        return {
+            "softwareInfoDetail": detail,
+            "jwsSoftwareSignature": gerar_jws_rs256(detail, private_pem),
+        }
+
+
+# =====================================
+# Chave do CONTRIBUINTE (AGT, por tenant) + cadeia interna
+# =====================================
 
 class AssinaturaDigitalService:
-    """Serviço oficial AGT para assinatura digital de documentos."""
+    """
+    Gestão da chave do contribuinte (por tenant, emitida pela AGT) e da
+    cadeia de integridade interna do VistoGest (auditoria própria).
+    """
 
-    # ----------------------------------------------------------------------
-    # 1) GERAÇÃO DE CHAVES RSA POR EMPRESA
-    # ----------------------------------------------------------------------
+    # -------------------------------------------------------------
+    # Configuração da chave (recebida da AGT, nunca gerada aqui)
+    # -------------------------------------------------------------
+
     @staticmethod
-    def gerar_chaves_rsa(empresa: Empresa, tamanho_chave: int = 2048) -> AssinaturaDigital:
-        """Gera par RSA e guarda na DB (chave privada encriptada)."""
-        try:
-            private_key = rsa.generate_private_key(
-                public_exponent=65537,
-                key_size=tamanho_chave,
-            )
-            private_pem = private_key.private_bytes(
-                encoding=serialization.Encoding.PEM,
-                format=serialization.PrivateFormat.PKCS8,
-                encryption_algorithm=serialization.NoEncryption()
-            )
-            public_pem = private_key.public_key().public_bytes(
-                encoding=serialization.Encoding.PEM,
-                format=serialization.PublicFormat.SubjectPublicKeyInfo
-            )
-        except Exception:
-            private_pem, public_pem = gerar_rsa_local()  # fallback local
-
-        assinatura, _ = AssinaturaDigital.objects.update_or_create(
-            empresa=empresa,
-            defaults={
-                "chave_privada": AESService.encrypt(private_pem.decode()),
-                "chave_publica": public_pem.decode(),
-                "data_geracao": timezone.now(),
-                "dados_series_fiscais": {},  # garante dict default
-            },
-        )
-        return assinatura
-
-    # ----------------------------------------------------------------------
-    # 2) EXPORTA CHAVE PÚBLICA
-    # ----------------------------------------------------------------------
-    @staticmethod
-    def exportar_chave_publica_pem(empresa: Empresa) -> bytes:
-        """Retorna a chave pública da empresa em bytes (UTF-8)."""
-        assinatura = AssinaturaDigital.objects.filter(empresa=empresa).first()
-        if not assinatura or not assinatura.chave_publica:
-            raise FiscalServiceError("Chave pública inexistente.")
-        return assinatura.chave_publica.encode("utf-8")
-
-    # ----------------------------------------------------------------------
-    # 3) HASH DETERMINÍSTICO (cadeia AGT)
-    # ----------------------------------------------------------------------
-    @staticmethod
-    def calcular_hash_documento(doc: Dict, hash_anterior: str = "") -> str:
-        """Calcula hash base64 de um documento, usando hash anterior."""
-        return calc_hash_util(doc, hash_anterior)
-
-    # ----------------------------------------------------------------------
-    # 4) GERA ATCUD
-    # ----------------------------------------------------------------------
-    @staticmethod
-    def gerar_atcud(empresa: Empresa, serie: str, numero: str, hash_: str) -> str:
-        """Gera ATCUD conforme padrão AGT (hash SHA256)."""
-        nif = empresa.nif or empresa.numero_contribuinte or ""
-        return gerar_atcud_util(nif, serie, numero, hash_)
-
-    # ----------------------------------------------------------------------
-    # 5) ASSINATURA DE DOCUMENTO
-    # ----------------------------------------------------------------------
-    @staticmethod
-    def assinar_documento(empresa: Empresa, doc: Dict) -> Dict[str, str]:
+    @transaction.atomic
+    def configurar_chave_contribuinte(
+        nif: str,
+        chave_privada_pem: str,
+        chave_publica_pem: Optional[str] = None,
+        usuario=None,
+    ) -> AssinaturaDigital:
         """
-        Assina documento digitalmente e atualiza cadeia de hashes por série.
-        Retorna: {hash, assinatura (base64), hash_anterior, atcud}
+        Regista/actualiza a chave do contribuinte para o tenant activo.
+        Esta chave vem SEMPRE do Portal do Contribuinte AGT — este método
+        nunca gera um par de chaves, apenas guarda o que o admin colar.
         """
+        # Validação mínima: a chave tem de carregar como PEM válido.
         try:
-            with transaction.atomic():
-                assinatura = AssinaturaDigital.objects.select_for_update().get(empresa=empresa)
-                serie = doc.get("serie", "DEFAULT")
-                numero = str(doc.get("numero", "0"))
-                meta = assinatura.dados_series_fiscais.get(serie, {})
-
-                hash_anterior = meta.get("ultimo_hash", "")
-
-                # gera novo hash
-                novo_hash = AssinaturaDigitalService.calcular_hash_documento(doc, hash_anterior)
-
-                if not assinatura.chave_privada:
-                    raise FiscalServiceError("Chave privada não configurada.")
-
-                # descriptografa chave privada
-                private_pem = AESService.decrypt(assinatura.chave_privada)
-                private_key = serialization.load_pem_private_key(
-                    private_pem.encode("utf-8"),
-                    password=None,
-                )
-
-                assinatura_bin = private_key.sign(
-                    novo_hash.encode("utf-8"),
-                    padding.PSS(
-                        mgf=padding.MGF1(hashes.SHA256()),
-                        salt_length=padding.PSS.MAX_LENGTH
-                    ),
-                    hashes.SHA256()
-                )
-                assinatura_b64 = base64.b64encode(assinatura_bin).decode("utf-8")
-
-                # Gera ATCUD
-                atcud = AssinaturaDigitalService.gerar_atcud(empresa, serie, numero, novo_hash)
-
-                # Atualiza metadados da série
-                meta.update({
-                    "ultimo_hash": novo_hash,
-                    "ultimo_documento": numero,
-                    "data_ultima_assinatura": timezone.now().isoformat(),
-                    "ultimo_atcud": atcud,
-                })
-                assinatura.dados_series_fiscais[serie] = meta
-                assinatura.ultimo_hash = novo_hash
-                assinatura.save(update_fields=["dados_series_fiscais", "ultimo_hash"])
-
-                return {
-                    "hash": novo_hash,
-                    "assinatura": assinatura_b64,
-                    "hash_anterior": hash_anterior,
-                    "atcud": atcud,
-                }
-
-        except AssinaturaDigital.DoesNotExist:
-            raise FiscalServiceError("Assinatura digital não configurada.")
+            serialization.load_pem_private_key(chave_privada_pem.encode('utf-8'), password=None)
         except Exception as e:
-            logger.exception("Erro ao assinar documento")
-            raise FiscalServiceError(f"Erro ao assinar documento: {e}")
+            raise FiscalServiceError(f"Chave privada do contribuinte inválida: {e}")
+
+        config, _ = AssinaturaDigital.objects.get_or_create(pk=1)
+        config.nif_contribuinte = nif
+        config.chave_contribuinte_privada = AESService.encrypt(chave_privada_pem)
+        if chave_publica_pem:
+            config.chave_contribuinte_publica = chave_publica_pem
+        config.data_configuracao_chave = timezone.now()
+        config.configurada_por = usuario
+        config.save()
+
+        logger.info(f"Chave do contribuinte configurada para NIF {nif}")
+        return config
+
+    @staticmethod
+    def _obter_chave_privada_contribuinte() -> str:
+        config = AssinaturaDigital.obter_configuracao()
+        if not config or not config.chave_contribuinte_privada:
+            raise FiscalServiceError(
+                "Chave do contribuinte não configurada para esta empresa. "
+                "Aceda ao Portal do Contribuinte AGT e configure-a em Configurações Fiscais."
+            )
+        return AESService.decrypt(config.chave_contribuinte_privada)
+
+    # -------------------------------------------------------------
+    # jwsDocumentSignature — assina UM documento
+    # -------------------------------------------------------------
+
+    @classmethod
+    def assinar_documento(cls, dados_documento: Dict[str, Any]) -> str:
+        """
+        Assina os campos obrigatórios de um documento (Anexo I):
+        documentNo, taxRegistrationNumber, documentType, documentDate,
+        customerTaxID, customerCountry, companyName, documentTotals.
+        `dados_documento` deve conter exactamente estes campos, na ordem
+        listada no Decreto.
+        """
+        private_pem = cls._obter_chave_privada_contribuinte()
+        return gerar_jws_rs256(dados_documento, private_pem)
+
+    # -------------------------------------------------------------
+    # jwsSignature — assina uma requisição (payload varia por serviço)
+    # -------------------------------------------------------------
+
+    @classmethod
+    def assinar_requisicao(cls, campos_requisicao: Dict[str, Any]) -> str:
+        """
+        Assina o payload de assinatura de requisição — os campos exactos
+        variam por serviço (ex.: taxRegistrationNumber+submissionUUID em
+        registarFactura; taxRegistrationNumber+requestID em obterEstado).
+        Quem chama decide o dict; este método só assina.
+        """
+        private_pem = cls._obter_chave_privada_contribuinte()
+        return gerar_jws_rs256(campos_requisicao, private_pem)
+
+    # -------------------------------------------------------------
+    # Cadeia de integridade INTERNA (não é a cadeia da AGT)
+    # -------------------------------------------------------------
+
+    @staticmethod
+    def calcular_hash_documento(doc: Dict[str, Any], hash_anterior: str = "") -> str:
+        """Hash SHA-256 interno para a cadeia própria de auditoria do VistoGest."""
+        dados = dict(doc)
+        if hash_anterior:
+            dados['hash_anterior'] = hash_anterior
+        dados_json = json.dumps(dados, sort_keys=True, ensure_ascii=False)
+        return hashlib.sha256(dados_json.encode('utf-8')).hexdigest()
+
+    @classmethod
+    @transaction.atomic
+    def atualizar_cadeia_interna(cls, serie: str, numero_documento: str, novo_hash: str) -> None:
+        """Avança a cadeia interna de uma série após confirmar um documento."""
+        config, _ = AssinaturaDigital.objects.select_for_update().get_or_create(pk=1)
+        meta = config.dados_series_fiscais.get(serie, {})
+        meta.update({
+            'ultimo_hash': novo_hash,
+            'ultimo_documento': numero_documento,
+            'data_ultima_assinatura': datetime.now().isoformat(),
+        })
+        config.dados_series_fiscais[serie] = meta
+        config.ultimo_hash = novo_hash
+        config.save(update_fields=['dados_series_fiscais', 'ultimo_hash'])
+
+    @staticmethod
+    def obter_hash_anterior(serie: str) -> str:
+        config = AssinaturaDigital.obter_configuracao()
+        if not config:
+            return ""
+        return config.dados_series_fiscais.get(serie, {}).get('ultimo_hash', "")
 
 
-logger = logging.getLogger(__name__)
 
 class VerificadorIntegridadeService:
-    """Fiscaliza a cadeia de hashes e assinaturas geradas pelo AssinaturaDigitalService."""
+    """
+    Verifica a integridade fiscal do tenant activo. Duas checagens
+    independentes: (1) cadeia de hash interna do VistoGest, (2) validade
+    da assinatura JWS de cada documento com a chave pública do contribuinte.
+    """
 
     @staticmethod
-    def verificar_empresa(empresa_id: int) -> Tuple[bool, List[str]]:
+    def verificar_tenant() -> tuple[bool, list[str]]:
+        from apps.fiscal.models import DocumentoFiscal
+
         erros = []
-        
-        # 1. Carregar a Chave Pública (Sua infra já guarda no banco)
-        try:
-            assinatura_obj = AssinaturaDigital.objects.get(empresa_id=empresa_id)
-            public_key = serialization.load_pem_public_key(
-                assinatura_obj.chave_publica.encode('utf-8')
-            )
-        except Exception as e:
-            return False, [f"Erro ao carregar infra de assinatura: {e}"]
+        config = AssinaturaDigital.obter_configuracao()
+        if not config:
+            return False, ["Configuração de assinatura fiscal inexistente para este tenant."]
 
-        # 2. Obter documentos confirmados por série (Rigor de Sequencialidade)
-        docs = DocumentoFiscal.objects.filter(
-            empresa_id=empresa_id, 
-            status='confirmed'
-        ).order_by('tipo_documento', 'serie', 'numero')
+        chave_publica_pem = config.chave_contribuinte_publica
+        docs = DocumentoFiscal.objects.filter(status='confirmed').order_by(
+            'tipo_documento', 'serie', 'numero'
+        )
 
-        series = docs.values_list('tipo_documento', 'serie').distinct()
-
-        for tipo, serie in series:
-            docs_serie = docs.filter(tipo_documento=tipo, serie=serie)
+        for tipo, serie in docs.values_list('tipo_documento', 'serie').distinct():
             hash_anterior_esperado = ""
-
-            for doc in docs_serie:
-                # A) VALIDAR CADEIA DE HASH (ELO FÍSICO)
+            for doc in docs.filter(tipo_documento=tipo, serie=serie):
+                # 1) Cadeia interna
                 if doc.hash_anterior != hash_anterior_esperado:
                     erros.append(
-                        f"Quebra de Cadeia: Documento {doc.numero_documento} "
-                        f"aponta para hash anterior {doc.hash_anterior[:10]} "
-                        f"mas o real era {hash_anterior_esperado[:10]}"
+                        f"Quebra de cadeia interna: {doc.numero_documento} "
+                        f"esperava hash anterior '{hash_anterior_esperado[:10]}', "
+                        f"tem '{(doc.hash_anterior or '')[:10]}'."
                     )
-
-                # B) VALIDAR ASSINATURA RSA (ELO CRIPTOGRÁFICO)
-                # Recriamos os dados exatamente como seu AssinaturaDigitalService faz
-                dados_verificacao = {
-                    'atcud': doc.atcud,
-                    'numero_documento': doc.numero_documento,
-                    'data_emissao': doc.data_emissao.isoformat(),
-                    'cliente_nif': doc.cliente_nif or '',
-                    'valor_total': str(doc.valor_total),
-                    'moeda': doc.moeda,
-                }
-                if doc.hash_anterior:
-                    dados_verificacao['hash_anterior'] = doc.hash_anterior
-                
-                # RIGOR: Garantir sort_keys=True para bater com o hash original
-                dados_json = json.dumps(dados_verificacao, sort_keys=True, ensure_ascii=False)
-                
-                try:
-                    # Note: O seu serviço usa padding.PSS, então a verificação deve ser PSS!
-                    public_key.verify(
-                        base64.b64decode(doc.assinatura_digital),
-                        dados_json.encode('utf-8'),
-                        padding.PSS(
-                            mgf=padding.MGF1(hashes.SHA256()),
-                            salt_length=padding.PSS.MAX_LENGTH
-                        ),
-                        hashes.SHA256()
-                    )
-                except Exception:
-                    erros.append(f"Assinatura Inválida: {doc.numero_documento} foi alterado após ser assinado.")
-
-                # Avança o elo da corrente
                 hash_anterior_esperado = doc.hash_documento
 
-        if erros:
-            logger.error(f"INTEGRIDADE VIOLADA na Empresa {empresa_id}!")
-            return False, erros
-        
-        return True, []
+                # 2) Assinatura JWS (se houver chave pública configurada)
+                if chave_publica_pem and doc.assinatura_digital:
+                    try:
+                        verificar_jws_rs256(doc.assinatura_digital, chave_publica_pem)
+                    except Exception:
+                        erros.append(f"Assinatura JWS inválida em {doc.numero_documento}.")
+
+        return (len(erros) == 0), erros
+
+

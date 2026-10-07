@@ -4,7 +4,6 @@ from django.db import models
 from django.core.validators import MinValueValidator, MaxValueValidator
 from django.core.exceptions import ValidationError
 from apps.core.models import TimeStampedModel, Usuario
-from apps.empresas.models import Empresa
 from apps.produtos.models import Produto, Lote
 from decimal import Decimal
 from datetime import date, datetime
@@ -113,11 +112,6 @@ class Inventario(TimeStampedModel):
     titulo = models.CharField(max_length=200)
     descricao = models.TextField(blank=True)
     
-    categorias = models.ManyToManyField(
-        'empresas.Categoria',
-        blank=True,
-        help_text="Categorias incluídas (vazio = todas)"
-    )
     apenas_produtos_ativos = models.BooleanField(default=True)
     apenas_com_estoque = models.BooleanField(default=False)
     
@@ -204,7 +198,6 @@ class Inventario(TimeStampedModel):
         self.save()
     
     def gerar_itens_inventario(self):
-        """Gera os itens a serem inventariados para a empresa/tenant atual"""
         from produtos.models import Produto
         from .models import ItemInventario, MovimentacaoEstoque
 
@@ -272,7 +265,6 @@ class Inventario(TimeStampedModel):
         total_divergencia = Decimal('0.00')
         
         for item in self.itens.filter(tem_divergencia=True):
-            # Criar movimentação de ajuste (sem FK de empresa)
             MovimentacaoEstoque.objects.create(
                 tipo_movimentacao=tipo_ajuste,
                 produto=item.produto,

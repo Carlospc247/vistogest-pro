@@ -4,7 +4,7 @@ from django.db import models
 from django.core.validators import MinValueValidator, MaxValueValidator
 from django.core.exceptions import ValidationError
 from apps.core.models import TimeStampedModel, Usuario
-from apps.empresas.models import Empresa, Categoria
+from apps.empresas.models import Empresa
 from apps.produtos.models import Produto, Categoria
 from apps.clientes.models import Cliente
 from apps.vendas.models import Venda

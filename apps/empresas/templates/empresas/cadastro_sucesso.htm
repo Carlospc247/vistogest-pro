@@ -1,0 +1,22 @@
+<!-- templates/empresas/cadastro_sucesso.html -->
+{% extends "empresas/base_publica.html" %}
+{% block title %}Registo Concluído | vistoGEST{% endblock %}
+{% block content %}
+<h1 class="text-xl font-bold text-gray-900 mb-4 text-center">Empresa criada com sucesso!</h1>
+<p class="text-sm text-gray-700 mb-3"><strong>Guarde estes dados — não serão mostrados novamente:</strong></p>
+<ul class="text-sm text-gray-800 bg-gray-50 rounded-lg p-4 space-y-1 mb-4">
+    <li>ID da Empresa: <strong>{{ dados.empresa_id }}</strong> ({{ dados.empresa_nome }})</li>
+    <li>ID do Utilizador Administrador: <strong>{{ dados.usuario_id }}</strong> ({{ dados.usuario_username }})</li>
+</ul>
+<p class="text-sm text-gray-700 mb-4">
+    <strong>
+        Guarde também o seu ID da Empresa e ID do Utilizador e envie-nos por e-mail ou WhatsApp juntamente 
+        com schema_name (nome do esquema)- ATT: O primeiro nome que aparece no seu domínio/link.
+    </strong>
+    Proteja as suas credenciais.
+</p>
+<p class="text-sm text-gray-700">
+    Aceda ao seu sistema em:
+    <a href="{{ dados.url_acesso }}" class="text-primary font-semibold">{{ dados.dominio }}</a>
+</p>
+{% endblock %}

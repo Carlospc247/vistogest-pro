@@ -25,7 +25,7 @@ class PermissaoAcaoMixin(AccessMixin):
             # Usa a lógica dinâmica do modelo Funcionario (que já criámos)
             if not funcionario.pode_realizar_acao(self.acao_requerida):
                 messages.error(request, f"Acesso negado. O seu cargo não permite realizar a ação de '{self.acao_requerida}'.")
-                return redirect(reverse_lazy('core:dashboard'))
+                return redirect(reverse_lazy('core_tenants:dashboard'))
 
         return super().dispatch(request, *args, **kwargs)
 

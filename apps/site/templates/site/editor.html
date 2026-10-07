@@ -1,0 +1,961 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Editor de Site — {{ pagina.titulo }}{% endblock %}
+
+{% block extra_head %}
+<!-- SortableJS para drag-and-drop -->
+<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
+<!-- Trix Editor para texto rico -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/trix@2.0.8/dist/trix.css">
+<script src="https://cdn.jsdelivr.net/npm/trix@2.0.8/dist/trix.umd.min.js"></script>
+<style>
+    /* Editor layout */
+    #editor-canvas { min-height: 60vh; }
+    .secao-card { transition: box-shadow .2s, transform .15s; }
+    .secao-card:hover { box-shadow: 0 4px 20px rgba(0,0,0,.12); }
+    .secao-card.sortable-ghost { opacity: .4; transform: scale(.98); }
+    .secao-card.sortable-chosen { box-shadow: 0 8px 30px rgba(99,102,241,.25); }
+    .drag-handle { cursor: grab; }
+    .drag-handle:active { cursor: grabbing; }
+    /* Painel lateral de propriedades */
+    #painel-props { transition: transform .3s; }
+    /* Animações de pré-visualização */
+    [data-anim="fade-in"]   { animation: fadeInAnim .6s ease forwards; }
+    [data-anim="slide-up"]  { animation: slideUpAnim .6s ease forwards; }
+    [data-anim="zoom"]      { animation: zoomAnim .5s ease forwards; }
+    @keyframes fadeInAnim  { from { opacity:0 } to { opacity:1 } }
+    @keyframes slideUpAnim { from { opacity:0;transform:translateY(30px) } to { opacity:1;transform:translateY(0) } }
+    @keyframes zoomAnim    { from { opacity:0;transform:scale(.9) } to { opacity:1;transform:scale(1) } }
+    /* Trix customizado */
+    trix-editor { min-height: 120px; border-radius:.5rem; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div x-data="siteEditor()" class="flex h-full overflow-hidden -mx-4 sm:-mx-6 lg:-mx-8 -mt-6">
+
+    <!-- ═══════════════════════════════════════════
+         PAINEL ESQUERDO — Blocos disponíveis
+         ═══════════════════════════════════════════ -->
+    <aside class="w-64 flex-shrink-0 bg-white dark:bg-gray-900 border-r border-gray-200
+                  dark:border-gray-700 flex flex-col overflow-hidden">
+        <div class="px-4 py-4 border-b border-gray-200 dark:border-gray-700">
+            <h2 class="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                <i class="fas fa-puzzle-piece mr-2 text-indigo-500"></i>Blocos
+            </h2>
+            <p class="text-xs text-gray-400 mt-0.5">Arraste para a página</p>
+        </div>
+        <div class="overflow-y-auto flex-1 p-3 space-y-1" id="blocos-lista">
+            {% for bloco in blocos_disponiveis %}
+            <div class="bloco-item flex items-center gap-x-3 p-2.5 rounded-lg
+                        bg-gray-50 dark:bg-gray-800 hover:bg-indigo-50 dark:hover:bg-indigo-900/20
+                        cursor-pointer border border-transparent hover:border-indigo-200
+                        dark:hover:border-indigo-700 transition-colors group"
+                 data-tipo="{{ bloco.tipo }}"
+                 @click="adicionarSecao('{{ bloco.tipo }}')"
+                 title="Clique para adicionar">
+                <div class="h-8 w-8 rounded-lg bg-{{ bloco.cor }}-100 dark:bg-{{ bloco.cor }}-900
+                            flex items-center justify-center flex-shrink-0">
+                    <i class="fas fa-{{ bloco.icone }} text-{{ bloco.cor }}-600 dark:text-{{ bloco.cor }}-400 text-sm"></i>
+                </div>
+                <div class="min-w-0">
+                    <p class="text-xs font-medium text-gray-900 dark:text-gray-100 truncate">{{ bloco.nome }}</p>
+                </div>
+                <i class="fas fa-plus text-xs text-gray-300 group-hover:text-indigo-400 ml-auto flex-shrink-0"></i>
+            </div>
+            {% endfor %}
+        </div>
+
+        <!-- Design Global -->
+        <div class="border-t border-gray-200 dark:border-gray-700 p-3">
+            <button @click="abrirDesignGlobal()"
+                    class="w-full flex items-center gap-x-2 px-3 py-2 rounded-lg text-xs font-medium
+                           text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-800
+                           hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors">
+                <i class="fas fa-palette text-purple-500"></i>Design Global
+            </button>
+        </div>
+    </aside>
+
+    <!-- ═══════════════════════════════════════════
+         ÁREA CENTRAL — Canvas da página
+         ═══════════════════════════════════════════ -->
+    <main class="flex-1 flex flex-col overflow-hidden bg-gray-100 dark:bg-gray-950">
+
+        <!-- Barra de ferramentas -->
+        <div class="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700
+                    px-4 py-2 flex items-center gap-x-3 flex-shrink-0">
+
+            <!-- Nome da página -->
+            <div class="flex items-center gap-x-2 flex-1 min-w-0">
+                <i class="fas fa-file-alt text-gray-400 flex-shrink-0"></i>
+                <span class="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
+                    {{ pagina.titulo }}
+                </span>
+                <span class="text-xs text-gray-400">— editor</span>
+            </div>
+
+            <!-- Dispositivo pré-visualização -->
+            <div class="flex items-center bg-gray-100 dark:bg-gray-800 rounded-lg p-1 gap-x-1">
+                <button @click="dispositivo='desktop'"
+                        :class="dispositivo==='desktop' ? 'bg-white dark:bg-gray-700 shadow' : ''"
+                        class="p-1.5 rounded text-xs text-gray-500 dark:text-gray-400 transition-all"
+                        title="Desktop"><i class="fas fa-desktop"></i></button>
+                <button @click="dispositivo='tablet'"
+                        :class="dispositivo==='tablet' ? 'bg-white dark:bg-gray-700 shadow' : ''"
+                        class="p-1.5 rounded text-xs text-gray-500 dark:text-gray-400 transition-all"
+                        title="Tablet"><i class="fas fa-tablet-alt"></i></button>
+                <button @click="dispositivo='mobile'"
+                        :class="dispositivo==='mobile' ? 'bg-white dark:bg-gray-700 shadow' : ''"
+                        class="p-1.5 rounded text-xs text-gray-500 dark:text-gray-400 transition-all"
+                        title="Mobile"><i class="fas fa-mobile-alt"></i></button>
+            </div>
+
+            <!-- Acções -->
+            <a href="{{ pagina.get_absolute_url|default:'#' }}" target="_blank"
+               class="inline-flex items-center gap-x-1.5 px-3 py-1.5 text-xs font-medium
+                      text-gray-600 dark:text-gray-400 border border-gray-300 dark:border-gray-600
+                      rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
+                <i class="fas fa-eye"></i>Pré-visualizar
+            </a>
+            <button @click="guardarTudo()" :disabled="salvando"
+                    class="inline-flex items-center gap-x-1.5 px-4 py-1.5 text-xs font-semibold
+                           text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-colors
+                           disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                <i class="fas" :class="salvando ? 'fa-spinner fa-spin' : 'fa-save'"></i>
+                <span x-text="salvando ? 'A guardar...' : 'Guardar'"></span>
+            </button>
+            <button @click="publicar()" :disabled="publicando"
+                    class="inline-flex items-center gap-x-1.5 px-4 py-1.5 text-xs font-semibold
+                           text-white bg-green-600 hover:bg-green-700 rounded-lg transition-colors
+                           disabled:opacity-50">
+                <i class="fas fa-globe"></i>Publicar
+            </button>
+        </div>
+
+        <!-- Toast de feedback -->
+        <div x-show="toast.visivel" x-cloak x-transition
+             :class="toast.tipo === 'sucesso' ? 'bg-green-600' : 'bg-red-600'"
+             class="mx-auto mt-3 px-4 py-2 rounded-lg text-white text-xs font-medium shadow-lg z-50">
+            <i class="fas" :class="toast.tipo === 'sucesso' ? 'fa-check' : 'fa-times'"></i>
+            <span class="ml-2" x-text="toast.mensagem"></span>
+        </div>
+
+        <!-- Canvas scrollável -->
+        <div class="flex-1 overflow-y-auto p-6">
+            <div :class="{
+                    'max-w-full': dispositivo==='desktop',
+                    'max-w-2xl mx-auto': dispositivo==='tablet',
+                    'max-w-sm mx-auto': dispositivo==='mobile'
+                 }" class="transition-all duration-300">
+
+                <!-- Lista de secções (drag-and-drop) -->
+                <div id="editor-canvas" class="space-y-3">
+                    {% for secao in secoes %}
+                    <div class="secao-card bg-white dark:bg-gray-800 rounded-xl shadow-sm
+                                border border-gray-200 dark:border-gray-700 overflow-hidden"
+                         data-id="{{ secao.pk }}" data-tipo="{{ secao.tipo }}">
+
+                        <!-- Barra de controlo da secção -->
+                        <div class="flex items-center gap-x-3 px-4 py-2.5 bg-gray-50 dark:bg-gray-900/50
+                                    border-b border-gray-200 dark:border-gray-700">
+                            <div class="drag-handle text-gray-400 dark:text-gray-500 hover:text-gray-600 flex-shrink-0">
+                                <i class="fas fa-grip-vertical"></i>
+                            </div>
+                            <span class="text-xs font-semibold text-gray-700 dark:text-gray-300 flex-1">
+                                {{ secao.get_tipo_display }}
+                            </span>
+                            <div class="flex items-center gap-x-1">
+                                <!-- Toggle visibilidade -->
+                                <button @click="toggleVisibilidade({{ secao.pk }}, $event)"
+                                        class="p-1.5 text-gray-400 hover:text-indigo-500 transition-colors rounded"
+                                        title="{% if secao.ativo %}Ocultar{% else %}Mostrar{% endif %}">
+                                    <i class="fas fa-{% if secao.ativo %}eye{% else %}eye-slash{% endif %}"></i>
+                                </button>
+                                <!-- Editar -->
+                                <button @click="editarSecao({{ secao.pk }}, '{{ secao.tipo }}', {{ secao.dados|safe }})"
+                                        class="p-1.5 text-gray-400 hover:text-indigo-500 transition-colors rounded"
+                                        title="Editar conteúdo">
+                                    <i class="fas fa-pen"></i>
+                                </button>
+                                <!-- Design da secção -->
+                                <button @click="editarDesignSecao({{ secao.pk }}, {{ secao|secao_design_json|safe }})"
+                                        class="p-1.5 text-gray-400 hover:text-purple-500 transition-colors rounded"
+                                        title="Design desta secção">
+                                    <i class="fas fa-paint-brush"></i>
+                                </button>
+                                <!-- Duplicar -->
+                                <button @click="duplicarSecao({{ secao.pk }})"
+                                        class="p-1.5 text-gray-400 hover:text-blue-500 transition-colors rounded"
+                                        title="Duplicar">
+                                    <i class="fas fa-copy"></i>
+                                </button>
+                                <!-- Eliminar -->
+                                <button @click="eliminarSecao({{ secao.pk }})"
+                                        class="p-1.5 text-gray-400 hover:text-red-500 transition-colors rounded"
+                                        title="Eliminar">
+                                    <i class="fas fa-trash"></i>
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Pré-visualização resumida da secção -->
+                        <div class="px-4 py-3 text-sm text-gray-500 dark:text-gray-400 select-none"
+                             :data-anim="'{{ secao.animacao_entrada }}'">
+                            {% include "site/sections/preview_"|add:secao.tipo|add:".html" with secao=secao silent_variable_failure=True %}
+                            {% if not secao.dados %}
+                            <div class="flex items-center justify-center h-16 border-2 border-dashed
+                                        border-gray-200 dark:border-gray-700 rounded-lg text-gray-300
+                                        dark:text-gray-600 text-xs">
+                                Clique no <i class="fas fa-pen mx-1"></i> para editar este bloco
+                            </div>
+                            {% endif %}
+                        </div>
+                    </div>
+                    {% empty %}
+                    <div id="canvas-vazio" class="flex flex-col items-center justify-center py-24
+                                                   border-2 border-dashed border-gray-300 dark:border-gray-700
+                                                   rounded-2xl text-gray-400 dark:text-gray-600">
+                        <i class="fas fa-layer-group text-5xl mb-4"></i>
+                        <p class="text-sm font-medium">A página está vazia</p>
+                        <p class="text-xs mt-1">Adicione blocos da barra lateral ou clique num tipo abaixo</p>
+                        <div class="flex flex-wrap gap-2 mt-4 justify-center">
+                            <button @click="adicionarSecao('hero')" class="px-3 py-1.5 bg-indigo-100 text-indigo-700 rounded-lg text-xs font-medium hover:bg-indigo-200 transition-colors">
+                                <i class="fas fa-image mr-1"></i>Hero
+                            </button>
+                            <button @click="adicionarSecao('produtos')" class="px-3 py-1.5 bg-green-100 text-green-700 rounded-lg text-xs font-medium hover:bg-green-200 transition-colors">
+                                <i class="fas fa-store mr-1"></i>Produtos
+                            </button>
+                            <button @click="adicionarSecao('texto')" class="px-3 py-1.5 bg-blue-100 text-blue-700 rounded-lg text-xs font-medium hover:bg-blue-200 transition-colors">
+                                <i class="fas fa-align-left mr-1"></i>Texto
+                            </button>
+                            <button @click="adicionarSecao('carrossel')" class="px-3 py-1.5 bg-yellow-100 text-yellow-700 rounded-lg text-xs font-medium hover:bg-yellow-200 transition-colors">
+                                <i class="fas fa-images mr-1"></i>Carrossel
+                            </button>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+
+            </div>
+        </div>
+    </main>
+
+    <!-- ═══════════════════════════════════════════
+         PAINEL DIREITO — Propriedades da secção
+         ═══════════════════════════════════════════ -->
+    <aside id="painel-props"
+           x-show="painelAberto" x-cloak
+           x-transition:enter="transition ease-out duration-200"
+           x-transition:enter-start="translate-x-full"
+           x-transition:enter-end="translate-x-0"
+           x-transition:leave="transition ease-in duration-150"
+           x-transition:leave-start="translate-x-0"
+           x-transition:leave-end="translate-x-full"
+           class="w-80 flex-shrink-0 bg-white dark:bg-gray-900 border-l border-gray-200
+                  dark:border-gray-700 flex flex-col overflow-hidden">
+
+        <!-- Cabeçalho painel -->
+        <div class="px-4 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
+            <h3 class="text-sm font-semibold text-gray-900 dark:text-gray-100" x-text="painelTitulo"></h3>
+            <button @click="painelAberto=false" class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+
+        <!-- Tabs: Conteúdo | Design -->
+        <div class="flex border-b border-gray-200 dark:border-gray-700">
+            <button @click="tabActiva='conteudo'"
+                    :class="tabActiva==='conteudo' ? 'border-b-2 border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'text-gray-500'"
+                    class="flex-1 py-2.5 text-xs font-medium transition-colors">
+                <i class="fas fa-pen mr-1"></i>Conteúdo
+            </button>
+            <button @click="tabActiva='design'"
+                    :class="tabActiva==='design' ? 'border-b-2 border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'text-gray-500'"
+                    class="flex-1 py-2.5 text-xs font-medium transition-colors">
+                <i class="fas fa-paint-brush mr-1"></i>Design
+            </button>
+        </div>
+
+        <!-- Conteúdo do painel (dinâmico via Alpine) -->
+        <div class="flex-1 overflow-y-auto p-4 space-y-4">
+
+            <!-- TAB: CONTEÚDO -->
+            <template x-if="tabActiva === 'conteudo'">
+                <div class="space-y-4">
+                    <!-- Campos injectados dinamicamente via JS -->
+                    <div id="campos-conteudo" class="space-y-3"></div>
+                </div>
+            </template>
+
+            <!-- TAB: DESIGN DA SECÇÃO -->
+            <template x-if="tabActiva === 'design'">
+                <div class="space-y-4">
+
+                    <!-- Fundo -->
+                    <div>
+                        <label class="block text-xs font-semibold text-gray-600 dark:text-gray-400 mb-2 uppercase tracking-wide">Fundo</label>
+                        <div class="grid grid-cols-4 gap-1.5">
+                            <template x-for="op in fundoOpcoes" :key="op.valor">
+                                <button @click="designSecao.fundo = op.valor"
+                                        :class="designSecao.fundo === op.valor ? 'ring-2 ring-indigo-500' : ''"
+                                        class="h-10 rounded-lg border border-gray-200 dark:border-gray-700 text-xs font-medium transition-all overflow-hidden"
+                                        :style="'background: ' + op.preview"
+                                        :title="op.nome">
+                                </button>
+                            </template>
+                        </div>
+                        <!-- Cor personalizada -->
+                        <div x-show="designSecao.fundo === 'cor_primaria' || designSecao.fundo === 'gradiente'" class="mt-2">
+                            <label class="text-xs text-gray-500 dark:text-gray-400">Cor personalizada</label>
+                            <div class="flex items-center gap-x-2 mt-1">
+                                <input type="color" x-model="designSecao.cor_fundo_custom"
+                                       class="h-8 w-10 rounded border border-gray-300 cursor-pointer">
+                                <input type="text" x-model="designSecao.cor_fundo_custom"
+                                       class="flex-1 rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-800 text-xs px-2 py-1.5 font-mono">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Padding vertical -->
+                    <div>
+                        <label class="block text-xs font-semibold text-gray-600 dark:text-gray-400 mb-2 uppercase tracking-wide">Espaçamento Vertical</label>
+                        <div class="grid grid-cols-5 gap-1">
+                            <template x-for="op in paddingOpcoes" :key="op.v">
+                                <button @click="designSecao.padding_vertical = op.v"
+                                        :class="designSecao.padding_vertical === op.v ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900 dark:text-indigo-300 border-indigo-300' : 'bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-400 border-gray-200 dark:border-gray-700'"
+                                        class="py-1.5 rounded-lg border text-xs font-medium transition-colors"
+                                        x-text="op.n"></button>
+                            </template>
+                        </div>
+                    </div>
+
+                    <!-- Largura máxima -->
+                    <div>
+                        <label class="block text-xs font-semibold text-gray-600 dark:text-gray-400 mb-2 uppercase tracking-wide">Largura do Conteúdo</label>
+                        <select x-model="designSecao.largura_maxima"
+                                class="w-full rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 text-xs px-3 py-2">
+                            <option value="sm">Estreito</option>
+                            <option value="3xl">Normal</option>
+                            <option value="5xl">Largo</option>
+                            <option value="7xl">Total</option>
+                            <option value="full">Sem limite</option>
+                        </select>
+                    </div>
+
+                    <!-- Animação de entrada -->
+                    <div>
+                        <label class="block text-xs font-semibold text-gray-600 dark:text-gray-400 mb-2 uppercase tracking-wide">Animação de Entrada</label>
+                        <div class="space-y-1">
+                            <template x-for="anim in animacaoOpcoes" :key="anim.v">
+                                <button @click="designSecao.animacao_entrada = anim.v"
+                                        :class="designSecao.animacao_entrada === anim.v ? 'bg-indigo-50 border-indigo-300 text-indigo-700 dark:bg-indigo-900/30 dark:border-indigo-600 dark:text-indigo-300' : 'border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400'"
+                                        class="w-full flex items-center gap-x-2 px-3 py-2 rounded-lg border text-xs transition-colors">
+                                    <i class="fas fa-play text-xs w-3"></i>
+                                    <span x-text="anim.n"></span>
+                                </button>
+                            </template>
+                        </div>
+                    </div>
+
+                    <!-- Classes extra -->
+                    <div>
+                        <label class="block text-xs font-semibold text-gray-600 dark:text-gray-400 mb-2 uppercase tracking-wide">Classes CSS Adicionais</label>
+                        <input type="text" x-model="designSecao.classe_extra"
+                               placeholder="Ex: my-custom-class"
+                               class="w-full rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 text-xs px-3 py-2 font-mono">
+                        <p class="text-xs text-gray-400 mt-1">Classes Tailwind ou CSS personalizadas</p>
+                    </div>
+
+                    <!-- Botão guardar design -->
+                    <button @click="guardarDesignSecao()"
+                            class="w-full py-2 bg-purple-600 hover:bg-purple-700 text-white text-xs
+                                   font-semibold rounded-lg transition-colors">
+                        <i class="fas fa-save mr-1"></i>Aplicar Design
+                    </button>
+                </div>
+            </template>
+        </div>
+
+        <!-- Botão guardar conteúdo (só na tab conteúdo) -->
+        <div x-show="tabActiva === 'conteudo'" class="p-4 border-t border-gray-200 dark:border-gray-700">
+            <button @click="guardarConteudoSecao()"
+                    class="w-full py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs
+                           font-semibold rounded-lg transition-colors">
+                <i class="fas fa-check mr-1"></i>Guardar Conteúdo
+            </button>
+        </div>
+    </aside>
+
+    <!-- ═══════════════════════════════════════════
+         MODAL — Design Global do Site
+         ═══════════════════════════════════════════ -->
+    <div x-show="modalDesignGlobal" x-cloak
+         class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
+        <div @click.stop class="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-2xl
+                                 max-h-[90vh] overflow-hidden flex flex-col">
+            <div class="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
+                <h3 class="text-base font-semibold text-gray-900 dark:text-gray-100">
+                    <i class="fas fa-palette mr-2 text-purple-500"></i>Design Global do Site
+                </h3>
+                <button @click="modalDesignGlobal=false" class="text-gray-400 hover:text-gray-600">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="overflow-y-auto flex-1 p-6 grid grid-cols-2 gap-6">
+
+                <!-- Tema layout -->
+                <div class="col-span-2">
+                    <label class="block text-xs font-semibold text-gray-600 dark:text-gray-400 mb-2 uppercase tracking-wide">Tema</label>
+                    <div class="grid grid-cols-5 gap-2">
+                        <template x-for="t in temasDisponiveis" :key="t.v">
+                            <button @click="designGlobal.tema_layout = t.v"
+                                    :class="designGlobal.tema_layout === t.v ? 'ring-2 ring-purple-500 bg-purple-50 dark:bg-purple-900/20' : 'bg-gray-50 dark:bg-gray-900'"
+                                    class="p-3 rounded-xl border border-gray-200 dark:border-gray-700 text-center transition-all">
+                                <i :class="'fas ' + t.icone + ' text-lg mb-1 block'" :style="'color: ' + t.cor"></i>
+                                <span class="text-xs font-medium text-gray-700 dark:text-gray-300" x-text="t.n"></span>
+                            </button>
+                        </template>
+                    </div>
+                </div>
+
+                <!-- Cores -->
+                <div>
+                    <label class="block text-xs font-semibold text-gray-600 dark:text-gray-400 mb-2 uppercase tracking-wide">Cor Primária</label>
+                    <div class="flex items-center gap-x-2">
+                        <input type="color" x-model="designGlobal.cor_primaria"
+                               class="h-9 w-12 rounded-lg border border-gray-300 cursor-pointer">
+                        <input type="text" x-model="designGlobal.cor_primaria"
+                               class="flex-1 rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-700 text-xs px-2 py-2 font-mono">
+                    </div>
+                    <!-- Paletas predefinidas -->
+                    <div class="flex gap-x-1.5 mt-2 flex-wrap gap-y-1">
+                        <template x-for="cor in coresPredefinidas" :key="cor">
+                            <button @click="designGlobal.cor_primaria = cor"
+                                    :style="'background:' + cor"
+                                    :class="designGlobal.cor_primaria === cor ? 'ring-2 ring-offset-1 ring-gray-400' : ''"
+                                    class="h-6 w-6 rounded-full border-2 border-white shadow-sm transition-transform hover:scale-110"></button>
+                        </template>
+                    </div>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-gray-600 dark:text-gray-400 mb-2 uppercase tracking-wide">Cor Secundária</label>
+                    <div class="flex items-center gap-x-2">
+                        <input type="color" x-model="designGlobal.cor_secundaria"
+                               class="h-9 w-12 rounded-lg border border-gray-300 cursor-pointer">
+                        <input type="text" x-model="designGlobal.cor_secundaria"
+                               class="flex-1 rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-700 text-xs px-2 py-2 font-mono">
+                    </div>
+                </div>
+
+                <!-- Tipografia -->
+                <div>
+                    <label class="block text-xs font-semibold text-gray-600 dark:text-gray-400 mb-2 uppercase tracking-wide">Fonte — Títulos</label>
+                    <select x-model="designGlobal.fonte_titulos"
+                            class="w-full rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 text-xs px-3 py-2">
+                        <option value="Inter">Inter</option>
+                        <option value="Poppins">Poppins</option>
+                        <option value="Montserrat">Montserrat</option>
+                        <option value="Roboto">Roboto</option>
+                        <option value="Playfair Display">Playfair Display</option>
+                        <option value="Lato">Lato</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-gray-600 dark:text-gray-400 mb-2 uppercase tracking-wide">Fonte — Corpo</label>
+                    <select x-model="designGlobal.fonte_corpo"
+                            class="w-full rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-100 text-xs px-3 py-2">
+                        <option value="Inter">Inter</option>
+                        <option value="Roboto">Roboto</option>
+                        <option value="Lato">Lato</option>
+                        <option value="Open Sans">Open Sans</option>
+                        <option value="Nunito">Nunito</option>
+                    </select>
+                </div>
+
+                <!-- Raio das bordas -->
+                <div>
+                    <label class="block text-xs font-semibold text-gray-600 dark:text-gray-400 mb-2 uppercase tracking-wide">Raio dos Cantos</label>
+                    <div class="grid grid-cols-5 gap-1">
+                        <template x-for="op in raioBordasOpcoes" :key="op.v">
+                            <button @click="designGlobal.raio_bordas = op.v"
+                                    :class="designGlobal.raio_bordas === op.v ? 'bg-purple-100 text-purple-700 border-purple-300 dark:bg-purple-900/30 dark:border-purple-600 dark:text-purple-300' : 'bg-gray-50 dark:bg-gray-900 border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400'"
+                                    class="py-2 rounded-lg border text-xs font-medium transition-colors"
+                                    x-text="op.n"></button>
+                        </template>
+                    </div>
+                </div>
+
+                <!-- Switches -->
+                <div class="space-y-3">
+                    <label class="block text-xs font-semibold text-gray-600 dark:text-gray-400 mb-2 uppercase tracking-wide">Efeitos</label>
+                    <div class="flex items-center justify-between">
+                        <span class="text-xs text-gray-600 dark:text-gray-400">Sombras nos cards</span>
+                        <button @click="designGlobal.sombras_activas = !designGlobal.sombras_activas"
+                                :class="designGlobal.sombras_activas ? 'bg-purple-500' : 'bg-gray-300 dark:bg-gray-600'"
+                                class="relative inline-flex h-5 w-9 items-center rounded-full transition-colors">
+                            <span :class="designGlobal.sombras_activas ? 'translate-x-5' : 'translate-x-1'"
+                                  class="inline-block h-3 w-3 transform rounded-full bg-white transition-transform"></span>
+                        </button>
+                    </div>
+                    <div class="flex items-center justify-between">
+                        <span class="text-xs text-gray-600 dark:text-gray-400">Animações de entrada</span>
+                        <button @click="designGlobal.animacoes_activas = !designGlobal.animacoes_activas"
+                                :class="designGlobal.animacoes_activas ? 'bg-purple-500' : 'bg-gray-300 dark:bg-gray-600'"
+                                class="relative inline-flex h-5 w-9 items-center rounded-full transition-colors">
+                            <span :class="designGlobal.animacoes_activas ? 'translate-x-5' : 'translate-x-1'"
+                                  class="inline-block h-3 w-3 transform rounded-full bg-white transition-transform"></span>
+                        </button>
+                    </div>
+                    <div class="flex items-center justify-between">
+                        <span class="text-xs text-gray-600 dark:text-gray-400">Header transparente (sobre hero)</span>
+                        <button @click="designGlobal.header_transparente = !designGlobal.header_transparente"
+                                :class="designGlobal.header_transparente ? 'bg-purple-500' : 'bg-gray-300 dark:bg-gray-600'"
+                                class="relative inline-flex h-5 w-9 items-center rounded-full transition-colors">
+                            <span :class="designGlobal.header_transparente ? 'translate-x-5' : 'translate-x-1'"
+                                  class="inline-block h-3 w-3 transform rounded-full bg-white transition-transform"></span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Rodapé -->
+                <div class="col-span-2">
+                    <label class="block text-xs font-semibold text-gray-600 dark:text-gray-400 mb-2 uppercase tracking-wide">Rodapé</label>
+                    <div class="grid grid-cols-2 gap-3">
+                        <div>
+                            <span class="text-xs text-gray-500">Cor de fundo</span>
+                            <div class="flex items-center gap-x-2 mt-1">
+                                <input type="color" x-model="designGlobal.rodape_cor"
+                                       class="h-8 w-10 rounded border border-gray-300 cursor-pointer">
+                                <input type="text" x-model="designGlobal.rodape_cor"
+                                       class="flex-1 rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-700 text-xs px-2 py-1.5 font-mono">
+                            </div>
+                        </div>
+                        <div>
+                            <span class="text-xs text-gray-500">Cor do texto</span>
+                            <div class="flex items-center gap-x-2 mt-1">
+                                <input type="color" x-model="designGlobal.rodape_texto_cor"
+                                       class="h-8 w-10 rounded border border-gray-300 cursor-pointer">
+                                <input type="text" x-model="designGlobal.rodape_texto_cor"
+                                       class="flex-1 rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-700 text-xs px-2 py-1.5 font-mono">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="px-6 py-4 border-t border-gray-200 dark:border-gray-700 flex justify-end gap-x-3">
+                <button @click="modalDesignGlobal=false"
+                        class="px-4 py-2 text-xs text-gray-600 dark:text-gray-400 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700">
+                    Cancelar
+                </button>
+                <button @click="guardarDesignGlobal()"
+                        class="px-5 py-2 text-xs font-semibold text-white bg-purple-600 hover:bg-purple-700 rounded-lg transition-colors">
+                    <i class="fas fa-save mr-1"></i>Guardar Design
+                </button>
+            </div>
+        </div>
+    </div>
+
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const CSRF = '{{ csrf_token }}';
+const PAGINA_ID = {{ pagina.pk }};
+const URL_ADICIONAR = "{% url 'site:adicionar_secao' pagina.pk %}";
+const URL_EDITAR_BASE = "{% url 'site:editar_secao' 0 %}".replace('/0/', '/');
+const URL_REORDENAR = "{% url 'site:reordenar_secoes' %}";
+const URL_DESIGN_GLOBAL = "{% url 'site:design_global' %}";
+const URL_PUBLICAR = "{% url 'site:publicar' pagina.pk %}";
+
+function siteEditor() {
+    return {
+        // Estado geral
+        dispositivo: 'desktop',
+        salvando: false,
+        publicando: false,
+        toast: { visivel: false, tipo: 'sucesso', mensagem: '' },
+
+        // Painel lateral
+        painelAberto: false,
+        painelTitulo: 'Editar Secção',
+        tabActiva: 'conteudo',
+        secaoActiva: null,
+        tipoActivo: null,
+
+        // Modal design global
+        modalDesignGlobal: false,
+
+        // Dados de design da secção activa
+        designSecao: {
+            fundo: 'branco',
+            cor_fundo_custom: '',
+            padding_vertical: 'md',
+            largura_maxima: '7xl',
+            animacao_entrada: 'nenhuma',
+            classe_extra: '',
+        },
+
+        // Design global do site
+        designGlobal: {
+            tema_layout: '{{ config.tema_layout|default:"moderno" }}',
+            cor_primaria: '{{ config.cor_primaria|default:"#1E40AF" }}',
+            cor_secundaria: '{{ config.cor_secundaria|default:"#F59E0B" }}',
+            fonte_titulos: '{{ config.fonte_titulos|default:"Inter" }}',
+            fonte_corpo: '{{ config.fonte_corpo|default:"Inter" }}',
+            raio_bordas: '{{ config.raio_bordas|default:"md" }}',
+            sombras_activas: {{ config.sombras_activas|yesno:"true,false"|default:"true" }},
+            animacoes_activas: {{ config.animacoes_activas|yesno:"true,false"|default:"true" }},
+            header_transparente: {{ config.header_transparente|yesno:"true,false"|default:"false" }},
+            rodape_cor: '{{ config.rodape_cor|default:"#1E293B" }}',
+            rodape_texto_cor: '{{ config.rodape_texto_cor|default:"#FFFFFF" }}',
+        },
+
+        // Opções de UI
+        fundoOpcoes: [
+            { valor: 'branco',       nome: 'Branco',       preview: '#ffffff' },
+            { valor: 'cinza_claro',  nome: 'Cinza Claro',  preview: '#f3f4f6' },
+            { valor: 'cor_primaria', nome: 'Cor Primária', preview: '{{ config.cor_primaria|default:"#1E40AF" }}' },
+            { valor: 'cor_secundaria', nome: 'Cor Sec.',   preview: '{{ config.cor_secundaria|default:"#F59E0B" }}' },
+            { valor: 'imagem',       nome: 'Imagem',       preview: 'linear-gradient(135deg,#667eea,#764ba2)' },
+            { valor: 'gradiente',    nome: 'Gradiente',    preview: 'linear-gradient(135deg,#f093fb,#f5576c)' },
+            { valor: 'escuro',       nome: 'Escuro',       preview: '#1e293b' },
+            { valor: 'transparente', nome: 'Trans.',        preview: 'repeating-conic-gradient(#ccc 0% 25%, white 0% 50%) 0 0/16px 16px' },
+        ],
+        paddingOpcoes: [
+            { v: 'none', n: '0' }, { v: 'sm', n: 'S' }, { v: 'md', n: 'M' },
+            { v: 'lg', n: 'G' }, { v: 'xl', n: 'XG' },
+        ],
+        animacaoOpcoes: [
+            { v: 'nenhuma',    n: 'Nenhuma' },
+            { v: 'fade-in',    n: 'Fade In' },
+            { v: 'slide-up',   n: 'Slide Cima' },
+            { v: 'slide-left', n: 'Slide Esq.' },
+            { v: 'zoom',       n: 'Zoom' },
+            { v: 'bounce',     n: 'Bounce' },
+        ],
+        temasDisponiveis: [
+            { v: 'moderno',     n: 'Moderno',     icone: 'fa-bolt',       cor: '#6366f1' },
+            { v: 'classico',    n: 'Clássico',    icone: 'fa-crown',      cor: '#b45309' },
+            { v: 'minimalista', n: 'Minimal',     icone: 'fa-feather',    cor: '#6b7280' },
+            { v: 'arrojado',    n: 'Arrojado',    icone: 'fa-fire',       cor: '#ef4444' },
+            { v: 'escuro',      n: 'Dark',        icone: 'fa-moon',       cor: '#1e293b' },
+        ],
+        raioBordasOpcoes: [
+            { v: 'none', n: '—' }, { v: 'sm', n: 'S' }, { v: 'md', n: 'M' },
+            { v: 'lg', n: 'G' }, { v: 'full', n: '⬤' },
+        ],
+        coresPredefinidas: [
+            '#1E40AF','#7C3AED','#DB2777','#DC2626','#D97706',
+            '#16A34A','#0891B2','#0F172A','#374151','#6B7280',
+        ],
+
+        // ── Inicializar SortableJS ────────────────────────────────────────
+        init() {
+            this.$nextTick(() => {
+                const canvas = document.getElementById('editor-canvas');
+                if (canvas) {
+                    Sortable.create(canvas, {
+                        animation: 150,
+                        handle: '.drag-handle',
+                        ghostClass: 'sortable-ghost',
+                        chosenClass: 'sortable-chosen',
+                        onEnd: (evt) => this.reordenarSecoes(),
+                    });
+                }
+            });
+        },
+
+        // ── CRUD de secções ───────────────────────────────────────────────
+        async adicionarSecao(tipo) {
+            const resp = await this._post(URL_ADICIONAR, { tipo });
+            if (resp.ok) {
+                this._toast('sucesso', 'Secção adicionada!');
+                this._reloadCanvas();
+            } else {
+                this._toast('erro', resp.error || 'Erro ao adicionar secção');
+            }
+        },
+
+        editarSecao(pk, tipo, dados) {
+            this.secaoActiva = pk;
+            this.tipoActivo = tipo;
+            this.painelTitulo = `Editar — ${tipo}`;
+            this.tabActiva = 'conteudo';
+            this.painelAberto = true;
+            this.$nextTick(() => this._renderizarCampos(tipo, dados));
+        },
+
+        editarDesignSecao(pk, design) {
+            this.secaoActiva = pk;
+            this.designSecao = { ...this.designSecao, ...design };
+            this.painelTitulo = 'Design da Secção';
+            this.tabActiva = 'design';
+            this.painelAberto = true;
+        },
+
+        async toggleVisibilidade(pk, evt) {
+            const btn = evt.currentTarget;
+            const icon = btn.querySelector('i');
+            const resp = await this._post(
+                URL_EDITAR_BASE + pk + '/editar/',
+                { toggle_ativo: true }
+            );
+            if (resp.ok) {
+                icon.classList.toggle('fa-eye');
+                icon.classList.toggle('fa-eye-slash');
+            }
+        },
+
+        async duplicarSecao(pk) {
+            const resp = await this._post(URL_EDITAR_BASE + pk + '/duplicar/', {});
+            if (resp.ok) {
+                this._toast('sucesso', 'Secção duplicada!');
+                this._reloadCanvas();
+            }
+        },
+
+        async eliminarSecao(pk) {
+            if (!confirm('Tem a certeza que pretende eliminar esta secção?')) return;
+            const resp = await this._post(URL_EDITAR_BASE + pk + '/eliminar/', {});
+            if (resp.ok) {
+                document.querySelector(`[data-id="${pk}"]`)?.remove();
+                this._toast('sucesso', 'Secção eliminada');
+                if (this.secaoActiva === pk) this.painelAberto = false;
+            }
+        },
+
+        async guardarConteudoSecao() {
+            const campos = document.getElementById('campos-conteudo');
+            if (!campos) return;
+            const dados = {};
+            campos.querySelectorAll('[data-campo]').forEach(el => {
+                dados[el.dataset.campo] = el.value || el.innerHTML || '';
+            });
+            this.salvando = true;
+            const resp = await this._post(
+                URL_EDITAR_BASE + this.secaoActiva + '/editar/',
+                { dados: JSON.stringify(dados) }
+            );
+            this.salvando = false;
+            if (resp.ok) {
+                this._toast('sucesso', 'Conteúdo guardado!');
+            } else {
+                this._toast('erro', 'Erro ao guardar');
+            }
+        },
+
+        async guardarDesignSecao() {
+            const resp = await this._post(
+                URL_EDITAR_BASE + this.secaoActiva + '/editar/',
+                { design: JSON.stringify(this.designSecao) }
+            );
+            if (resp.ok) {
+                this._toast('sucesso', 'Design aplicado!');
+                this.painelAberto = false;
+            }
+        },
+
+        async reordenarSecoes() {
+            const canvas = document.getElementById('editor-canvas');
+            if (!canvas) return;
+            const ordem = [...canvas.querySelectorAll('[data-id]')]
+                .map((el, idx) => ({ id: parseInt(el.dataset.id), ordem: idx }));
+            await this._post(URL_REORDENAR, { ordem: JSON.stringify(ordem) });
+        },
+
+        // ── Design Global ─────────────────────────────────────────────────
+        abrirDesignGlobal() {
+            this.modalDesignGlobal = true;
+        },
+
+        async guardarDesignGlobal() {
+            const resp = await this._post(URL_DESIGN_GLOBAL, this.designGlobal);
+            if (resp.ok) {
+                this._toast('sucesso', 'Design global guardado!');
+                this.modalDesignGlobal = false;
+            } else {
+                this._toast('erro', 'Erro ao guardar design');
+            }
+        },
+
+        // ── Guardar tudo + Publicar ───────────────────────────────────────
+        async guardarTudo() {
+            this.salvando = true;
+            await this.reordenarSecoes();
+            this.salvando = false;
+            this._toast('sucesso', 'Página guardada!');
+        },
+
+        async publicar() {
+            if (!confirm('Publicar esta página? Ficará visível publicamente.')) return;
+            this.publicando = true;
+            const resp = await this._post(URL_PUBLICAR, {});
+            this.publicando = false;
+            if (resp.ok) {
+                this._toast('sucesso', 'Página publicada com sucesso!');
+            } else {
+                this._toast('erro', 'Erro ao publicar');
+            }
+        },
+
+        // ── Renderização dinâmica dos campos de conteúdo ──────────────────
+        _renderizarCampos(tipo, dados) {
+            const container = document.getElementById('campos-conteudo');
+            if (!container) return;
+            const esquemas = {
+                hero: [
+                    { campo: 'titulo',    label: 'Título',    tipo_campo: 'text',     placeholder: 'O seu título principal' },
+                    { campo: 'subtitulo', label: 'Subtítulo', tipo_campo: 'textarea', placeholder: 'Frase de destaque' },
+                    { campo: 'texto_botao', label: 'Texto do Botão', tipo_campo: 'text', placeholder: 'Saber Mais' },
+                    { campo: 'link_botao',  label: 'Link do Botão',  tipo_campo: 'text', placeholder: '/loja/' },
+                    { campo: 'altura_px',   label: 'Altura (px)',     tipo_campo: 'number', placeholder: '500' },
+                ],
+                texto: [
+                    { campo: 'titulo', label: 'Título (opcional)', tipo_campo: 'text', placeholder: 'Título' },
+                    { campo: 'conteudo', label: 'Texto', tipo_campo: 'trix', placeholder: '' },
+                    { campo: 'alinhamento', label: 'Alinhamento', tipo_campo: 'select',
+                      opcoes: [['esquerda','Esquerda'],['centro','Centro'],['direita','Direita']] },
+                ],
+                carrossel: [
+                    { campo: 'altura_px',   label: 'Altura (px)', tipo_campo: 'number', placeholder: '400' },
+                    { campo: 'autoplay',    label: 'Autoplay',    tipo_campo: 'checkbox', placeholder: '' },
+                    { campo: 'intervalo_ms',label: 'Intervalo (ms)', tipo_campo: 'number', placeholder: '4000' },
+                    { campo: 'slides_json', label: 'Slides (JSON)', tipo_campo: 'json',
+                      placeholder: '[{"imagem_url":"https://...","titulo":"Slide 1","subtitulo":""}]' },
+                ],
+                cta: [
+                    { campo: 'titulo',      label: 'Título',     tipo_campo: 'text',     placeholder: 'Comece agora' },
+                    { campo: 'descricao',   label: 'Descrição',  tipo_campo: 'textarea', placeholder: 'Breve descrição' },
+                    { campo: 'texto_botao', label: 'Botão',      tipo_campo: 'text',     placeholder: 'Entrar em contacto' },
+                    { campo: 'link_botao',  label: 'Link',       tipo_campo: 'text',     placeholder: '/contato/' },
+                ],
+                depoimentos: [
+                    { campo: 'titulo', label: 'Título da Secção', tipo_campo: 'text', placeholder: 'O que dizem de nós' },
+                    { campo: 'depoimentos_json', label: 'Depoimentos (JSON)', tipo_campo: 'json',
+                      placeholder: '[{"nome":"João Silva","cargo":"CEO","texto":"Excelente!","foto":""}]' },
+                ],
+                faq: [
+                    { campo: 'titulo', label: 'Título da Secção', tipo_campo: 'text', placeholder: 'Perguntas Frequentes' },
+                    { campo: 'faqs_json', label: 'Perguntas e Respostas (JSON)', tipo_campo: 'json',
+                      placeholder: '[{"pergunta":"Como funciona?","resposta":"É simples..."}]' },
+                ],
+                card: [
+                    { campo: 'titulo', label: 'Título da Secção', tipo_campo: 'text', placeholder: 'Nossos Destaques' },
+                    { campo: 'colunas', label: 'Nº de Colunas', tipo_campo: 'select',
+                      opcoes: [['2','2 colunas'],['3','3 colunas'],['4','4 colunas']] },
+                    { campo: 'cards_json', label: 'Cards (JSON)', tipo_campo: 'json',
+                      placeholder: '[{"icone":"fas fa-star","titulo":"Card 1","texto":"Descrição","link":""}]' },
+                ],
+                produtos: [
+                    { campo: 'titulo',    label: 'Título',         tipo_campo: 'text', placeholder: 'Os Nossos Produtos' },
+                    { campo: 'limite',    label: 'Limite de itens',tipo_campo: 'number', placeholder: '8' },
+                    { campo: 'so_destaque', label: 'Só destaques', tipo_campo: 'checkbox', placeholder: '' },
+                ],
+                servicos: [
+                    { campo: 'titulo',  label: 'Título',          tipo_campo: 'text', placeholder: 'Os Nossos Serviços' },
+                    { campo: 'limite',  label: 'Limite de itens', tipo_campo: 'number', placeholder: '6' },
+                ],
+                video: [
+                    { campo: 'url_video',  label: 'URL do Vídeo (YouTube/Vimeo)', tipo_campo: 'text', placeholder: 'https://youtube.com/embed/...' },
+                    { campo: 'titulo',     label: 'Título (opcional)', tipo_campo: 'text', placeholder: '' },
+                    { campo: 'altura_px',  label: 'Altura (px)', tipo_campo: 'number', placeholder: '450' },
+                ],
+                galeria: [
+                    { campo: 'titulo',       label: 'Título', tipo_campo: 'text', placeholder: 'Galeria' },
+                    { campo: 'colunas',      label: 'Colunas', tipo_campo: 'select',
+                      opcoes: [['2','2'],['3','3'],['4','4']] },
+                    { campo: 'imagens_json', label: 'Imagens (JSON)', tipo_campo: 'json',
+                      placeholder: '[{"url":"https://...","legenda":""}]' },
+                ],
+                contador: [
+                    { campo: 'titulo', label: 'Título da Secção', tipo_campo: 'text', placeholder: 'Números que Importam' },
+                    { campo: 'contadores_json', label: 'Contadores (JSON)', tipo_campo: 'json',
+                      placeholder: '[{"numero":500,"sufixo":"+","label":"Clientes","icone":"fas fa-users"}]' },
+                ],
+                equipa: [
+                    { campo: 'titulo', label: 'Título', tipo_campo: 'text', placeholder: 'A Nossa Equipa' },
+                    { campo: 'membros_json', label: 'Membros (JSON)', tipo_campo: 'json',
+                      placeholder: '[{"nome":"Ana Silva","cargo":"Directora","foto":"","linkedin":""}]' },
+                ],
+            };
+            const campos = esquemas[tipo] || [
+                { campo: 'dados_json', label: 'Dados (JSON)', tipo_campo: 'json', placeholder: '{}' }
+            ];
+
+            container.innerHTML = campos.map(c => {
+                const val = dados[c.campo] !== undefined
+                    ? (typeof dados[c.campo] === 'object' ? JSON.stringify(dados[c.campo], null, 2) : dados[c.campo])
+                    : '';
+                if (c.tipo_campo === 'text' || c.tipo_campo === 'number') {
+                    return `<div>
+                        <label class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">${c.label}</label>
+                        <input type="${c.tipo_campo}" data-campo="${c.campo}" value="${val}"
+                               placeholder="${c.placeholder}"
+                               class="w-full rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 text-xs px-3 py-2">
+                    </div>`;
+                } else if (c.tipo_campo === 'textarea') {
+                    return `<div>
+                        <label class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">${c.label}</label>
+                        <textarea data-campo="${c.campo}" rows="3" placeholder="${c.placeholder}"
+                                  class="w-full rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 text-xs px-3 py-2 resize-y">${val}</textarea>
+                    </div>`;
+                } else if (c.tipo_campo === 'json') {
+                    return `<div>
+                        <label class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">${c.label}</label>
+                        <textarea data-campo="${c.campo}" rows="5" placeholder="${c.placeholder}"
+                                  class="w-full rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 text-xs px-3 py-2 resize-y font-mono">${val}</textarea>
+                        <p class="text-xs text-gray-400 mt-0.5">Formato JSON</p>
+                    </div>`;
+                } else if (c.tipo_campo === 'select') {
+                    const ops = c.opcoes.map(([v,n]) => `<option value="${v}" ${v==val?'selected':''}>${n}</option>`).join('');
+                    return `<div>
+                        <label class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">${c.label}</label>
+                        <select data-campo="${c.campo}"
+                                class="w-full rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 text-xs px-3 py-2">${ops}</select>
+                    </div>`;
+                } else if (c.tipo_campo === 'checkbox') {
+                    return `<div class="flex items-center gap-x-2">
+                        <input type="checkbox" data-campo="${c.campo}" ${val?'checked':''} id="cb-${c.campo}"
+                               class="rounded border-gray-300 text-indigo-600">
+                        <label for="cb-${c.campo}" class="text-xs text-gray-600 dark:text-gray-400">${c.label}</label>
+                    </div>`;
+                }
+                return '';
+            }).join('');
+        },
+
+        // ── Utilitários ───────────────────────────────────────────────────
+        async _post(url, data) {
+            try {
+                const resp = await fetch(url, {
+                    method: 'POST',
+                    headers: {
+                        'X-CSRFToken': CSRF,
+                        'Content-Type': 'application/json',
+                        'X-Requested-With': 'XMLHttpRequest',
+                    },
+                    body: JSON.stringify(data),
+                });
+                if (!resp.ok) return { ok: false, error: `HTTP ${resp.status}` };
+                return await resp.json();
+            } catch (e) {
+                return { ok: false, error: e.message };
+            }
+        },
+
+        _toast(tipo, mensagem) {
+            this.toast = { visivel: true, tipo, mensagem };
+            setTimeout(() => { this.toast.visivel = false; }, 3000);
+        },
+
+        _reloadCanvas() {
+            // Recarregar apenas o canvas sem full-page reload
+            window.location.reload();
+        },
+    };
+}
+</script>
+{% endblock %}

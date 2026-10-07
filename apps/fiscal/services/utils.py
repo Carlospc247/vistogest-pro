@@ -264,7 +264,6 @@ class TaxaIVAService:
                 TaxaIVAService._validar_dados_saft(dados)
                 
                 taxa = TaxaIVAAGT.objects.create(
-                    empresa=empresa,
                     nome=dados['nome'],
                     tax_type=dados['tax_type'],
                     tax_code=dados['tax_code'],
@@ -1043,7 +1042,6 @@ class SAFTExportService:
             empresa = getattr(connection, 'tenant', None)
             
             try:
-                # Retenções no período (sem filtro de empresa=empresa, pois o schema já é isolado)
                 retencoes = RetencaoFonte.objects.filter(
                     data_retencao__range=[data_inicio, data_fim]
                 )

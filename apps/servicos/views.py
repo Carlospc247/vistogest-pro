@@ -8,11 +8,12 @@ from django.contrib import messages
 from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse_lazy
 from apps.clientes.models import Cliente
+from apps.produtos.views import TenantRequeridoMixin
 from .models import Servico, AgendamentoServico
 from .forms import ServicoForm, AgendamentoServicoForm
 from django.shortcuts import render, get_object_or_404, redirect
 from django.contrib.auth.decorators import login_required
-from django.http import JsonResponse
+from django.http import JsonResponse, request
 from django.views.decorators.http import require_http_methods
 from .models import NotificacaoAgendamento, ConfiguracaoNotificacao
 from .forms import NotificacaoAgendamentoForm, ConfiguracaoNotificacaoForm
@@ -30,11 +31,21 @@ from .models import NotificacaoAgendamento
 # --- VIEW BASE (BOA PRÁTICA) ---
 class ServicoPermissionMixin(LoginRequiredMixin):
     def get_queryset(self):
-        empresa = self.request.user.funcionario.empresa
-        return self.model.objects.filter(empresa=empresa)
-    
+        empresa_atual = getattr(self.request, 'tenant', None)
+
+        if not empresa_atual or getattr(empresa_atual, 'schema_name', 'public') == 'public':
+            return self.model.objects.none()
+
+        return self.model.objects.filter(empresa_atual=empresa_atual)
+
     def get_empresa(self):
-        return self.request.user.funcionario.empresa
+        empresa_atual = getattr(self.request, 'tenant', None)
+
+        if not empresa_atual or getattr(empresa_atual, 'schema_name', 'public') == 'public':
+            return None
+
+        return empresa_atual
+
 
 # --- CRUD DO CATÁLOGO DE SERVIÇOS ---
 
@@ -161,14 +172,17 @@ def buscar_agendamento_api(request):
         status = request.GET.get('status', '').strip()
 
         # Empresa do usuário
-        if hasattr(request.user, 'funcionario') and request.user.funcionario:
-            empresa = request.user.funcionario.empresa
-        else:
-            return JsonResponse({'success': False, 'message': 'Empresa não encontrada'}, status=400)
+        empresa_atual = getattr(request, 'tenant', None)
+
+        if not empresa_atual or getattr(empresa_atual, 'schema_name', 'public') == 'public':
+            return JsonResponse({
+                'success': False,
+                'message': 'Empresa não encontrada'
+            }, status=400)
 
         # Query base
         agendamentos = AgendamentoServico.objects.filter(
-            empresa=empresa
+            empresa=empresa_atual
         ).select_related('cliente', 'servico', 'funcionario')
 
         # Filtrar por status
@@ -227,9 +241,9 @@ class AgendamentoDetailView(ServicoPermissionMixin, DetailView):
 
 # --- VIEWS DE AÇÃO ---
 
-class IniciarServicoView(LoginRequiredMixin, View):
+class IniciarServicoView(LoginRequiredMixin, TenantRequeridoMixin, View):
     def post(self, request, *args, **kwargs):
-        agendamento = get_object_or_404(AgendamentoServico, pk=kwargs['pk'], empresa=request.user.funcionario.empresa)
+        agendamento = get_object_or_404(AgendamentoServico, pk=kwargs['pk'])
         
         # A lógica para criar/obter o Serviço e iniciar
         servico, created = Servico.objects.get_or_create(
@@ -258,9 +272,11 @@ class IniciarServicoView(LoginRequiredMixin, View):
             
         return redirect('servicos:agendamento_detail', pk=agendamento.pk)
 
+
+
 class FinalizarServicoView(LoginRequiredMixin, View):
     def post(self, request, *args, **kwargs):
-        agendamento = get_object_or_404(AgendamentoServico, pk=kwargs['pk'], empresa=request.user.funcionario.empresa)
+        agendamento = get_object_or_404(AgendamentoServico, pk=kwargs['pk'])
         servico_realizado = getattr(agendamento, 'servico', None)
 
         if not servico_realizado:
@@ -298,16 +314,16 @@ def listar_servicos_api(request):
     API para listar serviços no PDV
     """
     try:
-        if hasattr(request.user, 'funcionario') and request.user.funcionario:
-            empresa = request.user.funcionario.empresa
-        else:
+        # Tenant/empresa atual definido pelo domínio da requisição
+        empresa_atual = getattr(request, 'tenant', None)
+
+        if not empresa_atual or getattr(empresa_atual, 'schema_name', 'public') == 'public':
             return JsonResponse({
                 'success': False,
                 'message': 'Empresa não encontrada'
             }, status=400)
         
         servicos = Servico.objects.filter(
-            empresa=empresa,
             ativo=True
         ).select_related('categoria')
         
@@ -351,16 +367,16 @@ def buscar_servicos_api(request):
     try:
         busca = request.GET.get('q', '').strip()
         categoria_id = request.GET.get('categoria', '').strip()
+        empresa_atual = getattr(request, 'tenant', None)
 
-        # Buscar serviços da empresa do usuário
-        if hasattr(request.user, 'funcionario') and request.user.funcionario:
-            empresa = request.user.funcionario.empresa
-        else:
-            return JsonResponse({'success': False, 'message': 'Empresa não encontrada'}, status=400)
-
+        if not empresa_atual or getattr(empresa_atual, 'schema_name', 'public') == 'public':
+            return JsonResponse({
+                'success': False,
+                'message': 'Empresa não encontrada'
+            }, status=400)
+        
         # Query base
         servicos = Servico.objects.filter(
-            empresa=empresa,
             ativo=True
         ).select_related('categoria')
 
@@ -421,17 +437,35 @@ def notificacao_list(request):
 @login_required
 def notificacao_create(request):
     """Criar nova notificação"""
+
     if request.method == 'POST':
         form = NotificacaoAgendamentoForm(request.POST)
+
         if form.is_valid():
             notif = form.save(commit=False)
-            if hasattr(request.user, 'funcionario') and request.user.funcionario:
-                notif.empresa = request.user.funcionario.empresa
+
+            # Tenant/empresa atual definido pelo domínio da requisição
+            empresa = getattr(request, 'tenant', None)
+
+            if not empresa or getattr(empresa, 'schema_name', 'public') == 'public':
+                return JsonResponse({
+                    'success': False,
+                    'message': 'Empresa não encontrada'
+                }, status=400)
+
+            notif.empresa = empresa
             notif.save()
+
             return redirect('servicos:notificacao_list')
+
     else:
         form = NotificacaoAgendamentoForm()
-    return render(request, 'servicos/notificacao_form.html', {'form': form})
+
+    return render(
+        request,
+        'servicos/notificacao_form.html',
+        {'form': form}
+    )
 
 
 @login_required
@@ -450,7 +484,7 @@ def notificacao_update(request, pk):
 
 @login_required
 def notificacao_delete(request, pk):
-    notificacao = get_object_or_404(NotificacaoAgendamento, pk=pk, empresa=request.user.funcionario.empresa)
+    notificacao = get_object_or_404(NotificacaoAgendamento, pk=pk)
     
     if request.method == "POST":
         notificacao.delete()
@@ -468,12 +502,16 @@ def buscar_notificacao_api(request):
     busca = request.GET.get('q', '').strip()
     status_filter = request.GET.get('status', '').strip()
 
-    if hasattr(request.user, 'funcionario') and request.user.funcionario:
-        empresa = request.user.funcionario.empresa
-    else:
-        return JsonResponse({'success': False, 'message': 'Empresa não encontrada'}, status=400)
+    empresa_atual = getattr(request, 'tenant', None)
 
-    queryset = NotificacaoAgendamento.objects.filter(empresa=empresa)
+    if not empresa_atual or getattr(empresa_atual, 'schema_name', 'public') == 'public':
+        return JsonResponse({
+            'success': False,
+            'message': 'Empresa não encontrada'
+        }, status=400)
+
+
+    queryset = NotificacaoAgendamento.objects.filter()
 
     if busca:
         queryset = queryset.filter(
@@ -508,12 +546,13 @@ def buscar_notificacao_api(request):
 @login_required
 def configuracao_notificacao_update(request):
     """Criar ou editar configuração da empresa"""
-    if hasattr(request.user, 'funcionario') and request.user.funcionario:
-        empresa = request.user.funcionario.empresa
-    else:
-        return redirect('home')  # ou página de erro
+    # Tenant/empresa atual definido pelo domínio da requisição
+    empresa = getattr(request, 'tenant', None)
 
-    config, _ = ConfiguracaoNotificacao.objects.get_or_create(empresa=empresa)
+    if not empresa or getattr(empresa, 'schema_name', 'public') == 'public':
+        return redirect('home')
+    
+    config, _ = ConfiguracaoNotificacao.objects.get_or_create()
 
     if request.method == 'POST':
         form = ConfiguracaoNotificacaoForm(request.POST, instance=config)

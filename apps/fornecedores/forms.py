@@ -123,7 +123,7 @@ class PedidoCompraForm(forms.ModelForm):
         
         if empresa:
             self.fields['fornecedor'].queryset = Fornecedor.objects.filter(
-                empresa=empresa, status='ativo'
+                status='ativo'
             )
     
     def clean_data_prevista_entrega(self):

@@ -550,7 +550,7 @@
                 Os bens/serviços foram colocados à disposição do adquirente na data do documento.<br>
                 {{ empresa.endereco|default:"" }}<br>
                 {% endif %}
-                <strong>Vs78</strong> - Processado por Programa Validado nº 567/AGT/2022
+                <strong>{{ ultimos_digitos_hash }}</strong> - Processado por Programa Validado nº {{ numero_validacao_software }}
             </div>
             <div class="footer-right">
                 {% if qr_code_base64 %}

@@ -9,12 +9,16 @@ from decimal import Decimal
 from datetime import date, datetime, timedelta
 from django.utils import timezone
 import uuid
+from django.db import models, transaction
 from django.conf import settings
-from django.db import models
 from django.core.exceptions import ValidationError
 from django.contrib.auth.models import Permission
 from apps.core.models import TimeStampedModel
 from cloudinary.models import CloudinaryField
+from django.db.models.functions import Cast, Substr
+
+
+
 
 
 class Cargo(TimeStampedModel):
@@ -22,13 +26,6 @@ class Cargo(TimeStampedModel):
     nome = models.CharField(max_length=100)
     codigo = models.CharField(max_length=20)
     descricao = models.TextField(blank=True)
-
-    # RIGOR: Removido null=True e blank=True. Todo cargo pertence a uma empresa.
-    empresa = models.ForeignKey(
-        "empresas.Empresa",
-        on_delete=models.CASCADE,
-        related_name="cargos"
-    )
 
     cargo_superior = models.ForeignKey(
         'self',
@@ -145,7 +142,35 @@ class Cargo(TimeStampedModel):
     pode_acessar_configuracao_fiscal = models.BooleanField(default=False)
     pode_verificar_integridade_cadeia_hash_fiscal = models.BooleanField(default=False)
 
+    # Gerenciamento do site
+    pode_gerir_site = models.BooleanField(default=False)
+
+    
     ativo = models.BooleanField(default=True)
+
+    # ── Permissões do Portal de Parceiros (Secção 6.4 PLANO_IMPLEMENTACAO.md) ──
+    # Estas permissões são para FUNCIONÁRIOS DA SOTARQ que gerem o programa de parceiros.
+    # NÃO confundir com os parceiros externos (que têm a sua própria app).
+    pode_gerir_parceiros = models.BooleanField(
+        default=False,
+        verbose_name='Pode gerir parceiros',
+        help_text='Pode cadastrar parceiros, criar licenças e gerar tokens (área interna SOTARQ).',
+    )
+    pode_ver_parceiros = models.BooleanField(
+        default=False,
+        verbose_name='Pode ver parceiros',
+        help_text='Pode visualizar a lista e detalhes dos parceiros.',
+    )
+    pode_aprovar_solicitacoes_parceiros = models.BooleanField(
+        default=False,
+        verbose_name='Pode aprovar solicitações de parceiros',
+        help_text='Pode responder a solicitações de upgrade/renovação de parceiros.',
+    )
+    pode_ver_faturamento_parceiros = models.BooleanField(
+        default=False,
+        verbose_name='Pode ver faturamento de parceiros',
+        help_text='Pode visualizar o dashboard financeiro da rede de parceiros.',
+    )
 
     class Meta:
         verbose_name = "Cargo"
@@ -153,7 +178,7 @@ class Cargo(TimeStampedModel):
         ordering = ['nivel_hierarquico', 'nome']
 
     def __str__(self):
-        return f"{self.nome} ({self.empresa.nome})"
+        return f"{self.nome}"
 
     @property
     def funcionarios_ativos(self):
@@ -189,22 +214,13 @@ class Departamento(TimeStampedModel):
         return f"{self.nome}"
 
 
-from datetime import date
-from decimal import Decimal
-from django.db import models, transaction
-from django.contrib.auth.models import Group
-from django.core.exceptions import ValidationError
-from cloudinary.models import CloudinaryField
-
-# Supondo que TimeStampedModel, Cargo e Departamento venham dos seus respectivos módulos do tenant
-# ex: from apps.core.models import TimeStampedModel
-# ex: from .models import Cargo, Departamento
 
 
 class Funcionario(TimeStampedModel):
     """
     Funcionários da empresa.
     Ajustado para django_tenants (Isolamento Físico via Schema PostgreSQL).
+    As permissões vêm sempre de cargo.pode_* (não há sincronização de grupos).
     """
 
     TIPO_CONTRATO_CHOICES = [
@@ -241,6 +257,8 @@ class Funcionario(TimeStampedModel):
     # Identificação
     matricula = models.CharField(
         max_length=20,
+        unique=True,
+        blank=True,
         editable=False,
         help_text="Gerada automaticamente no formato FUNC-00001"
     )
@@ -250,7 +268,7 @@ class Funcionario(TimeStampedModel):
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
-        related_name='funcionario'  # CORRIGIDO: era '+' (desativava request.user.funcionario)
+        related_name='funcionario_relacionado',
     )
 
     recebe_copia_faturamento_email = models.BooleanField(
@@ -367,10 +385,9 @@ class Funcionario(TimeStampedModel):
         verbose_name = "Funcionário"
         verbose_name_plural = "Funcionários"
         indexes = [
-            models.Index(fields=['matricula']),
-            models.Index(fields=['bi']),
+            # matricula e bi já têm índice próprio por serem unique
             models.Index(fields=['nome_completo']),
-            models.Index(fields=['ativo']),  # Ajustado: removido 'empresa'
+            models.Index(fields=['ativo']),
             models.Index(fields=['cargo', 'ativo']),
             models.Index(fields=['data_admissao']),
         ]
@@ -379,55 +396,62 @@ class Funcionario(TimeStampedModel):
     def __str__(self):
         return f"{self.matricula} - {self.nome_exibicao}"
 
+    # ------------------------------------------------------------------
+    # Matrícula
+    # ------------------------------------------------------------------
     def gerar_matricula(self):
-        """Gera matrícula sequencial isolada automaticamente dentro do schema do Tenant ativo"""
-        with transaction.atomic():
-            # No django_tenants, o ORM restringe a busca automaticamente ao schema atual
-            ultima = Funcionario.objects.select_for_update().order_by('-id').first()
-
-            if ultima and ultima.matricula:
-                try:
-                    numero = int(str(ultima.matricula).split('-')[-1]) + 1
-                except ValueError:
-                    numero = 1
-            else:
-                numero = 1
-
-            return f"FUNC-{numero:05d}"
+        """
+        Próxima matrícula FUNC-00001 dentro do schema do tenant ativo.
+        Usa o maior número existente (ignora matrículas malformadas).
+        A unicidade final é garantida pelo unique=True + retry no save().
+        """
+        maximo = (
+            type(self)._default_manager
+            .filter(matricula__regex=r'^FUNC-[0-9]+$')
+            .aggregate(m=models.Max(Cast(Substr('matricula', 6), models.IntegerField())))['m']
+        ) or 0
+        return f"FUNC-{maximo + 1:05d}"
 
     def save(self, *args, **kwargs):
-        criando = self._state.adding  # indica se é um registro novo
+        # Compatibilidade: chamadas antigas passavam sincronizar_grupo=...
+        kwargs.pop('sincronizar_grupo', None)
 
-        # 1️⃣ Gera matrícula automaticamente se ainda não existir
-        if not self.matricula:
-            self.matricula = self.gerar_matricula()
-
-        # 2️⃣ Validação no momento da criação
-        if criando and not self.cargo:
+        if self._state.adding and not self.cargo_id:
             raise ValidationError({"cargo": "O campo 'cargo' é obrigatório ao criar o funcionário."})
 
-        # 3️⃣ Salva o funcionário no schema do tenant
-        super().save(*args, **kwargs)
+        if self.matricula:
+            return super().save(*args, **kwargs)
 
-        # 4️⃣ Após salvar, sincroniza grupo e permissões
-        if self.usuario and self.cargo_id:
-            group, _ = Group.objects.get_or_create(name=self.cargo.nome)
-            if hasattr(self.cargo, "permissions"):
-                group.permissions.set(self.cargo.permissions.all())
+        # Sem matrícula: gera e tenta gravar; em colisão (corrida), recalcula.
+        for tentativa in range(5):
+            self.matricula = self.gerar_matricula()
+            try:
+                with transaction.atomic():
+                    return super().save(*args, **kwargs)
+            except IntegrityError as e:
+                self.matricula = ""
+                if "matricula" not in str(e) or tentativa == 4:
+                    raise
 
-            self.usuario.groups.clear()
-            self.usuario.groups.add(group)
-
+    # ------------------------------------------------------------------
+    # Validação
+    # ------------------------------------------------------------------
     def clean(self):
-        if self.data_demissao and self.data_demissao <= self.data_admissao:
+        super().clean()
+        if self.data_demissao and self.data_admissao and self.data_demissao <= self.data_admissao:
             raise ValidationError("Data de demissão deve ser posterior à admissão")
 
+    # ------------------------------------------------------------------
+    # Propriedades
+    # ------------------------------------------------------------------
     @property
     def nome_exibicao(self):
         return self.nome_completo
 
     @property
     def idade(self):
+        if not self.data_nascimento:
+            return None
         hoje = date.today()
         return hoje.year - self.data_nascimento.year - (
             (hoje.month, hoje.day) < (self.data_nascimento.month, self.data_nascimento.day)
@@ -435,12 +459,18 @@ class Funcionario(TimeStampedModel):
 
     @property
     def permissoes_cargo(self):
-        if not self.cargo:
+        if not self.cargo_id:
             return {}
-        return {k: getattr(self.cargo, k, False) for k in vars(self.cargo) if k.startswith('pode_')}
+        return {
+            f.name: getattr(self.cargo, f.name)
+            for f in self.cargo._meta.concrete_fields
+            if f.name.startswith('pode_')
+        }
 
     @property
     def tempo_empresa_dias(self):
+        if not self.data_admissao:
+            return 0
         fim = self.data_demissao or date.today()
         return (fim - self.data_admissao).days
 
@@ -465,14 +495,17 @@ class Funcionario(TimeStampedModel):
             self.vale_alimentacao or Decimal('0'),
             self.vale_transporte or Decimal('0'),
             self.outros_beneficios or Decimal('0'),
-        ])
+        ], Decimal('0'))
 
     def pode_realizar_acao(self, acao, *args, **kwargs):
-        """Valida se funcionário tem permissão baseada no cargo"""
-        if not self.ativo:
+        """
+        Valida se o funcionário tem permissão baseada no cargo.
+        Aceita 'vender' ou 'pode_vender'.
+        """
+        if not self.ativo or not self.cargo_id:
             return False
-        atributo = f'pode_{acao}'
-        return getattr(self.cargo, atributo, False)
+        atributo = acao if acao.startswith('pode_') else f'pode_{acao}'
+        return bool(getattr(self.cargo, atributo, False))
 
 
 
@@ -851,24 +884,16 @@ class JornadaTrabalho(models.Model):
     def __str__(self):
         return f"{self.nome} ({self.get_turno_display()})"
 
-    def criar_escala(self, funcionario, data_trabalho, funcao_dia='', criada_por=None):
-        """
-        Cria uma EscalaTrabalho baseada nesta jornada.
-        Não altera a EscalaTrabalho existente.
-        """
-        from apps.funcionarios.models import EscalaTrabalho
-
-        escala = EscalaTrabalho.objects.create(
-            funcionario=funcionario,
-            data_trabalho=data_trabalho,
-            turno=self.turno,
-            horario_entrada=self.horario_entrada,
-            horario_saida=self.horario_saida,
-            horario_almoco_inicio=self.horario_almoco_inicio,
-            horario_almoco_fim=self.horario_almoco_fim,
-            departamento=self.departamento,
-            funcao_dia=funcao_dia,
-            criada_por=criada_por or funcionario,
+    def criar_escala(self, funcionario, data_trabalho, funcao_dia="", criada_por=None):
+        escala, _ = EscalaTrabalho.objects.get_or_create(
+            funcionario=funcionario, data_trabalho=data_trabalho, turno=self.turno,
+            defaults=dict(
+                horario_entrada=self.horario_entrada, horario_saida=self.horario_saida,
+                horario_almoco_inicio=self.horario_almoco_inicio,
+                horario_almoco_fim=self.horario_almoco_fim,
+                departamento=self.departamento, funcao_dia=funcao_dia,
+                criada_por=criada_por or funcionario,
+            ),
         )
         return escala
 

@@ -1,3 +1,4 @@
+# apps/core/permissions.py
 import logging
 
 from django.core.exceptions import ObjectDoesNotExist

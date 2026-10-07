@@ -1,18 +1,10 @@
-#apps/core/middleware.py
+# apps/core/middleware.py
 import threading
 from django.conf import settings
-from django.shortcuts import redirect, render
-from django.http import HttpResponseForbidden, HttpResponseRedirect
-from django.db import connection # RIGOR: Essencial para detectar o schema
+from django.shortcuts import render
+from django.http import HttpResponseRedirect, JsonResponse
+from django.db import connection
 import logging
-from django.utils.deprecation import MiddlewareMixin
-from django.shortcuts import redirect
-from django.urls import reverse
-
-from apps.core.utils import get_user_empresa
-from .models import IPConhecido, VerificacaoSeguranca
-from django.core.exceptions import PermissionDenied
-from django.http import HttpResponseForbidden
 
 
 # ==============================================================
@@ -31,142 +23,29 @@ class AccountsProfileRedirectMiddleware:
         
         return self.get_response(request)
 
-# ==============================================================
-# 🔹 2. LOG DE DOCUMENTOS
-# ==============================================================
-class DocumentLogMiddleware(MiddlewareMixin):
-    def process_response(self, request, response):
-        if 'documentos/gerar' in request.path and response.status_code == 200:
-            logger = logging.getLogger('documentos')
-            logger.info(f'Documento gerado: {request.path} - Usuário: {request.user.username if request.user.is_authenticated else "Anônimo"}')
-        return response
 
-# ==============================================================
-# 🔹 3. ACESSO A MÓDULOS (Blindado contra Public)
-# ==============================================================
 
-class ModuloAcessMiddleware:
-    """
-    Middleware responsável por:
-    1. Garantir que o usuário pertence ao Tenant (Schema) atual
-    2. Garantir que o Tenant possui licença para acessar o módulo da URL.
-    
-    100% aderente ao isolamento físico do django-tenants.
-    """  
-    # Rotas base que NUNCA devem ser bloqueadas por licença de módulo
-    EXEMPT_PREFIXES = {
-        'admin',
-        'static',
-        'media',
-        'login',
-        'logout',
-        'perfil',
-        'dashboard',
-        'auth',
-    }
-
-    def __init__(self, get_response):
-        self.get_response = get_response
-
-    def __call__(self, request):
-        # 1. Ignorar verificações no Schema Public (Landing pages, Painel SaaS Global, etc)
-        if request.tenant.schema_name == 'public':
-            return self.get_response(request)
-
-        # ===========================================================================
-        # ETAPA 1: ISOLAMENTO DE ACESSO AO TENANT (SCHEMA)
-        # ===========================================================================
-        # Se os seus Usuários forem globais (SHARED_APPS), validamos a relação ManyToMany
-        # do usuário com as empresas/tenants às quais ele tem permissão de acesso.
-        if hasattr(request.user, 'tenants'):
-            if not request.user.tenants.filter(pk=request.tenant.pk).exists():
-                raise PermissionDenied("Você não tem permissão a esta empresa/tenant.")
-
-        # ===========================================================================
-        # ETAPA 2: ISOLAMENTO DE MÓDULO POR LICENÇA DO TENANT
-        # ===========================================================================
-        # Extrai o primeiro segmento da URL (Exemplo: /financeiro/contas/ -> 'financeiro')
-        path_segments = [seg for seg in request.path.strip("/").split("/") if seg]
-        path_module = path_segments[0] if path_segments else ""
-
-        # Se for uma rota isenta de checagem de módulos (admin, static, logout...), libera
-        if path_module in self.EXEMPT_PREFIXES:
-            return self.get_response(request)
-
-        # O Tenant atual é o modelo da Empresa. Acessamos a licença DIRETO do request.tenant:
-        licenca = getattr(request.tenant, "licenca", None)
-
-        # O(1) Search via set()
-        if licenca and hasattr(licenca, "plano"):
-            modulos_ativos = set(licenca.plano.modulos.values_list("slug", flat=True))
-        else:
-            modulos_ativos = set()
-
-        # Se a URL acessa um módulo que o Tennat não contratou
-        if path_module and path_module not in modulos_ativos:
-            return HttpResponseForbidden("O seu plano não possui acesso a este módulo.")
-
-        return self.get_response(request)
-    
-# ==============================================================
-# 🔹 4. LICENÇA VENCIDA (Blindado contra Public)
-# ==============================================================
-class LicencaVencidaMiddleware:
-    def __init__(self, get_response):
-        self.get_response = get_response
-
-    def __call__(self, request):
-        # RIGOR: Administrador Global (Public) ou Admin do Django não sofrem bloqueio de licença
-        if connection.schema_name == 'public' or not request.user.is_authenticated or request.path.startswith('/admin/'):
-            return self.get_response(request)
-
-        empresa = get_user_empresa(request.user)
-        if not empresa:
-            return self.get_response(request)
-
-        licenca = getattr(empresa, 'licenca', None)
-        
-        if request.path != '/licenca-expirada/':
-            if licenca and (licenca.esta_vencida or licenca.status != 'ativa'):
-                return render(request, 'errors/licenca_expirada.html', {'licenca': licenca})
-
-        return self.get_response(request)
-
+   
 # ==============================================================
 # 🔹 5. THREAD LOCAL USER (O Cérebro)
 # ==============================================================
 
-
-
 _thread_locals = threading.local()
+
 
 class ThreadLocalUserMiddleware:
     def __init__(self, get_response):
         self.get_response = get_response
 
     def __call__(self, request):
-        # 1. BLINDAGEM: Se for public, limpamos o cache de relações de tenant
-        # Isso impede que o Django tente carregar o funcionário no login global
-        if connection.schema_name == 'public' and request.user.is_authenticated:
-            # Limpa o cache interno do Django para relações OneToOne/ForeignKey
-            # O Django costuma usar o nome do campo ou o related_name no cache interno
-            for attr in ['_funcionario_cache', 'funcionario']:
-                if hasattr(request.user, attr):
-                    try:
-                        delattr(request.user, attr)
-                    except AttributeError:
-                        pass
-
-        # 2. PERSISTÊNCIA: Armazena o usuário na thread
         _thread_locals.user = getattr(request, 'user', None)
-        
-        response = self.get_response(request)
-        
-        # 3. SEGURANÇA: Limpa a thread após a resposta para evitar vazamento de dados
-        if hasattr(_thread_locals, 'user'):
-            del _thread_locals.user
-            
-        return response
+
+        try:
+            return self.get_response(request)
+        finally:
+            if hasattr(_thread_locals, 'user'):
+                del _thread_locals.user
+
 
 def get_current_authenticated_user():
     """Retorna o usuário armazenado na thread atual."""
@@ -174,39 +53,154 @@ def get_current_authenticated_user():
 
 
 
-class TwoFactorIPMiddleware:
+
+# ==============================================================
+# 🔹 6. RATE LIMIT NO ENDPOINT DE LOGIN (DDoS + Brute-Force)
+# ==============================================================
+
+logger = logging.getLogger('core.security')
+
+
+class RateLimitLoginMiddleware:
+    """
+    Middleware de rate limiting para o endpoint de login.
+
+    Posição na stack (base.py): imediatamente APÓS SessionMiddleware e
+    CsrfViewMiddleware, ANTES de AuthenticationMiddleware — para bloquear
+    ataques antes de qualquer query ao BD de utilizadores.
+
+    O que faz:
+      ┌────────────────────────────────────────────────────────────────┐
+      │  1. Só actua em POST /login/ (deixa tudo o resto passar)      │
+      │  2. Verifica lockout de IP no cache Redis (microsegundos)     │
+      │  3. Verifica lockout de username no cache Redis               │
+      │  4. Se bloqueado: devolve 429 imediatamente, sem tocar no BD │
+      │  5. Adiciona cabeçalhos Retry-After e X-RateLimit-*          │
+      └────────────────────────────────────────────────────────────────┘
+
+    Separação de responsabilidades:
+      - Este middleware apenas BLOQUEIA com base no cache.
+      - O REGISTO de novas falhas e incremento de contadores é feito
+        na CustomLoginView.form_invalid() — onde sabemos que a password
+        estava errada e não apenas o CSRF token ou outro erro.
+    """
+
+    # URL paths onde aplicar a protecção (sem namespace — middleware actua
+    # antes da resolução de URLs pelo Django)
+    LOGIN_PATHS = {'/login/', '/accounts/login/'}
+
     def __init__(self, get_response):
         self.get_response = get_response
+        # Importar o serviço aqui para evitar import circular no arranque
+        self._svc = None
+
+    def _get_svc(self):
+        if self._svc is None:
+            from apps.core.services.rate_limit_service import LoginRateLimitService
+            self._svc = LoginRateLimitService
+        return self._svc
 
     def __call__(self, request):
-        if request.user.is_authenticated:
-            # RIGOR SOTARQ: Lista de exceções expandida
-            path = request.path
-            exempt_urls = [
-                reverse('core:verify_ip'), 
-                reverse('core:logout'),
-                settings.STATIC_URL, # Libera CSS/JS
-                settings.MEDIA_URL,  # Libera Imagens
-                '/admin/',           # Evita trancar o admin
-            ]
+        # Só aplicar em POST ao endpoint de login
+        if request.method == 'POST' and self._is_login_path(request.path):
+            response = self._check_rate_limit(request)
+            if response is not None:
+                return response
 
-            # Se o caminho atual começar com qualquer uma das exceções, deixa passar
-            if any(path.startswith(url) for url in exempt_urls):
-                return self.get_response(request)
+        response = self.get_response(request)
 
-            # Verificação de IP
-            ip_atual = self.get_client_ip(request)
-            ip_autorizado = IPConhecido.objects.filter(
-                usuario=request.user, 
-                ip_address=ip_atual
-            ).exists()
+        # Injectar cabeçalhos informativos em respostas do login
+        if self._is_login_path(request.path):
+            self._add_security_headers(request, response)
 
-            if not ip_autorizado:
-                return redirect('core:verify_ip')
+        return response
 
-        return self.get_response(request)
+    def _is_login_path(self, path: str) -> bool:
+        """True se o path corresponde a um endpoint de login."""
+        # Suporte a paths com ou sem trailing slash e com prefixos de subdomínio
+        clean = path.rstrip('/')
+        return any(clean.endswith(p.rstrip('/')) for p in self.LOGIN_PATHS)
 
-    def get_client_ip(self, request):
-        x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
-        return x_forwarded_for.split(',')[0] if x_forwarded_for else request.META.get('REMOTE_ADDR')
-    
+    def _check_rate_limit(self, request) -> 'HttpResponse | None':
+        """
+        Verifica lockout. Retorna uma resposta de bloqueio (429) ou None
+        se o request pode continuar.
+        """
+        try:
+            svc = self._get_svc()
+            ip       = svc.get_ip(request)
+            username = request.POST.get('username', '').strip()
+
+            ip_locked   = svc.is_ip_locked(ip)
+            user_locked = svc.is_user_locked(username) if username else False
+
+            if not (ip_locked or user_locked):
+                return None  # Sem bloqueio — deixar passar
+
+            ttl = svc.lockout_ttl(request, username)
+
+            # Logar a tentativa bloqueada
+            logger.warning(
+                "BLOQUEIO RATE LIMIT — IP: %s | username: %s | ttl: %ds | path: %s",
+                ip, username or '(vazio)', ttl, request.path
+            )
+
+            # Determinar tipo de resposta (JSON para AJAX, HTML para browser)
+            is_ajax = (
+                request.headers.get('X-Requested-With') == 'XMLHttpRequest'
+                or 'application/json' in request.headers.get('Accept', '')
+            )
+
+            if is_ajax:
+                resp = JsonResponse({
+                    'locked':          True,
+                    'lockout_seconds': ttl,
+                    'message':         self._lockout_message(ttl),
+                }, status=429)
+            else:
+                minutos  = ttl // 60
+                segundos = ttl % 60
+                tempo_msg = f"{minutos}m {segundos}s" if minutos else f"{ttl}s"
+                resp = render(request, 'registration/login.html', {
+                    'locked_out':            True,
+                    'lockout_seconds':       ttl,
+                    'lockout_tempo_legivel': tempo_msg,
+                    'show_captcha':          False,
+                    'login_attempts':        0,
+                    'hcaptcha_site_key':     getattr(settings, 'HCAPTCHA_SITE_KEY', ''),
+                }, status=429)
+
+            # Cabeçalhos standard para rate limiting (RFC 6585 + RFC 7231)
+            resp['Retry-After']        = str(ttl)
+            resp['X-RateLimit-Limit']  = str(getattr(settings, 'LOGIN_MAX_ATTEMPTS_IP', 10))
+            resp['X-RateLimit-Reset']  = str(ttl)
+            resp['X-Content-Type-Options'] = 'nosniff'
+            return resp
+
+        except Exception as exc:
+            # Nunca deixar o middleware quebrar o fluxo normal do sistema
+            logger.error("RateLimitLoginMiddleware erro inesperado: %s", exc)
+            return None
+
+    def _add_security_headers(self, request, response):
+        """Adiciona cabeçalhos de segurança e informativos nas respostas do login."""
+        try:
+            svc  = self._get_svc()
+            ip   = svc.get_ip(request)
+            attempts = svc.get_ip_attempts(ip)
+            limit    = getattr(settings, 'LOGIN_MAX_ATTEMPTS_IP', 10)
+
+            response['X-RateLimit-Limit']     = str(limit)
+            response['X-RateLimit-Remaining'] = str(max(0, limit - attempts))
+            response['X-Content-Type-Options'] = 'nosniff'
+            response['X-Frame-Options']        = 'DENY'
+        except Exception:
+            pass  # Silencioso — não quebrar por causa de cabeçalhos
+
+    @staticmethod
+    def _lockout_message(ttl: int) -> str:
+        minutos = ttl // 60
+        if minutos > 0:
+            return (f"Demasiadas tentativas de login falhadas. "
+                    f"Tente novamente em {minutos} minuto(s).")
+        return f"Demasiadas tentativas. Aguarde {ttl} segundo(s)."

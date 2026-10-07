@@ -117,9 +117,8 @@ urlpatterns = [
     path('<int:pk>/editar/', views.ImpostoTributoUpdateView.as_view(), name='imposto_update'),
     path('<int:pk>/excluir/', views.ImpostoTributoDeleteView.as_view(), name='imposto_delete'),
     path('<int:pk>/calcular/', views.ImpostoCalcularView.as_view(), name='imposto_calcular'),
-
     path('<int:pk>/pagar/', views.ImpostoPagarView.as_view(), name='imposto_pagar'),
-    path('impostos/pagar-lote/', views.pagar_impostos_tenant, name='pagar_impostos_tenant'),
+    # path('impostos/pagar-lote/', views.pagar_impostos_tenant, name='pagar_impostos_tenant'),  # view não implementada
     path("impostos/<int:pk>/estornar/", views.estornar_imposto_view, name="estornar_imposto"),
 
 

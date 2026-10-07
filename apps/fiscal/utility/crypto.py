@@ -1,3 +1,4 @@
+# apps/fiscal/utility/crypto.py
 import base64
 import os
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes

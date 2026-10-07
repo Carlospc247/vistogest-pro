@@ -5,7 +5,7 @@ from django.core.exceptions import ValidationError
 from apps.core.models import TimeStampedModel, Usuario
 from apps.clientes.models import Cliente
 from apps.funcionarios.models import Funcionario
-from apps.produtos.models import Produto
+from apps.produtos.models import Categoria, Produto
 from decimal import Decimal
 from datetime import date, datetime, timedelta
 from django.utils import timezone
@@ -15,7 +15,7 @@ from django.db import models
 from django.utils import timezone
 from datetime import date, timedelta
 from decimal import Decimal
-from apps.empresas.models import Empresa, Categoria
+from apps.empresas.models import Empresa
 from apps.core.models import TimeStampedModel, Usuario
 from apps.clientes.models import Cliente
 from cloudinary.models import CloudinaryField

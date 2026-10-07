@@ -1,3 +1,4 @@
+# apps/empresas/models.py
 from django.db import connection, models
 from django.core.exceptions import ValidationError
 from cloudinary.models import CloudinaryField
@@ -17,18 +18,46 @@ class Empresa(TenantMixin):
     Tabela residente no schema 'public' (SHARED_APPS).
     """
     REGIME_CHOICES = [
-        ('COMERCIO', 'Regime de Comércio'),
-        ('SERVICOS', 'Regime de Prestação de Serviços'),
-        ('MISTO', 'Regime Misto (Comércio e Serviços)'),
+        ('COMERCIO', 'Comércio (só produtos)'),
+        ('SERVICOS', 'Prestação de Serviços (só serviços)'),
+        ('MISTO',    'Misto (Comércio + Serviços)'),
     ]
-    
+
+    # Regime fiscal AGT — determina as regras de tributação de IVA
+    REGIME_FISCAL_CHOICES = [
+        ('GERAL',        'Regime Geral'),
+        ('SIMPLIFICADO', 'Regime Simplificado'),
+        ('EXCLUSAO',     'Regime de Exclusão'),
+        ('ESPECIAL',     'Regime Especial'),
+    ]
+
     # Dados básicos
+    # IMPORTANTE: 'regime' = tipo de actividade (Comércio/Serviços/Misto)
+    # NÃO confundir com 'regime_fiscal' = regime tributário AGT (Geral/Simplificado/etc.)
     regime = models.CharField(
-        "Regime Fiscal",
+        "Tipo de Actividade",
         max_length=20,
         choices=REGIME_CHOICES,
         default='MISTO',
-        help_text="Define as regras de tributação e incidência de IVA da empresa."
+        help_text=(
+            "Define o tipo de actividade da empresa: "
+            "Comércio, Serviços ou Misto. "
+            "Usado para controlar o que pode ser vendido. "
+            "NÃO é o regime fiscal AGT."
+        )
+    )
+
+    regime_fiscal = models.CharField(
+        "Regime Fiscal (AGT)",
+        max_length=20,
+        choices=REGIME_FISCAL_CHOICES,
+        default='GERAL',
+        help_text=(
+            "Regime tributário AGT da empresa: Regime Geral, Simplificado, "
+            "Exclusão ou Especial. "
+            "Aparece nos documentos fiscais, PDFs e no SAF-T. "
+            "Este é o regime fiscal — diferente do tipo de actividade acima."
+        )
     )
     nome = models.CharField(max_length=200)
     nome_fantasia = models.CharField(max_length=200, blank=True)
@@ -107,24 +136,3 @@ class Domain(DomainMixin):
 
 
 
-
-class Categoria(TimeStampedModel):
-    """
-    Categoria de produtos.
-    Reside dentro do Schema Físico do Tenant.
-    """
-    nome = models.CharField(max_length=100)
-    codigo = models.CharField(max_length=20, blank=True)
-    descricao = models.TextField(blank=True)
-    ativa = models.BooleanField(default=True)
-    
-    class Meta:
-        verbose_name = 'Categoria'
-        verbose_name_plural = 'Categorias'
-        constraints = [
-            models.UniqueConstraint(fields=['nome'], name='unique_categoria_nome_por_tenant')
-        ]
-        ordering = ['nome']
-
-    def __str__(self):
-        return self.nome

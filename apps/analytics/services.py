@@ -220,9 +220,6 @@ class AuditoriaService:
 class AlertasService:
     """Serviço para alertas inteligentes"""
     
-    def __init__(self, empresa):
-        self.empresa = empresa
-    
     def verificar_alertas(self):
         """Verificar e criar alertas baseado nas condições do sistema"""
         
@@ -367,10 +364,6 @@ class AlertasService:
 
 class MetricasService:
     """Serviço para coleta de métricas de performance"""
-    
-    def __init__(self, empresa):
-        self.empresa = empresa
-    
 
     def medir_tempo_execucao(self, categoria, nome):
         """Decorator para medir tempo de execução"""

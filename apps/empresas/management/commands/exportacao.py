@@ -1,6 +1,6 @@
 import pandas as pd
 from django.core.management.base import BaseCommand
-from apps.empresas.models import Categoria
+from apps.produtos.models import Categoria
 
 
 class Command(BaseCommand):

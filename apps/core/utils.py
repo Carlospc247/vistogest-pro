@@ -74,7 +74,8 @@ class WhatsAppService:
                 upload_url,
                 headers={"Authorization": f"Bearer {self.token}"},
                 files=files,
-                data=data
+                data=data,
+                timeout=30,
             )
             media_id = response_upload.json().get('id')
 
@@ -93,7 +94,7 @@ class WhatsAppService:
                 }
             }
 
-            response_send = requests.post(self.url_base, headers=self.headers, json=payload)
+            response_send = requests.post(self.url_base, headers=self.headers, json=payload, timeout=30)
             return response_send.status_code == 200
 
         except Exception as e:

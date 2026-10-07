@@ -3,7 +3,6 @@ from django.db import models
 from django.core.validators import RegexValidator, MinValueValidator, MaxValueValidator
 from django.core.exceptions import ValidationError
 from apps.core.models import TimeStampedModel, Usuario
-from apps.empresas.models import Empresa
 from decimal import Decimal
 from datetime import date, datetime, timedelta
 import uuid
@@ -86,8 +85,6 @@ class Cliente(TimeStampedModel):
 
     tipo_cliente = models.CharField(max_length=15, choices=TIPO_CLIENTE_CHOICES, default='pessoa_fisica')
     
-    # Pessoa Física
-    # Razão Social é o nome oficial de uma empresa, usado em documentos legais
     nome_completo = models.CharField(max_length=255, blank=True, help_text="Nome completo do cliente")
     nome_social = models.CharField(max_length=255, blank=True, null=True, help_text="Nome usado para tratamento social")
     bi = models.CharField(max_length=13, blank=True, help_text="Se for pessoa física")
@@ -583,8 +580,6 @@ class PreferenciaCliente(TimeStampedModel):
         null=True, 
         blank=True
     )
-    categoria = models.ForeignKey('empresas.Categoria', on_delete=models.CASCADE)
-    
     fabricante = models.ForeignKey(
         'produtos.Fabricante', 
         on_delete=models.CASCADE, 
@@ -618,7 +613,7 @@ class PreferenciaCliente(TimeStampedModel):
         ordering = ['prioridade', '-created_at']
     
     def __str__(self):
-        item = self.produto or self.categoria or self.fabricante
+        item = self.produto or self.fabricante
         return f"{self.cliente.nome_exibicao} - {item}"
 
 class TelefoneCliente(models.Model):
@@ -637,12 +632,6 @@ class GrupoCliente(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
-    
-    empresa = models.ForeignKey(
-        Empresa,
-        on_delete=models.CASCADE,
-        related_name="grupos_clientes"
-    )
 
 class ProgramaFidelidade(models.Model):
     cliente = models.ForeignKey("Cliente", on_delete=models.CASCADE, related_name="programas")

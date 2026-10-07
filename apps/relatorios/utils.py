@@ -52,7 +52,6 @@ def calcular_metricas_vendas(empresa, data_inicio: date, data_fim: date) -> Dict
     try:
         # Query base
         vendas = Venda.objects.filter(
-            empresa=empresa,
             data_venda__gte=data_inicio,
             data_venda__lte=data_fim,
             status='finalizada'
@@ -105,7 +104,6 @@ def calcular_metricas_vendas(empresa, data_inicio: date, data_fim: date) -> Dict
         data_fim_anterior = data_inicio - timedelta(days=1)
         
         vendas_anterior = Venda.objects.filter(
-            empresa=empresa,
             data_venda__gte=data_inicio_anterior,
             data_venda__lte=data_fim_anterior,
             status='finalizada'
@@ -147,7 +145,6 @@ def calcular_analise_abc_produtos(empresa, data_inicio: date, data_fim: date) ->
     try:
         # Query base
         vendas = Venda.objects.filter(
-            empresa=empresa,
             data_venda__gte=data_inicio,
             data_venda__lte=data_fim,
             status='finalizada'
@@ -237,7 +234,6 @@ def calcular_segmentacao_rfm_clientes(empresa, data_inicio: date, data_fim: date
     try:
         # Query base
         vendas = Venda.objects.filter(
-            empresa=empresa,
             data_venda__gte=data_inicio,
             data_venda__lte=data_fim,
             status='finalizada',
@@ -248,7 +244,7 @@ def calcular_segmentacao_rfm_clientes(empresa, data_inicio: date, data_fim: date
         # Calcular métricas RFM por cliente
         clientes_rfm = []
         
-        for cliente in Cliente.objects.filter(empresa=empresa, ativo=True):
+        for cliente in Cliente.objects.filter(ativo=True):
             vendas_cliente = vendas.filter(cliente=cliente)
             
             if not vendas_cliente.exists():
@@ -702,7 +698,6 @@ def criar_kpi_automatico(empresa, codigo: str, nome: str, tipo_metrica: str,
     try:
         # Verificar se já existe
         existing = MetricaKPI.objects.filter(
-            empresa=empresa,
             codigo=codigo,
             data_referencia=data_referencia
         ).first()
@@ -717,7 +712,6 @@ def criar_kpi_automatico(empresa, codigo: str, nome: str, tipo_metrica: str,
         
         if codigo == 'VENDAS_DIA':
             vendas_dia = Venda.objects.filter(
-                empresa=empresa,
                 data_venda=data_referencia,
                 status='finalizada'
             )
@@ -727,7 +721,6 @@ def criar_kpi_automatico(empresa, codigo: str, nome: str, tipo_metrica: str,
             # Valor do dia anterior
             data_anterior = data_referencia - timedelta(days=1)
             vendas_anterior = Venda.objects.filter(
-                empresa=empresa,
                 data_venda=data_anterior,
                 status='finalizada'
             )
@@ -741,7 +734,6 @@ def criar_kpi_automatico(empresa, codigo: str, nome: str, tipo_metrica: str,
         
         # Criar KPI
         kpi = MetricaKPI.objects.create(
-            empresa=empresa,
             codigo=codigo,
             nome=nome,
             tipo_metrica=tipo_metrica,
@@ -770,7 +762,6 @@ def detectar_alertas_automaticos(empresa):
         
         # 1. Verificar vendas baixas
         vendas_hoje = Venda.objects.filter(
-            empresa=empresa,
             data_venda=hoje,
             status='finalizada'
         ).aggregate(Sum('total'))['total__sum'] or 0
@@ -778,7 +769,6 @@ def detectar_alertas_automaticos(empresa):
         # Média dos últimos 7 dias
         data_inicio_semana = hoje - timedelta(days=7)
         vendas_semana = Venda.objects.filter(
-            empresa=empresa,
             data_venda__gte=data_inicio_semana,
             data_venda__lt=hoje,
             status='finalizada'
@@ -789,7 +779,6 @@ def detectar_alertas_automaticos(empresa):
         # Se vendas de hoje estão 30% abaixo da média
         if media_diaria > 0 and vendas_hoje < (media_diaria * 0.7):
             alerta = AlertaGerencial.objects.create(
-                empresa=empresa,
                 tipo_alerta='queda_vendas',
                 prioridade='alta',
                 titulo=f'Vendas baixas detectadas',
@@ -808,14 +797,12 @@ def detectar_alertas_automaticos(empresa):
         
         # 2. Verificar produtos sem estoque
         produtos_sem_estoque = Produto.objects.filter(
-            empresa=empresa,
             ativo=True,
             estoque_atual=0
         ).count()
         
         if produtos_sem_estoque > 0:
             alerta = AlertaGerencial.objects.create(
-                empresa=empresa,
                 tipo_alerta='estoque_baixo',
                 prioridade='media',
                 titulo=f'{produtos_sem_estoque} produto(s) sem estoque',
@@ -861,7 +848,6 @@ def gerar_dashboard_dados(dashboard_config, periodo_dias: int = 30) -> Dict[str,
             elif widget_type == 'top_produtos':
                 # Top 10 produtos por faturamento
                 vendas = Venda.objects.filter(
-                    empresa=empresa,
                     data_venda__gte=data_inicio,
                     data_venda__lte=data_fim,
                     status='finalizada'
@@ -879,7 +865,6 @@ def gerar_dashboard_dados(dashboard_config, periodo_dias: int = 30) -> Dict[str,
             
             elif widget_type == 'alertas_ativos':
                 alertas = AlertaGerencial.objects.filter(
-                    empresa=empresa,
                     ativo=True
                 ).order_by('-prioridade')[:5]
                 
@@ -895,7 +880,6 @@ def gerar_dashboard_dados(dashboard_config, periodo_dias: int = 30) -> Dict[str,
             
             elif widget_type == 'kpis_principais':
                 kpis = MetricaKPI.objects.filter(
-                    empresa=empresa,
                     data_referencia=data_fim
                 ).order_by('tipo_metrica')[:6]
                 
@@ -955,7 +939,6 @@ def calcular_previsao_vendas(empresa, data_inicio: date, data_fim: date, periodo
     try:
         # Agrupar vendas por mês para a série temporal
         vendas_mensais = Venda.objects.filter(
-            empresa=empresa,
             data_venda__gte=data_inicio,
             data_venda__lte=data_fim,
             status='finalizada'
@@ -997,7 +980,6 @@ def analisar_sazonalidade(empresa, data_inicio: date, data_fim: date, periodo: i
     """
     try:
         vendas_mensais = Venda.objects.filter(
-            empresa=empresa,
             data_venda__gte=data_inicio,
             data_venda__lte=data_fim,
             status='finalizada'
@@ -1040,7 +1022,6 @@ def calcular_tendencias(empresa, data_inicio: date, data_fim: date) -> Dict[str,
     """
     try:
         vendas_mensais = Venda.objects.filter(
-            empresa=empresa,
             data_venda__gte=data_inicio,
             data_venda__lte=data_fim,
             status='finalizada'
@@ -1084,8 +1065,7 @@ def gerar_cubo_olap(empresa, data_inicio: date, data_fim: date, dimensoes: List[
     Ex: dimensoes=['categoria__nome'], metrica='total'
     """
     try:
-        dados_flat = Venda.objects.filter(
-            empresa=empresa, data_venda__range=(data_inicio, data_fim), status='finalizada'
+        dados_flat = Venda.objects.filter( data_venda__range=(data_inicio, data_fim), status='finalizada'
         ).values(*dimensoes, metrica)
         
         if not dados_flat:
@@ -1120,7 +1100,6 @@ def executar_data_mining(empresa, data_inicio: date, data_fim: date, n_clusters:
     """
     try:
         dados_clientes = Cliente.objects.filter(
-            empresa=empresa,
             venda__data_venda__range=(data_inicio, data_fim)
         ).annotate(
             faturamento_total=Sum('venda__total'),
@@ -1169,8 +1148,7 @@ def calcular_correlacoes(empresa, data_inicio: date, data_fim: date) -> Dict[str
     Calcular a matriz de correlação entre métricas de vendas.
     """
     try:
-        dados_vendas = Venda.objects.filter(
-            empresa=empresa, data_venda__range=(data_inicio, data_fim), status='finalizada'
+        dados_vendas = Venda.objects.filter( data_venda__range=(data_inicio, data_fim), status='finalizada'
         ).annotate(
             num_itens=Sum('itens_venda__quantidade')
         ).values('total', 'desconto', 'num_itens')

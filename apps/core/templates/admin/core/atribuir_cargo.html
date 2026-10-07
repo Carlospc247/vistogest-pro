@@ -1,0 +1,20 @@
+{% extends "admin/base_site.html" %}
+{% block content %}
+<form method="post">{% csrf_token %}
+    {% for c in cargos %}
+    <p>
+      <label>
+        <input type="radio" name="cargo" value="{{ c.id }}" {% if c.id == atual %}checked{% endif %}>
+        {{ c.nome }} <small>({{ c.categoria }})</small>
+      </label>
+      &nbsp;— <a href="{% url 'admin:core_usuario_cargo_permissoes' usuario.pk c.id %}">Editar permissões</a>
+    </p>
+    {% empty %}
+        <p>Sem cargos neste tenant.</p>
+        <input type="hidden" name="cargo" value="admin">
+        <p>Ao guardar, será criado o cargo Administrador com todas as permissões.</p>
+    {% endfor %}
+  <input type="submit" value="Guardar" class="default">
+  <a href="{% url 'admin:core_usuario_changelist' %}">Cancelar</a>
+</form>
+{% endblock %}

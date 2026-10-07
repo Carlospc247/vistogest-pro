@@ -1,0 +1,128 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="pt-PT">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}vistoGEST{% endblock %}</title>
+
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- Font Awesome -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" rel="stylesheet">
+
+    <style>
+        body {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+        }
+
+        .auth-card {
+            backdrop-filter: blur(10px);
+            background: rgba(255, 255, 255, 0.95);
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+        }
+
+        .input-field {
+            transition: all 0.3s ease;
+        }
+
+        .input-field:focus {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #2E7D32, #4CAF50);
+            transition: all 0.3s ease;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 15px -3px rgba(46, 125, 50, 0.3);
+        }
+
+        /* Estilo genérico para os campos gerados por {{ form.as_p }} */
+        .auth-card form p {
+            margin-bottom: 1rem;
+        }
+        .auth-card form label {
+            display: block;
+            font-size: 0.875rem;
+            font-weight: 500;
+            color: #374151;
+            margin-bottom: 0.25rem;
+        }
+        .auth-card form input,
+        .auth-card form select {
+            width: 100%;
+            padding: 0.625rem 0.875rem;
+            border: 1px solid #d1d5db;
+            border-radius: 0.5rem;
+            font-size: 0.9rem;
+        }
+        .auth-card form input:focus,
+        .auth-card form select:focus {
+            outline: none;
+            border-color: #4CAF50;
+            box-shadow: 0 0 0 3px rgba(76, 175, 80, 0.15);
+        }
+        .auth-card form ul.errorlist {
+            color: #dc2626;
+            font-size: 0.8rem;
+            margin-top: 0.25rem;
+            list-style: none;
+            padding: 0;
+        }
+    </style>
+
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: '#2E7D32',
+                        secondary: '#4CAF50'
+                    }
+                }
+            }
+        }
+    </script>
+</head>
+
+<body class="min-h-screen flex items-center justify-center p-4">
+    <div class="auth-card w-full {% block card_width %}max-w-md{% endblock %} p-6 rounded-2xl">
+        <!-- Logo -->
+        <div class="text-center mb-2">
+            <div class="inline-flex items-center justify-center w-32 h-32 transparent from-primary to-secondary rounded-xl mb-2">
+                <img src="{% static 'img/logovisto.png' %}" alt="VistoGEST" class="w-32 h-32 object-contain">
+            </div>
+        </div>
+
+        <!-- Mensagens do Django messages framework -->
+        {% if messages %}
+        <div class="mb-4 space-y-2">
+            {% for message in messages %}
+            <div class="rounded-md p-3 text-sm {% if message.tags == 'error' %}bg-red-50 text-red-700{% elif message.tags == 'success' %}bg-green-50 text-green-700{% else %}bg-blue-50 text-blue-700{% endif %}">
+                {{ message }}
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+
+        <!-- Content -->
+        {% block content %}{% endblock %}
+
+        <!-- Footer -->
+        <div class="text-center mt-8 pt-6 border-t border-gray-200">
+            <p class="text-xs text-gray-500">
+                © {% now "Y" %} VistoGEST. Todos os direitos reservados.
+            </p>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    {% block scripts %}{% endblock %}
+</body>
+</html>

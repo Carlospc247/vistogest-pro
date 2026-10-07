@@ -60,14 +60,13 @@ class TipoMovimentacaoForm(forms.ModelForm):
         codigo = self.cleaned_data.get('codigo', '').upper()
 
         # No django_tenants, esta query roda isolada no schema do Tenant ativo.
-        # Valida a unicidade do código dentro da empresa atual sem precisar de 'empresa=empresa'.
         query = TipoMovimentacao.objects.filter(codigo=codigo)
         
         if self.instance and self.instance.pk:
             query = query.exclude(pk=self.instance.pk)
 
         if query.exists():
-            raise ValidationError('Já existe um tipo de movimentação com este código nesta empresa.')
+            raise ValidationError('Já existe um tipo de movimentação com este código nesta.')
 
         return codigo
 
@@ -125,7 +124,6 @@ class MovimentacaoEstoqueForm(forms.ModelForm):
 
 from django import forms
 from .models import Inventario, Usuario
-from apps.empresas.models import Categoria
 
 # ... (suas outras classes de estilo) ...
 form_field_classes = 'block w-full rounded-md border-0 py-1.5 text-gray-900 dark:text-white shadow-sm ring-1 ring-inset ring-gray-300 dark:ring-gray-600 placeholder:text-gray-400 focus:ring-2 focus:ring-inset focus:ring-blue-600 sm:text-sm sm:leading-6 dark:bg-gray-700'
@@ -148,19 +146,18 @@ class InventarioForm(forms.ModelForm):
     class Meta:
         model = Inventario
         fields = [
-            'titulo', 'descricao', 'data_planejada', 
-            'categorias', 'responsaveis_contagem', 'requer_dupla_contagem',
+            'titulo', 'descricao', 'data_planejada',
+            'responsaveis_contagem', 'requer_dupla_contagem',
             'apenas_produtos_ativos', 'apenas_com_estoque', 'bloqueio_movimentacao'
         ]
         widgets = {
             'data_planejada': forms.DateInput(attrs={'type': 'date'}),
             'descricao': forms.Textarea(attrs={'rows': 3}),
-            'categorias': forms.SelectMultiple(),
             'responsaveis_contagem': forms.SelectMultiple(),
         }
 
     def __init__(self, *args, **kwargs):
-        # 1. Assinatura padrão do Django ModelForm (sem kwargs extras de empresa)
+        # 1. Assinatura padrão do Django ModelForm
         super().__init__(*args, **kwargs)
         
         # 2. As opções dos campos 'categorias' e 'responsaveis_contagem' 

@@ -16,12 +16,16 @@ from django.views.generic import TemplateView, UpdateView, ListView, View
 from django.contrib.auth.decorators import login_required
 from .models import ConfiguracaoFiscal, BackupConfiguracao, PersonalizacaoInterface, HistoricoBackup
 from .forms import ConfiguracaoFiscalForm, BackupConfiguracoesForm, ContactForm, PersonalizacaoInterfaceForm
-from apps.empresas.models import Empresa
 from django.urls import reverse_lazy
 from django.views.generic import CreateView, UpdateView, DeleteView
 from .models import DadosBancarios
 from .forms import DadosBancariosForm
 from django.contrib.auth.mixins import AccessMixin
+from django.contrib import messages
+from django.shortcuts import redirect
+from django.contrib.auth.mixins import LoginRequiredMixin
+from django_tenants.utils import get_public_schema_name
+
 
 
 
@@ -50,37 +54,35 @@ class PermissaoAcaoMixin(AccessMixin):
  
 
 
+
+
 class ConfiguracoesBaseView(LoginRequiredMixin, PermissaoAcaoMixin):
     acao_requerida = 'acessar_configuracoes'
     """
-    Mixin base para as views de configurações, garantindo que o utilizador
-    tem uma empresa associada.
+    Mixin base para as views de configurações, garantindo que a requisição
+    está rodando no contexto de um Tenant (Empresa) válido via django_tenants.
     """
 
     def get_empresa(self):
-        user = self.request.user
+        """
+        Retorna a empresa (Tenant) atual da requisição.
+        O TenantMiddleware do django_tenants disponibiliza isso em request.tenant.
+        """
+        tenant = getattr(self.request, 'tenant', None)
 
-        # (1) Se for um funcionário vinculado a uma empresa
-        if hasattr(user, 'funcionario') and user.funcionario.empresa:
-            return user.funcionario.empresa
+        # Valida se o tenant existe e se NÃO é o schema 'public'
+        if tenant and tenant.schema_name != get_public_schema_name():
+            return tenant
 
-        # (2) Se for um usuário administrador (do modelo Usuario)
-        if getattr(user, 'e_administrador_empresa', False) and user.empresa:
-            return user.empresa
-
-        # (3) Se tiver empresa direta no user.empresa
-        if user.empresa:
-            return user.empresa
-
-        # (4) Se não houver nenhum vínculo → None
         return None
 
     def dispatch(self, request, *args, **kwargs):
         if not self.get_empresa():
-            messages.error(request, "Nenhuma empresa associada ao seu utilizador.")
-            return redirect('core:dashboard')  # Redireciona se não houver empresa
-        return super().dispatch(request, *args, **kwargs)
+            messages.error(request, "Acesso permitido apenas no contexto de uma empresa.")
+            return redirect('core_tenants:dashboard')  # Redireciona se estiver no schema público ou sem tenant
 
+        return super().dispatch(request, *args, **kwargs)
+    
 
 class ConfiguracoesDashboardView(ConfiguracoesBaseView, TemplateView):
     acao_requerida = 'acessar_configuracoes'
@@ -89,14 +91,13 @@ class ConfiguracoesDashboardView(ConfiguracoesBaseView, TemplateView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        empresa = self.get_empresa()
         
         context['title'] = "Painel de Configurações"
-        context['config_fiscal_exists'] = ConfiguracaoFiscal.objects.filter(empresa=empresa).exists()
-        context['config_backup_exists'] = BackupConfiguracao.objects.filter(empresa=empresa).exists()
-        context['config_interface_exists'] = PersonalizacaoInterface.objects.filter(empresa=empresa).exists()
+        context['config_fiscal_exists'] = ConfiguracaoFiscal.objects.all().exists()
+        context['config_backup_exists'] = BackupConfiguracao.objects.all().exists()
+        context['config_interface_exists'] = PersonalizacaoInterface.objects.all().exists()
         context['ultimo_backup'] = HistoricoBackup.objects.filter(
-            empresa=empresa, status='sucesso'
+            status='sucesso'
         ).order_by('-data_criacao').first()
         
         return context
@@ -322,9 +323,6 @@ class ConfiguracaoFiscalDeleteView(ConfiguracoesBaseView, PermissaoAcaoMixin, De
  
 
 
-
-
-
 class DadosBancariosCreateView(CreateView, PermissaoAcaoMixin):
     acao_requerida ='criar_dados_bancarios'
     model = DadosBancarios
@@ -334,7 +332,7 @@ class DadosBancariosCreateView(CreateView, PermissaoAcaoMixin):
 
     def form_valid(self, form):
         # Associa a conta bancária à configuração fiscal da empresa logada
-        config_fiscal = self.request.user.empresa.config_fiscal
+        config_fiscal = self.request.user.config_fiscal
         form.instance.configuracao_fiscal = config_fiscal
         return super().form_valid(form)
 

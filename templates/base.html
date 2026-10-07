@@ -1,4 +1,5 @@
-<!-- templates/base.html -->
+﻿<!-- templates/base.html -->
+{% load pharma_tags %}
 <!DOCTYPE html>
 <html lang="pt-pt" class="h-full {% if interface_prefs.tema == 'dark' %}dark{% endif %}">
 
@@ -14,8 +15,30 @@
     <link rel="icon" type="image/x-icon" href="{% load static %}{% static 'img/favicon.ico' %}">
     <link rel="apple-touch-icon" href="{% load static %}{% static 'images/apple-touch-icon.png' %}">
 
+    <!-- PWA: manifest + theme colour -->
+    {% url 'core:pwa_manifest' as PWA_MANIFEST_URL %}
+    {% if PWA_MANIFEST_URL %}<link rel="manifest" href="{{ PWA_MANIFEST_URL }}">{% endif %}
+    <meta name="theme-color" content="#2563eb">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="VistoGEST">
+
     <!-- TailwindCSS -->
     <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        // CORRIGIDO: sem isto, o Tailwind CDN usa a estratégia 'media' por
+        // omissão — as classes dark: respondem ao prefers-color-scheme do
+        // sistema operativo/navegador do utilizador, ignorando por completo
+        // a classe .dark no <html> e a lógica de toggle/localStorage mais
+        // abaixo (appData()/applyTheme()). Com darkMode:'class', as classes
+        // dark: só activam quando <html> tem a classe .dark — que é
+        // exactamente o que o JS já controla: tema claro por padrão, tema
+        // escuro só por escolha explícita do utilizador.
+        tailwind.config = {
+            darkMode: 'class',
+        }
+    </script>
 
     <!-- Font Awesome -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
@@ -153,8 +176,16 @@
         }
 
         /* --- 1.4 Tokens Semânticos (Modo Escuro) --- */
+        /* CORRIGIDO: ":root:not([data-theme]) .dark" era um selector de
+           descendente — nunca correspondia a nada, porque .dark é aplicado
+           ao próprio <html> (:root), não a um filho dele. Trocado para o
+           selector composto ":root.dark", que corresponde ao próprio
+           <html> assim que tem a classe .dark — incluindo no instante
+           entre o primeiro parse do HTML (classe vinda do Django) e o
+           Alpine.js ainda não ter corrido applyTheme() para definir o
+           atributo data-theme. */
         [data-theme="dark"],
-        :root:not([data-theme]) .dark {
+        :root.dark {
             --color-background: var(--gray-950);
             --color-surface: var(--gray-900);
             --color-surface-hover: var(--gray-800);
@@ -815,7 +846,7 @@
                 <ul role="list" class="flex flex-1 flex-col gap-y-1">
                     <!-- Dashboard -->
                     <li>
-                        <a href="{% url 'core:dashboard' %}" 
+                        <a href="{% url 'core_tenants:dashboard' %}" 
                            @click="isMobile && closeSidebar()"
                            class="menu-item {% if request.resolver_match.namespace == 'core' and request.resolver_match.url_name == 'dashboard' %}menu-active{% else %}text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800{% endif %} 
                                   group flex gap-x-3 rounded-md p-2 text-sm leading-6 font-semibold">
@@ -825,13 +856,14 @@
                     </li>
 
                     {% if user.is_superuser %}
+                    {% url 'core:plano_bypass' as PLANO_BYPASS_URL %}
                     <li class="nav-item mt-3">
                         <h6 class="ps-4 ms-2 text-uppercase text-xs font-weight-bolder opacity-6 text-white">Administração Global - Dívidas</h6>
                     </li>
 
                     <li class="nav-item">
                         <a class="nav-link {% if current_module == 'plano_bypass' %}active{% endif %}" 
-                        href="{% url 'core:plano_bypass' %}"
+                        href="{{ PLANO_BYPASS_URL|default:'#' }}"
                         style="background: linear-gradient(135deg, #6366f1 0%, #a855f7 100%); border-radius: 8px; margin: 5px 15px;">
                             <div class="icon icon-shape icon-sm shadow border-radius-md bg-white text-center me-2 d-flex align-items-center justify-content-center">
                                 <i class="fas fa-gem" style="color: #6366f1;"></i>
@@ -983,7 +1015,7 @@
                             <li class="border-t border-gray-100 dark:border-gray-700 my-1 mx-3"></li>
 
                             <li>
-                                <a href="{% url 'vendas_documentos:nota_credito_lista' %}" 
+                                <a href="{% url 'vendas:nota_credito_lista' %}" 
                                 class="flex items-center justify-between rounded-md py-2 px-3 text-sm leading-6 text-gray-600 dark:text-gray-400 hover:bg-red-50 dark:hover:bg-gray-800 hover:text-red-700 transition group/item">
                                     <div class="flex items-center gap-x-3">
                                         <i class="fas fa-minus-circle w-5 text-center opacity-70 text-red-500"></i> Notas de Crédito
@@ -992,7 +1024,7 @@
                                 </a>
                             </li>
                             <li>
-                                <a href="{% url 'vendas_documentos:nota_debito_lista' %}" 
+                                <a href="{% url 'vendas:nota_debito_lista' %}" 
                                 class="flex items-center justify-between rounded-md py-2 px-3 text-sm leading-6 text-gray-600 dark:text-gray-400 hover:bg-indigo-50 dark:hover:bg-gray-800 hover:text-indigo-700 transition group/item">
                                     <div class="flex items-center gap-x-3">
                                         <i class="fas fa-plus-circle w-5 text-center opacity-70 text-indigo-500"></i> Notas de Débito
@@ -1001,7 +1033,7 @@
                                 </a>
                             </li>
                             <li>
-                                <a href="{% url 'vendas_documentos:documento_transporte_lista' %}" 
+                                <a href="{% url 'vendas:documento_transporte_lista' %}" 
                                 class="flex items-center justify-between rounded-md py-2 px-3 text-sm leading-6 text-gray-600 dark:text-gray-400 hover:bg-purple-50 dark:hover:bg-gray-800 hover:text-purple-700 transition group/item">
                                     <div class="flex items-center gap-x-3">
                                         <i class="fas fa-truck-moving w-5 text-center opacity-70 text-purple-500"></i> Guias de Transporte
@@ -1013,38 +1045,44 @@
                     </li>
 
                     <!-- Produtos -->
-                     {% if request.user.empresa.regime_empresa == 'COMERCIO' or request.user.empresa.regime_empresa == 'SERVICOS' or request.user.empresa.regime_empresa == 'MISTO' %}
+                    {% if request.tenant.regime_empresa == 'COMERCIO' or request.tenant.regime_empresa == 'SERVICOS' or request.tenant.regime_empresa == 'MISTO' %}
                     <li x-data="{ open: {% if request.resolver_match.namespace == 'produtos' %}true{% else %}false{% endif %} }">
                         <button @click="open = !open"
                             class="menu-item text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 
-                                   group flex w-full items-center gap-x-3 rounded-md p-2 text-left text-sm leading-6 font-semibold">
+                                group flex w-full items-center gap-x-3 rounded-md p-2 text-left text-sm leading-6 font-semibold">
                             <i class="fas fa-box h-6 w-6 shrink-0 menu-icon"></i>
                             Produtos/Serviços
                             <i class="fas fa-chevron-right ml-auto h-5 w-5 shrink-0 transition-transform"
                                 :class="open ? 'rotate-90' : ''"></i>
                         </button>
+
                         <ul x-show="open" x-cloak x-transition class="mt-1 px-2">
-                            <li><a href="{% url 'produtos:produto_list' %}"
-                                   @click="isMobile && closeSidebar()"
-                                    class="block rounded-md py-2 px-3 text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800">
+                            <li>
+                                <a href="{% url 'produtos:produto_list' %}"
+                                @click="isMobile && closeSidebar()"
+                                class="block rounded-md py-2 px-3 text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800">
                                     <i class="fas fa-list mr-2"></i>Produtos
                                 </a>
                             </li>
-                            <li><a href="{% url 'servicos:servico_list' %}"
-                                   @click="isMobile && closeSidebar()"
-                                    class="block rounded-md py-2 px-3 text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800">
+
+                            <li>
+                                <a href="{% url 'servicos:servico_list' %}"
+                                @click="isMobile && closeSidebar()"
+                                class="block rounded-md py-2 px-3 text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800">
                                     <i class="fas fa-hands-helping mr-2"></i>Serviços
                                 </a>
                             </li>
-                            <li><a href="{% url 'produtos:categoria_list' %}"
-                                   @click="isMobile && closeSidebar()"
-                                    class="block rounded-md py-2 px-3 text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800">
+
+                            <li>
+                                <a href="{% url 'produtos:categoria_list' %}"
+                                @click="isMobile && closeSidebar()"
+                                class="block rounded-md py-2 px-3 text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800">
                                     <i class="fas fa-tags mr-2"></i>Categorias
-                                </a></li>
+                                </a>
+                            </li>
                         </ul>
                     </li>
                     {% endif %}
-
                     <!-- Estoque -->
                      {% if request.user.empresa.regime_empresa == 'COMERCIO' or request.user.empresa.regime_empresa == 'SERVICOS' or request.user.empresa.regime_empresa == 'MISTO' %}
                     <li x-data="{ open: {% if request.resolver_match.namespace == 'estoque' %}true{% else %}false{% endif %} }">
@@ -1336,7 +1374,7 @@
                     <nav class="flex" aria-label="Breadcrumb">
                         <ol role="list" class="flex items-center space-x-4">
                             {% block breadcrumbs %}
-                            <li><a href="{% url 'core:dashboard' %}"
+                            <li><a href="{% url 'core_tenants:dashboard' %}"
                                     class="text-gray-400 hover:text-gray-500 dark:text-gray-500 dark:hover:text-gray-400">
                                     <i class="fas fa-home h-5 w-5"></i>
                                 </a></li>
@@ -1354,7 +1392,7 @@
                             <span class="sr-only">Ver notificações</span>
                             <i class="fas fa-bell h-6 w-6"></i>
                             <span
-                                class="absolute -top-1 -right-1 h-4 w-4 bg-red-400 rounded-full text-xs text-white flex items-center justify-center">
+                                class="notification-badge absolute -top-1 -right-1 h-4 w-4 bg-red-400 rounded-full text-xs text-white flex items-center justify-center">
                                 {{ notifications_count|default:0 }}
                             </span>
                         </button>
@@ -1366,10 +1404,13 @@
                             x-transition:leave-start="opacity-100 scale-100" x-transition:leave-end="opacity-0 scale-95"
                             class="absolute right-0 z-10 mt-2 w-80 origin-top-right rounded-md bg-white dark:bg-gray-800 
                                     py-1 shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none">
-                            <div class="px-4 py-2 border-b border-gray-200 dark:border-gray-700">
+                            <div class="px-4 py-2 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
                                 <h3 class="text-sm font-medium text-gray-900 dark:text-gray-100">Notificações</h3>
+                                <button class="notification-mark-all text-xs text-blue-600 dark:text-blue-400 hover:underline">
+                                    Marcar todas como lidas
+                                </button>
                             </div>
-                            <div class="max-h-96 overflow-y-auto">
+                            <div class="notification-dropdown-list max-h-96 overflow-y-auto">
                                 {% for notification in notifications|slice:":5" %}
                                 <a href="{{ notification.url|default:'#' }}"
                                     class="block px-4 py-3 hover:bg-gray-50 dark:hover:bg-gray-700">
@@ -1395,10 +1436,13 @@
                                 {% endfor %}
                             </div>
                             <div class="border-t border-gray-200 dark:border-gray-700">
-                                <a href="{% url 'core:notifications' %}"
+                                {% url 'core_tenants:notifications' as NOTIFICATIONS_URL %}
+                                {% if NOTIFICATIONS_URL %}
+                                <a href="{{ NOTIFICATIONS_URL }}"
                                     class="block px-4 py-2 text-sm text-center text-blue-600 dark:text-blue-400 hover:bg-gray-50 dark:hover:bg-gray-700">
                                     Ver todas as notificações
                                 </a>
+                                {% endif %}
                             </div>
                         </div>
                     </div>
@@ -1576,7 +1620,12 @@
                         © 2024 vistoGEST. Todos os direitos reservados.
                     </p>
                     <span class="text-sm text-gray-500 dark:text-gray-400">
-                        Empresa: {{ request.user.funcionario.empresa.razao_social|default:"vistoGEST" }}
+                        Empresa:
+                        {% if request.tenant %}
+                            {{ request.tenant.razao_social|default:request.tenant.name|default:"vistoGEST" }}
+                        {% else %}
+                            vistoGEST
+                        {% endif %}
                     </span>
                 </div>
                 <div class="flex items-center space-x-4 text-sm text-gray-500 dark:text-gray-400">
@@ -1817,6 +1866,271 @@
 
 
     {% block extra_js %}{% endblock %}
+
+{% if user.is_authenticated %}
+<script>
+/* =====================================================================
+   SISTEMA DE NOTIFICAÇÕES — Polling AJAX (S8 · PLANO_IMPLEMENTACAO v7)
+   Verifica novas notificações a cada 60 s sem recarregar a página.
+   ===================================================================== */(function () {
+    'use strict';
+
+    const POLL_URL    = '{% url "core_tenants:notifications_count_ajax" %}';
+    const READ_URL    = '{% url "core_tenants:notifications_read_all" %}';
+    const CSRF_TOKEN  = '{{ csrf_token }}';
+    const INTERVAL_MS = 60000; // 60 segundos
+
+    // --- Elementos do DOM ---------------------------------------------------
+    const badge       = document.querySelector('.notification-badge');
+    const dropdownList= document.querySelector('.notification-dropdown-list');
+
+    // --- Actualizar badge ---------------------------------------------------
+    function updateBadge(count) {
+        if (!badge) return;
+        badge.textContent = count;
+        badge.style.display = count > 0 ? 'flex' : 'none';
+        // Pisca suavemente quando há notificações novas
+        if (count > 0) {
+            badge.classList.add('animate-pulse');
+            setTimeout(() => badge.classList.remove('animate-pulse'), 3000);
+        }
+    }
+
+    // --- Renderizar dropdown ------------------------------------------------
+    function renderDropdown(notifications) {
+        if (!dropdownList) return;
+        if (!notifications || notifications.length === 0) {
+            dropdownList.innerHTML = '<div class="px-4 py-3 text-sm text-gray-500 dark:text-gray-400 text-center">Nenhuma notificação</div>';
+            return;
+        }
+        const icons = {
+            'bell': 'fa-bell',
+            'info-circle': 'fa-info-circle',
+            'exclamation-triangle': 'fa-exclamation-triangle',
+            'exclamation-circle': 'fa-exclamation-circle',
+            'boxes': 'fa-boxes',
+            'chart-line': 'fa-chart-line',
+            'tachometer-alt': 'fa-tachometer-alt',
+            'shield-alt': 'fa-shield-alt',
+            'money-bill-wave': 'fa-money-bill-wave',
+        };
+        dropdownList.innerHTML = notifications.map(n => {
+            const icon  = icons[n.icon] || 'fa-info-circle';
+            const color = n.type || 'blue';
+            const readAttr = n.id ? `data-notif-id="${n.id}"` : '';
+            const ago = timeAgo(n.created_at);
+            return `
+            <a href="${n.url || '#'}" ${readAttr}
+               class="notification-item block px-4 py-3 hover:bg-gray-50 dark:hover:bg-gray-700 ${n.id ? 'cursor-pointer' : ''}">
+                <div class="flex">
+                    <div class="flex-shrink-0">
+                        <i class="fas ${icon} h-5 w-5 text-${color}-500"></i>
+                    </div>
+                    <div class="ml-3 min-w-0">
+                        <p class="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">${n.title}</p>
+                        <p class="text-sm text-gray-500 dark:text-gray-400 truncate">${n.message}</p>
+                        <p class="text-xs text-gray-400 dark:text-gray-500">${ago} atrás</p>
+                    </div>
+                </div>
+            </a>`;
+        }).join('');
+
+        // Evento: marcar como lida ao clicar
+        dropdownList.querySelectorAll('.notification-item[data-notif-id]').forEach(el => {
+            el.addEventListener('click', function() {
+                const pk = this.dataset.notifId;
+                if (!pk) return;
+                fetch(`/ajax/notifications/${pk}/read/`, {
+                    method: 'POST',
+                    headers: { 'X-CSRFToken': CSRF_TOKEN, 'Content-Type': 'application/json' },
+                });
+            });
+        });
+    }
+
+    // --- Marcar todas como lidas -------------------------------------------
+    const markAllBtn = document.querySelector('.notification-mark-all');
+    if (markAllBtn) {
+        markAllBtn.addEventListener('click', function(e) {
+            e.preventDefault();
+            fetch(READ_URL, {
+                method: 'POST',
+                headers: { 'X-CSRFToken': CSRF_TOKEN, 'Content-Type': 'application/json' },
+            }).then(() => poll());
+        });
+    }
+
+    // --- Polling principal --------------------------------------------------
+    function poll() {
+        fetch(POLL_URL, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+            .then(r => r.ok ? r.json() : null)
+            .then(data => {
+                if (!data) return;
+                updateBadge(data.count);
+                renderDropdown(data.notifications);
+            })
+            .catch(() => { /* falha silenciosa — não interrompe o utilizador */ });
+    }
+
+    // --- Utilitário de data -------------------------------------------------
+    function timeAgo(isoString) {
+        if (!isoString) return '';
+        const diff = Math.floor((Date.now() - new Date(isoString)) / 1000);
+        if (diff < 60)  return `${diff}s`;
+        if (diff < 3600) return `${Math.floor(diff / 60)}min`;
+        if (diff < 86400) return `${Math.floor(diff / 3600)}h`;
+        return `${Math.floor(diff / 86400)}d`;
+    }
+
+    // Primeira chamada imediata + polling contínuo
+    poll();
+    setInterval(poll, INTERVAL_MS);
+})();
+</script>
+{% endif %}
+
+<!-- PWA: Service Worker Registration + Install Prompt (S9) -->
+<script>
+(function () {
+    'use strict';
+
+    // ── 1. Registar Service Worker ─────────────────────────────────────────
+    if ('serviceWorker' in navigator) {
+        window.addEventListener('load', function () {
+            navigator.serviceWorker
+                .register('{% url "core:pwa_service_worker" %}', { scope: '/' })
+                .then(function (reg) {
+                    console.log('[PWA] Service Worker registado:', reg.scope);
+                    // Verificar actualização silenciosa
+                    reg.addEventListener('updatefound', function () {
+                        const newWorker = reg.installing;
+                        newWorker.addEventListener('statechange', function () {
+                            if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                                console.log('[PWA] Nova versão disponível. A actualizar...');
+                                newWorker.postMessage({ type: 'SKIP_WAITING' });
+                            }
+                        });
+                    });
+                })
+                .catch(function (err) {
+                    console.warn('[PWA] Falha ao registar Service Worker:', err);
+                });
+        });
+    }
+
+    // ── 2. Install Prompt (A2HS — Add to Home Screen) ─────────────────────
+    let deferredPrompt = null;
+
+    window.addEventListener('beforeinstallprompt', function (e) {
+        e.preventDefault();
+        deferredPrompt = e;
+        // Mostrar botão de instalação personalizado (se existir no DOM)
+        const installBtn = document.getElementById('pwa-install-btn');
+        if (installBtn) {
+            installBtn.style.display = 'flex';
+            installBtn.addEventListener('click', function () {
+                installBtn.style.display = 'none';
+                deferredPrompt.prompt();
+                deferredPrompt.userChoice.then(function (choice) {
+                    if (choice.outcome === 'accepted') {
+                        console.log('[PWA] Utilizador aceitou instalar a aplicação');
+                    }
+                    deferredPrompt = null;
+                });
+            });
+        }
+        // Também mostrar o banner no rodapé após 3 s
+        setTimeout(function () {
+            showInstallBanner(e);
+        }, 3000);
+    });
+
+    function showInstallBanner(e) {
+        // Não mostrar se já está em modo standalone (já instalado)
+        if (window.matchMedia('(display-mode: standalone)').matches) return;
+
+        const existingBanner = document.getElementById('pwa-install-banner');
+        if (existingBanner) return; // Já visível
+
+        const banner = document.createElement('div');
+        banner.id = 'pwa-install-banner';
+        banner.setAttribute('role', 'dialog');
+        banner.setAttribute('aria-label', 'Instalar aplicação');
+        banner.className = [
+            'fixed bottom-4 left-1/2 -translate-x-1/2 z-50',
+            'flex items-center gap-x-3',
+            'bg-white dark:bg-gray-800 shadow-xl rounded-xl px-4 py-3',
+            'border border-gray-200 dark:border-gray-700',
+            'text-sm text-gray-800 dark:text-gray-100',
+            'max-w-sm w-full mx-4',
+            'transition-all duration-300',
+        ].join(' ');
+
+        banner.innerHTML = `
+            <img src="/static/images/icon-192.png" alt="ícone" class="h-10 w-10 rounded-lg flex-shrink-0"
+                 onerror="this.style.display='none'">
+            <div class="flex-1 min-w-0">
+                <p class="font-semibold truncate">Instalar VistoGEST</p>
+                <p class="text-xs text-gray-500 dark:text-gray-400 truncate">
+                    Acesso rápido, funciona offline
+                </p>
+            </div>
+            <button id="pwa-banner-install"
+                    class="flex-shrink-0 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs
+                           font-medium rounded-lg transition-colors focus:outline-none focus:ring-2
+                           focus:ring-blue-500">
+                Instalar
+            </button>
+            <button id="pwa-banner-dismiss" aria-label="Fechar"
+                    class="flex-shrink-0 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300
+                           focus:outline-none ml-1">
+                <i class="fas fa-times"></i>
+            </button>
+        `;
+
+        document.body.appendChild(banner);
+
+        document.getElementById('pwa-banner-install').addEventListener('click', function () {
+            banner.remove();
+            e.prompt();
+            e.userChoice.then(function (choice) {
+                if (choice.outcome === 'accepted') console.log('[PWA] App instalada via banner');
+                deferredPrompt = null;
+            });
+        });
+
+        document.getElementById('pwa-banner-dismiss').addEventListener('click', function () {
+            banner.remove();
+        });
+
+        // Auto-ocultar após 10 s
+        setTimeout(function () { if (banner.parentNode) banner.remove(); }, 10000);
+    }
+
+    // ── 3. Indicador de estado da rede ─────────────────────────────────────
+    function updateOnlineStatus() {
+        const indicator = document.getElementById('network-status');
+        if (!indicator) return;
+        if (navigator.onLine) {
+            indicator.textContent = '';
+            indicator.className = 'hidden';
+        } else {
+            indicator.innerHTML = '<i class="fas fa-wifi-slash mr-1"></i>Sem conexão — modo offline';
+            indicator.className = [
+                'fixed top-0 left-0 right-0 z-50 py-1 px-4 text-xs text-center',
+                'bg-yellow-500 text-white font-medium',
+            ].join(' ');
+        }
+    }
+
+    window.addEventListener('online',  updateOnlineStatus);
+    window.addEventListener('offline', updateOnlineStatus);
+    updateOnlineStatus();
+})();
+</script>
+
+<!-- Indicador de estado de rede (injectado pelo JS acima) -->
+<div id="network-status" class="hidden" role="status" aria-live="polite"></div>
 </body>
 
 </html>

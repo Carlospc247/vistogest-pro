@@ -1,7 +1,7 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from apps.fiscal import views_erro_agt
-from . import views
+from . import views, views_integracoes
 
 app_name = 'fiscal'
 
@@ -13,6 +13,7 @@ router = DefaultRouter()
 router.register(r'taxas-iva', views.TaxaIVAAGTViewSet, basename='taxas-iva')
 router.register(r'assinatura-digital', views.AssinaturaDigitalViewSet, basename='assinatura-digital')
 router.register(r'retencoes-fonte', views.RetencaoFonteViewSet, basename='retencoes-fonte')
+router.register(r'documentos-fiscais', views.DocumentoFiscalViewSet, basename='documentos-fiscais')
 
 # =====================================
 # URLs da API REST
@@ -35,7 +36,7 @@ api_urlpatterns = [
     path('api/taxas-iva/export-saft/', views.TaxaIVAAGTViewSet.as_view({'get': 'export_saft'}), name='taxas-iva-export-saft'),
     
     # Endpoints específicos para Assinatura Digital
-    path('api/assinatura/gerar-chaves/', views.AssinaturaDigitalViewSet.as_view({'post': 'gerar_chaves'}), name='assinatura-gerar-chaves'),
+    path('api/assinatura/configurar-chave/', views.AssinaturaDigitalViewSet.as_view({'post': 'configurar_chave'}), name='assinatura-configurar-chave'),
     path('api/assinatura/assinar-documento/', views.AssinaturaDigitalViewSet.as_view({'post': 'assinar_documento'}), name='assinatura-assinar'),
     path('api/assinatura/status-cadeia/', views.AssinaturaDigitalViewSet.as_view({'get': 'status_cadeia'}), name='assinatura-status'),
     
@@ -51,6 +52,14 @@ api_urlpatterns = [
 web_urlpatterns = [
     # Dashboard principal
     path('', views.FiscalDashboardTemplateView.as_view(), name='dashboard'),
+
+    # ── Homologação AGT (S11) ─────────────────────────────────────────────────
+    path('homologacao/', views.HomologacaoDashboardView.as_view(), name='homologacao-dashboard'),
+    path('homologacao/gerar/', views.HomologacaoGerarView.as_view(), name='homologacao-gerar'),
+    path('homologacao/gerar/<str:ponto>/', views.HomologacaoGerarPontoView.as_view(), name='homologacao-gerar-ponto'),
+    path('homologacao/saft/', views.HomologacaoGerarSaftView.as_view(), name='homologacao-saft'),
+    path('homologacao/download-saft/', views.HomologacaoDownloadSaftView.as_view(), name='homologacao-download-saft'),
+    path('homologacao/pdf/<str:numero_documento>/', views.HomologacaoPdfView.as_view(), name='homologacao-pdf'),
     
     # Gestão de Taxas de IVA
     path('taxas-iva/', views.TaxaIVAListView.as_view(), name='taxas-iva-list'),
@@ -61,8 +70,8 @@ web_urlpatterns = [
     
     # Gestão de Assinatura Digital
     path('assinatura/', views.AssinaturaDigitalView.as_view(), name='assinatura-digital'),
-    path('assinatura/configurar/', views.AssinaturaConfigurarView.as_view(), name='assinatura-configurar'),
-    path('assinatura/gerar-chaves/', views.AssinaturaGerarChavesView.as_view(), name='assinatura-gerar-chaves-web'),
+    path('assinatura/configurar/', views.AssinaturaConfigurarChaveContribuinteView.as_view(), name='assinatura-configurar'),
+    path('assinatura/gerar-chaves/', views.AssinaturaConfigurarChaveContribuinteView.as_view(), name='assinatura-gerar-chaves-web'),
     
     # Gestão de Retenções na Fonte
     path('retencoes/', views.RetencaoFonteListView.as_view(), name='retencoes-list'),
@@ -80,6 +89,7 @@ web_urlpatterns = [
     # Exportações SAF-T
     path('saft/', views.SAFTView.as_view(), name='saft'),
     path('saft/exportar/', views.SAFTExportWebView.as_view(), name='saft-export-web'),
+    path('saft/validar/', views.SAFTValidarXSDView.as_view(), name='saft-validar-xsd'),
     path('saft/historico/', views.SAFTHistoricoView.as_view(), name='saft-historico'),
     
     # Validações e Verificações
@@ -92,27 +102,13 @@ web_urlpatterns = [
     path('configuracoes/empresa/', views.ConfiguracaoEmpresaView.as_view(), name='configuracao-empresa'),
     path('configuracoes/backup/', views.BackupFiscalView.as_view(), name='backup-fiscal'),
 
-    # Validações Fiscais
-    path('validacoes/', views.ValidacoesView.as_view(), name='validacoes'),
-    path('validacoes/documentos/', views.ValidarDocumentosView.as_view(), name='validar-documentos-web'),
-    path('validacoes/integridade/', views.VerificarIntegridadeView.as_view(), name='verificar-integridade-web'),
-
-    # Configurações Fiscais
-    path('configuracoes/', views.ConfiguracoesFiscaisView.as_view(), name='configuracoes'),
-    path('configuracoes/empresa/', views.ConfiguracaoEmpresaView.as_view(), name='configuracao-empresa'),
-    path('configuracoes/backup/', views.BackupFiscalView.as_view(), name='backup-fiscal'),
-
-    #endpoint para baixar a chave pública no formato .pem e em pdf para submeter a agt
-    path('assinatura/baixar-publica/<int:empresa_id>/', views.baixar_chave_publica, name='baixar_chave_publica'),
-    path('assinatura/pdf-submissao/<int:empresa_id>/', views.baixar_pdf_submissao, name='baixar_pdf_submissao'),
-    path('assinatura/download-pdf-agt/<int:empresa_id>/', views.download_pdf_agt, name='download_pdf_agt'),
-
+    # Downloads de chave pública e PDFs para submissão à AGT
+    # Isolamento físico: sem empresa_id na URL — o tenant está implícito no schema.
+    path('assinatura/baixar-publica/', views.baixar_chave_publica, name='baixar_chave_publica'),
+    path('assinatura/pdf-submissao/', views.baixar_pdf_submissao, name='baixar_pdf_submissao'),
+    path('assinatura/download-pdf-agt/', views.download_pdf_agt, name='download_pdf_agt'),
 
 ]
-
-# =====================================
-# URLs de Utilitários e AJAX
-# =====================================
 # Para as atualizações em tempo real do Dashboard que criamos.
 ajax_urlpatterns = [
     # AJAX para operações rápidas
@@ -131,6 +127,7 @@ ajax_urlpatterns = [
     # AJAX para validações em tempo real
     path('ajax/verificar-documento/', views.ajax_verificar_documento, name='ajax-verificar-documento'),
     path('ajax/status-assinatura/', views.ajax_status_assinatura, name='ajax-status-assinatura'),
+    path('ajax/testar-assinatura/', views.ajax_testar_assinatura, name='ajax-testar-assinatura'),
 ]
 
 # =====================================
@@ -162,7 +159,7 @@ download_urlpatterns = [
 
 webhook_urlpatterns = [
     # Webhooks para integrações externas
-    path('webhook/agt-notification/', views.webhook_agt_notification, name='webhook-agt'),   
+    path('webhook/agt-notification/', views_integracoes.webhook_agt_notification, name='webhook-agt'),   
 ]
 
 # =====================================

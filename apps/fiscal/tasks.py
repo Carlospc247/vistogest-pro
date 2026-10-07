@@ -1,199 +1,395 @@
-#apps/fiscal/tasks.py
+# apps/fiscal/tasks.py
+"""
+Tarefas Celery para o módulo fiscal — Faturação Electrónica AGT.
+
+Fase 10 do PLANO_IMPLEMENTACAO.md:
+  - submeter_fatura_agt: submete um DocumentoFiscal à API AGT.
+  - polling_estado_agt: consulta o estado de documentos pendentes.
+  - sincronizar_series_agt: sincroniza as séries com a AGT.
+
+Execução assíncrona (design do Decreto 683/25, Modelo Validação a Posteriori):
+  1. O documento é emitido e assinado localmente de forma síncrona.
+  2. A submissão à AGT é assíncrona — vai para fila Celery.
+  3. O polling verifica o resultado diferido a cada 15 minutos.
+
+Contexto multi-tenant: cada tarefa recebe o `schema_name` do tenant e
+activa o schema correcto antes de executar — sem que a fila de mensagens
+misture dados de tenants diferentes.
+"""
 import logging
-import os
-import zipfile
-from datetime import datetime, date, timedelta
-from typing import Dict, List
+from datetime import timedelta
+
 from celery import shared_task
-from django.conf import settings
 from django.utils import timezone
-from apps.empresas.models import Empresa
-from apps.fiscal.models import DocumentoFiscal, AssinaturaDigital, RetencaoFonte
-from apps.fiscal.services.polling_service import FiscalPollingService
-from apps.fiscal.services.utils import SAFTExportService
-from django.apps import apps
 from django_tenants.utils import schema_context
-from apps.fiscal.services.assinatura_service import AssinaturaDigitalService
-
-
 
 logger = logging.getLogger('fiscal.tasks')
 
-# ============================================================
-# 1. CORE: SINCRONIZAÇÃO EM TEMPO REAL (POLLING AGT)
-# ============================================================
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Task 1 — Submeter fatura à AGT
+# ─────────────────────────────────────────────────────────────────────────────
 
-# ============================================================
-# 3. CORE: ASSINATURA DIGITAL RSA (SEGURANÇA SOTARQ)
-# ============================================================
-
-@shared_task(name="processar_assinatura_documento", bind=True, max_retries=3)
-def processar_assinatura_documento(self, empresa_id, documento_id, documento_type, dados_documento):
+@shared_task(
+    bind=True,
+    max_retries=3,
+    default_retry_delay=300,   # 5 minutos entre retentativas
+    name='fiscal.submeter_fatura_agt',
+)
+def submeter_fatura_agt(self, schema_name: str, documento_fiscal_id: int):
     """
-    Assina digitalmente faturas e recibos de forma assíncrona.
-    Evita que o tempo de processamento RSA (lento) trave o PDV do cliente.
+    Submete um DocumentoFiscal à API AGT (/registarFactura).
+
+    Args:
+        schema_name:         Schema PostgreSQL do tenant (ex.: 'empresa_abc').
+        documento_fiscal_id: PK do DocumentoFiscal a submeter.
+
+    Comportamento:
+        - Activa o schema do tenant antes de qualquer acesso à BD.
+        - Só submete documentos com status 'confirmed' e sem requestID.
+        - Em caso de erro de rede, recoloca na fila (max 3 retentativas).
+        - Em caso de erro de negócio (AGT recusa), regista nos metadados
+          e NÃO recoloca (o operador terá de corrigir manualmente).
     """
-    try:
-        empresa = Empresa.objects.get(id=empresa_id)
-        
-        # RIGOR SOTARQ: Muda para o schema do inquilino para gravar o hash no documento certo
-        with schema_context(empresa.schema_name):
-            # Obtém o model dinamicamente (Venda, FaturaCredito, etc.)
-            # Nota: Centralizamos na app 'vendas' conforme sua estrutura de signals
-            Model = apps.get_model(app_label='vendas', model_name=documento_type)
-            instance = Model.objects.get(id=documento_id)
-            
-            # Chama o AssinaturaDigitalService que o senhor já possui
-            # O service faz o trabalho pesado de RSA e gestão da cadeia de hashes
-            resultado = AssinaturaDigitalService.assinar_documento(empresa, dados_documento)
-            
-            # Grava os selos AGT no banco de dados do tenant
-            instance.hash_documento = resultado['hash']
-            instance.assinatura_digital = resultado['assinatura']
-            instance.hash_anterior = resultado['hash_anterior']
-            instance.atcud = resultado['atcud']
-            
-            # RIGOR: update_fields impede que signals post_save disparem de novo (loop infinito)
-            instance.save(update_fields=['hash_documento', 'assinatura_digital', 'hash_anterior', 'atcud'])
-            
-            logger.info(f"✔ Sucesso SOTARQ: Documento {documento_type} {documento_id} assinado.")
+    with schema_context(schema_name):
+        from apps.fiscal.models import DocumentoFiscal
+        from apps.fiscal.services.submissao_fatura_service import SubmissaoFaturaService
+        from apps.fiscal.services.utils import FiscalServiceError
+        import requests
 
-    except Exception as exc:
-        logger.error(f"✘ Erro Crítico na Assinatura {documento_id}: {exc}")
-        # Tenta novamente em 60 segundos se o erro for temporário
-        raise self.retry(exc=exc, countdown=60)
-
-
-
-@shared_task(name="task_processar_polling_global_agt")
-def task_processar_polling_global_agt():
-    """
-    Varre todas as empresas em busca de RequestIDs pendentes de validação na AGT.
-    Conforme regras de processamento assíncrono da Faturação Eletrónica.
-    """
-    docs_pendentes = DocumentoFiscal.objects.filter(
-        status='confirmed',
-        metadados__has_key='request_id_agt'
-    ).exclude(status__in=['posted', 'cancelled']).distinct('empresa')
-
-    empresas_ids = docs_pendentes.values_list('empresa_id', flat=True)
-
-    for empresa_id in empresas_ids:
-        task_sincronizar_empresa_agt.delay(empresa_id)
-
-
-@shared_task(name="task_sincronizar_empresa_agt")
-def task_sincronizar_empresa_agt(empresa_id):
-    """Sincroniza RequestIDs de uma empresa específica."""
-    try:
-        empresa = Empresa.objects.get(pk=empresa_id)
-        polling_service = FiscalPollingService(empresa)
-
-        docs = DocumentoFiscal.objects.filter(
-            empresa=empresa,
-            status='confirmed',
-            metadados__has_key='request_id_agt'
-        ).exclude(status__in=['posted', 'cancelled'])
-
-        # Extrai RequestIDs únicos para evitar chamadas redundantes à API
-        request_ids = {d.metadados.get('request_id_agt') for d in docs if d.metadados.get('request_id_agt')}
-
-        for rid in request_ids:
-            logger.info(f"Polling AGT - Empresa: {empresa.nome} | RID: {rid}")
-            resultado = polling_service.consultar_estado_documento(rid)
-            
-            if resultado == "FINISHED":
-                logger.info(f"Sincronização FINALIZADA para RID: {rid}")
-            elif resultado == "PROCESSING":
-                logger.info(f"RID {rid} ainda em processamento na AGT.")
-
-    except Empresa.DoesNotExist:
-        logger.error(f"Empresa ID {empresa_id} inexistente.")
-    except Exception as e:
-        logger.exception(f"Erro no polling da empresa {empresa_id}: {e}")
-
-# ============================================================
-# 2. MANUTENÇÃO: BACKUPS E LIMPEZA (ENTERPRISE STANDARD)
-# ============================================================
-
-@shared_task
-def limpeza_arquivos_temporarios():
-    """Remove exports de SAF-T e backups antigos (>30 dias) para poupar disco."""
-    try:
-        dias_manter = 30
-        diretorios = [
-            os.path.join(settings.MEDIA_ROOT, 'saft_exports'),
-            os.path.join(settings.MEDIA_ROOT, 'backups_fiscal')
-        ]
-        
-        removidos = 0
-        for diretorio in diretorios:
-            if not os.path.exists(diretorio): continue
-            for filename in os.listdir(diretorio):
-                file_path = os.path.join(diretorio, filename)
-                if os.path.isfile(file_path):
-                    file_time = datetime.fromtimestamp(os.path.getctime(file_path))
-                    if (datetime.now() - file_time).days > dias_manter:
-                        os.remove(file_path)
-                        removidos += 1
-        return {'success': True, 'arquivos_removidos': removidos}
-    except Exception as e:
-        logger.error(f"Erro na limpeza: {e}")
-        return {'success': False, 'error': str(e)}
-
-# ============================================================
-# 3. RELATÓRIOS E EXPORTAÇÕES AGENDADAS
-# ============================================================
-
-@shared_task(bind=True)
-def gerar_saft_async(self, empresa_id: int, data_inicio: str, data_fim: str):
-    """Gera o XML SAF-T AO 1.01 de forma assíncrona para não travar o worker principal."""
-    try:
-        empresa = Empresa.objects.get(id=empresa_id)
-        di = datetime.strptime(data_inicio, '%Y-%m-%d').date()
-        df = datetime.strptime(data_fim, '%Y-%m-%d').date()
-        
-        xml_content = SAFTExportService.gerar_saft_ao(empresa, di, df)
-        
-        filename = f"SAFT_AO_{empresa.nif}_{data_inicio}_{data_fim}.xml"
-        path = os.path.join(settings.MEDIA_ROOT, 'saft_exports', filename)
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        
-        with open(path, 'wb') as f:
-            f.write(xml_content if isinstance(xml_content, bytes) else xml_content.encode('utf-8'))
-            
-        return {'success': True, 'file': filename}
-    except Exception as e:
-        logger.error(f"Erro SAF-T Async: {e}")
-        return {'success': False, 'error': str(e)}
-
-
-@shared_task(name="task_backup_fiscal_diario_global", bind=True, max_retries=3)
-def task_backup_fiscal_diario_global(self):
-    """
-    Orquestrador de Backup Fiscal Diário.
-    Varre todas as empresas ativas e gera snapshots de segurança.
-    """
-    empresas = Empresa.objects.filter(ativo=True)
-    logs_sucesso = 0
-    logs_erro = 0
-
-    for empresa in empresas:
         try:
-            # Chamada direta ao signal de backup
-            signal_backup(empresa)
-            logs_sucesso += 1
-            logger.info(f"Backup automático concluído: {empresa.nome}")
-        except Exception as e:
-            logs_erro += 1
-            logger.error(f"Erro no backup automático da empresa {empresa.nome}: {e}")
+            doc = DocumentoFiscal.objects.get(pk=documento_fiscal_id)
+        except DocumentoFiscal.DoesNotExist:
+            logger.error(
+                "[%s] submeter_fatura_agt: DocumentoFiscal #%d não encontrado.",
+                schema_name, documento_fiscal_id,
+            )
+            return {'success': False, 'error': 'DocumentoFiscal não encontrado'}
 
-    return {
-        "status": "concluido",
-        "sucesso": logs_sucesso,
-        "falhas": logs_erro,
-        "data": timezone.now().isoformat()
-    }
+        # Verificar se já foi submetido
+        if doc.metadados.get('request_id_agt'):
+            logger.info(
+                "[%s] DocumentoFiscal #%d já submetido (requestID=%s). A saltar.",
+                schema_name, documento_fiscal_id, doc.metadados['request_id_agt'],
+            )
+            return {'success': True, 'already_submitted': True}
+
+        # Só submete documentos confirmados
+        if doc.status != 'confirmed':
+            logger.warning(
+                "[%s] DocumentoFiscal #%d tem status '%s' — não pode ser submetido.",
+                schema_name, documento_fiscal_id, doc.status,
+            )
+            return {'success': False, 'error': f"Status inválido para submissão: {doc.status}"}
+
+        try:
+            service = SubmissaoFaturaService()
+            resultado = service.submeter_documento(doc)
+            logger.info(
+                "[%s] DocumentoFiscal #%d submetido. RequestID: %s",
+                schema_name, documento_fiscal_id, resultado.get('requestID'),
+            )
+            return resultado
+
+        except requests.exceptions.RequestException as exc:
+            # Erro de rede — retentar
+            logger.warning(
+                "[%s] Erro de rede ao submeter #%d: %s. Retentativa %d/%d.",
+                schema_name, documento_fiscal_id, exc,
+                self.request.retries + 1, self.max_retries,
+            )
+            raise self.retry(exc=exc)
+
+        except FiscalServiceError as exc:
+            # Erro de negócio — não retentar, registar nos metadados
+            logger.error(
+                "[%s] Erro de negócio ao submeter #%d: %s",
+                schema_name, documento_fiscal_id, exc,
+            )
+            if not doc.metadados:
+                doc.metadados = {}
+            doc.metadados['erro_submissao_agt'] = str(exc)
+            doc.metadados['erro_submissao_ts'] = timezone.now().isoformat()
+            doc.save(update_fields=['metadados'])
+            return {'success': False, 'error': str(exc)}
+
+        except Exception as exc:
+            logger.exception(
+                "[%s] Erro inesperado ao submeter #%d: %s",
+                schema_name, documento_fiscal_id, exc,
+            )
+            raise self.retry(exc=exc)
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Task 2 — Polling do estado de validação AGT
+# ─────────────────────────────────────────────────────────────────────────────
+
+@shared_task(
+    bind=True,
+    max_retries=5,
+    default_retry_delay=900,   # 15 minutos
+    name='fiscal.polling_estado_agt',
+)
+def polling_estado_agt(self, schema_name: str, documento_fiscal_id: int):
+    """
+    Consulta o estado de validação de um DocumentoFiscal junto da AGT
+    (/obterEstado) e actualiza o status local.
+
+    Deve ser agendado ~5 minutos após submeter_fatura_agt ter registado
+    o requestID, e repetido a cada 15 minutos enquanto o estado for
+    'PROCESSING' (resultCode=8).
+
+    Args:
+        schema_name:         Schema PostgreSQL do tenant.
+        documento_fiscal_id: PK do DocumentoFiscal a consultar.
+    """
+    with schema_context(schema_name):
+        from apps.fiscal.models import DocumentoFiscal
+        from apps.fiscal.services.polling_service import FiscalPollingService
+        import requests
+
+        try:
+            doc = DocumentoFiscal.objects.get(pk=documento_fiscal_id)
+        except DocumentoFiscal.DoesNotExist:
+            logger.error(
+                "[%s] polling_estado_agt: DocumentoFiscal #%d não encontrado.",
+                schema_name, documento_fiscal_id,
+            )
+            return
+
+        request_id = (doc.metadados or {}).get('request_id_agt')
+        if not request_id:
+            logger.warning(
+                "[%s] DocumentoFiscal #%d sem requestID — polling impossível.",
+                schema_name, documento_fiscal_id,
+            )
+            return
+
+        # Não faz polling de documentos já validados ou inválidos
+        if doc.status in ('posted', 'cancelled'):
+            logger.info(
+                "[%s] DocumentoFiscal #%d já tem estado final '%s'. A saltar.",
+                schema_name, documento_fiscal_id, doc.status,
+            )
+            return
+
+        try:
+            service = FiscalPollingService()
+            resultado = service.consultar_estado_documento(request_id)
+
+            if resultado == 'PROCESSING':
+                logger.info(
+                    "[%s] DocumentoFiscal #%d ainda em processamento. Reagendar polling.",
+                    schema_name, documento_fiscal_id,
+                )
+                # Recolocar na fila para tentar novamente em 15 minutos
+                raise self.retry(countdown=900)
+
+            elif resultado == 'FINISHED':
+                logger.info(
+                    "[%s] DocumentoFiscal #%d processado pela AGT.",
+                    schema_name, documento_fiscal_id,
+                )
+
+            else:
+                logger.warning(
+                    "[%s] DocumentoFiscal #%d — resultado inesperado do polling: %s",
+                    schema_name, documento_fiscal_id, resultado,
+                )
+
+        except self.MaxRetriesExceededError:
+            logger.error(
+                "[%s] DocumentoFiscal #%d — máximo de retentativas de polling atingido.",
+                schema_name, documento_fiscal_id,
+            )
+            if not doc.metadados:
+                doc.metadados = {}
+            doc.metadados['polling_max_retries'] = True
+            doc.save(update_fields=['metadados'])
+
+        except requests.exceptions.RequestException as exc:
+            logger.warning(
+                "[%s] Erro de rede no polling de #%d: %s",
+                schema_name, documento_fiscal_id, exc,
+            )
+            raise self.retry(exc=exc)
+
+        except Exception as exc:
+            logger.exception(
+                "[%s] Erro inesperado no polling de #%d: %s",
+                schema_name, documento_fiscal_id, exc,
+            )
+            raise self.retry(exc=exc)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Task 3 — Sincronizar séries com a AGT (periódica)
+# ─────────────────────────────────────────────────────────────────────────────
+
+@shared_task(
+    name='fiscal.sincronizar_series_agt',
+)
+def sincronizar_series_agt(schema_name: str):
+    """
+    Sincroniza as séries de numeração com a AGT (/listarSeries) para um tenant.
+    Deve correr uma vez por dia, de madrugada.
+
+    Args:
+        schema_name: Schema PostgreSQL do tenant.
+    """
+    with schema_context(schema_name):
+        from apps.fiscal.services.serie_fiscal_service import SerieFiscalService
+        from apps.fiscal.services.utils import FiscalServiceError
+
+        try:
+            service = SerieFiscalService()
+            series = service.sincronizar_series()
+            logger.info(
+                "[%s] sincronizar_series_agt: %d série(s) sincronizadas.",
+                schema_name, len(series),
+            )
+            return {'success': True, 'total': len(series)}
+        except FiscalServiceError as exc:
+            logger.error(
+                "[%s] sincronizar_series_agt: FiscalServiceError — %s",
+                schema_name, exc,
+            )
+            return {'success': False, 'error': str(exc)}
+        except Exception as exc:
+            logger.exception(
+                "[%s] sincronizar_series_agt: erro inesperado — %s",
+                schema_name, exc,
+            )
+            return {'success': False, 'error': str(exc)}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Helpers de agendamento — usados pelas views quando um doc é confirmado
+# ─────────────────────────────────────────────────────────────────────────────
+
+def agendar_submissao(schema_name: str, documento_fiscal_id: int, atraso_minutos: int = 5):
+    """
+    Agenda a submissão de um documento à AGT com um atraso (default: 5 minutos).
+    Regra AGT: prazo de 24 horas sem penalização.
+
+    Chame esta função após confirmar o DocumentoFiscal:
+        from apps.fiscal.tasks import agendar_submissao
+        agendar_submissao(connection.schema_name, doc.pk)
+    """
+    submeter_fatura_agt.apply_async(
+        args=[schema_name, documento_fiscal_id],
+        countdown=atraso_minutos * 60,
+    )
+    # Agendar polling 5 minutos depois da submissão
+    polling_estado_agt.apply_async(
+        args=[schema_name, documento_fiscal_id],
+        countdown=(atraso_minutos + 5) * 60,
+    )
+    logger.info(
+        "[%s] DocumentoFiscal #%d agendado para submissão em %d min.",
+        schema_name, documento_fiscal_id, atraso_minutos,
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Task 4 — Processar assinatura de documento fiscal (chamada pelo signal)
+# ─────────────────────────────────────────────────────────────────────────────
+
+@shared_task(
+    bind=True,
+    max_retries=3,
+    default_retry_delay=60,
+    name='fiscal.processar_assinatura_documento',
+)
+def processar_assinatura_documento(
+    self,
+    schema_name: str,
+    documento_id: int,
+    documento_type: str,
+    dados_documento: dict,
+):
+    """
+    Processa a assinatura JWS de um documento fiscal de forma assíncrona.
+
+    Chamado pelo signal `assinar_documento_fiscal` em signals.py logo após
+    a criação de uma Venda, FaturaCredito, NotaCredito, NotaDebito ou Recibo.
+
+    Args:
+        schema_name:     Schema PostgreSQL do tenant (ex.: 'empresa_abc').
+        documento_id:    PK do documento no modelo respectivo.
+        documento_type:  Nome do modelo Django (ex.: 'Venda', 'FaturaCredito').
+        dados_documento: Dict com campos obrigatórios AGT para a assinatura
+                         (tipo_documento, serie, numero, data, valor_total).
+
+    Comportamento:
+        - Activa o schema do tenant antes de qualquer acesso à BD.
+        - Obtém a configuração de assinatura digital do tenant.
+        - Se a chave do contribuinte não estiver configurada, regista aviso
+          e termina sem erro (o utilizador configurará depois).
+        - Assina os dados e regista o hash na cadeia interna.
+        - Em caso de erro de rede/serviço, recoloca na fila (max 3 tentativas).
+    """
+    with schema_context(schema_name):
+        from apps.fiscal.models import AssinaturaDigital
+        from apps.fiscal.services.assinatura_service import (
+            AssinaturaDigitalService,
+            FiscalServiceError,
+        )
+
+        try:
+            config = AssinaturaDigital.obter_configuracao()
+
+            if not config or not config.esta_configurada:
+                logger.info(
+                    "[%s] processar_assinatura_documento: chave do contribuinte não "
+                    "configurada — assinatura de %s #%d ignorada.",
+                    schema_name, documento_type, documento_id,
+                )
+                return {
+                    'success': False,
+                    'reason': 'chave_nao_configurada',
+                    'documento_type': documento_type,
+                    'documento_id': documento_id,
+                }
+
+            # Assinar os dados do documento
+            jws = AssinaturaDigitalService.assinar_documento(dados_documento)
+
+            # Avançar a cadeia interna de hash para a série
+            serie = dados_documento.get('serie', 'DEFAULT')
+            numero = dados_documento.get('numero', str(documento_id))
+            hash_doc = AssinaturaDigitalService.calcular_hash_documento(dados_documento)
+            hash_anterior = AssinaturaDigitalService.obter_hash_anterior(serie)
+            novo_hash = AssinaturaDigitalService.calcular_hash_documento(
+                dados_documento, hash_anterior
+            )
+            AssinaturaDigitalService.atualizar_cadeia_interna(serie, numero, novo_hash)
+
+            logger.info(
+                "[%s] processar_assinatura_documento: %s #%d assinado com sucesso "
+                "(série=%s, jws=%s...)",
+                schema_name, documento_type, documento_id,
+                serie, jws[:20] if jws else '?',
+            )
+            return {
+                'success': True,
+                'documento_type': documento_type,
+                'documento_id': documento_id,
+                'serie': serie,
+            }
+
+        except FiscalServiceError as exc:
+            logger.error(
+                "[%s] processar_assinatura_documento: FiscalServiceError em %s #%d — %s",
+                schema_name, documento_type, documento_id, exc,
+            )
+            # Não retentar por erro de negócio (chave inválida, etc.)
+            return {'success': False, 'error': str(exc)}
+
+        except Exception as exc:
+            logger.exception(
+                "[%s] processar_assinatura_documento: erro inesperado em %s #%d — %s",
+                schema_name, documento_type, documento_id, exc,
+            )
+            raise self.retry(exc=exc)

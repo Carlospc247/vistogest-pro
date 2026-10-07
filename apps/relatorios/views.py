@@ -53,7 +53,12 @@ import csv
 import json
 import io
 from openpyxl import Workbook
-from weasyprint import HTML
+try:
+    from weasyprint import HTML as WeasyHTML
+    WEASYPRINT_DISPONIVEL = True
+except (ImportError, OSError):
+    WeasyHTML = None
+    WEASYPRINT_DISPONIVEL = False
 from django.db.models import Sum, Count, Avg, F
 from django.db.models.functions import ExtractHour
 from django.contrib import messages
@@ -147,7 +152,7 @@ class PermissaoAcaoMixin(AccessMixin):
             # Usa a lógica dinâmica do modelo Funcionario (que já criámos)
             if not funcionario.pode_realizar_acao(self.acao_requerida):
                 messages.error(request, f"Acesso negado. O seu cargo não permite realizar a ação de '{self.acao_requerida}'.")
-                return redirect(reverse_lazy('core:dashboard'))
+                return redirect(reverse_lazy('core_tenants:dashboard'))
 
         return super().dispatch(request, *args, **kwargs)
 
@@ -180,7 +185,6 @@ class RelatoriosDashboardView(BaseViewMixin, TemplateView):
         
         # Relatórios recentes do usuário
         relatorios_recentes = RelatorioGerado.objects.filter(
-            empresa=empresa,
             solicitante=usuario
         ).select_related('tipo_relatorio').order_by('-data_solicitacao')[:5]
         
@@ -189,21 +193,18 @@ class RelatoriosDashboardView(BaseViewMixin, TemplateView):
         stats = {
             'total_relatorios': RelatorioGerado.objects.filter(empresa=empresa).count(),
             'relatorios_hoje': RelatorioGerado.objects.filter(
-                empresa=empresa,
                 data_solicitacao__date=hoje
             ).count(),
             'templates_ativos': TipoRelatorio.objects.filter(ativo=True).count(),
             'agendamentos_ativos': AgendamentoRelatorio.objects.filter(ativo=True).count(),
             'templates_ativos': TemplateRelatorio.objects.filter(ativo=True).count(),
             'relatorios_erro': RelatorioGerado.objects.filter(
-                empresa=empresa,
                 status='erro'
             ).count()
         }
         
         # Relatórios por categoria (últimos 30 dias)
         relatorios_por_categoria = RelatorioGerado.objects.filter(
-            empresa=empresa,
             data_solicitacao__gte=hoje - timedelta(days=30)
         ).values(
             'tipo_relatorio__categoria'
@@ -216,19 +217,16 @@ class RelatoriosDashboardView(BaseViewMixin, TemplateView):
         
         # Alertas ativos
         alertas_ativos = AlertaGerencial.objects.filter(
-            empresa=empresa,
             ativo=True,
             data_referencia__gte=hoje
         ).order_by('-prioridade', '-created_at')[:5]
-        
-        # Relatórios agendados para hoje #empresa=empresa,
+       
         agendamentos_hoje = AgendamentoRelatorio.objects.filter(
             
             ativo=True,
             frequencia=hoje
         ).order_by('frequencia')
         
-        # Últimos acessos a relatórios #empresa=empresa,
         ultimos_acessos = LogRelatorio.objects.filter(
             
             acao='visualizacao'
@@ -236,7 +234,6 @@ class RelatoriosDashboardView(BaseViewMixin, TemplateView):
         
         # Tempo médio de geração de relatórios
         tempo_medio_geracao = RelatorioGerado.objects.filter(
-            empresa=empresa,
             status='concluido',
             tempo_processamento__isnull=False
         ).aggregate(Avg('tempo_processamento'))['tempo_processamento__avg']
@@ -269,7 +266,6 @@ class RelatoriosDashboardView(BaseViewMixin, TemplateView):
         
         # Vendas hoje
         vendas_hoje = Venda.objects.filter(
-            empresa=empresa,
             data_venda__date=hoje,
             status='finalizada'
         ).aggregate(
@@ -279,7 +275,6 @@ class RelatoriosDashboardView(BaseViewMixin, TemplateView):
         
         # Produtos em estoque baixo
         produtos_estoque_baixo = Produto.objects.filter(
-            empresa=empresa,
             ativo=True,
             estoque_atual__lte=F('estoque_minimo')
         ).count()
@@ -287,7 +282,6 @@ class RelatoriosDashboardView(BaseViewMixin, TemplateView):
         # Contas vencidas (somando valor_saldo)
         # Contas vencidas: total e quantidade
         contas_vencidas_qs = ContaReceber.objects.filter(
-            empresa=empresa,
             status__in=['aberta', 'vencida'],
             data_vencimento__lt=hoje
         )
@@ -302,7 +296,6 @@ class RelatoriosDashboardView(BaseViewMixin, TemplateView):
         
         # Novos clientes este mês
         novos_clientes = Cliente.objects.filter(
-            empresa=empresa,
             created_at__month=hoje.month,
             created_at__year=hoje.year
         ).count()
@@ -358,7 +351,6 @@ class CentralRelatoriosView(BaseViewMixin, TemplateView):
         
         # Templates personalizados da empresa
         templates_personalizados = TemplateRelatorio.objects.filter(
-            empresa=empresa,
             ativo=True
         ).annotate(
             execucoes=Count('relatorio')
@@ -366,7 +358,6 @@ class CentralRelatoriosView(BaseViewMixin, TemplateView):
         
         # Relatórios favoritos do usuário (mais executados pelo usuário)
         relatorios_favoritos = RelatorioGerado.objects.filter(
-            empresa=empresa,
             solicitante=self.request.user
         ).values(
             'tipo_relatorio__nome',
@@ -380,11 +371,9 @@ class CentralRelatoriosView(BaseViewMixin, TemplateView):
             'total_tipos': TipoRelatorio.objects.filter(ativo=True, publico=True).count(),
             'templates_empresa': templates_personalizados.count(),
             'relatorios_executados_mes': RelatorioGerado.objects.filter(
-                empresa=empresa,
                 data_solicitacao__month=timezone.now().month
             ).count(),
             'usuarios_ativos': RelatorioGerado.objects.filter(
-                empresa=empresa,
                 data_solicitacao__gte=timezone.now().date() - timedelta(days=30)
             ).values('solicitante').distinct().count()
         }
@@ -490,7 +479,6 @@ class ConstrutorRelatorioView(BaseViewMixin, TemplateView):
         
         # Templates disponíveis para edição
         templates_disponiveis = TemplateRelatorio.objects.filter(
-            empresa=empresa,
             ativo=True
         ).order_by('-updated_at')
         
@@ -1036,7 +1024,6 @@ class RelatoriosVendasView(TemplateView):
 
         # === ESTATÍSTICAS GERAIS ===
         vendas_hoje_qs = Venda.objects.filter(
-            empresa=empresa,
             data_venda__date=hoje,
             status='finalizada'
         )
@@ -1051,8 +1038,7 @@ class RelatoriosVendasView(TemplateView):
         ) if vendas_hoje['quantidade'] else 0
 
         # === VENDAS MÊS ===
-        vendas_mes_qs = Venda.objects.filter(
-            empresa=empresa, data_venda__date__gte=inicio_mes, status="finalizada"
+        vendas_mes_qs = Venda.objects.filter( data_venda__date__gte=inicio_mes, status="finalizada"
         )
         vendas_mes = vendas_mes_qs.aggregate(
             total_vendas=Sum("total"),
@@ -1063,8 +1049,7 @@ class RelatoriosVendasView(TemplateView):
         ) if vendas_mes['quantidade'] else 0
 
         # === VENDAS ANO ===
-        vendas_ano_qs = Venda.objects.filter(
-            empresa=empresa, data_venda__date__gte=inicio_ano, status="finalizada"
+        vendas_ano_qs = Venda.objects.filter( data_venda__date__gte=inicio_ano, status="finalizada"
         )
         vendas_ano = vendas_ano_qs.aggregate(
             total_vendas=Sum("total"),
@@ -1078,7 +1063,6 @@ class RelatoriosVendasView(TemplateView):
         mes_anterior = inicio_mes - timedelta(days=1)
         inicio_mes_anterior = mes_anterior.replace(day=1)
         vendas_mes_anterior = Venda.objects.filter(
-            empresa=empresa,
             data_venda__date__gte=inicio_mes_anterior,
             data_venda__date__lt=inicio_mes,
             status="finalizada"
@@ -1093,7 +1077,6 @@ class RelatoriosVendasView(TemplateView):
 
         top_produtos = (
             ItemVenda.objects.filter(
-                venda__empresa=empresa,
                 venda__data_venda__date__gte=inicio_mes,
                 venda__status="finalizada",
                 produto__isnull=False,
@@ -1111,7 +1094,6 @@ class RelatoriosVendasView(TemplateView):
         # === VENDAS POR VENDEDOR ===
         vendas_por_vendedor = (
             Venda.objects.filter(
-                empresa=empresa,
                 data_venda__date__gte=inicio_mes,
                 status="finalizada",
                 vendedor__isnull=False,
@@ -1128,7 +1110,6 @@ class RelatoriosVendasView(TemplateView):
         # === VENDAS POR FORMA DE PAGAMENTO ===
         vendas_forma_pagamento = (
             Venda.objects.filter(
-                empresa=empresa,
                 data_venda__date__gte=inicio_mes,
                 status="finalizada",
             )
@@ -1140,7 +1121,6 @@ class RelatoriosVendasView(TemplateView):
         # === VENDAS POR DIA (últimos 30 dias) ===
         vendas_por_dia = (
             Venda.objects.filter(
-                empresa=empresa,
                 data_venda__date__gte=hoje - timedelta(days=30),
                 status="finalizada",
             )
@@ -1151,7 +1131,6 @@ class RelatoriosVendasView(TemplateView):
 
         # === META (se houver tabela de métricas) ===
         meta_mes = MetricaKPI.objects.filter(
-            empresa=empresa,
             codigo="META_VENDAS_MES",
             data_referencia__month=hoje.month,
             data_referencia__year=hoje.year,
@@ -1194,7 +1173,6 @@ class RelatorioVendasDiarioView(BaseViewMixin, TemplateView):
         
         # Vendas do dia
         vendas_dia = Venda.objects.filter(
-            empresa=empresa,
             data_venda=data_selecionada,
             status='finalizada'
         ).select_related('cliente', 'vendedor').order_by('-created_at')
@@ -1279,7 +1257,6 @@ class RelatorioVendasDiarioView(BaseViewMixin, TemplateView):
         # Comparação com o mesmo dia da semana anterior
         data_semana_anterior = data_selecionada - timedelta(days=7)
         vendas_semana_anterior = Venda.objects.filter(
-            empresa=empresa,
             data_venda=data_semana_anterior,
             status='finalizada'
         ).aggregate(
@@ -1443,7 +1420,6 @@ class RelatorioVendasMensalView(BaseViewMixin, TemplateView):
             ultimo_dia_anterior = date(ano_anterior, mes_anterior + 1, 1) - timedelta(days=1)
         
         vendas_mes_anterior = Venda.objects.filter(
-            empresa=empresa,
             data_venda__gte=primeiro_dia_anterior,
             data_venda__lte=ultimo_dia_anterior,
             status='finalizada'
@@ -1468,14 +1444,12 @@ class RelatorioVendasMensalView(BaseViewMixin, TemplateView):
         
         # Metas do mês
         meta_faturamento = MetricaKPI.objects.filter(
-            empresa=empresa,
             codigo='META_FATURAMENTO_MES',
             data_referencia__month=mes,
             data_referencia__year=ano
         ).first()
         
         meta_vendas = MetricaKPI.objects.filter(
-            empresa=empresa,
             codigo='META_VENDAS_MES',
             data_referencia__month=mes,
             data_referencia__year=ano
@@ -1537,7 +1511,6 @@ class RelatorioVendasAnualView(BaseViewMixin, TemplateView):
         
         # Vendas do ano
         vendas_ano = Venda.objects.filter(
-            empresa=empresa,
             data_venda__year=ano,
             status='finalizada'
         )
@@ -1645,7 +1618,6 @@ class RelatorioVendasAnualView(BaseViewMixin, TemplateView):
         
         # Comparação com ano anterior
         vendas_ano_anterior = Venda.objects.filter(
-            empresa=empresa,
             data_venda__year=ano-1,
             status='finalizada'
         ).aggregate(
@@ -1669,7 +1641,6 @@ class RelatorioVendasAnualView(BaseViewMixin, TemplateView):
         
         # Meta anual
         meta_anual = MetricaKPI.objects.filter(
-            empresa=empresa,
             codigo='META_FATURAMENTO_ANUAL',
             data_referencia__year=ano
         ).first()
@@ -1729,7 +1700,6 @@ class RelatorioVendasProdutoView(BaseViewMixin, TemplateView):
         
         # Query base de vendas
         vendas = Venda.objects.filter(
-            empresa=empresa,
             data_venda__gte=data_inicio,
             data_venda__lte=data_fim,
             status='finalizada'
@@ -1847,7 +1817,6 @@ class RelatorioVendasProdutoView(BaseViewMixin, TemplateView):
         
         # Produtos sem vendas no período
         produtos_sem_vendas = Produto.objects.filter(
-            empresa=empresa,
             ativo=True
         ).exclude(
             id__in=itens_vendidos.values('produto_id').distinct()
@@ -1855,12 +1824,10 @@ class RelatorioVendasProdutoView(BaseViewMixin, TemplateView):
         
         # Filtros para formulário
         produtos_disponiveis = Produto.objects.filter(
-            empresa=empresa,
             ativo=True
         ).order_by('nome_comercial')[:1000]  # Limitar para performance
         
         categorias_disponiveis = Categoria.objects.filter(
-            empresa=empresa,
             ativa=True
         ).order_by('nome')
         
@@ -1915,7 +1882,6 @@ class RelatorioVendasCategoriaView(BaseViewMixin, TemplateView):
         
         # Vendas por categoria
         vendas = Venda.objects.filter(
-            empresa=empresa,
             data_venda__gte=data_inicio,
             data_venda__lte=data_fim,
             status='finalizada'
@@ -1951,7 +1917,6 @@ class RelatorioVendasCategoriaView(BaseViewMixin, TemplateView):
         
         for categoria in vendas_por_categoria[:10]:  # Top 10 categorias
             evolucao = ItemVenda.objects.filter(
-                venda__empresa=empresa,
                 venda__data_venda__gte=data_inicio,
                 venda__data_venda__lte=data_fim,
                 venda__status='finalizada',
@@ -1970,7 +1935,6 @@ class RelatorioVendasCategoriaView(BaseViewMixin, TemplateView):
         
         for categoria in vendas_por_categoria[:5]:  # Top 5 categorias
             produtos = ItemVenda.objects.filter(
-                venda__empresa=empresa,
                 venda__data_venda__gte=data_inicio,
                 venda__data_venda__lte=data_fim,
                 venda__status='finalizada',
@@ -1991,7 +1955,6 @@ class RelatorioVendasCategoriaView(BaseViewMixin, TemplateView):
         data_fim_anterior = data_inicio - timedelta(days=1)
         
         vendas_anterior = Venda.objects.filter(
-            empresa=empresa,
             data_venda__gte=data_inicio_anterior,
             data_venda__lte=data_fim_anterior,
             status='finalizada'
@@ -2026,7 +1989,6 @@ class RelatorioVendasCategoriaView(BaseViewMixin, TemplateView):
         
         for categoria in vendas_por_categoria:
             itens_categoria = ItemVenda.objects.filter(
-                venda__empresa=empresa,
                 venda__data_venda__gte=data_inicio,
                 venda__data_venda__lte=data_fim,
                 venda__status='finalizada',
@@ -2054,7 +2016,6 @@ class RelatorioVendasCategoriaView(BaseViewMixin, TemplateView):
         
         # Categorias disponíveis para filtro
         categorias_disponiveis = Categoria.objects.filter(
-            empresa=empresa,
             ativa=True
         ).order_by('nome')
         
@@ -2104,7 +2065,6 @@ class RelatorioVendasVendedorView(BaseViewMixin, TemplateView):
         
         # Vendas por vendedor
         vendas = Venda.objects.filter(
-            empresa=empresa,
             data_venda__gte=data_inicio,
             data_venda__lte=data_fim,
             status='finalizada',
@@ -2172,7 +2132,6 @@ class RelatorioVendasVendedorView(BaseViewMixin, TemplateView):
             data_fim_anterior = data_inicio - timedelta(days=1)
             
             vendas_periodo_anterior = Venda.objects.filter(
-                empresa=empresa,
                 funcionario_id=vendedor_id_atual,
                 data_venda__gte=data_inicio_anterior,
                 data_venda__lte=data_fim_anterior,
@@ -2249,13 +2208,11 @@ class RelatorioVendasVendedorView(BaseViewMixin, TemplateView):
         
         # Filtros disponíveis
         vendedores_disponiveis = Funcionario.objects.filter(
-            empresa=empresa,
             ativo=True,
             cargo__nome__icontains='vendedor'
         ).select_related('user', 'departamento')
         
         departamentos_disponiveis = Departamento.objects.filter(
-            empresa=empresa,
             ativo=True
         ).order_by('nome')
         
@@ -2321,7 +2278,6 @@ class RelatorioVendasClienteView(BaseViewMixin, TemplateView):
         
         # Vendas por cliente
         vendas = Venda.objects.filter(
-            empresa=empresa,
             data_venda__gte=data_inicio,
             data_venda__lte=data_fim,
             status='finalizada',
@@ -2489,7 +2445,6 @@ class RelatorioVendasClienteView(BaseViewMixin, TemplateView):
         
         # Filtros disponíveis
         clientes_disponiveis = Cliente.objects.filter(
-            empresa=empresa,
             ativo=True
         ).order_by('nome')[:1000]
         
@@ -2547,7 +2502,6 @@ class RelatorioVendasFormaPagamentoView(BaseViewMixin, TemplateView):
         
         # Vendas por forma de pagamento
         vendas = Venda.objects.filter(
-            empresa=empresa,
             data_venda__gte=data_inicio,
             data_venda__lte=data_fim,
             status='finalizada'
@@ -2654,7 +2608,6 @@ class RelatorioVendasFormaPagamentoView(BaseViewMixin, TemplateView):
         data_fim_anterior = data_inicio - timedelta(days=1)
         
         vendas_anterior = Venda.objects.filter(
-            empresa=empresa,
             data_venda__gte=data_inicio_anterior,
             data_venda__lte=data_fim_anterior,
             status='finalizada'
@@ -2751,25 +2704,22 @@ class RelatoriosEstoqueView(BaseViewMixin, TemplateView):
         hoje = timezone.now().date()
         
         # Total de produtos
-        total_produtos = Produto.objects.filter(empresa=empresa, ativo=True).count()
+        total_produtos = Produto.objects.filter(ativo=True).count()
         
         # Produtos com estoque baixo
         produtos_estoque_baixo = Produto.objects.filter(
-            empresa=empresa,
             ativo=True,
             estoque_atual__lte=F('estoque_minimo')
         ).count()
         
         # Produtos sem estoque
         produtos_sem_estoque = Produto.objects.filter(
-            empresa=empresa,
             ativo=True,
             estoque_atual=0
         ).count()
         
         # Valor total do estoque
         total_estoque = Produto.objects.filter(
-            empresa=empresa,
             ativo=True
         ).aggregate(
             total=Sum(F('estoque_atual') * F('preco_custo'))
@@ -2777,25 +2727,21 @@ class RelatoriosEstoqueView(BaseViewMixin, TemplateView):
         
         # Movimentações do dia
         movimentacoes_hoje = MovimentacaoEstoque.objects.filter(
-            produto__empresa=empresa,
             updated_at=hoje
         ).count()
         
         # Produtos vencidos/próximos ao vencimento
         produtos_vencendo = AlertaEstoque.objects.filter(
-            produto__empresa=empresa,
             data_notificacao__lte=hoje + timedelta(days=30),
             data_notificacao__gte=hoje
         ).count()
         
         produtos_vencidos = AlertaEstoque.objects.filter(
-            produto__empresa=empresa,
             data_notificacao__lt=hoje
         ).count()
         
         # Giro de estoque (últimos 12 meses)
         vendas_12_meses = ItemVenda.objects.filter(
-            venda__empresa=empresa,
             venda__data_venda__gte=hoje - timedelta(days=365),
             venda__status='finalizada'
         ).aggregate(
@@ -2803,7 +2749,6 @@ class RelatoriosEstoqueView(BaseViewMixin, TemplateView):
         )['quantidade_vendida'] or 0
         
         estoque_medio = Produto.objects.filter(
-            empresa=empresa,
             ativo=True
         ).aggregate(
             estoque_medio=Avg('estoque_atual')
@@ -2813,7 +2758,6 @@ class RelatoriosEstoqueView(BaseViewMixin, TemplateView):
         
         # Top categorias por valor de estoque
         estoque_por_categoria = Produto.objects.filter(
-            empresa=empresa,
             ativo=True
         ).values(
             'categoria__nome'
@@ -2830,7 +2774,6 @@ class RelatoriosEstoqueView(BaseViewMixin, TemplateView):
         
         # Produtos mais vendidos (impacto no estoque)
         produtos_mais_vendidos = ItemVenda.objects.filter(
-            venda__empresa=empresa,
             venda__data_venda__gte=hoje - timedelta(days=30),
             venda__status='finalizada'
         ).values(
@@ -2881,7 +2824,6 @@ class RelatorioPosicaoEstoqueView(BaseViewMixin, TemplateView):
         
         # Query base
         produtos = Produto.objects.filter(
-            empresa=empresa,
             ativo=True
         ).select_related('categoria', 'marca')
         
@@ -2990,7 +2932,7 @@ class RelatorioPosicaoEstoqueView(BaseViewMixin, TemplateView):
             )
         
         # Filtros disponíveis
-        categorias = Categoria.objects.filter(empresa=empresa, ativa=True).order_by('nome')
+        categorias = Categoria.objects.filter(ativa=True).order_by('nome')
         
         context.update({
             'page_obj': page_obj,
@@ -3038,7 +2980,6 @@ class RelatorioMovimentacaoEstoqueView(BaseViewMixin, TemplateView):
         
         # Movimentações do período
         movimentacoes = MovimentacaoEstoque.objects.filter(
-            produto__empresa=empresa,
             updated_at__gte=data_inicio,
             updated_at__lte=data_fim
         ).select_related('produto', 'usuario')
@@ -3165,7 +3106,6 @@ class RelatorioVencimentosView(BaseViewMixin, TemplateView):
         
         # Query base
         controles_vencimento = ControleVencimento.objects.filter(
-            produto__empresa=empresa,
             produto__ativo=True
         ).select_related('produto')
         
@@ -3306,7 +3246,7 @@ class RelatorioVencimentosView(BaseViewMixin, TemplateView):
         page_obj = paginator.get_page(page_number)
         
         # Categorias para filtro
-        categorias = Categoria.objects.filter(empresa=empresa, ativa=True).order_by('nome')
+        categorias = Categoria.objects.filter(ativa=True).order_by('nome')
         
         context.update({
             'page_obj': page_obj,
@@ -3338,7 +3278,6 @@ class RelatorioRupturaEstoqueView(BaseViewMixin, TemplateView):
         
         # Produtos em ruptura (estoque zerado)
         produtos_ruptura = Produto.objects.filter(
-            empresa=empresa,
             ativo=True,
             estoque_atual=0
         ).select_related('categoria', 'marca')
@@ -3451,7 +3390,6 @@ class RelatorioRupturaEstoqueView(BaseViewMixin, TemplateView):
             
             # Buscar produtos similares (mesma categoria)
             produtos_similares = Produto.objects.filter(
-                empresa=empresa,
                 ativo=True,
                 categoria=produto_ruptura.categoria,
                 estoque_atual__gt=0
@@ -3466,7 +3404,6 @@ class RelatorioRupturaEstoqueView(BaseViewMixin, TemplateView):
         
         # Histórico de rupturas (produtos que voltaram ao estoque)
         produtos_repostos = Produto.objects.filter(
-            empresa=empresa,
             ativo=True,
             estoque_atual__gt=0
         ).annotate(
@@ -3483,7 +3420,6 @@ class RelatorioRupturaEstoqueView(BaseViewMixin, TemplateView):
         
         # Produtos com risco de ruptura
         risco_ruptura = Produto.objects.filter(
-            empresa=empresa,
             ativo=True,
             estoque_atual__gt=0,
             estoque_atual__lte=F('estoque_minimo')
@@ -3543,7 +3479,6 @@ class RelatorioGiroEstoqueView(BaseViewMixin, TemplateView):
         
         # Produtos para análise
         produtos = Produto.objects.filter(
-            empresa=empresa,
             ativo=True,
             estoque_atual__gt=0
         ).select_related('categoria', 'marca')
@@ -3705,7 +3640,7 @@ class RelatorioGiroEstoqueView(BaseViewMixin, TemplateView):
         page_obj = paginator.get_page(page_number)
         
         # Categorias para filtro
-        categorias = Categoria.objects.filter(empresa=empresa, ativa=True).order_by('nome')
+        categorias = Categoria.objects.filter(ativa=True).order_by('nome')
         
         context.update({
             'periodo': periodo,
@@ -3746,7 +3681,6 @@ class RelatorioABCView(BaseViewMixin, TemplateView):
         
         # Base query para produtos
         produtos = Produto.objects.filter(
-            empresa=empresa,
             ativo=True
         ).select_related('categoria', 'marca')
         
@@ -3946,7 +3880,7 @@ class RelatorioABCView(BaseViewMixin, TemplateView):
         page_obj = paginator.get_page(page_number)
         
         # Categorias para filtro
-        categorias = Categoria.objects.filter(empresa=empresa, ativa=True).order_by('nome')
+        categorias = Categoria.objects.filter(ativa=True).order_by('nome')
         
         context.update({
             'criterio': criterio,
@@ -4238,7 +4172,6 @@ class RelatoriosFinanceiroView(BaseViewMixin, TemplateView):
         
         # Fluxo de Caixa
         movimentacoes_mes = MovimentacaoFinanceira.objects.filter(
-            empresa=empresa,
             data_movimentacao__gte=inicio_mes
         )
         
@@ -4253,7 +4186,6 @@ class RelatoriosFinanceiroView(BaseViewMixin, TemplateView):
         
         # Vendas vs Recebimentos
         vendas_mes = Venda.objects.filter(
-            empresa=empresa,
             data_venda__gte=inicio_mes,
             status='finalizada'
         ).aggregate(Sum('total'))['total__sum'] or 0
@@ -4279,7 +4211,6 @@ class RelatoriosFinanceiroView(BaseViewMixin, TemplateView):
         
         # Centros de custo com maior gasto
         gastos_centro_custo = MovimentacaoFinanceira.objects.filter(
-            empresa=empresa,
             tipo='saida',
             data_movimentacao__gte=inicio_mes,
             centro_custo__isnull=False
@@ -4297,13 +4228,11 @@ class RelatoriosFinanceiroView(BaseViewMixin, TemplateView):
             data_dia = hoje - timedelta(days=29-i)
             
             entradas_dia = MovimentacaoFinanceira.objects.filter(
-                empresa=empresa,
                 tipo='entrada',
                 data_movimentacao=data_dia
             ).aggregate(Sum('valor'))['valor__sum'] or 0
             
             saidas_dia = MovimentacaoFinanceira.objects.filter(
-                empresa=empresa,
                 tipo='saida',
                 data_movimentacao=data_dia
             ).aggregate(Sum('valor'))['valor__sum'] or 0
@@ -4392,7 +4321,6 @@ class RelatorioFluxoCaixaView(BaseViewMixin, TemplateView):
         if tipo_fluxo == 'realizado':
             # Fluxo de caixa realizado
             movimentacoes = MovimentacaoFinanceira.objects.filter(
-                empresa=empresa,
                 data_movimentacao__gte=data_inicio,
                 data_movimentacao__lte=data_fim
             )
@@ -4449,21 +4377,18 @@ class RelatorioFluxoCaixaView(BaseViewMixin, TemplateView):
             while current_date <= data_fim:
                 # Recebimentos previstos
                 recebimentos = ContaReceber.objects.filter(
-                    empresa=empresa,
                     status='aberto',
                     data_vencimento=current_date
                 ).aggregate(Sum('valor'))['valor__sum'] or 0
                 
                 # Pagamentos previstos
                 pagamentos = ContaPagar.objects.filter(
-                    empresa=empresa,
                     status='aberto',
                     data_vencimento=current_date
                 ).aggregate(Sum('valor'))['valor__sum'] or 0
                 
                 # Vendas médias (para projeção)
                 vendas_medias = Venda.objects.filter(
-                    empresa=empresa,
                     data_venda__gte=current_date - timedelta(days=30),
                     data_venda__lt=current_date,
                     status='finalizada'
@@ -4490,7 +4415,6 @@ class RelatorioFluxoCaixaView(BaseViewMixin, TemplateView):
         # Análise por centro de custo
         if tipo_fluxo == 'realizado':
             fluxo_centro_custo = MovimentacaoFinanceira.objects.filter(
-                empresa=empresa,
                 data_movimentacao__gte=data_inicio,
                 data_movimentacao__lte=data_fim,
                 centro_custo__isnull=False
@@ -4563,7 +4487,6 @@ class RelatorioFluxoCaixaView(BaseViewMixin, TemplateView):
         
         # Centros de custo para filtro
         centros_custo = CentroCusto.objects.filter(
-            empresa=empresa,
             ativo=True
         ).order_by('nome')
         
@@ -4660,13 +4583,11 @@ class RelatorioContasReceberView(BaseViewMixin, TemplateView):
             
             # Histórico de pagamentos do cliente
             pagamentos_cliente = ContaReceber.objects.filter(
-                empresa=empresa,
                 cliente=conta.cliente,
                 status='pago'
             ).count()
             
             total_devedor_cliente = ContaReceber.objects.filter(
-                empresa=empresa,
                 cliente=conta.cliente,
                 status='aberto'
             ).aggregate(Sum('valor'))['valor__sum'] or 0
@@ -4765,7 +4686,6 @@ class RelatorioContasReceberView(BaseViewMixin, TemplateView):
                 ultimo_dia = data_mes.replace(month=data_mes.month + 1, day=1) - timedelta(days=1)
             
             recebimentos_mes = ContaReceber.objects.filter(
-                empresa=empresa,
                 status='pago',
                 data_pagamento__gte=primeiro_dia,
                 data_pagamento__lte=ultimo_dia
@@ -4786,7 +4706,6 @@ class RelatorioContasReceberView(BaseViewMixin, TemplateView):
             data_dia = hoje + timedelta(days=i)
             
             recebimentos_previstos = ContaReceber.objects.filter(
-                empresa=empresa,
                 status='aberto',
                 data_vencimento=data_dia
             ).aggregate(Sum('valor'))['valor__sum'] or 0
@@ -4978,7 +4897,6 @@ class RelatorioContasPagarView(BaseViewMixin, TemplateView):
             data_dia = hoje + timedelta(days=i)
             
             pagamentos_dia = ContaPagar.objects.filter(
-                empresa=empresa,
                 status='aberto',
                 data_vencimento=data_dia
             ).aggregate(Sum('valor'))['valor__sum'] or 0
@@ -5026,7 +4944,6 @@ class RelatorioContasPagarView(BaseViewMixin, TemplateView):
                 ultimo_dia = data_mes.replace(month=data_mes.month + 1, day=1) - timedelta(days=1)
             
             pagamentos_mes = ContaPagar.objects.filter(
-                empresa=empresa,
                 status='pago',
                 data_pagamento__gte=primeiro_dia,
                 data_pagamento__lte=ultimo_dia
@@ -5045,7 +4962,6 @@ class RelatorioContasPagarView(BaseViewMixin, TemplateView):
         
         for fornecedor_data in fornecedores_maior_valor[:10]:
             contas_fornecedor = ContaPagar.objects.filter(
-                empresa=empresa,
                 fornecedor_id=fornecedor_data['fornecedor__id'],
                 status='pago',
                 data_pagamento__isnull=False
@@ -5077,7 +4993,6 @@ class RelatorioContasPagarView(BaseViewMixin, TemplateView):
         ).order_by('nome')
         
         centros_custo = CentroCusto.objects.filter(
-            empresa=empresa,
             ativo=True
         ).order_by('nome')
         
@@ -5946,7 +5861,7 @@ class ExportarPDFView(BaseExportView):
         dados = self.get_dados(pk)
         
         html_string = render_to_string('export/template.html', {'dados': dados})
-        html = HTML(string=html_string)
+        html = WeasyHTML(string=html_string)
         pdf = html.write_pdf()
 
         response = HttpResponse(pdf, content_type='application/pdf')

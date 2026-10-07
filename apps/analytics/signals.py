@@ -88,7 +88,6 @@ def auditoria_pos_exclusao(sender, instance, **kwargs):
         user = getattr(instance, 'usuario', None)
 
         RegistroAuditoriaOperacional.objects.create(
-            empresa=empresa,
             usuario=user,
             app_origem=app_label,
             operacao='DELETE',

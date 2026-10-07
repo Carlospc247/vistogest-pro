@@ -1,13 +1,15 @@
 # apps/core/views.py
 from django.db.models import Sum, Count, Avg, Q
-from django.db.models.functions import TruncMonth, TruncWeek, TruncYear  # ⚠️ Import faltando
+from django.db.models.functions import TruncMonth, TruncWeek, TruncYear
 from django.utils import timezone
 from datetime import datetime, timedelta
 from calendar import monthrange
 import json
+import logging
 from decimal import Decimal
 from django.urls import reverse_lazy
-import json
+
+logger = logging.getLogger('core.security')
 from decimal import Decimal
 from datetime import timedelta
 from django.utils import timezone
@@ -19,12 +21,11 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.http import JsonResponse
 from django.core.exceptions import PermissionDenied
 from django.contrib import messages
-# Importações dos seus modelos (SOTARQ)
+from django.contrib.auth.views import LoginView
 from apps.core.models import AuditoriaAcesso
 from apps.core.signals import get_client_ip
-from apps.vendas.models import NotaCredito, Venda, FaturaCredito, MetaVenda
-from apps.produtos.models import Produto
-from apps.empresas.models import Categoria, Empresa
+from apps.produtos.models import Categoria, Produto
+from apps.empresas.models import Empresa
 from apps.analytics.models import AuditoriaInvestimento
 from django.core.mail import send_mail
 from django.template.loader import render_to_string
@@ -46,10 +47,9 @@ from django.db.models.functions import TruncMonth
 from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_exempt
 from apps.analytics.models import AuditoriaInvestimento, EventoAnalytics, NotificacaoAlerta
-from apps.empresas.models import Categoria, Empresa
+from apps.empresas.models import Empresa
 from apps.produtos.models import Produto
-from apps.vendas.models import FaturaCredito, MetaVenda, Venda
-from apps.servicos.models import NotificacaoAgendamento
+from apps.vendas.models import Venda, FaturaCredito, NotaCredito
 from datetime import date, timedelta
 import traceback
 from django.core.exceptions import PermissionDenied
@@ -70,6 +70,34 @@ from apps.licenca.models import ComissaoBypass
 # BASE VIEW COM CONTEXTO EMPRESARIAL
 # ============================================================
 
+class BaseMPAView(TemplateView):
+    """
+    RIGOR SOTARQ: base para todas as views MPA de tenant.
+    Alinhada ao padrão django_tenants (isolamento físico via schema PostgreSQL).
+    """
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        empresa = self.get_empresa()
+        context.update({
+            'user': self.request.user,
+            'current_module': getattr(self, 'module_name', 'dashboard'),
+            'empresa_atual': empresa,
+        })
+        return context
+
+    def get_empresa(self):
+        """Retorna o Tenant (Empresa) activo associado ao schema da requisição actual."""
+        tenant = getattr(self.request, 'tenant', None) or getattr(connection, 'tenant', None)
+
+        if not tenant or getattr(tenant, 'schema_name', 'public') == 'public':
+            if getattr(self, 'exigir_empresa', False):
+                raise PermissionDenied("Acção permitida apenas no contexto de uma empresa/tenant activo.")
+            return None
+
+        return tenant
+
+
 
 
 
@@ -77,36 +105,6 @@ from apps.licenca.models import ComissaoBypass
 from django.views.generic import TemplateView
 from django.core.exceptions import PermissionDenied
 from django.db import connection
-
-class BaseMPAView(TemplateView):
-    """
-    RIGOR SOTARQ: Base para todas as views MPA.
-    Alinhada ao padrão django_tenants (Isolamento Físico via Schema PostgreSQL).
-    """
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        
-        context.update({
-            'user': self.request.user,
-            'current_module': getattr(self, 'module_name', 'dashboard'),
-        })
-        return context
-
-    def get_empresa(self):
-        """
-        Retorna o Tenant (Empresa) ativo associado ao schema da requisição HTTP atual.
-        """
-        # 1. Obtém o tenant injetado no request pela middleware do django_tenants
-        tenant = getattr(self.request, 'tenant', None) or getattr(connection, 'tenant', None)
-
-        # 2. Validação: Schema 'public' representa a plataforma global, não uma empresa/tenant
-        if not tenant or getattr(tenant, 'schema_name', 'public') == 'public':
-            # Se a view exigir obrigatoriamente o contexto de uma empresa:
-            if getattr(self, 'exigir_empresa', False):
-                raise PermissionDenied("Ação permitida apenas no contexto de uma empresa/tenant ativo.")
-            return None
-
-        return tenant
 
 
 
@@ -157,9 +155,154 @@ class PlanoBypassView(LoginRequiredMixin, BaseMPAView):
 # DASHBOARD
 # ============================================================
 
-# Adicione estes imports no topo do apps/core/views.py
 
-# --- VIEWS DE AUTENTICAÇÃO (Restauração SOTARQ) ---
+class CustomLoginView(LoginView):
+    """
+    View de login com protecção completa contra brute-force e DDoS:
+
+    ┌─────────────────────────────────────────────────────────────────┐
+    │  CAMADAS DE PROTECÇÃO                                           │
+    │  1. Rate limit por IP  — MAX_ATTEMPTS_IP em WINDOW segundos    │
+    │  2. Rate limit por username — MAX_ATTEMPTS_USER em WINDOW s    │
+    │  3. Lockout progressivo — bloqueia LOCKOUT_DURATION segundos   │
+    │  4. hCaptcha — aparece após CAPTCHA_THRESHOLD falhas           │
+    │  5. Reset automático — contadores limpos após login correcto   │
+    │  6. Log persistente — LoginAttempt gravado em BD               │
+    └─────────────────────────────────────────────────────────────────┘
+    """
+    template_name = 'registration/login.html'
+
+    def dispatch(self, request, *args, **kwargs):
+        """
+        Ponto de entrada: verificar lockout ANTES de processar qualquer formulário.
+        Bloqueia tanto GET como POST quando em lockout — impede enumeração de usernames.
+        """
+        from apps.core.services.rate_limit_service import LoginRateLimitService
+        username = request.POST.get('username', '').strip()
+
+        if LoginRateLimitService.is_locked(request, username):
+            ttl = LoginRateLimitService.lockout_ttl(request, username)
+            return self._render_lockout(request, ttl)
+
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        from apps.core.services.rate_limit_service import LoginRateLimitService
+        from django.conf import settings as dj_settings
+        username = self.request.POST.get('username', '').strip()
+        attempts = LoginRateLimitService.get_attempts(self.request, username)
+        ctx.update({
+            'show_captcha':        attempts >= getattr(dj_settings, 'LOGIN_CAPTCHA_THRESHOLD', 3),
+            'hcaptcha_site_key':   getattr(dj_settings, 'HCAPTCHA_SITE_KEY', ''),
+            'login_attempts':      attempts,
+            'captcha_threshold':   getattr(dj_settings, 'LOGIN_CAPTCHA_THRESHOLD', 3),
+        })
+        return ctx
+
+    def form_valid(self, form):
+        """Login bem-sucedido: limpar contadores e continuar o fluxo normal."""
+        from apps.core.services.rate_limit_service import LoginRateLimitService
+        username = form.cleaned_data.get('username', '')
+
+        # Limpar contadores antes de chamar super() (que faz login e redireciona)
+        LoginRateLimitService.reset_on_success(self.request, username)
+
+        response = super().form_valid(form)
+        user = self.request.user
+
+        # Superutilizadores podem aceder ao schema public
+        if user.is_superuser:
+            return response
+
+        schema_atual = getattr(connection, 'schema_name', 'public')
+        if schema_atual == 'public':
+            logout(self.request)
+            messages.error(
+                self.request,
+                "Acesso negado: o login deve ser feito através do subdomínio da sua empresa."
+            )
+            return redirect('core:login')
+
+        return response
+
+    def form_invalid(self, form):
+        """
+        Login falhado: registar tentativa e aplicar rate limit.
+        Verificar CAPTCHA se acima do limiar.
+        """
+        from apps.core.services.rate_limit_service import LoginRateLimitService
+        from apps.core.services.captcha_service import CaptchaService
+        from django.conf import settings as dj_settings
+
+        username = self.request.POST.get('username', '').strip()
+        schema   = getattr(connection, 'schema_name', 'public')
+        attempts_before = LoginRateLimitService.get_attempts(self.request, username)
+
+        # ── 1. Verificar CAPTCHA se acima do limiar ────────────────────────
+        captcha_threshold = getattr(dj_settings, 'LOGIN_CAPTCHA_THRESHOLD', 3)
+        if attempts_before >= captcha_threshold:
+            captcha_ok, captcha_err = CaptchaService.verificar(self.request)
+            if not captcha_ok:
+                messages.error(self.request, captcha_err)
+                # Não incrementa contador por falha de CAPTCHA (evita penalizar
+                # utilizadores que só erraram o puzzle visual, não a password)
+                return super().form_invalid(form)
+
+        # ── 2. Registar falha e verificar lockout resultante ───────────────
+        estado = LoginRateLimitService.record_failure(
+            request=self.request,
+            username=username,
+            schema=schema,
+        )
+
+        if estado['ip_locked'] or estado['user_locked']:
+            return self._render_lockout(self.request, estado['lockout_seconds'])
+
+        # ── 3. Aviso progressivo de tentativas restantes ───────────────────
+        from apps.core.services.rate_limit_service import MAX_USER
+        restantes_user = MAX_USER - estado['user_attempts']
+        if 0 < restantes_user <= 2 and username:
+            messages.warning(
+                self.request,
+                f"Atenção: ainda tem {restantes_user} tentativa(s) antes de a conta ficar bloqueada."
+            )
+
+        return super().form_invalid(form)
+
+    def _render_lockout(self, request, ttl_segundos: int):
+        """Renderiza a página de lockout com o tempo restante."""
+        minutos   = ttl_segundos // 60
+        segundos  = ttl_segundos % 60
+
+        if minutos > 0:
+            tempo_msg = f"{minutos} minuto(s) e {segundos} segundo(s)"
+        else:
+            tempo_msg = f"{ttl_segundos} segundo(s)"
+
+        return render(request, 'registration/login.html', {
+            'locked_out':          True,
+            'lockout_seconds':     ttl_segundos,
+            'lockout_tempo_legivel': tempo_msg,
+            'hcaptcha_site_key':   getattr(settings, 'HCAPTCHA_SITE_KEY', ''),
+            'show_captcha':        False,
+            'login_attempts':      0,
+        }, status=429)
+
+
+    def get_success_url(self):
+        from django.urls import reverse
+        from django.conf import settings
+
+        schema_atual = getattr(connection, 'schema_name', 'public')
+        if schema_atual == 'public':
+            return '/admin/'
+
+        # Passa urlconf explicitamente — não depende do thread-local de
+        # get_urlconf() estar correctamente propagado neste ponto do ciclo
+        # de pedido. Mesmo padrão já usado em TwoFactorIPMiddleware.
+        return reverse('core_tenants:dashboard', urlconf=settings.TENANT_URLCONF)
+        
 
 def logout_view(request):
     """Lógica de encerramento de sessão com limpeza de logs."""
@@ -169,161 +312,6 @@ def logout_view(request):
 
 
 
-class DashboardView(LoginRequiredMixin, BaseMPAView):
-    """
-    DASHBOARD ESTRUTURAL: Unifica métricas de vendas, lucro e ativos.
-    CORREÇÃO MRO: LoginRequiredMixin vem antes da BaseMPAView.
-    """
-    template_name = 'core/dashboard.html'
-    module_name = 'dashboard'
-
-    def get_vendas_filtradas(self, user, empresa):
-        """Filtro de Compliance: Investidores vêem apenas seus ativos."""
-        # Se estivermos no schema public, retornamos queryset vazio para evitar o crash
-        from django.db import connection
-        if connection.schema_name == 'public':
-            return Venda.objects.none()
-        
-        qs = Venda.objects.filter(status='finalizada')
-        try:
-            vinculo = AuditoriaInvestimento.objects.get(usuario=user)
-            if not user.is_superuser and not vinculo.pode_auditar_tudo:
-                qs = qs.filter(
-                    Q(itens__produto__lotes__in=vinculo.lotes_vinculados.all()) |
-                    Q(itens__produto__fabricante__in=vinculo.fabricantes_vinculados.all())
-                ).distinct()
-        except AuditoriaInvestimento.DoesNotExist:
-            pass
-        return qs
-
-    def get_lucro_investidor(self, vendas_qs):
-        """Cálculo de lucro bruto via F() expressions."""
-        lucro_data = vendas_qs.aggregate(
-            total_lucro=Sum(
-                (F('itens__preco_unitario') - F('itens__produto__preco_custo')) * F('itens__quantidade')
-            )
-        )
-        return lucro_data['total_lucro'] or Decimal('0.00')
-
-    # --- MÉTODOS DE GRÁFICOS ---
-
-    def get_vendas_mensais(self, vendas_qs):
-        vendas_por_mes = vendas_qs.filter(
-            data_venda__gte=timezone.now() - timedelta(days=365)
-        ).annotate(mes=TruncMonth('data_venda')).values('mes').annotate(
-            faturamento=Sum('total'),
-            lucro=Sum((F('itens__preco_unitario') - F('itens__produto__preco_custo')) * F('itens__quantidade'))
-        ).order_by('mes')
-        
-        return {
-            'labels': [item['mes'].strftime('%b/%Y') for item in vendas_por_mes],
-            'faturamento': [float(item['faturamento'] or 0) for item in vendas_por_mes],
-            'lucro': [float(item['lucro'] or 0) for item in vendas_por_mes]
-        }
-
-    def get_vendas_semanais(self, vendas_qs):
-        vendas_por_semana = vendas_qs.filter(
-            data_venda__gte=timezone.now() - timedelta(weeks=8)
-        ).annotate(semana=TruncWeek('data_venda')).values('semana').annotate(
-            faturamento=Sum('total'),
-            lucro=Sum((F('itens__preco_unitario') - F('itens__produto__preco_custo')) * F('itens__quantidade'))
-        ).order_by('semana')
-        
-        return {
-            'labels': [item['semana'].strftime('%d/%m') for item in vendas_por_semana],
-            'faturamento': [float(item['faturamento'] or 0) for item in vendas_por_semana],
-            'lucro': [float(item['lucro'] or 0) for item in vendas_por_semana]
-        }
-
-    def get_formas_pagamento(self, vendas_qs):
-        inicio_mes = timezone.now().date().replace(day=1)
-        vendas_pagamento = vendas_qs.filter(
-            data_venda__date__gte=inicio_mes
-        ).values('forma_pagamento__nome').annotate(total=Sum('total')).order_by('-total')
-        
-        dados = {'labels': [], 'valores': []}
-        for item in vendas_pagamento:
-            if item['total']:
-                dados['labels'].append(item['forma_pagamento__nome'] or 'Outros')
-                dados['valores'].append(float(item['total']))
-        return dados
-
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        from django.db import connection
-        
-        # RIGOR SOTARQ: Bloqueio de segurança para Schema Public
-        if connection.schema_name == 'public':
-            context.update({
-                'vendas_hoje': {'total': Decimal('0.00'), 'quantidade': 0},
-                'lucro_total': Decimal('0.00'),
-                'produtos_stats': {'total': 0, 'total_categorias': 0},
-                'estoque_stats': {'estoque_baixo': 0},
-                'vendas_recentes': [],
-                'dados_vendas_mensal': json.dumps({'labels': [], 'faturamento': [], 'lucro': []}),
-                'dados_vendas_semanal': json.dumps({'labels': [], 'faturamento': [], 'lucro': []}),
-                'dados_formas_pagamento': json.dumps({'labels': [], 'valores': []}),
-            })
-            return context
-
-        # --- LÓGICA PARA TENANTS (CLIENTES REAIS) ---
-        empresa = context['empresa_atual']
-        user = self.request.user
-        hoje = timezone.now().date()
-
-        vendas_qs = self.get_vendas_filtradas(user, empresa)
-        
-        # Resumo Financeiro
-        v_hoje = vendas_qs.filter(data_venda__date=hoje).aggregate(t=Sum('total'), q=Count('id'))
-        
-        # Estatísticas de Estoque (Blindadas contra AuditoriaInvestimento)
-        produtos_base = Produto.objects.filter(empresa=empresa, ativo=True)
-        try:
-            # Import dinâmico para evitar falhas de carregamento no boot
-            from apps.analytics.models import AuditoriaInvestimento
-            vinculo = AuditoriaInvestimento.objects.get(usuario=user)
-            if not user.is_superuser and not vinculo.pode_auditar_tudo:
-                produtos_base = produtos_base.filter(
-                    Q(lotes__in=vinculo.lotes_vinculados.all()) |
-                    Q(fabricante__in=vinculo.fabricantes_vinculados.all())
-                ).distinct()
-        except (ImportError, Exception):
-            pass
-
-        context.update({
-            'vendas_hoje': {'total': v_hoje['t'] or Decimal('0.00'), 'quantidade': v_hoje['q'] or 0},
-            'lucro_total': self.get_lucro_investidor(vendas_qs),
-            'produtos_stats': {
-                'total': produtos_base.count(),
-                'total_categorias': Categoria.objects.filter(empresa=empresa, ativa=True).count(),
-            },
-            'estoque_stats': {
-                'estoque_baixo': produtos_base.filter(estoque_atual__lte=F('estoque_minimo')).count()
-            },
-            'vendas_recentes': vendas_qs.select_related('cliente').order_by('-data_venda')[:10],
-            'dados_vendas_mensal': json.dumps(self.get_vendas_mensais(vendas_qs)),
-            'dados_vendas_semanal': json.dumps(self.get_vendas_semanais(vendas_qs)),
-            'dados_formas_pagamento': json.dumps(self.get_formas_pagamento(vendas_qs)),
-        })
-        return context
-
-
-
-class SecurityHistoryView(LoginRequiredMixin, BaseMPAView):
-    """
-    RIGOR SOTARQ: Exibe o histórico de segurança e acessos do utilizador.
-    """
-    template_name = 'core/security_history.html'
-    module_name = 'security'
-
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        # Pegamos os últimos 20 acessos para não sobrecarregar a página
-        context['logs'] = AuditoriaAcesso.objects.filter(
-            usuario=self.request.user
-        ).order_by('-timestamp')[:20]
-        return context
-    
 
 
 @receiver(user_logged_in)
@@ -367,305 +355,111 @@ def enviar_alerta_ip_novo(user, ip, ua):
     )
 
 
-
-class TerminarOutrasSessoesView(LoginRequiredMixin, View):
-    """
-    RIGOR SOTARQ: Invalida todas as sessões do utilizador, exceto a atual.
-    """
-    def post(self, request):
-        chave_sessao_atual = request.session.session_key
-        # Busca todas as sessões ativas no banco
-        sessoes = Session.objects.filter(expire_date__gte=timezone.now())
-        
-        contagem_removida = 0
-        for sessao in sessoes:
-            dados = sessao.get_decoded()
-            # Verifica se a sessão pertence ao utilizador logado e não é a atual
-            if dados.get('_auth_user_id') == str(request.user.id):
-                if sessao.session_key != chave_sessao_atual:
-                    sessao.delete()
-                    contagem_removida += 1
-        
-        messages.success(request, f"Sucesso! {contagem_removida} dispositivos remotos foram desconectados.")
-        return redirect('core:security_history')
-
-
-
 # ============================================================
 # SEGURANÇA: VERIFICAÇÃO DE DISPOSITIVO (2FA POR IP)
 # ============================================================
 
-class VerifyIPView(LoginRequiredMixin, View):
+from django.shortcuts import render, redirect
+from django.views import View
+from django.contrib.auth.mixins import LoginRequiredMixin
+from django.contrib.auth import logout
+from django.contrib import messages
+from django.utils import timezone
+from django.conf import settings
+from django.db import connection
+from django.core.mail import send_mail
+from django.template.loader import render_to_string
+from django.utils.html import strip_tags
+
+from .models import VerificacaoSeguranca, IPConhecido  # Ajuste os imports conforme os seus apps
+
+
+
+# ============================================================
+# SEGURANÇA — Endpoint AJAX de status do lockout (S13)
+# ============================================================
+
+class LoginStatusView(View):
     """
-    RIGOR SOTARQ: Desafia o utilizador com um token de 6 dígitos
-    sempre que um novo IP é detetado.
-    """
-    template_name = 'registration/verify_ip.html'
+    AJAX GET — devolve o estado de rate limit para o IP do pedido.
 
-    def get_client_ip(self, request):
-        x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
-        return x_forwarded_for.split(',')[0] if x_forwarded_for else request.META.get('REMOTE_ADDR')
+    Usado pelo frontend para:
+      - Polling periódico (a cada 5 s) enquanto o utilizador está
+        perto do limiar, para detectar lockout sem reload de página.
+      - Mostrar contagem de tentativas restantes em tempo real.
+      - Fornecer ao script de debounce o TTL exacto do lockout.
 
+    Não requer autenticação — actua antes do login ser feito.
+    Retorna apenas informação de segurança (nunca dados pessoais).
 
-    def get(self, request):
-        from django.db import connection
-        from django.contrib.auth import logout
-        
-        user = request.user
-        ip_atual = self.get_client_ip(request)
-        agora = timezone.now()
-
-        # 1. RIGOR SOTARQ: Blindagem de Isolamento Tenant
-        # Superusers podem transitar, mas usuários comuns ficam presos à sua empresa
-        if not user.is_superuser:
-            if not user.empresa or user.empresa != request.tenant:
-                if settings.DEBUG:
-                    print(f"⚠️ BLOQUEIO DE SEGURANÇA: Usuário {user.email} tentou invadir o schema {connection.schema_name}")
-                logout(request)
-                messages.error(request, "Acesso negado: Este utilizador não pertence a esta empresa.")
-                return redirect('core:login')
-
-        # 2. AUDITORIA NO TERMINAL (Apenas em Debug)
-        if settings.DEBUG:
-            print("\n" + "!"*60)
-            print(f"🕵️ AUDITORIA DE ACESSO 2FA")
-            print(f"🏢 SCHEMA: {connection.schema_name}")
-            print(f"👤 USUÁRIO: {user.email}")
-            print(f"🌐 IP: {ip_atual}")
-            print("!"*60 + "\n")
-
-        # 3. RECUPERAR OU CRIAR VERIFICAÇÃO
-        verificacao, created = VerificacaoSeguranca.objects.get_or_create(
-            usuario=user, 
-            ip_address=ip_atual,
-            foi_verificado=False,
-            defaults={'expira_em': agora + timezone.timedelta(minutes=10)}
-        )
-
-        # 4. LÓGICA DE REENVIO COM RATE LIMIT (Trava de 60 segundos)
-        if request.GET.get('action') == 'resend':
-            segundos_desde_ultimo = (agora - verificacao.criado_em).total_seconds()
-            
-            if segundos_desde_ultimo < 60:
-                segundos_restantes = int(60 - segundos_desde_ultimo)
-                messages.warning(
-                    request, 
-                    f"Aguarde mais {segundos_restantes} segundos antes de solicitar um novo código."
-                )
-                return render(request, self.template_name, {'email': user.email})
-            
-            # Se autorizado, gera novo token
-            messages.info(request, "Um novo código foi gerado e enviado para o seu e-mail.")
-            verificacao.criado_em = agora 
-            verificacao.save() # Força atualização do timestamp para resetar a trava
-
-        # 5. DISPARO DO TOKEN
-        token = verificacao.gerar_token()
-        self.enviar_email_token(user, token, ip_atual)
-        
-        return render(request, self.template_name, {'email': user.email})
-
-
-    def post(self, request):
-        token_inserido = request.POST.get('token')
-        ip_atual = self.get_client_ip(request)
-        
-        verificacao = VerificacaoSeguranca.objects.filter(
-            usuario=request.user, 
-            ip_address=ip_atual,
-            foi_verificado=False
-        ).last()
-
-        if verificacao and verificacao.esta_valido() and verificacao.token == token_inserido:
-            verificacao.foi_verificado = True
-            verificacao.save()
-            
-            # Autoriza o IP permanentemente
-            IPConhecido.objects.get_or_create(usuario=request.user, ip_address=ip_atual)
-            
-            messages.success(request, "Dispositivo autorizado com sucesso!")
-            return redirect('core:dashboard')
-        
-        messages.error(request, "Código inválido ou expirado. Um novo código foi enviado para o seu e-mail.")
-        return self.get(request)
-
-    def enviar_email_token(self, user, token, ip):
-        """Envia o e-mail de 2FA com Rigor Visual e Segurança Multi-ambiente."""
-        
-        # ✅ RIGOR SOTARQ: Debug visível apenas no Windows/Dev
-        if settings.DEBUG:
-            print("\n" + "="*50)
-            print(f"🛠️ [SOTARQ DEBUG] 2FA PARA: {user.email}")
-            print(f"🔑 TOKEN: {token}")
-            print(f"🌐 IP: {ip}")
-            print("="*50 + "\n")
-
-        assunto = f"Código de Verificação: {token} | VistoGEST"
-        contexto = {
-            'user': user,
-            'token': token,
-            'ip': ip,
-            'expire': 10
+    Resposta:
+        {
+            "locked":          bool,
+            "lockout_seconds": int,    # 0 se não bloqueado
+            "attempts":        int,    # total de falhas recentes
+            "needs_captcha":   bool,
+            "ip_locked":       bool,
+            "user_locked":     bool,
         }
-        
-        html_message = render_to_string('emails/token_2fa_email.html', contexto)
-        plain_message = strip_tags(html_message)
+    """
 
-        send_mail(
-            subject=assunto,
-            message=plain_message,
-            from_email=settings.DEFAULT_FROM_EMAIL,
-            recipient_list=[user.email],
-            html_message=html_message,
-            fail_silently=False,
-        )
-      
-
-# ============================================================
-# API DASHBOARD (AJAX)
-# ============================================================
-class DashboardStatsAPI(LoginRequiredMixin, View):
     def get(self, request):
-        return JsonResponse({'success': True, 'stats': {}})
+        from apps.core.services.rate_limit_service import LoginRateLimitService
 
+        username = request.GET.get('u', '').strip()  # username opcional (GET param)
 
-# ============================================================
-# CRUD DE CATEGORIAS
-# ============================================================
-@method_decorator(csrf_exempt, name='dispatch')
-class CriarCategoriaView(LoginRequiredMixin, View):
-    """Cria uma nova categoria vinculada à empresa do usuário."""
-
-    def post(self, request):
-        try:
-            user = request.user
-            nome = request.POST.get('nome', '').strip()
-            
-            if not nome:
-                return JsonResponse({'success': False, 'message': 'Nome é obrigatório'})
-            
-            categoria = Categoria.objects.create(
-                empresa=empresa, 
-                nome=nome, 
-                codigo=request.POST.get('codigo', ''),
-                descricao=request.POST.get('descricao', ''),
-                ativa=request.POST.get('ativa') == 'on'
-            )
-            return JsonResponse({'success': True, 'message': 'Criada com sucesso'})
-        except Exception as e:
-            return JsonResponse({'success': False, 'message': str(e)})
-
-    def _get_empresa(self, request):
-        user = request.user
-        if hasattr(user, 'usuario') and user.usuario.empresa:
-            return user.usuario.empresa
-        elif hasattr(user, 'profile') and user.profile.empresa:
-            return user.profile.empresa
-        return Empresa.objects.first()
-
-
-@method_decorator(csrf_exempt, name='dispatch')
-class EditarCategoriaView(LoginRequiredMixin, View):
-    """Edita categoria de forma segura por empresa."""
-
-    def post(self, request, categoria_id):
-        empresa = self._get_empresa(request)
-        categoria = get_object_or_404(Categoria, id=categoria_id, empresa=empresa)
-
-        nome = request.POST.get('nome', '').strip()
-        codigo = request.POST.get('codigo', '').strip()
-        descricao = request.POST.get('descricao', '').strip()
-        ativa = request.POST.get('ativa') == 'on'
-
-        if not nome:
-            return JsonResponse({'success': False, 'message': 'Nome é obrigatório'})
-
-        if Categoria.objects.filter(nome__iexact=nome, empresa=empresa).exclude(id=categoria.id).exists():
-            return JsonResponse({'success': False, 'message': 'Categoria já existe'})
-
-        categoria.nome = nome
-        categoria.codigo = codigo
-        categoria.descricao = descricao
-        categoria.ativa = ativa
-        categoria.save()
-
-        return JsonResponse({'success': True, 'message': 'Categoria atualizada com sucesso'})
-
-    def _get_empresa(self, request):
-        user = request.user
-        if hasattr(user, 'usuario') and user.usuario.empresa:
-            return user.usuario.empresa
-        elif hasattr(user, 'profile') and user.profile.empresa:
-            return user.profile.empresa
-        return Empresa.objects.first()
-
-
-class DeletarCategoriaView(LoginRequiredMixin, View):
-    """Remove categoria apenas se não houver produtos associados."""
-
-    def post(self, request, categoria_id):
-        empresa = self._get_empresa(request)
-        categoria = get_object_or_404(Categoria, id=categoria_id, empresa=empresa)
-
-        if categoria.produtos.exists():
-            return JsonResponse({
-                'success': False,
-                'message': 'Não é possível remover: há produtos associados.'
-            })
-
-        nome = categoria.nome
-        categoria.delete()
-        return JsonResponse({'success': True, 'message': f'Categoria "{nome}" removida com sucesso'})
-
-    def _get_empresa(self, request):
-        user = request.user
-        if hasattr(user, 'usuario') and user.usuario.empresa:
-            return user.usuario.empresa
-        elif hasattr(user, 'profile') and user.profile.empresa:
-            return user.profile.empresa
-        return Empresa.objects.first()
-
-
-class ToggleCategoriaView(LoginRequiredMixin, View):
-    """Ativa/Desativa categoria restrita à empresa."""
-
-    def post(self, request, categoria_id):
-        empresa = self._get_empresa(request)
-        categoria = get_object_or_404(Categoria, id=categoria_id, empresa=empresa)
-
-        categoria.ativa = not categoria.ativa
-        categoria.save()
+        ip_locked   = LoginRateLimitService.is_ip_locked(
+            LoginRateLimitService.get_ip(request)
+        )
+        user_locked = LoginRateLimitService.is_user_locked(username) if username else False
+        locked      = ip_locked or user_locked
+        ttl         = LoginRateLimitService.lockout_ttl(request, username) if locked else 0
+        attempts    = LoginRateLimitService.get_attempts(request, username)
 
         return JsonResponse({
-            'success': True,
-            'ativa': categoria.ativa,
-            'message': f'Categoria {"ativada" if categoria.ativa else "desativada"} com sucesso'
+            'locked':          locked,
+            'lockout_seconds': ttl,
+            'attempts':        attempts,
+            'needs_captcha':   LoginRateLimitService.needs_captcha(request, username),
+            'ip_locked':       ip_locked,
+            'user_locked':     user_locked,
         })
 
-    def _get_empresa(self, request):
-        user = request.user
-        if hasattr(user, 'usuario') and user.usuario.empresa:
-            return user.usuario.empresa
-        elif hasattr(user, 'profile') and user.profile.empresa:
-            return user.profile.empresa
-        return Empresa.objects.first()
 
+class LoginUnblockView(LoginRequiredMixin, View):
+    """
+    POST — Desbloqueia um IP ou username (apenas superutilizadores).
+    Útil para administradores desbloquear utilizadores legítimos bloqueados
+    pelo rate limiter após demasiadas tentativas.
+    """
 
-# ============================================================
-# LISTAGEM DE NOTIFICAÇÕES
-# ============================================================
-class NotificationListView(LoginRequiredMixin, ListView):
-    """Lista todas as notificações (alertas e agendamentos)."""
-    template_name = "core/notifications_list.html"
-    context_object_name = "notifications"
+    def post(self, request):
+        if not request.user.is_superuser:
+            return JsonResponse({'ok': False, 'error': 'forbidden'}, status=403)
 
-    def get_queryset(self):
-        empresa = getattr(self.request.user, 'usuario', None) and self.request.user.usuario.empresa
-        return NotificacaoAlerta.objects.filter(alerta__empresa=empresa).order_by('-id')
+        from apps.core.services.rate_limit_service import LoginRateLimitService
+        try:
+            data     = json.loads(request.body)
+            ip       = data.get('ip', '').strip()
+            username = data.get('username', '').strip()
 
+            if ip:
+                LoginRateLimitService.unblock_ip(ip)
+            if username:
+                LoginRateLimitService.unblock_user(username)
 
-import logging
-logger = logging.getLogger(__name__)
+            if not ip and not username:
+                return JsonResponse({'ok': False, 'error': 'ip ou username obrigatório'}, status=400)
+
+            logger.info(
+                "Desbloqueio manual: ip=%s username=%s por %s",
+                ip, username, request.user.username
+            )
+            return JsonResponse({'ok': True, 'ip': ip, 'username': username})
+
+        except Exception as exc:
+            return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
+
 
 @csrf_exempt
 def error_report(request):
@@ -678,3 +472,131 @@ def error_report(request):
             return JsonResponse({'status': 'error'}, status=400)
     return JsonResponse({'status': 'error'}, status=405)
 
+
+# ============================================================
+# PWA — Manifest + Offline + Sync (S9 · PLANO_IMPLEMENTACAO v7)
+# ============================================================
+
+class PWAManifestView(View):
+    """
+    Serve o manifest.json dinamicamente para incluir o nome do tenant.
+    Registado em /manifest.json (sem autenticação, sem CSRF).
+    """
+
+    def get(self, request):
+        tenant = getattr(request, 'tenant', None)
+        nome_empresa = getattr(tenant, 'nome', None) or 'VistoGEST Pro'
+        schema = getattr(tenant, 'schema_name', 'public')
+
+        manifest = {
+            "name": nome_empresa,
+            "short_name": nome_empresa[:12],
+            "description": f"Sistema de Gestão — {nome_empresa}",
+            "start_url": "/",
+            "scope": "/",
+            "display": "standalone",
+            "orientation": "portrait-primary",
+            "background_color": "#ffffff",
+            "theme_color": "#2563eb",
+            "lang": "pt",
+            "icons": [
+                {
+                    "src": "/static/images/icon-192.png",
+                    "sizes": "192x192",
+                    "type": "image/png",
+                    "purpose": "any maskable"
+                },
+                {
+                    "src": "/static/images/icon-512.png",
+                    "sizes": "512x512",
+                    "type": "image/png",
+                    "purpose": "any maskable"
+                }
+            ],
+            "categories": ["business", "productivity"],
+            "screenshots": [],
+            "shortcuts": [
+                {
+                    "name": "Nova Venda",
+                    "short_name": "PDV",
+                    "description": "Abrir o Ponto de Venda",
+                    "url": "/vendas/pdv/",
+                    "icons": [{"src": "/static/images/icon-192.png", "sizes": "192x192"}]
+                },
+                {
+                    "name": "Dashboard",
+                    "short_name": "Dashboard",
+                    "description": "Ver o painel principal",
+                    "url": "/",
+                    "icons": [{"src": "/static/images/icon-192.png", "sizes": "192x192"}]
+                }
+            ]
+        }
+
+        return JsonResponse(
+            manifest,
+            content_type='application/manifest+json',
+            headers={'Cache-Control': 'public, max-age=3600'},
+        )
+
+
+class PWAOfflineView(TemplateView):
+    """Página offline — servida pelo Service Worker quando não há rede."""
+    template_name = "core/offline.html"
+
+
+class PWASyncOfflineView(LoginRequiredMixin, View):
+    """
+    Endpoint para Background Sync do Service Worker.
+    Recebe vendas criadas offline e as regista na base de dados.
+    """
+
+    def post(self, request):
+        try:
+            payload = json.loads(request.body)
+        except (json.JSONDecodeError, ValueError):
+            return JsonResponse({'ok': False, 'error': 'invalid json'}, status=400)
+
+        # Por agora, registar e confirmar — a lógica de criação de venda
+        # está no endpoint /ajax/vendas/nova/ que o SW usará com retry.
+        # Este endpoint serve para confirmar que o sync foi recebido.
+        logger.info(f"PWA Background Sync recebido: {len(payload.get('vendas', []))} venda(s) de {request.user}")
+
+        return JsonResponse({
+            'ok': True,
+            'received': len(payload.get('vendas', [])),
+            'message': 'Sincronização recebida com sucesso',
+        })
+
+
+class PWAServiceWorkerView(View):
+    """
+    Serve o service-worker.js a partir da raiz (/) para que o scope seja '/'.
+    O SW em /static/js/ não pode ter scope global — tem de ser servido da raiz.
+    """
+
+    def get(self, request):
+        import os
+        from django.conf import settings as dj_settings
+        from django.http import HttpResponse
+
+        # Tentar localizar o ficheiro estático
+        sw_paths = [
+            os.path.join(dj_settings.BASE_DIR, 'apps', 'core', 'static', 'js', 'service-worker.js'),
+            os.path.join(dj_settings.BASE_DIR, 'static', 'js', 'service-worker.js'),
+            os.path.join(dj_settings.BASE_DIR, 'staticfiles', 'js', 'service-worker.js'),
+        ]
+        for path in sw_paths:
+            if os.path.exists(path):
+                with open(path, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                response = HttpResponse(content, content_type='application/javascript')
+                response['Service-Worker-Allowed'] = '/'
+                response['Cache-Control'] = 'no-cache'
+                return response
+
+        # Fallback mínimo se o ficheiro não for encontrado
+        minimal_sw = "self.addEventListener('fetch', function(e) {});"
+        response = HttpResponse(minimal_sw, content_type='application/javascript')
+        response['Service-Worker-Allowed'] = '/'
+        return response

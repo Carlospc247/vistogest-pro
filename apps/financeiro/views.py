@@ -69,7 +69,7 @@ class PermissaoAcaoMixin(AccessMixin):
             # Usa a lógica dinâmica do modelo Funcionario (que já criámos)
             if not funcionario.pode_realizar_acao(self.acao_requerida):
                 messages.error(request, f"Acesso negado. O seu cargo não permite realizar a ação de '{self.acao_requerida}'.")
-                return redirect(reverse_lazy('core:dashboard'))
+                return redirect(reverse_lazy('core_tenants:dashboard'))
 
         return super().dispatch(request, *args, **kwargs)
 
@@ -96,7 +96,7 @@ def permissao_acao_required(acao_requerida=None):
                     request,
                     "Acesso negado. O seu usuário não está ligado a um registro de funcionário."
                 )
-                return redirect(reverse_lazy('core:dashboard'))
+                return redirect(reverse_lazy('core_tenants:dashboard'))
 
             if acao_requerida:
                 if not funcionario.pode_realizar_acao(acao_requerida):
@@ -104,7 +104,7 @@ def permissao_acao_required(acao_requerida=None):
                         request,
                         f"Acesso negado. O seu cargo não permite realizar a ação de '{acao_requerida}'."
                     )
-                    return redirect(reverse_lazy('core:dashboard'))
+                    return redirect(reverse_lazy('core_tenants:dashboard'))
 
             return view_func(request, *args, **kwargs)
         return _wrapped_view
@@ -128,7 +128,6 @@ class FinanceiroView(BaseMPAView, PermissaoAcaoMixin):
         
         # Receitas do mês
         receitas_mes = Venda.objects.filter(
-            empresa=empresa,
             data_venda__gte=mes_atual,
             status='finalizada'
         ).aggregate(total=Sum('total'))['total'] or 0
@@ -768,33 +767,28 @@ class FinanceiroDashboardView(LoginRequiredMixin, PermissaoAcaoMixin, TemplateVi
     
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        empresa =   # ou self.get_empresa()
         hoje = date.today()
         inicio_mes = hoje.replace(day=1)
         
         # ====== RESUMO FINANCEIRO ======
         context['total_receber'] = ContaReceber.objects.filter(
-            empresa=empresa,
             status__in=['aberta', 'vencida']
         ).aggregate(total=Sum('valor_saldo'))['total'] or Decimal('0.00')
         
         context['total_pagar'] = ContaPagar.objects.filter(
-            empresa=empresa,
             status__in=['aberta', 'vencida']
         ).aggregate(total=Sum('valor_saldo'))['total'] or Decimal('0.00')
         
-        context['saldo_caixa'] = self._calcular_saldo_caixa(empresa)
-        context['saldo_bancos'] = self._calcular_saldo_bancos(empresa)
+        context['saldo_caixa'] = self._calcular_saldo_caixa()
+        context['saldo_bancos'] = self._calcular_saldo_bancos()
         
         # ====== CONTAS VENCIDAS ======
         context['contas_receber_vencidas'] = ContaReceber.objects.filter(
-            empresa=empresa,
             status__in=['aberta', 'vencida'],
             data_vencimento__lt=hoje
         ).count()
         
         context['contas_pagar_vencidas'] = ContaPagar.objects.filter(
-            empresa=empresa,
             status__in=['aberta', 'vencida'],
             data_vencimento__lt=hoje
         ).count()
@@ -804,14 +798,12 @@ class FinanceiroDashboardView(LoginRequiredMixin, PermissaoAcaoMixin, TemplateVi
         proximos_7_dias = hoje + timedelta(days=7)
         
         context['contas_receber_vencendo'] = ContaReceber.objects.filter(
-            empresa=empresa,
             status='aberta',
             data_vencimento__gte=hoje,
             data_vencimento__lte=proximos_7_dias
         ).count()
         
         context['contas_pagar_vencendo'] = ContaPagar.objects.filter(
-            empresa=empresa,
             status='aberta',
             data_vencimento__gte=hoje,
             data_vencimento__lte=proximos_7_dias
@@ -819,18 +811,15 @@ class FinanceiroDashboardView(LoginRequiredMixin, PermissaoAcaoMixin, TemplateVi
         
         # ====== IMPOSTOS ======
         context['impostos_pendentes'] = ImpostoTributo.objects.filter(
-            empresa=empresa,
             situacao__in=['pendente', 'calculado', 'vencido']
         ).count()
         
         context['impostos_valor_devido'] = ImpostoTributo.objects.filter(
-            empresa=empresa,
             situacao__in=['calculado', 'vencido']
         ).aggregate(total=Sum('valor_devido'))['total'] or Decimal('0.00')
 
         # ====== VENDAS DO MÊS ======
         context['total_vendas_mes'] = Venda.objects.filter(
-            empresa=empresa,
             data_venda__gte=inicio_mes,
             data_venda__lte=hoje,
             status='finalizada'
@@ -859,14 +848,12 @@ class FinanceiroDashboardView(LoginRequiredMixin, PermissaoAcaoMixin, TemplateVi
     def _calcular_saldo_caixa(self, empresa):
         """Calcula saldo atual do caixa"""
         return MovimentoCaixa.objects.filter(
-            empresa=empresa,
             confirmado=True
         ).aggregate(total=Sum('valor'))['total'] or Decimal('0.00')
     
     def _calcular_saldo_bancos(self, empresa):
         """Calcula saldo total das contas bancárias"""
         return ContaBancaria.objects.filter(
-            empresa=empresa,
             ativa=True
         ).aggregate(total=Sum('saldo_atual'))['total'] or Decimal('0.00')
     
@@ -882,14 +869,12 @@ class FinanceiroDashboardView(LoginRequiredMixin, PermissaoAcaoMixin, TemplateVi
             
             # Entradas previstas (contas a receber)
             entradas = ContaReceber.objects.filter(
-                empresa=empresa,
                 data_vencimento=data_ref,
                 status='aberta'
             ).aggregate(total=Sum('valor_saldo'))['total'] or Decimal('0.00')
             
             # Saídas previstas (contas a pagar)
             saidas = ContaPagar.objects.filter(
-                empresa=empresa,
                 data_vencimento=data_ref,
                 status='aberta'
             ).aggregate(total=Sum('valor_saldo'))['total'] or Decimal('0.00')
@@ -919,7 +904,6 @@ class FinanceiroDashboardView(LoginRequiredMixin, PermissaoAcaoMixin, TemplateVi
             
             # Calcular saldo no final do mês
             movimentacoes = MovimentacaoFinanceira.objects.filter(
-                empresa=empresa,
                 data_movimentacao__lte=fim_mes,
                 confirmada=True
             )
@@ -944,21 +928,17 @@ class FinanceiroDashboardView(LoginRequiredMixin, PermissaoAcaoMixin, TemplateVi
         hoje = date.today()
         
         # Contas a receber
-        receber_aberta = ContaReceber.objects.filter(
-            empresa=empresa, status='aberta', data_vencimento__gte=hoje
+        receber_aberta = ContaReceber.objects.filter( status='aberta', data_vencimento__gte=hoje
         ).aggregate(total=Sum('valor_saldo'))['total'] or Decimal('0.00')
         
-        receber_vencida = ContaReceber.objects.filter(
-            empresa=empresa, status='vencida'
+        receber_vencida = ContaReceber.objects.filter( status='vencida'
         ).aggregate(total=Sum('valor_saldo'))['total'] or Decimal('0.00')
         
         # Contas a pagar
-        pagar_aberta = ContaPagar.objects.filter(
-            empresa=empresa, status='aberta', data_vencimento__gte=hoje
+        pagar_aberta = ContaPagar.objects.filter( status='aberta', data_vencimento__gte=hoje
         ).aggregate(total=Sum('valor_saldo'))['total'] or Decimal('0.00')
         
-        pagar_vencida = ContaPagar.objects.filter(
-            empresa=empresa, status='vencida'
+        pagar_vencida = ContaPagar.objects.filter( status='vencida'
         ).aggregate(total=Sum('valor_saldo'))['total'] or Decimal('0.00')
         
         return {

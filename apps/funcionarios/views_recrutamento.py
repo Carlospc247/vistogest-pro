@@ -66,57 +66,95 @@ class AdmitirCandidatoView(LoginRequiredMixin, PermissionRequiredMixin, View):
             return redirect('funcionarios:painel_candidatura')
 
 
-
 class AdmitirCandidatoView(LoginRequiredMixin, PermissionRequiredMixin, View):
     """
-    🚀 CONVERSÃO E BOAS-VINDAS SOTARQ: 
-    Admite o candidato e dispara notificação oficial.
+    Conversão e boas-vindas:
+    admite o candidato e dispara a notificação oficial.
     """
     permission_required = 'funcionarios.pode_gerenciar_funcionarios'
 
     def post(self, request, candidato_id):
-        candidato = get_object_or_404(Candidatura, id=candidato_id)
+        candidato = get_object_or_404(
+            Candidatura,
+            id=candidato_id
+        )
 
         try:
             with transaction.atomic():
-                # 1. Criar o Funcionário (A matrícula é gerada no save() do modelo)
-                departamento_padrao = (
-                    Departamento.objects.filter().first() or Departamento.objects.first()
-                )
+                # Tenant/empresa atual definido pelo domínio da requisição
+                empresa_atual = getattr(request, 'tenant', None)
+
+                if not empresa_atual or getattr(
+                    empresa_atual,
+                    'schema_name',
+                    'public'
+                ) == 'public':
+                    messages.error(
+                        request,
+                        "Empresa não encontrada para esta requisição."
+                    )
+                    return redirect('funcionarios:painel_candidatura')
+
+                # Departamento pertence ao tenant atual
+                departamento_padrao = Departamento.objects.first()
+
                 novo_funcionario = Funcionario.objects.create(
                     nome_completo=candidato.nome,
                     email_pessoal=candidato.email,
                     telefone=candidato.telefone,
                     data_admissao=timezone.now().date(),
-                    salario_atual=0, 
+                    salario_atual=0,
                     departamento=departamento_padrao,
                     ativo=True
                 )
 
-                # 2. Atualizar candidatura
+                # Atualizar candidatura
                 candidato.status = 'aceita'
                 candidato.save()
 
-                # 3. Disparar E-mail de Boas-Vindas (Rigor de Comunicação)
-                self.enviar_email_boas_vindas(novo_funcionario)
+                # Disparar e-mail de boas-vindas
+                self.enviar_email_boas_vindas(
+                    novo_funcionario,
+                    empresa_atual
+                )
 
-            messages.success(request, f"Admissão de {candidato.nome} concluída com e-mail de boas-vindas.")
-            return redirect('funcionarios:editar_funcionario', pk=novo_funcionario.id)
+            messages.success(
+                request,
+                f"Admissão de {candidato.nome} concluída "
+                f"com e-mail de boas-vindas."
+            )
+
+            return redirect(
+                'funcionarios:editar_funcionario',
+                pk=novo_funcionario.id
+            )
 
         except Exception as e:
-            messages.error(request, f"Erro no rigor de admissão: {str(e)}")
+            messages.error(
+                request,
+                f"Erro no rigor de admissão: {str(e)}"
+            )
             return redirect('funcionarios:painel_candidatura')
 
-    def enviar_email_boas_vindas(self, funcionario):
-        """Serviço de e-mail integrado ao padrão VistoGEST"""
-        assunto = f"Bem-vindo à equipe, {funcionario.nome_completo}! | {funcionario.empresa.nome}"
+    def enviar_email_boas_vindas(self, funcionario, empresa):
+        """Serviço de e-mail integrado ao padrão VistoGEST."""
+
+        assunto = (
+            f"Bem-vindo à equipe, "
+            f"{funcionario.nome_completo}! | {empresa.name}"
+        )
+
         contexto = {
             'nome': funcionario.nome_completo,
-            'empresa_nome': funcionario.empresa.nome,
+            'empresa_nome': empresa.name,
             'matricula': funcionario.matricula,
         }
-        
-        html_message = render_to_string('emails/boas_vindas_funcionario.html', contexto)
+
+        html_message = render_to_string(
+            'emails/boas_vindas_funcionario.html',
+            contexto
+        )
+
         plain_message = strip_tags(html_message)
 
         send_mail(
@@ -125,9 +163,9 @@ class AdmitirCandidatoView(LoginRequiredMixin, PermissionRequiredMixin, View):
             from_email=settings.DEFAULT_FROM_EMAIL,
             recipient_list=[funcionario.email_pessoal],
             html_message=html_message,
-            fail_silently=True, # Evita travar a admissão se o servidor de e-mail falhar
+            fail_silently=True,
         )
-
+        
 
 class RejeitarCandidatoView(LoginRequiredMixin, PermissionRequiredMixin, View):
     """

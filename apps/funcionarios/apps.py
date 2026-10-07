@@ -6,6 +6,4 @@ class FuncionariosConfig(AppConfig):
     name = 'apps.funcionarios'
 
     def ready(self):
-        # Importa os sinais quando a aplicação estiver pronta
-        import apps.funcionarios.signals # Garante que o Django detecte os @receiver
-        
+        from . import signals  # noqa: F401

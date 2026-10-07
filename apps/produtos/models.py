@@ -6,7 +6,7 @@ from django.utils.html import format_html
 from django.core.validators import MinValueValidator, MaxValueValidator
 from django.db import models
 from apps.core.models import TimeStampedModel
-from apps.empresas.models import Empresa, Categoria
+from apps.empresas.models import Empresa
 from cloudinary.models import CloudinaryField
 from apps.core.models import TimeStampedModel
 from decimal import Decimal, ROUND_HALF_UP
@@ -31,6 +31,32 @@ class Fabricante(TimeStampedModel):
         
     def __str__(self):
         return self.nome
+
+
+
+class Categoria(TimeStampedModel):
+    """
+    Categoria de produtos.
+    Reside dentro do Schema Físico do Tenant.
+    """
+    nome = models.CharField(max_length=100)
+    codigo = models.CharField(max_length=20, blank=True)
+    descricao = models.TextField(blank=True)
+    ativa = models.BooleanField(default=True)
+    
+    class Meta:
+        verbose_name = 'Categoria'
+        verbose_name_plural = 'Categorias'
+        constraints = [
+            models.UniqueConstraint(fields=['nome'], name='unique_categoria_nome_por_tenant')
+        ]
+        ordering = ['nome']
+
+    def __str__(self):
+        return self.nome
+
+
+
 
 
 class Produto(TimeStampedModel):
@@ -151,6 +177,7 @@ class Produto(TimeStampedModel):
         # O seu sistema parece focado em Mercadorias (Lotes).
         # Implemente um campo 'is_service' se necessário, mas para já:
         return 'M'
+
 
 
 class PrincipioAtivo(TimeStampedModel):

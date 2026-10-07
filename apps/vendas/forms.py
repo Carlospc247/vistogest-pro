@@ -1,15 +1,31 @@
 # apps/vendas/forms.py
+"""
+Forms do módulo de Vendas.
+
+Isolamento físico via django-tenants: os querysets já não filtram por
+empresa (o campo nem existe mais nos modelos de vendas). O parâmetro
+`empresa` continua a ser aceite nos __init__ apenas por compatibilidade
+com views antigas que ainda o passem via get_form_kwargs — mas nunca é
+usado para filtrar, e a filtragem por estado (ativo/status) acontece
+sempre, independentemente de o kwarg ter sido passado ou não.
+"""
+
+from datetime import date, timedelta
+
 from django import forms
 from django.core.exceptions import ValidationError
-from django.db.models import Q
-from decimal import Decimal
-from datetime import date, timedelta
-from .models import Convenio
+from django.utils import timezone
 
-from .models import *
 from apps.clientes.models import Cliente
-from apps.produtos.models import Produto
 from apps.funcionarios.models import Funcionario
+from apps.produtos.models import Produto
+
+from .models import (
+    Comissao, Convenio, DevolucaoVenda, DocumentoTransporte, Entrega,
+    FaturaCredito, FormaPagamento, ItemDevolucao, ItemDocumentoTransporte,
+    ItemNotaCredito, ItemNotaDebito, ItemVenda, MetaVenda, NotaCredito,
+    NotaDebito, PagamentoVenda, Venda,
+)
 
 
 # =====================================
@@ -17,16 +33,21 @@ from apps.funcionarios.models import Funcionario
 # =====================================
 
 class BaseVendaForm(forms.ModelForm):
-    """Form base para vendas com métodos comuns"""
-    
+    """
+    Form base para vendas com estilização automática.
+
+    O kwarg `empresa` é aceite apenas por compatibilidade com views que
+    ainda o passem — não é usado para filtrar querysets (isolamento já
+    é feito pelo schema do tenant).
+    """
+
     def __init__(self, *args, **kwargs):
         self.empresa = kwargs.pop('empresa', None)
         super().__init__(*args, **kwargs)
-        
-        # Aplicar classes CSS padrão
+
         for field_name, field in self.fields.items():
-            if isinstance(field.widget, (forms.TextInput, forms.NumberInput, forms.EmailInput, 
-                                       forms.URLInput, forms.PasswordInput, forms.Textarea)):
+            if isinstance(field.widget, (forms.TextInput, forms.NumberInput, forms.EmailInput,
+                                          forms.URLInput, forms.PasswordInput, forms.Textarea)):
                 field.widget.attrs.update({
                     'class': 'form-control border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-primary focus:border-transparent'
                 })
@@ -38,12 +59,6 @@ class BaseVendaForm(forms.ModelForm):
                 field.widget.attrs.update({
                     'class': 'form-check-input rounded border-gray-300 text-primary focus:ring-primary'
                 })
-    
-    def filter_by_empresa(self, queryset):
-        """Filtrar queryset pela empresa do usuário"""
-        if self.empresa:
-            return queryset.filter(empresa=self.empresa)
-        return queryset.none()
 
 
 # =====================================
@@ -51,36 +66,32 @@ class BaseVendaForm(forms.ModelForm):
 # =====================================
 
 class VendaForm(BaseVendaForm):
-    """Form principal para criação e edição de vendas"""
-    
+    """Form principal para criação e edição de vendas."""
+
     class Meta:
         model = Venda
         fields = ['cliente', 'vendedor', 'forma_pagamento', 'observacoes']
         widgets = {
             'observacoes': forms.Textarea(attrs={'rows': 3}),
         }
-    
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        
-        if self.empresa:
-            # Filtrar opções pela empresa
-            self.fields['cliente'].queryset = Cliente.objects.filter(ativo=True)
-            self.fields['vendedor'].queryset = Funcionario.objects.filter(ativo=True)
-            self.fields['forma_pagamento'].queryset = FormaPagamento.objects.filter(ativa=True)
-        
-        # Campos opcionais
+
+        self.fields['cliente'].queryset = Cliente.objects.filter(ativo=True)
+        self.fields['vendedor'].queryset = Funcionario.objects.filter(ativo=True)
+        self.fields['forma_pagamento'].queryset = FormaPagamento.objects.filter(ativa=True)
+
         self.fields['cliente'].required = False
         self.fields['observacoes'].required = False
-        
-        # Labels personalizados
+
         self.fields['cliente'].label = 'Cliente (Opcional - deixe vazio para consumidor final)'
         self.fields['forma_pagamento'].label = 'Forma de Pagamento'
 
 
 class ItemVendaForm(forms.ModelForm):
-    """Form para itens da venda"""
-    
+    """Form para itens da venda."""
+
     class Meta:
         model = ItemVenda
         fields = ['produto', 'quantidade', 'preco_unitario']
@@ -88,34 +99,26 @@ class ItemVendaForm(forms.ModelForm):
             'quantidade': forms.NumberInput(attrs={'min': '1', 'step': '1'}),
             'preco_unitario': forms.NumberInput(attrs={'step': '0.01', 'min': '0'}),
         }
-    
+
     def __init__(self, *args, **kwargs):
-        self.empresa = kwargs.pop('empresa', None)
+        kwargs.pop('empresa', None)
         super().__init__(*args, **kwargs)
-        
-        if self.empresa:
-            self.fields['produto'].queryset = Produto.objects.filter(
-                ativo=True
-            ).order_by('nome_comercial')
-        
-        # Configurar campo de preço
+
+        self.fields['produto'].queryset = Produto.objects.filter(ativo=True).order_by('nome_comercial')
+
         if self.instance.pk and self.instance.produto:
             self.fields['preco_unitario'].initial = self.instance.produto.preco_venda
-        
+
         self.fields['preco_unitario'].label = 'Preço Unitário (AKZ)'
-    
+
     def clean(self):
         cleaned_data = super().clean()
         produto = cleaned_data.get('produto')
         quantidade = cleaned_data.get('quantidade')
-        
-        if produto and quantidade:
-            # Verificar estoque
-            if produto.estoque_atual < quantidade:
-                raise ValidationError(
-                    f'Estoque insuficiente. Disponível: {produto.estoque_atual}'
-                )
-        
+
+        if produto and quantidade and produto.estoque_atual < quantidade:
+            raise ValidationError(f'Estoque insuficiente. Disponível: {produto.estoque_atual}')
+
         return cleaned_data
 
 
@@ -124,8 +127,8 @@ class ItemVendaForm(forms.ModelForm):
 # =====================================
 
 class PagamentoVendaForm(BaseVendaForm):
-    """Form para pagamentos"""
-    
+    """Form para pagamentos."""
+
     class Meta:
         model = PagamentoVenda
         fields = ['forma_pagamento', 'valor_pago', 'observacoes']
@@ -133,48 +136,37 @@ class PagamentoVendaForm(BaseVendaForm):
             'valor_pago': forms.NumberInput(attrs={'step': '0.01', 'min': '0'}),
             'observacoes': forms.Textarea(attrs={'rows': 2}),
         }
-    
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        
-        if self.empresa:
-            self.fields['forma_pagamento'].queryset = FormaPagamento.objects.filter(
-                ativa=True
-            )
-        
-        # Campos opcionais
+
+        self.fields['forma_pagamento'].queryset = FormaPagamento.objects.filter(ativa=True)
         self.fields['observacoes'].required = False
-        
-        # Labels
         self.fields['valor_pago'].label = 'Valor Pago (AKZ)'
 
 
 class FormaPagamentoForm(BaseVendaForm):
-    """Form para formas de pagamento"""
-    
+    """Form para formas de pagamento."""
+
     class Meta:
         model = FormaPagamento
         fields = ['nome', 'tipo', 'ativa']
-    
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        
-        # Valores padrão
         self.fields['ativa'].initial = True
 
 
+# =====================================
+# CONVÊNIO FORM
+# =====================================
 
 class ConvenioForm(forms.ModelForm):
-    """
-    RIGOR SOTARQ: Formulário para gestão de convênios e seguradoras.
-    Garante integridade multi-tenant e estilização padronizada.
-    """
+    """Formulário para gestão de convênios e seguradoras."""
+
     class Meta:
         model = Convenio
-        fields = [
-            'nome', 'codigo', 'contato', 'telefone', 
-            'percentual_desconto', 'ativa', 'observacoes'
-        ]
+        fields = ['nome', 'codigo', 'contato', 'telefone', 'percentual_desconto', 'ativa', 'observacoes']
         widgets = {
             'observacoes': forms.Textarea(attrs={'rows': 3, 'placeholder': 'Notas adicionais sobre o convênio...'}),
             'percentual_desconto': forms.NumberInput(attrs={'step': '0.01', 'min': '0', 'max': '100'}),
@@ -185,11 +177,9 @@ class ConvenioForm(forms.ModelForm):
         }
 
     def __init__(self, *args, **kwargs):
-        # Extrai a empresa do kwargs para garantir o rigor multi-tenant
-        self.empresa = kwargs.pop('empresa', None)
+        kwargs.pop('empresa', None)
         super().__init__(*args, **kwargs)
 
-        # 1. Estilização Automática SOTARQ
         for field_name, field in self.fields.items():
             if isinstance(field.widget, forms.CheckboxInput):
                 field.widget.attrs['class'] = 'form-checkbox h-5 w-5 text-primary-600 border-gray-300 rounded focus:ring-primary-500'
@@ -197,96 +187,59 @@ class ConvenioForm(forms.ModelForm):
                 field.widget.attrs['class'] = 'form-input block w-full px-4 py-3 rounded-lg border-gray-300 focus:ring-primary-500 focus:border-primary-500'
 
     def clean_nome(self):
-        """Validação de unicidade por empresa (Rigor SOTARQ)"""
+        """Validação de unicidade (o modelo já tem nome único por schema)."""
         nome = self.cleaned_data.get('nome')
-        if self.empresa:
-            exists = Convenio.objects.filter(
-                
-                nome__iexact=nome
-            ).exclude(pk=self.instance.pk).exists()
-            
-            if exists:
-                raise forms.ValidationError("Já existe um convênio cadastrado com este nome na sua empresa.")
+        exists = Convenio.objects.filter(nome__iexact=nome).exclude(pk=self.instance.pk).exists()
+        if exists:
+            raise forms.ValidationError("Já existe um convênio cadastrado com este nome.")
         return nome
+
+
 # =====================================
 # DEVOLUÇÃO E TROCA FORMS
 # =====================================
 
 class DevolucaoForm(BaseVendaForm):
-    """Form para devoluções"""
-    
+    """Form para devoluções/trocas."""
+
     class Meta:
         model = DevolucaoVenda
-        fields = ['venda_original', 'cliente', 'motivo', 'observacoes']
+        fields = ['venda_original', 'cliente', 'motivo', 'descricao_motivo', 'valor_devolvido', 'observacoes']
         widgets = {
             'observacoes': forms.Textarea(attrs={'rows': 3}),
+            'descricao_motivo': forms.Textarea(attrs={'rows': 2}),
+            'valor_devolvido': forms.NumberInput(attrs={'step': '0.01', 'min': '0'}),
         }
-    
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        
-        if self.empresa:
-            # Filtrar vendas finalizadas da empresa
-            self.fields['venda'].queryset = Venda.objects.filter(
-                status='finalizada'
-            ).order_by('-data_venda')
-            
-            self.fields['cliente'].queryset = Cliente.objects.filter(
-                ativo=True
-            )
-        
-        # Campos obrigatórios
+
+        self.fields['venda_original'].queryset = Venda.objects.filter(status='finalizada').order_by('-data_venda')
+        self.fields['cliente'].queryset = Cliente.objects.filter(ativo=True)
+
         self.fields['motivo'].required = True
+        self.fields['observacoes'].required = False
+        self.fields['venda_original'].label = 'Venda Original'
 
 
 class ItemDevolucaoForm(forms.ModelForm):
-    """Form para itens devolvidos"""
-    
+    """Form para itens devolvidos — vinculado ao ItemVenda original."""
+
     class Meta:
         model = ItemDevolucao
-        fields = ['produto', 'quantidade_devolvida', 'motivo']
+        fields = ['item_venda_original', 'quantidade_devolvida', 'valor_restituido', 'motivo']
         widgets = {
-            'quantidade': forms.NumberInput(attrs={'min': '1', 'step': '1'}),
+            'quantidade_devolvida': forms.NumberInput(attrs={'min': '0.001', 'step': '0.001'}),
+            'valor_restituido': forms.NumberInput(attrs={'step': '0.01', 'min': '0'}),
+            'motivo': forms.Textarea(attrs={'rows': 2}),
         }
-    
+
     def __init__(self, *args, **kwargs):
         self.venda = kwargs.pop('venda', None)
         super().__init__(*args, **kwargs)
-        
+
         if self.venda:
-            # Filtrar apenas produtos da venda
-            produtos_venda = self.venda.itens.values_list('produto', flat=True)
-            self.fields['produto'].queryset = Produto.objects.filter(id__in=produtos_venda)
-
-
-class DevolucaoForm(BaseVendaForm):
-    """Form para trocas"""
-    
-    class Meta:
-        model = DevolucaoVenda
-        fields = ['venda_original', 'cliente', 'motivo', 'observacoes']
-        widgets = {
-            'observacoes': forms.Textarea(attrs={'rows': 3}),
-        }
-    
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        
-        if self.empresa:
-            self.fields['venda_original'].queryset = Venda.objects.filter(
-                status='finalizada'
-            ).order_by('-data_venda')
-            
-            self.fields['cliente'].queryset = Cliente.objects.filter(
-                ativo=True
-            )
-        
-        # Campos opcionais
-        self.fields['observacoes'].required = False
-        
-        # Labels
-        self.fields['venda_original'].label = 'Venda Original'
-        self.fields['motivo_troca'].label = 'Motivo da Troca'
+            self.fields['item_venda_original'].queryset = self.venda.itens.all()
 
 
 # =====================================
@@ -294,73 +247,40 @@ class DevolucaoForm(BaseVendaForm):
 # =====================================
 
 class AgendarEntregaForm(BaseVendaForm):
-    """Form para agendar entregas"""
-    
+    """Form para agendar entregas (dentro da própria Venda)."""
+
     class Meta:
         model = Venda
         fields = ['observacoes']
         widgets = {
             'observacoes': forms.Textarea(attrs={'rows': 2}),
         }
-    
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        
-        # Campos opcionais
         self.fields['observacoes'].required = False
         self.fields['observacoes'].label = 'Observações da Entrega'
 
 
 class EntregaForm(BaseVendaForm):
-    """Form para entregas"""
-    
+    """Form para o modelo Entrega (entidade separada, ligada 1-para-1 com Venda)."""
+
     class Meta:
         model = Entrega
-        fields = ['venda', 'entregador', 'endereco', 'observacoes']
+        fields = ['venda', 'entregador', 'endereco', 'taxa_entrega', 'data_agendada', 'observacoes']
         widgets = {
             'endereco': forms.Textarea(attrs={'rows': 3}),
             'observacoes': forms.Textarea(attrs={'rows': 2}),
+            'data_agendada': forms.DateTimeInput(attrs={'type': 'datetime-local'}),
+            'taxa_entrega': forms.NumberInput(attrs={'step': '0.01', 'min': '0'}),
         }
-    
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        
-        if self.empresa:
-            # Filtrar vendas da empresa
-            self.fields['venda'].queryset = Venda.objects.filter(empresa=self.empresa)
-            
-            # Filtrar entregadores ativos
-            self.fields['entregador'].queryset = Funcionario.objects.filter(
-                ativo=True
-            )
-        
-        # Campos opcionais
+
+        self.fields['venda'].queryset = Venda.objects.all()
+        self.fields['entregador'].queryset = Funcionario.objects.filter(ativo=True)
         self.fields['observacoes'].required = False
-
-
-# =====================================
-# CONVÊNIO FORMS
-# =====================================
-
-class ConvenioForm(BaseVendaForm):
-    """Form para convênios"""
-    
-    class Meta:
-        model = Convenio
-        fields = ['nome', 'contato', 'telefone', 'ativa', 'percentual_desconto', 'observacoes']
-        widgets = {
-            'observacoes': forms.Textarea(attrs={'rows': 2}),
-        }
-    
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        
-        # Campos opcionais
-        self.fields['telefone'].required = False
-        self.fields['observacoes'].required = False
-        
-        # Valores padrão
-        self.fields['ativo'].initial = True
 
 
 # =====================================
@@ -368,74 +288,53 @@ class ConvenioForm(BaseVendaForm):
 # =====================================
 
 class MetaVendaForm(BaseVendaForm):
-    """Form para metas de venda"""
-    
+    """Form para metas de venda."""
+
     class Meta:
         model = MetaVenda
-        fields = ['vendedor', 'mes', 'ano', 'meta_faturamento', 'observacoes']
+        fields = ['vendedor', 'tipo_periodo', 'mes', 'ano', 'meta_faturamento', 'observacoes']
         widgets = {
-            'mes': forms.Select(),
-            'ano': forms.NumberInput(attrs={'min': '2020', 'max': '2030'}),
+            'mes': forms.Select(choices=[
+                (1, 'Janeiro'), (2, 'Fevereiro'), (3, 'Março'),
+                (4, 'Abril'), (5, 'Maio'), (6, 'Junho'),
+                (7, 'Julho'), (8, 'Agosto'), (9, 'Setembro'),
+                (10, 'Outubro'), (11, 'Novembro'), (12, 'Dezembro'),
+            ]),
+            'ano': forms.NumberInput(attrs={'min': '2020', 'max': '2050'}),
             'meta_faturamento': forms.NumberInput(attrs={'step': '0.01', 'min': '0'}),
             'observacoes': forms.Textarea(attrs={'rows': 2}),
         }
-    
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        
-        if self.empresa:
-            self.fields['vendedor'].queryset = Funcionario.objects.filter(
-                ativo=True
-            )
-        
-        # Choices para mês
-        MESES = [
-            (1, 'Janeiro'), (2, 'Fevereiro'), (3, 'Março'),
-            (4, 'Abril'), (5, 'Maio'), (6, 'Junho'),
-            (7, 'Julho'), (8, 'Agosto'), (9, 'Setembro'),
-            (10, 'Outubro'), (11, 'Novembro'), (12, 'Dezembro'),
-        ]
-        self.fields['mes'].widget.choices = MESES
-        
-        # Valores padrão
+
+        self.fields['vendedor'].queryset = Funcionario.objects.filter(ativo=True)
+
         hoje = date.today()
         self.fields['mes'].initial = hoje.month
         self.fields['ano'].initial = hoje.year
-        
-        # Campos opcionais
+
         self.fields['observacoes'].required = False
-        
-        # Labels
         self.fields['meta_faturamento'].label = 'Meta de Faturamento (AKZ)'
 
 
 class ComissaoForm(BaseVendaForm):
-    """Form para comissões"""
-    
+    """Form para comissões (edição manual — o valor é recalculado no save() do modelo)."""
+
     class Meta:
         model = Comissao
-        fields = ['vendedor', 'venda', 'valor_comissao', 'observacoes']
+        fields = ['vendedor', 'venda', 'percentual', 'observacoes']
         widgets = {
-            'valor_comissao': forms.NumberInput(attrs={'step': '0.01', 'min': '0'}),
+            'percentual': forms.NumberInput(attrs={'step': '0.01', 'min': '0', 'max': '100'}),
             'observacoes': forms.Textarea(attrs={'rows': 2}),
         }
-    
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        
-        if self.empresa:
-            self.fields['vendedor'].queryset = Funcionario.objects.filter(
-                ativo=True
-            )
-            self.fields['venda'].queryset = Venda.objects.filter(
-                status='finalizada'
-            )
-        
-        # Campos opcionais
+
+        self.fields['vendedor'].queryset = Funcionario.objects.filter(ativo=True)
+        self.fields['venda'].queryset = Venda.objects.filter(status='finalizada')
         self.fields['observacoes'].required = False
-        
-        # Labels
-        self.fields['valor_comissao'].label = 'Valor da Comissão (AKZ)'
 
 
 # =====================================
@@ -443,8 +342,8 @@ class ComissaoForm(BaseVendaForm):
 # =====================================
 
 class VendaBuscaForm(forms.Form):
-    """Form para busca e filtro de vendas"""
-    
+    """Form para busca e filtro de vendas."""
+
     STATUS_CHOICES = [
         ('', 'Todos os Status'),
         ('rascunho', 'Rascunho'),
@@ -452,7 +351,7 @@ class VendaBuscaForm(forms.Form):
         ('finalizada', 'Finalizada'),
         ('cancelada', 'Cancelada'),
     ]
-    
+
     PERIODO_CHOICES = [
         ('', 'Selecione o período'),
         ('hoje', 'Hoje'),
@@ -463,71 +362,35 @@ class VendaBuscaForm(forms.Form):
         ('ano', 'Este ano'),
         ('personalizado', 'Período personalizado'),
     ]
-    
+
     busca = forms.CharField(
-        max_length=100,
-        required=False,
-        widget=forms.TextInput(attrs={
-            'placeholder': 'Buscar por número, cliente, vendedor...',
-            'class': 'form-control'
-        })
+        max_length=100, required=False,
+        widget=forms.TextInput(attrs={'placeholder': 'Buscar por número, cliente, vendedor...', 'class': 'form-control'})
     )
-    
-    status = forms.ChoiceField(
-        choices=STATUS_CHOICES,
-        required=False,
-        widget=forms.Select(attrs={'class': 'form-select'})
-    )
-    
-    periodo = forms.ChoiceField(
-        choices=PERIODO_CHOICES,
-        required=False,
-        widget=forms.Select(attrs={'class': 'form-select'})
-    )
-    
-    data_inicio = forms.DateField(
-        required=False,
-        widget=forms.DateInput(attrs={'type': 'date', 'class': 'form-control'})
-    )
-    
-    data_fim = forms.DateField(
-        required=False,
-        widget=forms.DateInput(attrs={'type': 'date', 'class': 'form-control'})
-    )
-    
+    status = forms.ChoiceField(choices=STATUS_CHOICES, required=False, widget=forms.Select(attrs={'class': 'form-select'}))
+    periodo = forms.ChoiceField(choices=PERIODO_CHOICES, required=False, widget=forms.Select(attrs={'class': 'form-select'}))
+    data_inicio = forms.DateField(required=False, widget=forms.DateInput(attrs={'type': 'date', 'class': 'form-control'}))
+    data_fim = forms.DateField(required=False, widget=forms.DateInput(attrs={'type': 'date', 'class': 'form-control'}))
     cliente = forms.ModelChoiceField(
-        queryset=Cliente.objects.none(),
-        required=False,
-        empty_label='Todos os clientes',
+        queryset=Cliente.objects.none(), required=False, empty_label='Todos os clientes',
         widget=forms.Select(attrs={'class': 'form-select'})
     )
-    
     vendedor = forms.ModelChoiceField(
-        queryset=Funcionario.objects.none(),
-        required=False,
-        empty_label='Todos os vendedores',
+        queryset=Funcionario.objects.none(), required=False, empty_label='Todos os vendedores',
         widget=forms.Select(attrs={'class': 'form-select'})
     )
-    
+
     def __init__(self, *args, **kwargs):
-        empresa = kwargs.pop('empresa', None)
+        kwargs.pop('empresa', None)
         super().__init__(*args, **kwargs)
-        
-        if empresa:
-            self.fields['cliente'].queryset = Cliente.objects.filter(
-                empresa=empresa,
-                ativo=True
-            ).order_by('nome_completo')
-            
-            self.fields['vendedor'].queryset = Funcionario.objects.filter(
-                empresa=empresa,
-                ativo=True
-            ).order_by('nome_completo')
+
+        self.fields['cliente'].queryset = Cliente.objects.filter(ativo=True).order_by('nome_completo')
+        self.fields['vendedor'].queryset = Funcionario.objects.filter(ativo=True).order_by('nome_completo')
 
 
 class ProdutoVendaBuscaForm(forms.Form):
-    """Form para busca de produtos na venda"""
-    
+    """Form para busca de produtos na venda."""
+
     busca = forms.CharField(
         max_length=100,
         widget=forms.TextInput(attrs={
@@ -536,36 +399,24 @@ class ProdutoVendaBuscaForm(forms.Form):
             'autocomplete': 'off'
         })
     )
-    
+
     def __init__(self, *args, **kwargs):
-        empresa = kwargs.pop('empresa', None)
+        kwargs.pop('empresa', None)
         super().__init__(*args, **kwargs)
 
 
-# Adicionar ao arquivo apps/vendas/forms.py
-
-from django import forms
-from django.core.exceptions import ValidationError
-from django.utils import timezone
-from datetime import timedelta
-from decimal import Decimal
-
-from .models import (
-    NotaCredito, ItemNotaCredito, NotaDebito, ItemNotaDebito,
-    DocumentoTransporte, ItemDocumentoTransporte
-)
-from apps.clientes.models import Cliente
-from apps.produtos.models import Produto
-
+# =====================================
+# NOTA DE CRÉDITO FORMS
+# =====================================
 
 class NotaCreditoForm(forms.ModelForm):
-    """Form para criar/editar Nota de Crédito"""
+    """Form para criar/editar Nota de Crédito."""
 
     class Meta:
         model = NotaCredito
         fields = [
             'venda_origem', 'fatura_credito_origem', 'cliente', 'vendedor',
-            'observacoes', 'total'
+            'motivo', 'observacoes', 'total'
         ]
         widgets = {
             'venda_origem': forms.Select(attrs={
@@ -579,6 +430,9 @@ class NotaCreditoForm(forms.ModelForm):
                 'required': True
             }),
             'vendedor': forms.Select(attrs={
+                'class': 'text-base w-full border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 dark:bg-gray-700 dark:text-white'
+            }),
+            'motivo': forms.Select(attrs={
                 'class': 'text-base w-full border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 dark:bg-gray-700 dark:text-white'
             }),
             'observacoes': forms.Textarea(attrs={
@@ -595,31 +449,13 @@ class NotaCreditoForm(forms.ModelForm):
         }
 
     def __init__(self, *args, **kwargs):
-        empresa = kwargs.pop('empresa', None)
+        kwargs.pop('empresa', None)
         super().__init__(*args, **kwargs)
 
-        if empresa:
-            if 'cliente' in self.fields:
-                self.fields['cliente'].queryset = Cliente.objects.filter(empresa=empresa, ativo=True)
-            try:
-                from apps.funcionarios.models import Funcionario
-                if 'vendedor' in self.fields:
-                    self.fields['vendedor'].queryset = Funcionario.objects.filter(empresa=empresa, ativo=True)
-            except ImportError:
-                pass
-
-            from .models import Venda, FaturaCredito
-            if 'venda_origem' in self.fields:
-                self.fields['venda_origem'].queryset = Venda.objects.filter(
-                    empresa=empresa, status='finalizada'
-                ).order_by('-data_venda')
-            if 'fatura_credito_origem' in self.fields:
-                try:
-                    self.fields['fatura_credito_origem'].queryset = FaturaCredito.objects.filter(
-                        empresa=empresa
-                    ).order_by('-data_emissao')
-                except:
-                    self.fields['fatura_credito_origem'].queryset = FaturaCredito.objects.none()
+        self.fields['cliente'].queryset = Cliente.objects.filter(ativo=True)
+        self.fields['vendedor'].queryset = Funcionario.objects.filter(ativo=True)
+        self.fields['venda_origem'].queryset = Venda.objects.filter(status='finalizada').order_by('-data_venda')
+        self.fields['fatura_credito_origem'].queryset = FaturaCredito.objects.all().order_by('-data_fatura')
 
     def clean(self):
         cleaned_data = super().clean()
@@ -627,24 +463,18 @@ class NotaCreditoForm(forms.ModelForm):
         fatura_credito_origem = cleaned_data.get('fatura_credito_origem')
         total = cleaned_data.get('total')
 
-        # Deve haver uma origem
         if not venda_origem and not fatura_credito_origem:
             raise ValidationError("Selecione uma Venda (FR) ou Fatura a Crédito (FT) de origem.")
 
-        # Não pode haver ambas
         if venda_origem and fatura_credito_origem:
             raise ValidationError("Selecione apenas uma origem: Venda OU Fatura a Crédito, não ambas.")
 
-        # Valor do crédito não pode ser maior que o documento origem
         documento_origem = venda_origem or fatura_credito_origem
-        if documento_origem and total:
-            valor_origem = getattr(documento_origem, 'total', getattr(documento_origem, 'total_faturado', None))
-            if valor_origem and total > valor_origem:
-                raise ValidationError(
-                    f"O valor do crédito (Kz {total}) não pode ser maior que o documento de origem (Kz {valor_origem})."
-                )
+        if documento_origem and total and total > documento_origem.total:
+            raise ValidationError(
+                f"O valor do crédito (Kz {total}) não pode ser maior que o documento de origem (Kz {documento_origem.total})."
+            )
 
-        # Auto-preenche cliente se não selecionado
         if documento_origem and not cleaned_data.get('cliente'):
             cleaned_data['cliente'] = documento_origem.cliente
 
@@ -652,8 +482,8 @@ class NotaCreditoForm(forms.ModelForm):
 
 
 class ItemNotaCreditoForm(forms.ModelForm):
-    """Form para itens da Nota de Crédito"""
-    
+    """Form para itens da Nota de Crédito."""
+
     class Meta:
         model = ItemNotaCredito
         fields = [
@@ -661,125 +491,83 @@ class ItemNotaCreditoForm(forms.ModelForm):
             'valor_unitario_credito', 'iva_percentual', 'motivo_item'
         ]
         widgets = {
-            'produto': forms.Select(attrs={
-                'class': 'text-base w-full border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 dark:bg-gray-700 dark:text-white'
-            }),
-            'servico': forms.Select(attrs={
-                'class': 'text-base w-full border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 dark:bg-gray-700 dark:text-white'
-            }),
+            'produto': forms.Select(attrs={'class': 'text-base w-full border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 dark:bg-gray-700 dark:text-white'}),
+            'servico': forms.Select(attrs={'class': 'text-base w-full border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 dark:bg-gray-700 dark:text-white'}),
             'descricao_item': forms.TextInput(attrs={
                 'class': 'text-base w-full border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 dark:bg-gray-700 dark:text-white',
                 'placeholder': 'Descrição do item creditado'
             }),
             'quantidade_creditada': forms.NumberInput(attrs={
                 'class': 'text-base w-full border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 dark:bg-gray-700 dark:text-white',
-                'step': '0.01',
-                'min': '0.01'
+                'step': '0.01', 'min': '0.01'
             }),
             'valor_unitario_credito': forms.NumberInput(attrs={
                 'class': 'text-base w-full border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 dark:bg-gray-700 dark:text-white',
-                'step': '0.01',
-                'min': '0.01'
+                'step': '0.01', 'min': '0.01'
             }),
             'iva_percentual': forms.NumberInput(attrs={
                 'class': 'text-base w-full border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 dark:bg-gray-700 dark:text-white',
-                'step': '0.01',
-                'min': '0',
-                'max': '100',
-                'value': '14'
+                'step': '0.01', 'min': '0', 'max': '100', 'value': '14'
             }),
             'motivo_item': forms.Textarea(attrs={
                 'class': 'text-base w-full border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 dark:bg-gray-700 dark:text-white',
-                'rows': 2,
-                'placeholder': 'Motivo específico para este item (opcional)'
+                'rows': 2, 'placeholder': 'Motivo específico para este item (opcional)'
             })
         }
 
     def __init__(self, *args, **kwargs):
-        empresa = kwargs.pop('empresa', None)
+        kwargs.pop('empresa', None)
         super().__init__(*args, **kwargs)
-        
-        if empresa:
-            self.fields['produto'].queryset = Produto.objects.filter(empresa=empresa, ativo=True)
-            
-            try:
-                from apps.servicos.models import Servico
-                self.fields['servico'].queryset = Servico.objects.filter(empresa=empresa, ativo=True)
-            except ImportError:
-                pass
+
+        self.fields['produto'].queryset = Produto.objects.filter(ativo=True)
+        try:
+            from apps.servicos.models import Servico
+            self.fields['servico'].queryset = Servico.objects.filter(ativo=True)
+        except ImportError:
+            pass
 
 
 class NotaDebitoForm(forms.ModelForm):
-    """Form para criar/editar Nota de Débito"""
-    
+    """Form para criar/editar Nota de Débito."""
+
     class Meta:
         model = NotaDebito
         fields = [
             'venda_origem', 'fatura_credito_origem', 'cliente', 'vendedor',
-            'data_vencimento', 'observacoes', 'total'
+            'motivo', 'data_vencimento', 'observacoes', 'total'
         ]
         widgets = {
-            'venda_origem': forms.Select(attrs={
-                'class': 'text-base w-full border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 dark:bg-gray-700 dark:text-white'
-            }),
-            'fatura_credito_origem': forms.Select(attrs={
-                'class': 'text-base w-full border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 dark:bg-gray-700 dark:text-white'
-            }),
+            'venda_origem': forms.Select(attrs={'class': 'text-base w-full border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 dark:bg-gray-700 dark:text-white'}),
+            'fatura_credito_origem': forms.Select(attrs={'class': 'text-base w-full border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 dark:bg-gray-700 dark:text-white'}),
             'cliente': forms.Select(attrs={
                 'class': 'text-base w-full border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 dark:bg-gray-700 dark:text-white',
                 'required': True
             }),
-            'vendedor': forms.Select(attrs={
-                'class': 'text-base w-full border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 dark:bg-gray-700 dark:text-white'
-            }),
+            'vendedor': forms.Select(attrs={'class': 'text-base w-full border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 dark:bg-gray-700 dark:text-white'}),
+            'motivo': forms.Select(attrs={'class': 'text-base w-full border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 dark:bg-gray-700 dark:text-white'}),
             'data_vencimento': forms.DateInput(attrs={
                 'class': 'text-base w-full border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 dark:bg-gray-700 dark:text-white',
-                'type': 'date',
-                'required': True
+                'type': 'date', 'required': True
             }),
             'observacoes': forms.Textarea(attrs={
                 'class': 'text-base w-full border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 dark:bg-gray-700 dark:text-white',
-                'rows': 3,
-                'placeholder': 'Observações adicionais (opcional)...'
+                'rows': 3, 'placeholder': 'Observações adicionais (opcional)...'
             }),
             'total': forms.NumberInput(attrs={
                 'class': 'text-base w-full border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 dark:bg-gray-700 dark:text-white',
-                'step': '0.01',
-                'min': '0.01',
-                'required': True
+                'step': '0.01', 'min': '0.01', 'required': True
             })
         }
 
     def __init__(self, *args, **kwargs):
-        empresa = kwargs.pop('empresa', None)
+        kwargs.pop('empresa', None)
         super().__init__(*args, **kwargs)
-        
-        if empresa:
-            # Filtrar opções por empresa
-            self.fields['cliente'].queryset = Cliente.objects.filter(empresa=empresa, ativo=True)
-            
-            # Vendedores da empresa
-            try:
-                from apps.funcionarios.models import Funcionario
-                self.fields['vendedor'].queryset = Funcionario.objects.filter(empresa=empresa, ativo=True)
-            except ImportError:
-                pass
-            
-            # Vendas e faturas da empresa
-            from .models import Venda, FaturaCredito
-            self.fields['venda_origem'].queryset = Venda.objects.filter(
-                empresa=empresa, 
-                status='finalizada'
-            ).order_by('-data_venda')
-            
-            try:
-                self.fields['fatura_credito_origem'].queryset = FaturaCredito.objects.filter(
-                    empresa=empresa
-                ).order_by('-data_emissao')
-            except:
-                self.fields['fatura_credito_origem'].queryset = FaturaCredito.objects.none()
-        
-        # Data de vencimento padrão (30 dias)
+
+        self.fields['cliente'].queryset = Cliente.objects.filter(ativo=True)
+        self.fields['vendedor'].queryset = Funcionario.objects.filter(ativo=True)
+        self.fields['venda_origem'].queryset = Venda.objects.filter(status='finalizada').order_by('-data_venda')
+        self.fields['fatura_credito_origem'].queryset = FaturaCredito.objects.all().order_by('-data_fatura')
+
         if not self.instance.pk:
             self.fields['data_vencimento'].initial = timezone.now().date() + timedelta(days=30)
 
@@ -788,30 +576,26 @@ class NotaDebitoForm(forms.ModelForm):
         venda_origem = cleaned_data.get('venda_origem')
         fatura_credito_origem = cleaned_data.get('fatura_credito_origem')
         data_vencimento = cleaned_data.get('data_vencimento')
-        
-        # Validação: deve ter pelo menos uma origem
+
         if not venda_origem and not fatura_credito_origem:
             raise ValidationError("Selecione uma Venda (FR) ou Fatura a Crédito (FT) de origem.")
-        
-        # Validação: não pode ter ambas
+
         if venda_origem and fatura_credito_origem:
             raise ValidationError("Selecione apenas uma origem: Venda OU Fatura a Crédito, não ambas.")
-        
-        # Validação: data de vencimento não pode ser passada
+
         if data_vencimento and data_vencimento <= timezone.now().date():
             raise ValidationError("A data de vencimento deve ser futura.")
-        
-        # Auto-preencher cliente se não selecionado
+
         documento_origem = venda_origem or fatura_credito_origem
         if documento_origem and not cleaned_data.get('cliente'):
             cleaned_data['cliente'] = documento_origem.cliente
-        
+
         return cleaned_data
 
 
 class ItemNotaDebitoForm(forms.ModelForm):
-    """Form para itens da Nota de Débito"""
-    
+    """Form para itens da Nota de Débito."""
+
     class Meta:
         model = ItemNotaDebito
         fields = [
@@ -819,57 +603,49 @@ class ItemNotaDebitoForm(forms.ModelForm):
             'valor_unitario', 'iva_percentual', 'justificativa'
         ]
         widgets = {
-            'produto': forms.Select(attrs={
-                'class': 'text-base w-full border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 dark:bg-gray-700 dark:text-white'
-            }),
-            'servico': forms.Select(attrs={
-                'class': 'text-base w-full border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 dark:bg-gray-700 dark:text-white'
-            }),
+            'produto': forms.Select(attrs={'class': 'text-base w-full border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 dark:bg-gray-700 dark:text-white'}),
+            'servico': forms.Select(attrs={'class': 'text-base w-full border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 dark:bg-gray-700 dark:text-white'}),
             'descricao_item': forms.TextInput(attrs={
                 'class': 'text-base w-full border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 dark:bg-gray-700 dark:text-white',
                 'placeholder': 'Descrição do item debitado'
             }),
             'quantidade': forms.NumberInput(attrs={
                 'class': 'text-base w-full border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 dark:bg-gray-700 dark:text-white',
-                'step': '0.01',
-                'min': '0.01'
+                'step': '0.01', 'min': '0.01'
             }),
             'valor_unitario': forms.NumberInput(attrs={
                 'class': 'text-base w-full border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 dark:bg-gray-700 dark:text-white',
-                'step': '0.01',
-                'min': '0.01'
+                'step': '0.01', 'min': '0.01'
             }),
             'iva_percentual': forms.NumberInput(attrs={
                 'class': 'text-base w-full border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 dark:bg-gray-700 dark:text-white',
-                'step': '0.01',
-                'min': '0',
-                'max': '100',
-                'value': '14'
+                'step': '0.01', 'min': '0', 'max': '100', 'value': '14'
             }),
             'justificativa': forms.Textarea(attrs={
                 'class': 'text-base w-full border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 dark:bg-gray-700 dark:text-white',
-                'rows': 2,
-                'placeholder': 'Justificativa para este item (opcional)'
+                'rows': 2, 'placeholder': 'Justificativa para este item (opcional)'
             })
         }
 
     def __init__(self, *args, **kwargs):
-        empresa = kwargs.pop('empresa', None)
+        kwargs.pop('empresa', None)
         super().__init__(*args, **kwargs)
-        
-        if empresa:
-            self.fields['produto'].queryset = Produto.objects.filter(empresa=empresa, ativo=True)
-            
-            try:
-                from apps.servicos.models import Servico
-                self.fields['servico'].queryset = Servico.objects.filter(empresa=empresa, ativo=True)
-            except ImportError:
-                pass
 
+        self.fields['produto'].queryset = Produto.objects.filter(ativo=True)
+        try:
+            from apps.servicos.models import Servico
+            self.fields['servico'].queryset = Servico.objects.filter(ativo=True)
+        except ImportError:
+            pass
+
+
+# =====================================
+# DOCUMENTO DE TRANSPORTE FORMS
+# =====================================
 
 class DocumentoTransporteForm(forms.ModelForm):
-    """Form para criar/editar Documento de Transporte"""
-    
+    """Form para criar/editar Documento de Transporte."""
+
     class Meta:
         model = DocumentoTransporte
         fields = [
@@ -883,18 +659,10 @@ class DocumentoTransporteForm(forms.ModelForm):
             'valor_transporte', 'observacoes', 'instrucoes_especiais'
         ]
         widgets = {
-            'venda_origem': forms.Select(attrs={
-                'class': 'text-base w-full border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 dark:bg-gray-700 dark:text-white'
-            }),
-            'fatura_credito_origem': forms.Select(attrs={
-                'class': 'text-base w-full border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 dark:bg-gray-700 dark:text-white'
-            }),
-            'tipo_operacao': forms.Select(attrs={
-                'class': 'text-base w-full border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 dark:bg-gray-700 dark:text-white'
-            }),
-            'tipo_transporte': forms.Select(attrs={
-                'class': 'text-base w-full border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 dark:bg-gray-700 dark:text-white'
-            }),
+            'venda_origem': forms.Select(attrs={'class': 'text-base w-full border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 dark:bg-gray-700 dark:text-white'}),
+            'fatura_credito_origem': forms.Select(attrs={'class': 'text-base w-full border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 dark:bg-gray-700 dark:text-white'}),
+            'tipo_operacao': forms.Select(attrs={'class': 'text-base w-full border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 dark:bg-gray-700 dark:text-white'}),
+            'tipo_transporte': forms.Select(attrs={'class': 'text-base w-full border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 dark:bg-gray-700 dark:text-white'}),
             'data_inicio_transporte': forms.DateTimeInput(attrs={
                 'class': 'text-base w-full border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 dark:bg-gray-700 dark:text-white',
                 'type': 'datetime-local'
@@ -903,9 +671,7 @@ class DocumentoTransporteForm(forms.ModelForm):
                 'class': 'text-base w-full border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 dark:bg-gray-700 dark:text-white',
                 'type': 'datetime-local'
             }),
-            'destinatario_cliente': forms.Select(attrs={
-                'class': 'text-base w-full border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 dark:bg-gray-700 dark:text-white'
-            }),
+            'destinatario_cliente': forms.Select(attrs={'class': 'text-base w-full border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 dark:bg-gray-700 dark:text-white'}),
             'destinatario_nome': forms.TextInput(attrs={
                 'class': 'text-base w-full border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 dark:bg-gray-700 dark:text-white',
                 'placeholder': 'Nome completo do destinatário'
@@ -930,9 +696,7 @@ class DocumentoTransporteForm(forms.ModelForm):
                 ('HUA', 'Huambo'), ('HUI', 'Huíla'), ('LUA', 'Luanda'),
                 ('LNO', 'Lunda Norte'), ('LSU', 'Lunda Sul'), ('MAL', 'Malanje'),
                 ('MOX', 'Moxico'), ('NAM', 'Namibe'), ('UIG', 'Uíge'), ('ZAI', 'Zaire'),
-            ], attrs={
-                'class': 'text-base w-full border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 dark:bg-gray-700 dark:text-white'
-            }),
+            ], attrs={'class': 'text-base w-full border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 dark:bg-gray-700 dark:text-white'}),
             'transportador_nome': forms.TextInput(attrs={
                 'class': 'text-base w-full border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 dark:bg-gray-700 dark:text-white',
                 'placeholder': 'Nome da transportadora ou condutor'
@@ -971,49 +735,30 @@ class DocumentoTransporteForm(forms.ModelForm):
             }),
             'itinerario': forms.Textarea(attrs={
                 'class': 'text-base w-full border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 dark:bg-gray-700 dark:text-white',
-                'rows': 3,
-                'placeholder': 'Descreva o itinerário detalhado do transporte...'
+                'rows': 3, 'placeholder': 'Descreva o itinerário detalhado do transporte...'
             }),
             'valor_transporte': forms.NumberInput(attrs={
                 'class': 'text-base w-full border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 dark:bg-gray-700 dark:text-white',
-                'step': '0.01',
-                'min': '0'
+                'step': '0.01', 'min': '0'
             }),
             'observacoes': forms.Textarea(attrs={
                 'class': 'text-base w-full border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 dark:bg-gray-700 dark:text-white',
-                'rows': 3,
-                'placeholder': 'Observações gerais do transporte...'
+                'rows': 3, 'placeholder': 'Observações gerais do transporte...'
             }),
             'instrucoes_especiais': forms.Textarea(attrs={
                 'class': 'text-base w-full border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 dark:bg-gray-700 dark:text-white',
-                'rows': 2,
-                'placeholder': 'Instruções especiais para o transporte...'
+                'rows': 2, 'placeholder': 'Instruções especiais para o transporte...'
             })
         }
 
     def __init__(self, *args, **kwargs):
-        empresa = kwargs.pop('empresa', None)
+        kwargs.pop('empresa', None)
         super().__init__(*args, **kwargs)
-        
-        if empresa:
-            # Filtrar opções por empresa
-            self.fields['destinatario_cliente'].queryset = Cliente.objects.filter(empresa=empresa, ativo=True)
-            
-            # Vendas e faturas da empresa
-            from .models import Venda, FaturaCredito
-            self.fields['venda_origem'].queryset = Venda.objects.filter(
-                empresa=empresa, 
-                status='finalizada'
-            ).order_by('-data_venda')
-            
-            try:
-                self.fields['fatura_credito_origem'].queryset = FaturaCredito.objects.filter(
-                    empresa=empresa
-                ).order_by('-data_emissao')
-            except:
-                self.fields['fatura_credito_origem'].queryset = FaturaCredito.objects.none()
-        
-        # Dados padrão
+
+        self.fields['destinatario_cliente'].queryset = Cliente.objects.filter(ativo=True)
+        self.fields['venda_origem'].queryset = Venda.objects.filter(status='finalizada').order_by('-data_venda')
+        self.fields['fatura_credito_origem'].queryset = FaturaCredito.objects.all().order_by('-data_fatura')
+
         if not self.instance.pk:
             agora = timezone.now()
             self.fields['data_inicio_transporte'].initial = agora
@@ -1027,25 +772,22 @@ class DocumentoTransporteForm(forms.ModelForm):
         data_previsao = cleaned_data.get('data_previsao_entrega')
         destinatario_cliente = cleaned_data.get('destinatario_cliente')
         destinatario_nome = cleaned_data.get('destinatario_nome')
-        
-        # Validação: deve ter pelo menos uma origem
+
         if not venda_origem and not fatura_credito_origem:
             raise ValidationError("Selecione uma Venda (FR) ou Fatura a Crédito (FT) de origem.")
-        
-        # Validação: data de previsão deve ser posterior ao início
+
         if data_inicio and data_previsao and data_previsao <= data_inicio:
             raise ValidationError("A data de previsão de entrega deve ser posterior à data de início do transporte.")
-        
-        # Validação: destinatário
+
         if not destinatario_cliente and not destinatario_nome:
             raise ValidationError("Selecione um cliente ou informe o nome do destinatário.")
-        
+
         return cleaned_data
 
 
 class ItemDocumentoTransporteForm(forms.ModelForm):
-    """Form para itens do Documento de Transporte"""
-    
+    """Form para itens do Documento de Transporte."""
+
     class Meta:
         model = ItemDocumentoTransporte
         fields = [
@@ -1054,9 +796,7 @@ class ItemDocumentoTransporteForm(forms.ModelForm):
             'numero_serie', 'lote', 'valor_unitario', 'observacoes_item'
         ]
         widgets = {
-            'produto': forms.Select(attrs={
-                'class': 'text-base w-full border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 dark:bg-gray-700 dark:text-white'
-            }),
+            'produto': forms.Select(attrs={'class': 'text-base w-full border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 dark:bg-gray-700 dark:text-white'}),
             'codigo_produto': forms.TextInput(attrs={
                 'class': 'text-base w-full border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 dark:bg-gray-700 dark:text-white',
                 'placeholder': 'Código do produto'
@@ -1071,13 +811,11 @@ class ItemDocumentoTransporteForm(forms.ModelForm):
             }),
             'quantidade_enviada': forms.NumberInput(attrs={
                 'class': 'text-base w-full border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 dark:bg-gray-700 dark:text-white',
-                'step': '0.01',
-                'min': '0.01'
+                'step': '0.01', 'min': '0.01'
             }),
             'peso_unitario': forms.NumberInput(attrs={
                 'class': 'text-base w-full border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 dark:bg-gray-700 dark:text-white',
-                'step': '0.001',
-                'min': '0'
+                'step': '0.001', 'min': '0'
             }),
             'tipo_embalagem': forms.TextInput(attrs={
                 'class': 'text-base w-full border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 dark:bg-gray-700 dark:text-white',
@@ -1093,21 +831,15 @@ class ItemDocumentoTransporteForm(forms.ModelForm):
             }),
             'valor_unitario': forms.NumberInput(attrs={
                 'class': 'text-base w-full border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 dark:bg-gray-700 dark:text-white',
-                'step': '0.01',
-                'min': '0'
+                'step': '0.01', 'min': '0'
             }),
             'observacoes_item': forms.Textarea(attrs={
                 'class': 'text-base w-full border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 dark:bg-gray-700 dark:text-white',
-                'rows': 2,
-                'placeholder': 'Observações específicas do item...'
+                'rows': 2, 'placeholder': 'Observações específicas do item...'
             })
         }
 
     def __init__(self, *args, **kwargs):
-        empresa = kwargs.pop('empresa', None)
+        kwargs.pop('empresa', None)
         super().__init__(*args, **kwargs)
-        
-        if empresa:
-            self.fields['produto'].queryset = Produto.objects.filter(empresa=empresa, ativo=True)
-
-
+        self.fields['produto'].queryset = Produto.objects.filter(ativo=True)

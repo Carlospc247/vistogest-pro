@@ -3,23 +3,20 @@
 from django.http import JsonResponse
 from django.contrib.auth.decorators import login_required
 from django.shortcuts import get_object_or_404
+from joblib import logger
 
 from apps.vendas.models import Venda
 
-
-
-# apps/fiscal/views.py
 
 def detalhe_erro_venda(request, venda_id):
     """
     Retorna os detalhes técnicos da rejeição da AGT.
     Substituído get_object_or_404 por tratamento manual para não quebrar o AJAX.
     """
-    empresa = request.user.empresa
-    
+
     try:
         # Filtro rigoroso por ID e Empresa (Multi-tenant)
-        venda = Venda.objects.get(id=venda_id, empresa=empresa)
+        venda = Venda.objects.get(id=venda_id)
         
         erros = venda.metadados.get('erros_agt', [])
         request_id = venda.metadados.get('request_id_agt', 'N/A')

@@ -7,7 +7,7 @@ from datetime import datetime, date, timedelta
 import json
 
 from .models import AlertaInteligente, DashboardPersonalizado, EventoAnalytics, AuditoriaAlteracao
-from apps.empresas.models import Empresa
+
 
 
 Usuario = get_user_model()
@@ -82,12 +82,7 @@ class AlertaInteligenteForm(BaseAnalyticsForm, forms.ModelForm):
     
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        
-        if self.empresa:
-            # Filtrar usuários da empresa
-            self.fields['usuarios_notificar'].queryset = Usuario.objects.filter(
-                funcionario__ativo=True
-            ).order_by('first_name', 'username')
+
         
         # Valores iniciais para edição
         if self.instance.pk:
@@ -314,7 +309,7 @@ class DashboardPersonalizadoForm(BaseAnalyticsForm, forms.ModelForm):
         padrao = cleaned_data.get('padrao', False)
         
         # Validar que apenas um dashboard pode ser padrão por usuário
-        if padrao and self.usuario and self.empresa:
+        if padrao:
             existing_default = DashboardPersonalizado.objects.filter(
                 usuario=self.usuario,
                 padrao=True
@@ -425,11 +420,6 @@ class FiltroEventosForm(BaseAnalyticsForm):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         
-        if self.empresa:
-            # Filtrar usuários da empresa
-            self.fields['usuario'].queryset = Usuario.objects.filter(
-            ).order_by('first_name', 'username')
-    
     def clean(self):
         cleaned_data = super().clean()
         data_inicio = cleaned_data.get('data_inicio')
@@ -546,15 +536,6 @@ class FiltroAuditoriaForm(BaseAnalyticsForm):
     
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        
-        if self.empresa:
-            # Filtrar usuários da empresa
-            self.fields['usuario'].queryset = Usuario.objects.filter(
-            ).order_by('first_name', 'username')
-            
-            # Filtrar content types que têm auditorias na empresa
-            self.fields['content_type'].queryset = ContentType.objects.filter(
-            ).distinct().order_by('model')
     
     def clean(self):
         cleaned_data = super().clean()

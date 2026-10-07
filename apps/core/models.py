@@ -26,6 +26,16 @@ class Usuario(AbstractUser):
     telefone = models.CharField(max_length=20, blank=True)
     foto = CloudinaryField('foto', blank=True, null=True)
     
+    empresa = models.ForeignKey(
+        'empresas.Empresa',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='usuarios',
+        verbose_name="Empresa (Tenant)",
+        help_text="Empresa/Tenant ao qual este utilizador pertence ou administra."
+    )
+    
     e_administrador_empresa = models.BooleanField(
         "É Administrador da Empresa?",
         default=False,
@@ -37,28 +47,43 @@ class Usuario(AbstractUser):
     @property
     def funcionario(self):
         """
-        RIGOR SOTARQ: Intercepta a chamada antes que o Django dispare o SQL.
-        No schema public, retornamos None imediatamente sem tocar no banco.
+        Retorna o perfil de funcionário do usuário somente quando
+        estamos dentro de um schema Tenant.
+
+        No schema public, retorna imediatamente None e não executa
+        nenhuma consulta à aplicação funcionarios.
         """
         if connection.schema_name == 'public':
             return None
-        
+
         try:
             from django.apps import apps
-            FuncionarioModel = apps.get_model('funcionarios', 'Funcionario')
-            # Usamos filter().first() para evitar exceções de DoesNotExist
-            return FuncionarioModel.objects.filter(usuario=self).first()
-        except (LookupError, Exception):
+
+            FuncionarioModel = apps.get_model(
+                'funcionarios',
+                'Funcionario'
+            )
+
+            return (
+                FuncionarioModel.objects
+                .filter(usuario_id=self.pk)
+                .first()
+            )
+
+        except LookupError:
             return None
+
 
     @property
     def funcionario_profile(self):
-        """Alias de compatibilidade para o perfil do funcionário."""
-        return self.funcionario
-
-    def get_funcionario(self):
         """Método auxiliar para recuperação segura do funcionário."""
         return self.funcionario
+
+
+    def get_funcionario(self):
+        """Alias de compatibilidade para o perfil do funcionário."""
+        return self.funcionario
+    
     
     def delete(self, *args, **kwargs):
         # 🛡️ RIGOR SOTARQ: Engenharia de Proteção de Schema
@@ -133,4 +158,53 @@ class VerificacaoSeguranca(models.Model):
         self.expira_em = timezone.now() + timezone.timedelta(minutes=10)
         self.save()
         return self.token
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# BRUTE FORCE PROTECTION — Registo persistente de tentativas de login falhadas
+# ──────────────────────────────────────────────────────────────────────────────
+
+class LoginAttempt(models.Model):
+    """
+    Regista cada tentativa de login falhada.
+
+    Complementa o rate-limit em cache (Redis/LocMem) com um log persistente
+    que sobrevive a reinícios do servidor e permite auditoria histórica.
+
+    Isolamento: reside em SHARED_APPS (schema public) — não é tenant-specific
+    porque o login acontece antes da determinação do tenant.
+    """
+    username_tentado = models.CharField(
+        max_length=150, blank=True, db_index=True,
+        verbose_name='Username tentado',
+        help_text='Username introduzido na tentativa (pode não corresponder a nenhum utilizador).'
+    )
+    ip_address = models.GenericIPAddressField(
+        db_index=True,
+        verbose_name='Endereço IP'
+    )
+    user_agent = models.TextField(blank=True, verbose_name='User-Agent')
+    timestamp   = models.DateTimeField(auto_now_add=True, db_index=True)
+    bloqueado   = models.BooleanField(
+        default=False,
+        verbose_name='Tentativa em modo bloqueado',
+        help_text='True se a tentativa ocorreu enquanto o IP/user já estava em lockout.'
+    )
+    schema_name = models.CharField(
+        max_length=63, blank=True,
+        verbose_name='Schema (Tenant)',
+        help_text='Schema do tenant no momento da tentativa.'
+    )
+
+    class Meta:
+        verbose_name = 'Tentativa de Login Falhada'
+        verbose_name_plural = 'Tentativas de Login Falhadas'
+        ordering = ['-timestamp']
+        indexes = [
+            models.Index(fields=['ip_address', 'timestamp'],  name='loginattempt_ip_ts_idx'),
+            models.Index(fields=['username_tentado', 'timestamp'], name='loginattempt_user_ts_idx'),
+        ]
+
+    def __str__(self):
+        return f"{self.ip_address} → {self.username_tentado or '(sem username)'} @ {self.timestamp:%Y-%m-%d %H:%M}"
 

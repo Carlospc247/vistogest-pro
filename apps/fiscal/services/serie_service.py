@@ -20,7 +20,6 @@ class SerieFiscalService:
         
         # 1. Busca o contador para o ano vigente e tipo de documento
         contador, created = ContadorDocumento.objects.get_or_create(
-            empresa=empresa,
             tipo_documento=tipo_documento,
             ano=ano_atual,
             defaults={'sequencia': 0, 'serie': f'S{ano_atual}'}
@@ -49,8 +48,7 @@ class SerieFiscalService:
         ou se o sistema precisa de novas séries AGT.
         """
         ano_anterior = timezone.now().year - 1
-        pendentes = ContadorDocumento.objects.filter(
-            empresa=empresa, 
+        pendentes = ContadorDocumento.objects.filter( 
             ano=ano_anterior
         ).exists()
         

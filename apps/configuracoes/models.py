@@ -17,10 +17,10 @@ class ConfiguracaoFiscal(TimeStampedModel):
     # Dados da empresa para documentos fiscais
     razao_social = models.CharField(max_length=255)
     nome_fantasia = models.CharField(max_length=255, blank=True, help_text="Ex: Neway Farmácia")
-    nif = models.CharField("NIF", max_length=14, help_text="Número de Identificação Fiscal da empresa.")
-    email = models.CharField(max_length=200, blank=True, help_text="Ex: empresa@gmail.com")
-    site = models.CharField(max_length=200, blank=True, help_text="Ex: empresa.com")
-    telefone = models.CharField(max_length=200, blank=True, help_text="Ex: contacto da empresa")
+    nif = models.CharField("NIF", max_length=14, help_text="NIF.")
+    email = models.CharField(max_length=200, blank=True, help_text="Ex: Email")
+    site = models.CharField(max_length=200, blank=True, help_text="Ex: Site")
+    telefone = models.CharField(max_length=200, blank=True, help_text="Ex: contacto")
     
     # Endereço fiscal
     endereco = models.CharField(max_length=255)
@@ -46,7 +46,7 @@ class ConfiguracaoFiscal(TimeStampedModel):
         verbose_name_plural = "Configurações Fiscais"
     
     def __str__(self):
-        return f"Configuração Fiscal - {self.empresa.nome}"
+        return f"Configuração Fiscal - {self.nome}"
 
 
 
@@ -109,7 +109,7 @@ class BackupConfiguracao(TimeStampedModel):
         verbose_name_plural = "Configurações de Backup"
     
     def __str__(self):
-        return f"Configuração de Backup - {self.empresa.nome}"
+        return f"Configuração de Backup - {self.nome}"
 
 class PersonalizacaoInterface(TimeStampedModel):
     
@@ -140,8 +140,6 @@ class PersonalizacaoInterface(TimeStampedModel):
     def __str__(self):
         if self.usuario:
             return f"Personalização de {self.usuario.username}"
-        elif self.empresa:
-            return f"Personalização da Empresa {self.empresa.nome}"
         return "Personalização Global"
 
 

@@ -6,7 +6,7 @@
 {% block page_title %}{{ title }}{% endblock %}
 
 {% block breadcrumb %}
-    <li class="breadcrumb-item"><a href="{% url 'core:dashboard' %}">Dashboard</a></li>
+    <li class="breadcrumb-item"><a href="{% url 'core_tenants:dashboard' %}">Dashboard</a></li>
     <li class="breadcrumb-item"><a href="{% url 'configuracoes:dashboard' %}">Configurações</a></li>
     <li class="breadcrumb-item"><a href="{% url 'configuracoes:backup_config' %}">Backups</a></li>
     <li class="breadcrumb-item active">Histórico</li>

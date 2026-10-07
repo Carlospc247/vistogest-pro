@@ -230,7 +230,7 @@ class DashboardPersonalizadoSerializer(serializers.ModelSerializer):
         if attrs.get('padrao', False):
             user = attrs.get('usuario') or self.instance.usuario if self.instance else None
             
-            if user and empresa:
+            if user:
                 existing_default = DashboardPersonalizado.objects.filter(
                     usuario=user,
                     padrao=True

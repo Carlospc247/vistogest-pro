@@ -4,7 +4,6 @@
 
 from django.urls import path
 
-from apps.produtos import api_views
 from . import views
 
 app_name = 'produtos'

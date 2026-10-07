@@ -77,7 +77,7 @@ class PermissaoAcaoMixin(AccessMixin):
             # Usa a lógica dinâmica do modelo Funcionario (que já criámos)
             if not funcionario.pode_realizar_acao(self.acao_requerida):
                 messages.error(request, f"Acesso negado. O seu cargo não permite realizar a ação de '{self.acao_requerida}'.")
-                return redirect(reverse_lazy('core:dashboard'))
+                return redirect(reverse_lazy('core_tenants:dashboard'))
 
         return super().dispatch(request, *args, **kwargs)
 
@@ -260,8 +260,7 @@ class EventoAnalyticsListView(BaseViewMixin, ListView):
     paginate_by = 50
     
     def get_queryset(self):
-        queryset = EventoAnalytics.objects.filter(
-            empresa=self.get_empresa()
+        queryset = EventoAnalytics.objects.all(
         ).select_related('usuario').order_by('-timestamp')
         
         # Filtros
@@ -566,8 +565,7 @@ class AuditoriaListView(BaseViewMixin, ListView):
     paginate_by = 50
     
     def get_queryset(self):
-        queryset = AuditoriaAlteracao.objects.filter(
-            empresa=self.get_empresa()
+        queryset = AuditoriaAlteracao.objects.all(
         ).select_related('usuario', 'content_type').order_by('-timestamp')
         
         # Filtros
@@ -645,7 +643,7 @@ class AuditoriaDetailView(BaseViewMixin, DetailView):
     context_object_name = 'auditoria'
     
     def get_queryset(self):
-        return AuditoriaAlteracao.objects.filter(empresa=self.get_empresa())
+        return AuditoriaAlteracao.objects.all()
     
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -653,14 +651,12 @@ class AuditoriaDetailView(BaseViewMixin, DetailView):
         
         # Buscar outras alterações no mesmo objeto
         alteracoes_relacionadas = AuditoriaAlteracao.objects.filter(
-            empresa=self.get_empresa(),
             content_type=auditoria.content_type,
             object_id=auditoria.object_id
         ).exclude(id=auditoria.id).order_by('-timestamp')[:10]
         
         # Buscar outras ações do mesmo usuário
         acoes_usuario = AuditoriaAlteracao.objects.filter(
-            empresa=self.get_empresa(),
             usuario=auditoria.usuario,
             timestamp__date=auditoria.timestamp.date()
         ).exclude(id=auditoria.id).order_by('-timestamp')[:10]
@@ -920,8 +916,7 @@ class AlertasListView(BaseViewMixin, ListView):
     paginate_by = 25
     
     def get_queryset(self):
-        queryset = AlertaInteligente.objects.filter(
-            empresa=self.get_empresa()
+        queryset = AlertaInteligente.objects.all(
         ).order_by('-created_at')
         
         # Filtros
@@ -973,7 +968,7 @@ class AlertaDetailView(BaseViewMixin, DetailView):
     context_object_name = 'alerta'
     
     def get_queryset(self):
-        return AlertaInteligente.objects.filter(empresa=self.get_empresa())
+        return AlertaInteligente.objects.all()
     
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -984,7 +979,6 @@ class AlertaDetailView(BaseViewMixin, DetailView):
         
         # Alertas similares
         alertas_similares = AlertaInteligente.objects.filter(
-            empresa=self.get_empresa(),
             tipo=alerta.tipo
         ).exclude(id=alerta.id).order_by('-created_at')[:5]
         
@@ -1033,7 +1027,6 @@ class ResolverAlertaView(BaseViewMixin, View):
         alerta = get_object_or_404(
             AlertaInteligente,
             pk=pk,
-            empresa=self.get_empresa()
         )
         
         if alerta.status == 'ativo':
@@ -1054,7 +1047,6 @@ class IgnorarAlertaView(BaseViewMixin, View):
         alerta = get_object_or_404(
             AlertaInteligente,
             pk=pk,
-            empresa=self.get_empresa()
         )
         
         if alerta.status == 'ativo':
@@ -1091,7 +1083,6 @@ class AlertasAtivosView(BaseViewMixin, ListView):
     
     def get_queryset(self):
         return AlertaInteligente.objects.filter(
-            empresa=self.get_empresa(),
             status='ativo'
         ).order_by('-created_at')
 
@@ -1104,7 +1095,6 @@ class AlertasResolvidosView(BaseViewMixin, ListView):
     
     def get_queryset(self):
         return AlertaInteligente.objects.filter(
-            empresa=self.get_empresa(),
             status='resolvido'
         ).order_by('-resolvido_em')
 
@@ -1122,7 +1112,6 @@ class DashboardsListView(BaseViewMixin, ListView):
     def get_queryset(self):
         return DashboardPersonalizado.objects.filter(
             Q(usuario=self.request.user) | Q(publico=True),
-            empresa=self.get_empresa()
         ).order_by('-updated_at')
 
 
@@ -1153,7 +1142,6 @@ class DashboardPersonalizadoDetailView(BaseViewMixin, DetailView):
     def get_queryset(self):
         return DashboardPersonalizado.objects.filter(
             Q(usuario=self.request.user) | Q(publico=True),
-            empresa=self.get_empresa()
         )
     
     def get_context_data(self, **kwargs):
@@ -1190,7 +1178,7 @@ class DashboardPersonalizadoDetailView(BaseViewMixin, DetailView):
         
         return dados
     
-    def _dados_vendas_hoje(self, empresa):
+    def _dados_vendas_hoje(self):
         hoje = timezone.now().date()
         return Venda.objects.filter(
             data_venda__date=hoje,
@@ -1200,16 +1188,16 @@ class DashboardPersonalizadoDetailView(BaseViewMixin, DetailView):
             quantidade=Count('id')
         )
     
-    def _dados_top_produtos(self, empresa):
+    def _dados_top_produtos(self):
         # Implementar lógica para top produtos
         return []
     
-    def _dados_alertas_ativos(self, empresa):
+    def _dados_alertas_ativos(self):
         return AlertaInteligente.objects.filter(
             status='ativo'
         ).count()
     
-    def _dados_eventos_tempo_real(self, empresa):
+    def _dados_eventos_tempo_real(self):
         return EventoAnalytics.objects.filter(
             timestamp__gte=timezone.now() - timedelta(hours=1)
         ).count()
@@ -1226,7 +1214,6 @@ class DashboardUpdateView(BaseViewMixin, UpdateView):
     def get_queryset(self):
         return DashboardPersonalizado.objects.filter(
             usuario=self.request.user,
-            empresa=self.get_empresa()
         )
     
     def form_valid(self, form):
@@ -1247,7 +1234,6 @@ class DashboardDeleteView(BaseViewMixin, DeleteView):
     def get_queryset(self):
         return DashboardPersonalizado.objects.filter(
             usuario=self.request.user,
-            empresa=self.get_empresa()
         )
     
     def delete(self, request, *args, **kwargs):
@@ -1263,7 +1249,6 @@ class DashboardPreviewView(BaseViewMixin, DetailView):
     def get_queryset(self):
         return DashboardPersonalizado.objects.filter(
             Q(usuario=self.request.user) | Q(publico=True),
-            empresa=self.get_empresa()
         )
 
 
@@ -1272,7 +1257,6 @@ class DuplicarDashboardView(BaseViewMixin, View):
         dashboard_original = get_object_or_404(
             DashboardPersonalizado,
             pk=pk,
-            empresa=self.get_empresa()
         )
         
         # Verificar se o usuário pode acessar este dashboard
@@ -1282,7 +1266,6 @@ class DuplicarDashboardView(BaseViewMixin, View):
         # Criar cópia
         novo_dashboard = DashboardPersonalizado.objects.create(
             usuario=request.user,
-            empresa=self.get_empresa(),
             nome=f"{dashboard_original.nome} (Cópia)",
             descricao=dashboard_original.descricao,
             layout=dashboard_original.layout,
@@ -1302,7 +1285,6 @@ class CompartilharDashboardView(BaseViewMixin, View):
             DashboardPersonalizado,
             pk=pk,
             usuario=request.user,
-            empresa=self.get_empresa()
         )
         
         dashboard.publico = not dashboard.publico
@@ -1319,7 +1301,6 @@ class DefinirDashboardPadraoView(BaseViewMixin, View):
         # Remover padrão de outros dashboards do usuário
         DashboardPersonalizado.objects.filter(
             usuario=request.user,
-            empresa=self.get_empresa(),
             padrao=True
         ).update(padrao=False)
         
@@ -1328,7 +1309,6 @@ class DefinirDashboardPadraoView(BaseViewMixin, View):
             DashboardPersonalizado,
             pk=pk,
             usuario=request.user,
-            empresa=self.get_empresa()
         )
         
         dashboard.padrao = True
@@ -1923,7 +1903,6 @@ class RegistrarEventoAjaxView(BaseViewMixin, View):
             
             # Registrar evento
             evento = EventoAnalytics.objects.create(
-                empresa=self.get_empresa(),
                 usuario=request.user if request.user.is_authenticated else None,
                 categoria=data.get('categoria', 'navegacao'),
                 acao=data.get('acao'),
@@ -2007,7 +1986,6 @@ class DashboardDadosAjaxView(BaseViewMixin, View):
         try:
             dashboard = DashboardPersonalizado.objects.get(
                 id=dashboard_id,
-                empresa=self.get_empresa()
             )
             
             # Verificar permissão
@@ -2019,7 +1997,7 @@ class DashboardDadosAjaxView(BaseViewMixin, View):
             if not widget:
                 return JsonResponse({'error': 'Widget não encontrado'}, status=404)
             
-            dados = self._carregar_dados_widget(widget, dashboard.empresa)
+            dados = self._carregar_dados_widget(widget)
             
             return JsonResponse({
                 'success': True,
@@ -2032,14 +2010,13 @@ class DashboardDadosAjaxView(BaseViewMixin, View):
             logger.error(f'Erro ao carregar dados do dashboard: {e}')
             return JsonResponse({'error': 'Erro interno'}, status=500)
     
-    def _carregar_dados_widget(self, widget, empresa):
+    def _carregar_dados_widget(self, widget):
         """Carregar dados específicos do widget"""
         widget_type = widget.get('type')
         
         if widget_type == 'vendas_hoje':
             hoje = timezone.now().date()
             return Venda.objects.filter(
-                ,
                 data_venda__date=hoje,
                 status='finalizada'
             ).aggregate(
@@ -2059,7 +2036,6 @@ class WidgetDadosAjaxView(BaseViewMixin, View):
         if widget_type == 'vendas_hoje':
             hoje = timezone.now().date()
             dados = Venda.objects.filter(
-                ,
                 data_venda__date=hoje,
                 status='finalizada'
             ).aggregate(
@@ -2069,14 +2045,12 @@ class WidgetDadosAjaxView(BaseViewMixin, View):
         elif widget_type == 'alertas_ativos':
             dados = {
                 'count': AlertaInteligente.objects.filter(
-                    ,
                     status='ativo'
                 ).count()
             }
         elif widget_type == 'eventos_tempo_real':
             dados = {
                 'count': EventoAnalytics.objects.filter(
-                    ,
                     timestamp__gte=timezone.now() - timedelta(hours=1)
                 ).count()
             }
@@ -2140,7 +2114,6 @@ class EventoAnalyticsViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
     
     def get_queryset(self):
-        empresa = self.request.user.funcionario.empresa
         return EventoAnalytics.objects.filter()
     
     @action(detail=False, methods=['post'])
@@ -2149,7 +2122,6 @@ class EventoAnalyticsViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(data=request.data)
         if serializer.is_valid():
             serializer.save(
-                empresa=request.user.funcionario.empresa,
                 usuario=request.user,
                 ip_address=get_client_ip(request),
                 user_agent=get_user_agent(request)
@@ -2164,7 +2136,6 @@ class AuditoriaAlteracaoViewSet(viewsets.ReadOnlyModelViewSet):
     permission_classes = [IsAuthenticated]
     
     def get_queryset(self):
-        empresa = self.request.user.funcionario.empresa
         return AuditoriaAlteracao.objects.filter()
 
 
@@ -2174,7 +2145,6 @@ class AlertaInteligenteViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
     
     def get_queryset(self):
-        empresa = self.request.user.funcionario.empresa
         return AlertaInteligente.objects.filter()
     
     @action(detail=True, methods=['post'])
@@ -2196,7 +2166,6 @@ class DashboardPersonalizadoViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
     
     def get_queryset(self):
-        empresa = self.request.user.funcionario.empresa
         return DashboardPersonalizado.objects.filter(
             Q(usuario=self.request.user) | Q(publico=True),
             
@@ -2210,7 +2179,6 @@ class RegistrarEventoAPIView(BaseViewMixin, View):
             data = json.loads(request.body)
             
             evento = EventoAnalytics.objects.create(
-                empresa=self.get_empresa(),
                 usuario=request.user if request.user.is_authenticated else None,
                 categoria=data.get('categoria', 'navegacao'),
                 acao=data.get('acao'),
@@ -2248,7 +2216,6 @@ class MetricasAPIView(BaseViewMixin, View):
             
             # Eventos do período
             eventos = EventoAnalytics.objects.filter(
-                ,
                 timestamp__gte=data_inicio
             )
             
@@ -2286,7 +2253,6 @@ class AlertasAtivosAPIView(BaseViewMixin, View):
         
             
             alertas = AlertaInteligente.objects.filter(
-                ,
                 status='ativo'
             ).order_by('-created_at')
             
@@ -2341,7 +2307,7 @@ class DashboardDadosAPIView(BaseViewMixin, View):
                 widget_type = widget.get('type')
                 
                 # Implementar carregamento de dados por tipo de widget
-                dados_widgets[widget_id] = self._carregar_dados_widget_api(widget_type, empresa)
+                dados_widgets[widget_id] = self._carregar_dados_widget_api(widget_type)
             
             return JsonResponse({
                 'success': True,
@@ -2366,12 +2332,11 @@ class DashboardDadosAPIView(BaseViewMixin, View):
                 'message': 'Erro interno do servidor'
             }, status=500)
     
-    def _carregar_dados_widget_api(self, widget_type, empresa):
+    def _carregar_dados_widget_api(self, widget_type):
         """Carregar dados do widget para API"""
         if widget_type == 'vendas_hoje':
             hoje = timezone.now().date()
             return Venda.objects.filter(
-                ,
                 data_venda__date=hoje,
                 status='finalizada'
             ).aggregate(
@@ -2381,7 +2346,6 @@ class DashboardDadosAPIView(BaseViewMixin, View):
         elif widget_type == 'alertas_ativos':
             return {
                 'count': AlertaInteligente.objects.filter(
-                    ,
                     status='ativo'
                 ).count()
             }

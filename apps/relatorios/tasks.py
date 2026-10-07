@@ -182,7 +182,6 @@ def gerar_relatorio_mensal():
             relatorio = RelatorioGerado.objects.create(
                 tipo_relatorio=empresa.tipos_relatorio.filter(codigo='VENDAS_MENSAL').first(),
                 formato='pdf',
-                empresa=empresa,
                 solicitante=empresa.usuario_set.first(),
                 data_inicio=primeiro_dia_mes_anterior,
                 data_fim=ultimo_dia_mes_anterior

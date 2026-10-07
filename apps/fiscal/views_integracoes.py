@@ -1,299 +1,258 @@
 # apps/fiscal/views_integracoes.py
+"""
+Webhooks e integrações externas do módulo fiscal.
 
+Segurança:
+  - Webhooks externos (AGT, Banco Central) usam HMAC-SHA256 para verificar
+    a autenticidade da origem. A chave partilhada é GATEWAY_WEBHOOK_SECRET.
+  - Endpoints de integração interna requerem login (@login_required).
+  - Endpoints de debug só funcionam com DEBUG=True.
+"""
+import hashlib
+import hmac
 import json
 import logging
-from django.views.decorators.csrf import csrf_exempt
+from datetime import datetime
+from decimal import Decimal
+
+from django.conf import settings
+from django.contrib.auth.decorators import login_required
+from django.db import transaction
 from django.http import JsonResponse, HttpResponseBadRequest, HttpResponse
 from django.utils import timezone
+from django.views.decorators.csrf import csrf_exempt
+from django.views.decorators.http import require_POST
+
+from apps.fiscal.models import TaxaIVAAGT
+from apps.fornecedores.models import Fornecedor
 
 logger = logging.getLogger(__name__)
 
-# ---------------------------------------------------------
-# 🔹 WEBHOOKS – Notificações externas
-# ---------------------------------------------------------
+
+# ──────────────────────────────────────────────────────────────────────────────
+# HELPERS DE SEGURANÇA PARA WEBHOOKS
+# ──────────────────────────────────────────────────────────────────────────────
+
+def _verificar_hmac_webhook(request, header_assinatura: str = 'X-Webhook-Signature') -> bool:
+    """
+    Verifica a assinatura HMAC-SHA256 de um webhook.
+
+    O remetente deve incluir no cabeçalho `X-Webhook-Signature` o valor:
+        sha256=<hex_digest>
+    onde o digest é HMAC-SHA256 do corpo da mensagem com GATEWAY_WEBHOOK_SECRET.
+
+    Retorna True se válido, False se inválido ou se o segredo não estiver configurado.
+    """
+    secret = getattr(settings, 'GATEWAY_WEBHOOK_SECRET', None)
+    if not secret:
+        # Segredo não configurado — rejeitar em produção, aceitar em DEBUG
+        if settings.DEBUG:
+            logger.warning("GATEWAY_WEBHOOK_SECRET não configurado — webhook aceite em modo DEBUG.")
+            return True
+        logger.error("GATEWAY_WEBHOOK_SECRET não configurado — webhook rejeitado em produção.")
+        return False
+
+    assinatura_recebida = request.headers.get(header_assinatura, '')
+    if not assinatura_recebida.startswith('sha256='):
+        logger.warning("Webhook sem assinatura HMAC no cabeçalho '%s'.", header_assinatura)
+        return False
+
+    hash_recebido = assinatura_recebida[7:]  # remover prefixo "sha256="
+    hash_esperado = hmac.new(
+        secret.encode('utf-8'),
+        request.body,
+        hashlib.sha256,
+    ).hexdigest()
+
+    # Comparação em tempo constante (evita timing attacks)
+    return hmac.compare_digest(hash_recebido, hash_esperado)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# WEBHOOKS — Notificações externas
+# ──────────────────────────────────────────────────────────────────────────────
 
 @csrf_exempt
 def webhook_agt_notification(request):
     """
-    Recebe notificações da AGT (Autoridade Geral Tributária) – 
-    como validação de facturas, status de submissões, etc.
+    Recebe notificações da AGT (validação de facturas, estado de submissões, etc.).
+    Protegido por verificação HMAC-SHA256.
     """
     if request.method != 'POST':
-        return HttpResponseBadRequest("Método não permitido")
+        return HttpResponseBadRequest("Método não permitido.")
+
+    if not _verificar_hmac_webhook(request, 'X-AGT-Signature'):
+        logger.warning(
+            "Webhook AGT rejeitado — assinatura inválida | IP: %s",
+            request.META.get('REMOTE_ADDR', '?'),
+        )
+        return HttpResponse("Assinatura inválida.", status=401)
 
     try:
-        data = json.loads(request.body.decode('utf-8'))
-        nif = data.get('nif')
-        status = data.get('status')
-        mensagem = data.get('mensagem')
+        data     = json.loads(request.body.decode('utf-8'))
+        nif      = data.get('nif', '')
+        status   = data.get('status', '')
+        mensagem = data.get('mensagem', '')
 
-        logger.info(f"[AGT Webhook] Recebido: NIF={nif}, STATUS={status}, MSG={mensagem}")
+        logger.info("[AGT Webhook] NIF=%s STATUS=%s MSG=%s", nif, status, mensagem)
 
-        # Aqui podes atualizar o status da factura no teu modelo FiscalDocumento
-        # Exemplo:
-        # FiscalDocumento.objects.filter(nif_cliente=nif).update(status_validacao=status)
+        # TODO: actualizar DocumentoFiscal com o estado recebido da AGT
+        # DocumentoFiscal.objects.filter(nif_contribuinte=nif).update(status_validacao=status)
 
-        return JsonResponse({"success": True, "message": "Notificação da AGT processada"})
-    except Exception as e:
-        logger.exception("Erro ao processar webhook AGT")
-        return JsonResponse({"success": False, "error": str(e)}, status=400)
+        return JsonResponse({"success": True, "message": "Notificação AGT processada."})
+
+    except (json.JSONDecodeError, ValueError) as exc:
+        logger.warning("Webhook AGT: payload inválido — %s", exc)
+        return JsonResponse({"success": False, "error": "Payload inválido."}, status=400)
+    except Exception as exc:
+        logger.exception("Erro ao processar webhook AGT.")
+        return JsonResponse({"success": False, "error": str(exc)}, status=500)
 
 
 @csrf_exempt
 def webhook_banco_central(request):
     """
-    Webhook do Banco Central para notificações financeiras (ex: câmbio, taxa de juro, integração bancária)
+    Webhook do Banco Central para eventos financeiros (câmbio, taxas, etc.).
+    Protegido por verificação HMAC-SHA256.
     """
     if request.method != 'POST':
-        return HttpResponseBadRequest("Método não permitido")
+        return HttpResponseBadRequest("Método não permitido.")
+
+    if not _verificar_hmac_webhook(request, 'X-BancoCentral-Signature'):
+        logger.warning(
+            "Webhook BancoCentral rejeitado — assinatura inválida | IP: %s",
+            request.META.get('REMOTE_ADDR', '?'),
+        )
+        return HttpResponse("Assinatura inválida.", status=401)
 
     try:
-        data = json.loads(request.body.decode('utf-8'))
-        evento = data.get('evento')
-        valor = data.get('valor')
+        data        = json.loads(request.body.decode('utf-8'))
+        evento      = data.get('evento', '')
+        valor       = data.get('valor', '')
         data_evento = data.get('data', str(timezone.now()))
 
-        logger.info(f"[Banco Central Webhook] Evento={evento}, Valor={valor}, Data={data_evento}")
+        logger.info("[BancoCentral Webhook] Evento=%s Valor=%s Data=%s", evento, valor, data_evento)
 
-        # Podes persistir essa informação numa tabela de LogFinanceiro ou BancoCentralEvento
-        # BancoCentralEvento.objects.create(evento=evento, valor=valor, data_evento=data_evento)
+        # TODO: persistir em LogFinanceiro ou BancoCentralEvento
 
-        return JsonResponse({"success": True, "message": "Webhook do Banco Central recebido"})
-    except Exception as e:
-        logger.exception("Erro ao processar webhook Banco Central")
-        return JsonResponse({"success": False, "error": str(e)}, status=400)
+        return JsonResponse({"success": True, "message": "Webhook Banco Central recebido."})
+
+    except (json.JSONDecodeError, ValueError) as exc:
+        logger.warning("Webhook BancoCentral: payload inválido — %s", exc)
+        return JsonResponse({"success": False, "error": "Payload inválido."}, status=400)
+    except Exception as exc:
+        logger.exception("Erro ao processar webhook Banco Central.")
+        return JsonResponse({"success": False, "error": str(exc)}, status=500)
 
 
-# ---------------------------------------------------------
-# 🔹 INTEGRAÇÕES – APIs internas/externas
-# ---------------------------------------------------------
+# ──────────────────────────────────────────────────────────────────────────────
+# INTEGRAÇÕES INTERNAS — Requerem autenticação
+# ──────────────────────────────────────────────────────────────────────────────
 
-@csrf_exempt
+@login_required
+@require_POST
 def integracao_agt_validar(request):
     """
-    Endpoint para validação de documentos fiscais pela AGT.
-    Envia dados do documento e retorna resposta da AGT simulada.
+    Endpoint interno para validação de documentos fiscais via API AGT.
+    Requer utilizador autenticado.
     """
-    if request.method != 'POST':
-        return HttpResponseBadRequest("Método não permitido")
-
     try:
-        data = json.loads(request.body.decode('utf-8'))
-        numero_documento = data.get('numero_documento')
-        nif_cliente = data.get('nif_cliente')
+        data             = json.loads(request.body.decode('utf-8'))
+        numero_documento = data.get('numero_documento', '')
+        nif_cliente      = data.get('nif_cliente', '')
 
-        logger.info(f"Validando fatura AGT: Nº {numero_documento} | NIF {nif_cliente}")
+        if not numero_documento or not nif_cliente:
+            return JsonResponse({"success": False, "error": "numero_documento e nif_cliente são obrigatórios."}, status=400)
 
-        # Aqui podes chamar a API real da AGT, se tiveres integração
-        # resposta = requests.post("https://api.agt.gov.ao/validar", json=data)
-        # return JsonResponse(resposta.json())
+        logger.info("Validando fatura AGT: Nº %s | NIF %s | User: %s",
+                    numero_documento, nif_cliente, request.user.username)
 
-        # Simulação de resposta
+        # TODO: integrar com a API real da AGT quando disponível
         return JsonResponse({
             "numero_documento": numero_documento,
-            "nif_cliente": nif_cliente,
-            "status": "válido",
-            "mensagem": "Documento validado com sucesso pela AGT."
+            "nif_cliente":      nif_cliente,
+            "status":           "válido",
+            "mensagem":         "Documento validado com sucesso pela AGT (simulação).",
         })
-    except Exception as e:
-        logger.exception("Erro na integração com AGT")
-        return JsonResponse({"success": False, "error": str(e)}, status=400)
+
+    except (json.JSONDecodeError, ValueError) as exc:
+        return JsonResponse({"success": False, "error": "Payload inválido."}, status=400)
+    except Exception as exc:
+        logger.exception("Erro na integração AGT validar.")
+        return JsonResponse({"success": False, "error": str(exc)}, status=500)
 
 
-@csrf_exempt
+@login_required
+@require_POST
 def integracao_saft_submit(request):
     """
-    Submissão de ficheiro SAFT para validação ou arquivo fiscal.
+    Endpoint interno para submissão de ficheiro SAF-T.
+    Requer utilizador autenticado.
     """
-    if request.method != 'POST':
-        return HttpResponseBadRequest("Método não permitido")
-
     try:
         ficheiro = request.FILES.get('ficheiro')
         if not ficheiro:
-            return JsonResponse({"success": False, "error": "Ficheiro SAFT não enviado"}, status=400)
+            return JsonResponse({"success": False, "error": "Ficheiro SAF-T não enviado."}, status=400)
 
-        logger.info(f"Submissão SAFT recebida: {ficheiro.name} ({ficheiro.size} bytes)")
+        # Validar extensão
+        if not ficheiro.name.lower().endswith('.xml'):
+            return JsonResponse({"success": False, "error": "Apenas ficheiros .xml são aceites."}, status=400)
 
-        # Aqui poderias guardar o ficheiro localmente ou enviar para a AGT
-        # with open(f"/var/saft/{ficheiro.name}", "wb+") as destino:
-        #     for chunk in ficheiro.chunks():
-        #         destino.write(chunk)
+        # Limitar tamanho: 50 MB
+        MAX_SIZE = 50 * 1024 * 1024
+        if ficheiro.size > MAX_SIZE:
+            return JsonResponse({"success": False, "error": "Ficheiro demasiado grande (máx. 50 MB)."}, status=400)
 
-        # Simulação de resposta
+        logger.info("Submissão SAF-T: %s (%d bytes) por %s",
+                    ficheiro.name, ficheiro.size, request.user.username)
+
+        # TODO: enviar para a AGT ou guardar localmente com validação XSD
+
         return JsonResponse({
             "ficheiro": ficheiro.name,
-            "status": "submetido",
-            "mensagem": "Ficheiro SAFT recebido e processado com sucesso."
+            "status":   "submetido",
+            "mensagem": "Ficheiro SAF-T recebido e processado (simulação).",
         })
-    except Exception as e:
-        logger.exception("Erro ao submeter ficheiro SAFT")
-        return JsonResponse({"success": False, "error": str(e)}, status=400)
+
+    except Exception as exc:
+        logger.exception("Erro ao submeter ficheiro SAF-T.")
+        return JsonResponse({"success": False, "error": str(exc)}, status=500)
 
 
-logger = logging.getLogger('fiscal.debug')
+# ──────────────────────────────────────────────────────────────────────────────
+# DEBUG — Gerar dados de teste (apenas com DEBUG=True)
+# ──────────────────────────────────────────────────────────────────────────────
 
-
-# -------------------------
-# 🔹 DEBUG: Gerar Dados de Teste
-# -------------------------
 @login_required
-@empresa_required
 @require_POST
 @transaction.atomic
 def debug_gerar_dados_teste(request):
     """
-    Gera dados de teste para desenvolvimento e debugging.
-    Apenas disponível em ambiente de DEBUG.
+    Gera dados de teste para desenvolvimento.
+    Bloqueado automaticamente em produção (DEBUG=False).
     """
     if not settings.DEBUG:
-        return JsonResponse({"success": False, "message": "Acesso restrito ao modo de debug."}, status=403)
+        return JsonResponse({"success": False, "message": "Não disponível em produção."}, status=403)
 
     try:
-        empresa = request.user.empresa_ativa
-
-        # Criar fornecedores fake
         for i in range(3):
             Fornecedor.objects.get_or_create(
-                empresa=empresa,
-                nome=f"Fornecedor Teste {i+1}",
-                nif=f"50000000{i+1}",
+                nome=f"Fornecedor Teste {i + 1}",
+                defaults={'nif': f"50000000{i + 1}"},
             )
 
-        # Criar taxas de IVA
         for perc in [7, 14, 23]:
             TaxaIVAAGT.objects.get_or_create(
-                empresa=empresa,
-                tax_percentage=Decimal(perc),
-                defaults={"descricao": f"IVA {perc}% (teste)", "ativo": True}
+                tax_percentage=Decimal(str(perc)),
+                defaults={
+                    'nome':      f'IVA {perc}% (teste)',
+                    'descricao': f'Taxa de IVA de {perc}% para testes',
+                    'ativa':     True,
+                },
             )
 
-        # Criar retenções fake
-        for i in range(3):
-            RetencaoFonte.objects.create(
-                empresa=empresa,
-                descricao=f"Retenção {i+1}",
-                valor_retido=Decimal("100.00") * (i+1),
-                data_retencao=datetime.now()
-            )
+        return JsonResponse({"success": True, "message": "Dados de teste criados."})
 
-        return JsonResponse({
-            "success": True,
-            "message": "Dados de teste gerados com sucesso."
-        }, status=201)
-
-    except Exception as e:
+    except Exception as exc:
         logger.exception("Erro ao gerar dados de teste.")
-        return JsonResponse({"success": False, "message": "Erro ao gerar dados de teste.", "error": str(e)}, status=500)
-
-
-# -------------------------
-# 🔹 DEBUG: Limpar Cache
-# -------------------------
-@login_required
-@empresa_required
-@require_POST
-def debug_limpar_cache(request):
-    """Limpa completamente o cache do sistema em ambiente de debug."""
-    if not settings.DEBUG:
-        return JsonResponse({"success": False, "message": "Acesso restrito ao modo de debug."}, status=403)
-
-    try:
-        cache.clear()
-        return JsonResponse({"success": True, "message": "Cache limpo com sucesso."})
-    except Exception as e:
-        logger.exception("Erro ao limpar cache.")
-        return JsonResponse({"success": False, "message": "Erro ao limpar cache.", "error": str(e)}, status=500)
-
-
-# -------------------------
-# 🔹 DEBUG: Info do Sistema
-# -------------------------
-@login_required
-@require_GET
-def debug_info_sistema(request):
-    """Retorna informações detalhadas do sistema para diagnóstico."""
-    if not settings.DEBUG:
-        return JsonResponse({"success": False, "message": "Acesso restrito ao modo de debug."}, status=403)
-
-    try:
-        info = {
-            "sistema": platform.system(),
-            "versao": platform.version(),
-            "python": platform.python_version(),
-            "host": socket.gethostname(),
-            "memoria_total": f"{round(psutil.virtual_memory().total / (1024**3), 2)} GB",
-            "memoria_usada": f"{round(psutil.virtual_memory().used / (1024**3), 2)} GB",
-            "disco_total": f"{round(psutil.disk_usage('/').total / (1024**3), 2)} GB",
-            "disco_usado": f"{round(psutil.disk_usage('/').used / (1024**3), 2)} GB",
-            "hora_servidor": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "debug_mode": settings.DEBUG,
-        }
-
-        return JsonResponse({"success": True, "data": info}, status=200)
-    except Exception as e:
-        logger.exception("Erro ao coletar informações do sistema.")
-        return JsonResponse({"success": False, "message": "Erro ao obter informações do sistema.", "error": str(e)}, status=500)
-
-
-# -------------------------
-# 🔹 DEBUG: Testar Assinatura Digital
-# -------------------------
-@login_required
-@empresa_required
-@require_POST
-def debug_testar_assinatura(request):
-    """Executa um teste de validação da assinatura digital."""
-    if not settings.DEBUG:
-        return JsonResponse({"success": False, "message": "Acesso restrito ao modo de debug."}, status=403)
-
-    try:
-        empresa = request.user.empresa_ativa
-        assinatura = AssinaturaDigital.objects.filter(empresa=empresa).first()
-
-        if not assinatura:
-            return JsonResponse({"success": False, "message": "Assinatura digital não configurada."}, status=404)
-
-        hash_teste = "TESTE_HASH_12345"
-        assinatura.ultimo_hash = hash_teste
-        assinatura.save()
-
-        return JsonResponse({
-            "success": True,
-            "message": "Assinatura digital testada com sucesso.",
-            "hash": hash_teste
-        })
-    except Exception as e:
-        logger.exception("Erro ao testar assinatura digital.")
-        return JsonResponse({"success": False, "message": "Erro ao testar assinatura digital.", "error": str(e)}, status=500)
-
-
-# -------------------------
-# 🔹 DEBUG: Simular Comunicação com AGT
-# -------------------------
-@login_required
-@empresa_required
-@require_GET
-def debug_simular_agt(request):
-    """Simula uma comunicação com o servidor da AGT para teste de integração."""
-    if not settings.DEBUG:
-        return JsonResponse({"success": False, "message": "Acesso restrito ao modo de debug."}, status=403)
-
-    try:
-        resposta_fake = {
-            "status": "success",
-            "mensagem": "Conexão simulada com sucesso.",
-            "codigo_resposta": "AGT-TEST-200",
-            "timestamp": datetime.now().isoformat()
-        }
-
-        return JsonResponse({"success": True, "data": resposta_fake}, status=200)
-    except Exception as e:
-        logger.exception("Erro ao simular comunicação com AGT.")
-        return JsonResponse({"success": False, "message": "Erro na simulação AGT.", "error": str(e)}, status=500)
-
-
-
-
-
-
+        return JsonResponse({"success": False, "error": str(exc)}, status=500)

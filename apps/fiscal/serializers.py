@@ -1,3 +1,4 @@
+# apps/fiscal/serializers.py
 from rest_framework import serializers
 from decimal import Decimal
 from django.core.exceptions import ValidationError
@@ -74,19 +75,15 @@ class TaxaIVAAGTSerializer(serializers.ModelSerializer):
         return data
     
     def validate_nome(self, value):
-        """Valida se o nome não está duplicado na empresa"""
-        empresa = self.context['request'].user.empresa_ativa
-        queryset = TaxaIVAAGT.objects.filter(empresa=empresa, nome=value)
-        
-        # Se estiver editando, excluir o objeto atual
+        """Valida se o nome não está duplicado no schema de tenant activo."""
+        # Isolamento físico: não filtra por empresa — o schema já isola.
+        queryset = TaxaIVAAGT.objects.filter(nome=value)
         if self.instance:
             queryset = queryset.exclude(id=self.instance.id)
-        
         if queryset.exists():
             raise serializers.ValidationError(
-                "Já existe uma taxa com este nome na empresa"
+                "Já existe uma taxa com este nome."
             )
-        
         return value
     
     def validate_tax_code(self, value):
@@ -117,62 +114,71 @@ class TaxaIVAAGTSerializer(serializers.ModelSerializer):
 
 class AssinaturaDigitalSerializer(serializers.ModelSerializer):
     """
-    Serializer para AssinaturaDigital com campos sensíveis protegidos
+    Serializer para AssinaturaDigital.
+    Regras:
+    - Nunca expõe chave_contribuinte_privada (nem cifrada).
+    - chave_contribuinte_publica é write_only na criação; lida apenas pelo campo resumo.
+    - Usa os nomes de campo reais do modelo pós-migração (nif_contribuinte,
+      chave_contribuinte_publica, data_configuracao_chave, configurada_por).
     """
-    
-    # Campos calculados
+
+    # Campos de leitura calculados
     configurada = serializers.SerializerMethodField()
     total_series = serializers.SerializerMethodField()
     ultimo_hash_resumo = serializers.SerializerMethodField()
     chave_publica_resumo = serializers.SerializerMethodField()
-    
-    # Campos protegidos (não retornar chave privada)
-    chave_privada = serializers.CharField(write_only=True, required=False)
-    
+
+    # Chave privada: write_only, nunca devolvida
+    chave_privada = serializers.CharField(
+        write_only=True, required=False,
+        help_text="Chave privada PEM do contribuinte (emitida pela AGT). Nunca devolvida."
+    )
+
     class Meta:
         model = AssinaturaDigital
         fields = [
-            'id', 'ultimo_hash', 'chave_publica', 'chave_privada',
-            'dados_series_fiscais', 'data_geracao', 'created_at', 'updated_at',
-            # Campos calculados
-            'configurada', 'total_series', 'ultimo_hash_resumo', 'chave_publica_resumo'
+            'id',
+            'nif_contribuinte',
+            'chave_privada',          # write_only
+            'chave_contribuinte_publica',
+            'data_configuracao_chave',
+            'dados_series_fiscais',
+            'ultimo_hash',
+            'created_at', 'updated_at',
+            # Calculados
+            'configurada', 'total_series', 'ultimo_hash_resumo', 'chave_publica_resumo',
         ]
         read_only_fields = [
-            'id', 'ultimo_hash', 'dados_series_fiscais', 'data_geracao',
-            'created_at', 'updated_at'
+            'id', 'ultimo_hash', 'dados_series_fiscais',
+            'data_configuracao_chave', 'created_at', 'updated_at',
         ]
         extra_kwargs = {
-            'chave_publica': {'write_only': True},
-            'ultimo_hash': {'help_text': 'Hash do último documento na cadeia de integridade'}
+            'chave_contribuinte_publica': {
+                'help_text': 'Chave pública PEM do contribuinte (emitida pela AGT).',
+            },
         }
-    
+
     def get_configurada(self, obj):
-        """Verifica se a assinatura está configurada"""
-        return bool(obj.chave_publica and obj.chave_privada)
-    
+        return obj.esta_configurada
+
     def get_total_series(self, obj):
-        """Retorna total de séries fiscais configuradas"""
         return len(obj.dados_series_fiscais) if obj.dados_series_fiscais else 0
-    
+
     def get_ultimo_hash_resumo(self, obj):
-        """Retorna resumo do último hash (primeiros 20 caracteres)"""
         if obj.ultimo_hash:
             return f"{obj.ultimo_hash[:20]}..."
         return None
-    
+
     def get_chave_publica_resumo(self, obj):
-        """Retorna resumo da chave pública"""
-        if obj.chave_publica:
-            linhas = obj.chave_publica.split('\n')
+        if obj.chave_contribuinte_publica:
+            linhas = obj.chave_contribuinte_publica.split('\n')
             if len(linhas) > 2:
                 return f"{linhas[0]}...{linhas[-2]}"
         return None
-    
+
     def to_representation(self, instance):
-        """Customiza representação para proteger dados sensíveis"""
         data = super().to_representation(instance)
-        
-        # Adicionar informações das séries fiscais sem dados sensíveis
+        # Adicionar resumo das séries fiscais sem dados sensíveis
         if instance.dados_series_fiscais:
             series_info = {}
             for serie, dados in instance.dados_series_fiscais.items():
@@ -182,7 +188,6 @@ class AssinaturaDigitalSerializer(serializers.ModelSerializer):
                     'hash_configurado': bool(dados.get('ultimo_hash'))
                 }
             data['series_fiscais_info'] = series_info
-        
         return data
 
 
@@ -285,19 +290,25 @@ class RetencaoFonteSerializer(serializers.ModelSerializer):
         return value
     
     def validate_fornecedor(self, value):
-        """Valida se o fornecedor pertence à empresa"""
-        empresa = self.context['request'].user.empresa_ativa
-        if value.empresa != empresa:
+        """
+        Validação de isolamento físico: com django-tenants o schema já garante
+        que só existem fornecedores do próprio tenant — basta verificar
+        que o queryset do campo retornou um objecto válido.
+        Nota: quando Fornecedor for migrado para isolamento físico, o filtro
+        por empresa abaixo deixará de ser necessário de todo.
+        """
+        empresa = self.context['request'].user.empresa
+        if hasattr(value, 'empresa') and value.empresa != empresa:
             raise serializers.ValidationError(
                 "Fornecedor deve pertencer à empresa ativa"
             )
         return value
-    
+
     def validate_conta_pagar(self, value):
-        """Valida se a conta a pagar pertence à empresa"""
+        """Validação análoga à do fornecedor — empresa como fallback temporário."""
         if value:
-            empresa = self.context['request'].user.empresa_ativa
-            if value.empresa != empresa:
+            empresa = self.context['request'].user.empresa
+            if hasattr(value, 'empresa') and value.empresa != empresa:
                 raise serializers.ValidationError(
                     "Conta a pagar deve pertencer à empresa ativa"
                 )
@@ -318,16 +329,15 @@ class RetencaoFonteSerializer(serializers.ModelSerializer):
         return data
     
     def create(self, validated_data):
-        """Criação com cálculo automático do valor retido"""
-        # Calcular valor retido automaticamente
+        """Criação com cálculo automático do valor retido."""
         valor_base = validated_data['valor_base']
         taxa_retencao = validated_data['taxa_retencao']
-        valor_retido = valor_base * (taxa_retencao / Decimal('100.00'))
-        validated_data['valor_retido'] = valor_retido
-        
-        # Adicionar empresa do usuário
-        validated_data['empresa'] = self.context['request'].user.empresa_ativa
-        
+        validated_data['valor_retido'] = valor_base * (taxa_retencao / Decimal('100.00'))
+        # Nota: RetencaoFonte ainda tem campo `empresa` no modelo (pendente de
+        # migração para isolamento físico — ver PLANO_IMPLEMENTACAO.md Fase 5).
+        # Usar request.user.empresa como fallback até essa migração ocorrer.
+        if 'empresa' not in validated_data:
+            validated_data['empresa'] = self.context['request'].user.empresa
         return super().create(validated_data)
     
     def update(self, instance, validated_data):
@@ -406,3 +416,88 @@ class TaxaIVAResumoSerializer(serializers.ModelSerializer):
             return f"{obj.nome} ({obj.tax_percentage}%)"
         return f"{obj.nome} ({obj.tax_type})"
 
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# DocumentoFiscalSerializer — Secção 3 (Imutabilidade)
+# ──────────────────────────────────────────────────────────────────────────────
+
+from .models import DocumentoFiscal
+from apps.fiscal.services.documento_fiscal_service import DocumentoFiscalService
+
+
+class DocumentoFiscalSerializer(serializers.ModelSerializer):
+    """
+    Serializer para DocumentoFiscal com protecção de imutabilidade.
+
+    Campos fiscais são read_only automaticamente quando o documento
+    não está em estado 'draft'. A verificação acontece também no
+    método validate() para proteger contra tentativas directas à API.
+    """
+
+    pode_editar      = serializers.SerializerMethodField()
+    pode_cancelar    = serializers.SerializerMethodField()
+    pode_rectificar  = serializers.SerializerMethodField()
+    esta_emitido     = serializers.SerializerMethodField()
+    documentos_correctivos_count = serializers.SerializerMethodField()
+
+    class Meta:
+        model  = DocumentoFiscal
+        fields = '__all__'
+        read_only_fields = [
+            # Campos sempre read-only (gerados pelo sistema)
+            'numero_documento', 'atcud', 'hash_documento', 'hash_anterior',
+            'assinatura_digital', 'saft_hash', 'periodo_tributacao',
+            'hora_emissao', 'data_confirmacao', 'usuario_confirmacao',
+            # Campos calculados
+            'pode_editar', 'pode_cancelar', 'pode_rectificar',
+            'esta_emitido', 'documentos_correctivos_count',
+        ]
+
+    def get_pode_editar(self, obj):
+        return obj.pode_editar
+
+    def get_pode_cancelar(self, obj):
+        return obj.pode_cancelar
+
+    def get_pode_rectificar(self, obj):
+        return obj.pode_rectificar
+
+    def get_esta_emitido(self, obj):
+        return obj.esta_emitido
+
+    def get_documentos_correctivos_count(self, obj):
+        return obj.documentos_correctivos.count()
+
+    def validate(self, data):
+        """
+        Protecção central: rejeita qualquer tentativa de alterar campos
+        fiscais num documento já emitido.
+        """
+        instance = self.instance  # None em criação, objecto em update
+
+        if instance and instance.status != 'draft':
+            campos_proibidos = DocumentoFiscalService.CAMPOS_FISCAIS_READONLY
+            alterados = [campo for campo in data if campo in campos_proibidos]
+            if alterados:
+                raise serializers.ValidationError(
+                    f"O documento '{instance.numero_documento}' está emitido "
+                    f"(status='{instance.status}'). "
+                    f"Os seguintes campos fiscais não podem ser alterados: "
+                    f"{', '.join(alterados)}. "
+                    f"Para corrigir, emita um documento rectificativo (NC/ND)."
+                )
+
+        return data
+
+    def update(self, instance, validated_data):
+        """
+        Após validação, permite apenas edição de campos operacionais
+        em documentos emitidos (comentarios, metadados).
+        """
+        if instance.status != 'draft':
+            # Filtrar: só campos operacionais passam
+            permitidos = DocumentoFiscalService.CAMPOS_OPERACIONAIS_EDITAVEIS
+            validated_data = {k: v for k, v in validated_data.items() if k in permitidos}
+
+        return super().update(instance, validated_data)

@@ -5,20 +5,13 @@ from django.contrib.contenttypes.models import ContentType
 from django.contrib.contenttypes.fields import GenericForeignKey
 from django.utils import timezone
 import json
-# apps/analytics/models.py
 from django.db import models
 from django.conf import settings
 from django.contrib.contenttypes.models import ContentType
 from django.contrib.contenttypes.fields import GenericForeignKey
 from apps.core.models import TimeStampedModel, Usuario
 from apps.produtos.models import Lote, Fabricante
-from apps.empresas.models import Empresa
 
-
-
-# Para evitar que o "coletor" do Django tente encontrar a tabela no schema public e o sistema exploda novamente.
-def is_managed():
-    return connection.schema_name != 'public'
 
 
 
@@ -54,7 +47,6 @@ class EventoAnalytics(models.Model):
     timestamp = models.DateTimeField(auto_now_add=True)
     
     class Meta:
-        managed = is_managed()
         db_table = 'analytics_eventoanalytics'
         verbose_name = 'Evento Analytics'
         verbose_name_plural = 'Eventos Analytics'
@@ -70,9 +62,15 @@ class AuditoriaAlteracao(models.Model):
         ('delete', 'Exclusão'),
     ]
     
-    usuario = models.ForeignKey('core.Usuario', on_delete=models.PROTECT)
-    
-    content_type = models.ForeignKey(ContentType, on_delete=models.CASCADE)
+    usuario = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,  # Não apaga o histórico se o utilizador for removido
+        null=True,
+        blank=True,
+        related_name='auditorias',
+        verbose_name="Utilizador"
+    )
+    content_type = models.ForeignKey(ContentType, on_delete=models.CASCADE, null=True, blank=True)
     object_id = models.PositiveIntegerField()
     #content_object = GenericForeignKey('content_type', 'object_id')
     
@@ -90,7 +88,6 @@ class AuditoriaAlteracao(models.Model):
     
     
     class Meta:
-        managed = is_managed()
         db_table = 'analytics_auditoriaalteracao'
         verbose_name = 'Auditoria'
         verbose_name_plural = 'Auditorias'
@@ -140,7 +137,6 @@ class AlertaInteligente(models.Model):
     usuarios_notificados = models.ManyToManyField(Usuario, through='NotificacaoAlerta', related_name='alertas_recebidos')
     
     class Meta:
-        managed = is_managed()
         db_table = 'analytics_alertainteligente'
         verbose_name = 'Alerta Inteligente'
         verbose_name_plural = 'Alertas Inteligentes'
@@ -149,8 +145,15 @@ class AlertaInteligente(models.Model):
 
 class NotificacaoAlerta(models.Model):
     """Notificações de alertas para usuários"""
-    alerta = models.ForeignKey(AlertaInteligente, on_delete=models.CASCADE)
-    usuario = models.ForeignKey(Usuario, on_delete=models.CASCADE)
+    alerta = models.ForeignKey(AlertaInteligente, on_delete=models.CASCADE, null=True,blank=True, related_name='notificacoes', verbose_name="Alerta")
+    usuario = models.ForeignKey(
+        Usuario, 
+        on_delete=models.CASCADE,  # ou models.SET_NULL
+        null=True, 
+        blank=True,
+        related_name='notificacoes_alertas',
+        verbose_name="Utilizador"
+    )
     
     enviada = models.BooleanField(default=False)
     lida = models.BooleanField(default=False)
@@ -163,14 +166,21 @@ class NotificacaoAlerta(models.Model):
     lida_em = models.DateTimeField(null=True, blank=True)
     
     class Meta:
-        managed = is_managed()
         db_table = 'analytics_notificacaoalerta'
         unique_together = ['alerta', 'usuario']
 
+
+
 class DashboardPersonalizado(models.Model):
     """Dashboards personalizados por usuário"""
-    usuario = models.ForeignKey(Usuario, on_delete=models.CASCADE, related_name='dashboards')
-
+    usuario = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE, # ou models.SET_NULL
+        null=True,
+        blank=True,
+        related_name='dashboards',
+        verbose_name="Utilizador"
+    )
     nome = models.CharField(max_length=100)
     descricao = models.TextField(blank=True)
     
@@ -185,7 +195,6 @@ class DashboardPersonalizado(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
     
     class Meta:
-        managed = is_managed()
         db_table = 'analytics_dashboardpersonalizado'
         verbose_name = 'Dashboard Personalizado'
         verbose_name_plural = 'Dashboards Personalizados'
@@ -197,10 +206,13 @@ class AuditoriaInvestimento(TimeStampedModel):
     Controla o acesso granular de Investidores/Auditores.
     Vincula o utilizador a ativos específicos (Lotes/Fabricantes).
     """
-    usuario = models.OneToOneField(
-        'core.Usuario', 
-        on_delete=models.CASCADE, 
-        related_name='vinculo_auditoria'
+    usuario = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='auditorias_investimento',
+        verbose_name="Utilizador"
     )
     # Ativos vinculados para filtro restritivo
     lotes_vinculados = models.ManyToManyField(Lote, blank=True, verbose_name="Lotes Financiados")
@@ -215,13 +227,12 @@ class AuditoriaInvestimento(TimeStampedModel):
     pode_auditar_tudo = models.BooleanField(default=False, help_text="Libera auditoria de todas as apps")
 
     class Meta:
-        managed = is_managed()
         db_table = 'analytics_auditoriainvestimento'
         verbose_name = "Vínculo de Auditoria de Investimento"
         verbose_name_plural = "Vínculos de Auditoria de Investimento"
 
     def __str__(self):
-        return f"Auditor: {self.usuario.username} - {self.usuario.empresa.nome}"
+        return f"Auditor: {self.usuario.username}"
 
 class RegistroAuditoriaOperacional(models.Model):
     """
@@ -238,7 +249,7 @@ class RegistroAuditoriaOperacional(models.Model):
     usuario = models.ForeignKey(Usuario, on_delete=models.SET_NULL, null=True)
     
     # Rastreio genérico (ContentType)
-    content_type = models.ForeignKey(ContentType, on_delete=models.CASCADE)
+    content_type = models.ForeignKey(ContentType, on_delete=models.CASCADE, null=True, blank=True)
     object_id = models.PositiveIntegerField()
     content_object = GenericForeignKey('content_type', 'object_id')
 
@@ -258,9 +269,9 @@ class RegistroAuditoriaOperacional(models.Model):
     timestamp = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        managed = is_managed()
         db_table = 'analytics_registroauditoriaoperacional'
         verbose_name = "Registro de Auditoria Operacional"
         verbose_name_plural = "Registros de Auditoria Operacional"
         ordering = ['-timestamp']
+
 

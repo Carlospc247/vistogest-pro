@@ -12,9 +12,10 @@ from .models import (
     MovimentacaoFinanceira
 )
 
+
 class ContaReceberForm(forms.ModelForm):
-    """Formulário para Conta a Receber"""
-    
+    """Formulário para Conta a Receber (django-tenants)"""
+
     class Meta:
         model = ContaReceber
         fields = [
@@ -24,7 +25,7 @@ class ContaReceberForm(forms.ModelForm):
             'centro_custo', 'numero_parcela', 'total_parcelas',
             'conta_pai', 'observacoes'
         ]
-        
+
         widgets = {
             'data_emissao': forms.DateInput(
                 attrs={'type': 'date', 'class': 'form-control'}
@@ -54,30 +55,30 @@ class ContaReceberForm(forms.ModelForm):
                 attrs={'rows': 3, 'class': 'form-control'}
             ),
         }
-    
+
     def __init__(self, *args, **kwargs):
-        
         super().__init__(*args, **kwargs)
-        
-        # Filtrar querysets por empresa
-        if self.empresa:
-            self.fields['cliente'].queryset = self.empresa.clientes.filter(ativo=True)
-            self.fields['venda'].queryset = self.empresa.vendas.all()
-            self.fields['plano_contas'].queryset = self.empresa.plano_contas.filter(
-                tipo_conta='receita', ativa=True, aceita_lancamento=True
-            )
-            self.fields['centro_custo'].queryset = self.empresa.centro_custos.filter(ativo=True)
+
+        # O django-tenants já isola os dados por schema.
+        # Aplicamos apenas os filtros funcionais (regras de negócio).
+        if 'cliente' in self.fields:
+            self.fields['cliente'].queryset = self.fields['cliente'].queryset.filter(ativo=True)
+
+        if 'centro_custo' in self.fields:
+            self.fields['centro_custo'].queryset = self.fields['centro_custo'].queryset.filter(ativo=True)
+
+        if 'conta_pai' in self.fields:
             self.fields['conta_pai'].queryset = ContaReceber.objects.filter(
                 conta_pai__isnull=True
             )
-        
-        # Configurar crispy forms
+
+        # Configuração do Crispy Forms
         self.helper = FormHelper()
         self.helper.form_method = 'post'
         self.helper.form_class = 'form-horizontal'
         self.helper.label_class = 'col-lg-3'
         self.helper.field_class = 'col-lg-9'
-        
+
         self.helper.layout = Layout(
             Fieldset(
                 'Dados Básicos',
@@ -136,37 +137,39 @@ class ContaReceberForm(forms.ModelForm):
                 HTML('<a href="{% url "financeiro:conta_receber_lista" %}" class="btn btn-secondary ml-2">Cancelar</a>')
             )
         )
-    
+
     def clean(self):
         cleaned_data = super().clean()
-        
+
         # Validar datas
         data_emissao = cleaned_data.get('data_emissao')
         data_vencimento = cleaned_data.get('data_vencimento')
-        
+
         if data_emissao and data_vencimento:
             if data_vencimento < data_emissao:
                 raise ValidationError('Data de vencimento não pode ser anterior à data de emissão')
-        
+
         # Validar valores
         valor_original = cleaned_data.get('valor_original', 0)
         valor_desconto = cleaned_data.get('valor_desconto', 0)
-        
+
         if valor_desconto > valor_original:
             raise ValidationError('Desconto não pode ser maior que o valor original')
-        
+
         # Validar parcelamento
         numero_parcela = cleaned_data.get('numero_parcela', 1)
         total_parcelas = cleaned_data.get('total_parcelas', 1)
-        
+
         if numero_parcela > total_parcelas:
             raise ValidationError('Número da parcela não pode ser maior que o total de parcelas')
-        
+
         return cleaned_data
+
+
 
 class ContaPagarForm(forms.ModelForm):
     """Formulário para Conta a Pagar"""
-    
+
     class Meta:
         model = ContaPagar
         fields = [
@@ -175,7 +178,7 @@ class ContaPagarForm(forms.ModelForm):
             'valor_desconto', 'fornecedor', 'centro_custo',
             'numero_parcela', 'total_parcelas', 'conta_pai', 'observacoes'
         ]
-        
+
         widgets = {
             'data_emissao': forms.DateInput(
                 attrs={'type': 'date', 'class': 'form-control'}
@@ -199,26 +202,22 @@ class ContaPagarForm(forms.ModelForm):
                 attrs={'rows': 3, 'class': 'form-control'}
             ),
         }
-    
+
     def __init__(self, *args, **kwargs):
-        
         super().__init__(*args, **kwargs)
-        
-        # Filtrar querysets por empresa
-        if self.empresa:
-            self.fields['fornecedor'].queryset = self.empresa.fornecedores.filter(ativo=True)
-            self.fields['plano_contas'].queryset = self.empresa.plano_contas.filter(
-                tipo_conta='despesa', ativa=True, aceita_lancamento=True
-            )
-            self.fields['centro_custo'].queryset = self.empresa.centro_custos.filter(ativo=True)
-        
+
+        # O django-tenants já isola os dados por schema — não é preciso
+        # filtrar por empresa, só as regras de negócio normais.
+        self.fields['fornecedor'].queryset = self.fields['fornecedor'].queryset.filter(ativo=True)
+        self.fields['centro_custo'].queryset = self.fields['centro_custo'].queryset.filter(ativo=True)
+
         # Configurar crispy forms
         self.helper = FormHelper()
         self.helper.form_method = 'post'
         self.helper.form_class = 'form-horizontal'
         self.helper.label_class = 'col-lg-3'
         self.helper.field_class = 'col-lg-9'
-        
+
         self.helper.layout = Layout(
             Fieldset(
                 'Dados Básicos',
@@ -274,13 +273,13 @@ class ContaPagarForm(forms.ModelForm):
 
 class CentroCustoForm(forms.ModelForm):
     """Formulário para Centro de Custo"""
-    
+
     class Meta:
         model = CentroCusto
         fields = [
             'codigo', 'nome', 'descricao', 'responsavel', 'ativo'
         ]
-        
+
         widgets = {
             'codigo': forms.TextInput(
                 attrs={'class': 'form-control', 'maxlength': '20'}
@@ -295,22 +294,19 @@ class CentroCustoForm(forms.ModelForm):
                 attrs={'class': 'form-control'}
             ),
         }
-    
+
     def __init__(self, *args, **kwargs):
-        
         super().__init__(*args, **kwargs)
-        
-        # Filtrar querysets por empresa
-        if self.empresa:
-            from apps.core.models import Usuario
-            self.fields['responsavel'].queryset = Usuario.objects.filter(
-                is_active=True
-            )
-        
+
+        from apps.core.models import Usuario
+        self.fields['responsavel'].queryset = Usuario.objects.filter(
+            is_active=True
+        )
+
         # Configurar crispy forms
         self.helper = FormHelper()
         self.helper.form_method = 'post'
-        
+
         self.helper.layout = Layout(
             Row(
                 Column('codigo', css_class='form-group col-md-6 mb-0'),
@@ -328,26 +324,25 @@ class CentroCustoForm(forms.ModelForm):
                 HTML('<a href="{% url "financeiro:centro_custo_lista" %}" class="btn btn-secondary ml-2">Cancelar</a>')
             )
         )
-    
+
     def clean_codigo(self):
         codigo = self.cleaned_data.get('codigo')
         if not codigo:
             raise ValidationError('Código é obrigatório')
-        
-        # Verificar se código já existe na empresa
-        if self.empresa:
-            existe = CentroCusto.objects.filter(
-                                codigo=codigo
-            ).exclude(id=self.instance.id if self.instance else None).exists()
-            
-            if existe:
-                raise ValidationError('Código já existe nesta empresa')
-        
+
+        # O schema já isola por tenant — código único dentro do schema atual
+        existe = CentroCusto.objects.filter(
+            codigo=codigo
+        ).exclude(id=self.instance.id if self.instance else None).exists()
+
+        if existe:
+            raise ValidationError('Código já existe')
+
         return codigo.upper()
 
 class MovimentoCaixaForm(forms.ModelForm):
     """Formulário para Movimento de Caixa"""
-    
+
     class Meta:
         model = MovimentoCaixa
         fields = [
@@ -358,7 +353,7 @@ class MovimentoCaixaForm(forms.ModelForm):
             'numero_cartao_mascarado',
             'bandeira_cartao', 'numero_autorizacao', 'numero_comprovante'
         ]
-        
+
         widgets = {
             'data_movimento': forms.DateInput(
                 attrs={'type': 'date', 'class': 'form-control'}
@@ -403,23 +398,21 @@ class MovimentoCaixaForm(forms.ModelForm):
                 attrs={'class': 'form-control', 'maxlength': '30'}
             ),
         }
-    
-    def __init__(self, *args, **kwargs):
 
+    def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        
-        # Filtrar querysets por empresa
-        if self.empresa:
-            self.fields['cliente'].queryset = self.empresa.clientes.filter(ativo=True)
-            self.fields['fornecedor'].queryset = self.empresa.fornecedores.filter(ativo=True)
-        
+
+        # O schema já isola os dados por tenant — só aplicamos as regras de negócio
+        self.fields['cliente'].queryset = self.fields['cliente'].queryset.filter(ativo=True)
+        self.fields['fornecedor'].queryset = self.fields['fornecedor'].queryset.filter(ativo=True)
+
         # Configurar crispy forms
         self.helper = FormHelper()
         self.helper.form_method = 'post'
         self.helper.form_class = 'form-horizontal'
         self.helper.label_class = 'col-lg-3'
         self.helper.field_class = 'col-lg-9'
-        
+
         self.helper.layout = Layout(
             Fieldset(
                 'Dados do Movimento',
@@ -457,13 +450,6 @@ class MovimentoCaixaForm(forms.ModelForm):
                 css_class='cheque-fields'
             ),
             Fieldset(
-                'Dados de Transferência',
-                Row(
-                    Column('txid_p', css_class='form-group col-md-6 mb-0'),
-                    css_class='form-row'
-                ),
-            ),
-            Fieldset(
                 'Dados do Cartão',
                 Row(
                     Column('numero_cartao_mascarado', css_class='form-group col-md-6 mb-0'),
@@ -483,104 +469,96 @@ class MovimentoCaixaForm(forms.ModelForm):
                 HTML('<a href="{% url "financeiro:movimento_caixa" %}" class="btn btn-secondary ml-2">Cancelar</a>')
             )
         )
-        
-        # JavaScript para mostrar/esconder campos baseado na forma de pagamento
+
         self.helper.layout.append(
             HTML("""
             <script>
             $(document).ready(function(){
                 function togglePaymentFields() {
                     var formaPagamento = $('#id_forma_pagamento').val();
-                    
+
                     $('.cheque-fields').hide();
                     $('.cartao-fields').hide();
-                    
+
                     if (formaPagamento === 'cheque') {
                         $('.cheque-fields').show();
                     } else if (formaPagamento.includes('cartao')) {
                         $('.cartao-fields').show();
                     }
                 }
-                
+
                 $('#id_forma_pagamento').change(togglePaymentFields);
-                togglePaymentFields(); // Executar no carregamento
+                togglePaymentFields();
             });
             </script>
             """)
         )
-    
+
     def clean(self):
         cleaned_data = super().clean()
-        
+
         tipo_movimento = cleaned_data.get('tipo_movimento')
         valor = cleaned_data.get('valor', 0)
         forma_pagamento = cleaned_data.get('forma_pagamento')
-        
+
         # Validar valor baseado no tipo de movimento
         if tipo_movimento in ['sangria', 'pagamento', 'cancelamento']:
             if valor > 0:
-                # Para saídas, o valor deve ser negativo
                 cleaned_data['valor'] = -abs(valor)
         else:
-            # Para entradas, o valor deve ser positivo
             if valor < 0:
                 cleaned_data['valor'] = abs(valor)
-        
+
         # Validar campos específicos por forma de pagamento
         if forma_pagamento == 'cheque':
             numero_cheque = cleaned_data.get('numero_cheque')
             if not numero_cheque:
                 raise ValidationError('Número do cheque é obrigatório para pagamentos em cheque')
-        
-        
+
         elif forma_pagamento in ['cartao_debito', 'cartao_credito']:
             numero_autorizacao = cleaned_data.get('numero_autorizacao')
             if not numero_autorizacao:
                 raise ValidationError('Número de autorização é obrigatório para pagamentos em cartão')
-        
+
         return cleaned_data
-    
+
     def save(self, commit=True):
         movimento = super().save(commit=False)
-        
-        # Definir empresa
-        if self.empresa:
-            movimento.empresa = self.empresa
-        
+        # NOTA: 'empresa' removido — MovimentoCaixa não tem esse campo,
+        # o pertencimento ao tenant já é dado pelo schema.
         if commit:
             movimento.save()
-        
         return movimento
 
 # Formulários de filtro
 class ContaReceberFiltroForm(forms.Form):
     """Formulário de filtros para contas a receber"""
-    
+
     STATUS_CHOICES = [('', 'Todos')] + ContaReceber.STATUS_CHOICES
     TIPO_CHOICES = [('', 'Todos')] + ContaReceber.TIPO_CONTA_CHOICES
-    
+
     status = forms.ChoiceField(
         choices=STATUS_CHOICES,
         required=False,
         widget=forms.Select(attrs={'class': 'form-control'})
     )
-    
+
     tipo_conta = forms.ChoiceField(
         choices=TIPO_CHOICES,
         required=False,
         widget=forms.Select(attrs={'class': 'form-control'})
     )
-    
+
     data_vencimento_inicio = forms.DateField(
         required=False,
         widget=forms.DateInput(attrs={'type': 'date', 'class': 'form-control'})
     )
-    
+
     data_vencimento_fim = forms.DateField(
         required=False,
         widget=forms.DateInput(attrs={'type': 'date', 'class': 'form-control'})
     )
-    
+
     cliente = forms.CharField(
         required=False,
         widget=forms.TextInput(attrs={
@@ -591,32 +569,32 @@ class ContaReceberFiltroForm(forms.Form):
 
 class ContaPagarFiltroForm(forms.Form):
     """Formulário de filtros para contas a pagar"""
-    
+
     STATUS_CHOICES = [('', 'Todos')] + ContaPagar.STATUS_CHOICES
     TIPO_CHOICES = [('', 'Todos')] + ContaPagar.TIPO_CONTA_CHOICES
-    
+
     status = forms.ChoiceField(
         choices=STATUS_CHOICES,
         required=False,
         widget=forms.Select(attrs={'class': 'form-control'})
     )
-    
+
     tipo_conta = forms.ChoiceField(
         choices=TIPO_CHOICES,
         required=False,
         widget=forms.Select(attrs={'class': 'form-control'})
     )
-    
+
     data_vencimento_inicio = forms.DateField(
         required=False,
         widget=forms.DateInput(attrs={'type': 'date', 'class': 'form-control'})
     )
-    
+
     data_vencimento_fim = forms.DateField(
         required=False,
         widget=forms.DateInput(attrs={'type': 'date', 'class': 'form-control'})
     )
-    
+
     fornecedor = forms.CharField(
         required=False,
         widget=forms.TextInput(attrs={
@@ -628,7 +606,7 @@ class ContaPagarFiltroForm(forms.Form):
 # Formulários de ação
 class ReceberContaForm(forms.Form):
     """Formulário para receber conta"""
-    
+
     valor_recebido = forms.DecimalField(
         max_digits=12,
         decimal_places=2,
@@ -638,7 +616,7 @@ class ReceberContaForm(forms.Form):
             'min': '0'
         })
     )
-    
+
     data_recebimento = forms.DateField(
         widget=forms.DateInput(attrs={
             'type': 'date',
@@ -646,12 +624,12 @@ class ReceberContaForm(forms.Form):
         }),
         initial=date.today
     )
-    
+
     forma_pagamento = forms.ChoiceField(
         choices=MovimentoCaixa.FORMA_PAGAMENTO_CHOICES,
         widget=forms.Select(attrs={'class': 'form-control'})
     )
-    
+
     observacoes = forms.CharField(
         required=False,
         widget=forms.Textarea(attrs={
@@ -671,7 +649,7 @@ class PagarContaForm(forms.Form):
     Formulário para pagar conta.
     Ajustado para django_tenants (Isolamento Físico via Schema PostgreSQL).
     """
-    
+
     valor_pago = forms.DecimalField(
         max_digits=12,
         decimal_places=2,
@@ -681,7 +659,7 @@ class PagarContaForm(forms.Form):
             'min': '0'
         })
     )
-    
+
     data_pagamento = forms.DateField(
         widget=forms.DateInput(attrs={
             'type': 'date',
@@ -689,18 +667,18 @@ class PagarContaForm(forms.Form):
         }),
         initial=date.today
     )
-    
+
     forma_pagamento = forms.ChoiceField(
         choices=MovimentoCaixa.FORMA_PAGAMENTO_CHOICES,
         widget=forms.Select(attrs={'class': 'form-control'})
     )
-    
+
     conta_bancaria = forms.ModelChoiceField(
         queryset=ContaBancaria.objects.none(),
         widget=forms.Select(attrs={'class': 'form-control'}),
         required=True
     )
-    
+
     observacoes = forms.CharField(
         required=False,
         widget=forms.Textarea(attrs={
@@ -709,10 +687,10 @@ class PagarContaForm(forms.Form):
             'placeholder': 'Observações sobre o pagamento...'
         })
     )
-    
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        
+
         # O ORM filtra automaticamente apenas as contas bancárias ativas do schema atual
         self.fields['conta_bancaria'].queryset = ContaBancaria.objects.filter(
             ativa=True
@@ -725,7 +703,7 @@ class ImpostoTributoForm(forms.ModelForm):
         model = ImpostoTributo
         exclude = ('codigo_imposto_interno', 'valor_calculado', 'valor_devido',
                    'valor_pago', 'valor_multa', 'valor_juros', 'total_agt',
-                   'movimentacao_pagamento', 'usuario_responsavel', 
+                   'movimentacao_pagamento', 'usuario_responsavel',
                    'ultima_atualizacao_calculo', 'situacao')
         widgets = {
             'data_inicio_periodo': forms.DateInput(attrs={'type': 'date'}),
@@ -756,5 +734,3 @@ class FluxoCaixaForm(forms.ModelForm):
             'descricao': forms.TextInput(attrs={'class': 'border p-2 rounded'}),
             'observacoes': forms.Textarea(attrs={'class': 'border p-2 rounded', 'rows': 3}),
         }
-
-

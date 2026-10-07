@@ -5,7 +5,7 @@
 {% block title %}Assinatura Digital{% endblock %}
 
 {% block breadcrumbs %}
-<li><a href="{% url 'core:dashboard' %}" class="text-gray-400 hover:text-gray-500">
+<li><a href="{% url 'core_tenants:dashboard' %}" class="text-gray-400 hover:text-gray-500">
     <i class="fas fa-home h-5 w-5"></i>
 </a></li>
 <li class="flex items-center">
@@ -22,8 +22,8 @@
 
 {% block page_actions %}
 <div class="flex items-center space-x-3">
-    {% if assinatura %}
-    <a href="{% url 'fiscal:download-chave-publica' %}" 
+    {% if assinatura and assinatura.chave_contribuinte_publica %}
+    <a href="{% url 'fiscal:baixar_chave_publica' %}" 
        class="inline-flex items-center px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700">
         <i class="fas fa-download mr-2"></i>
         Baixar Chave Pública
@@ -32,7 +32,7 @@
     <a href="{% url 'fiscal:assinatura-configurar' %}" 
        class="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700">
         <i class="fas fa-cog mr-2"></i>
-        {% if assinatura %}Reconfigurar{% else %}Configurar{% endif %}
+        {% if assinatura and assinatura.esta_configurada %}Reconfigurar{% else %}Configurar{% endif %}
     </a>
 </div>
 {% endblock %}
@@ -48,7 +48,7 @@
                 Status da Assinatura Digital
             </h3>
             
-            {% if assinatura %}
+            {% if assinatura and assinatura.esta_configurada %}
                 <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200">
                     <i class="fas fa-check mr-2"></i>
                     Configurada
@@ -61,24 +61,19 @@
             {% endif %}
         </div>
 
-        {% if assinatura %}
+        {% if assinatura and assinatura.esta_configurada %}
         <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div class="space-y-4">
                 <div>
-                    <label class="block text-sm font-medium text-gray-500 dark:text-gray-400">Empresa</label>
-                    <p class="text-sm text-gray-900 dark:text-gray-100">{{ empresa.nome }}</p>
+                    <label class="block text-sm font-medium text-gray-500 dark:text-gray-400">NIF do Contribuinte</label>
+                    <p class="text-sm text-gray-900 dark:text-gray-100 font-mono">{{ assinatura.nif_contribuinte|default:"—" }}</p>
                 </div>
                 
                 <div>
-                    <label class="block text-sm font-medium text-gray-500 dark:text-gray-400">NIF</label>
-                    <p class="text-sm text-gray-900 dark:text-gray-100">{{ empresa.nif }}</p>
-                </div>
-                
-                <div>
-                    <label class="block text-sm font-medium text-gray-500 dark:text-gray-400">Data de Geração</label>
+                    <label class="block text-sm font-medium text-gray-500 dark:text-gray-400">Data de Configuração</label>
                     <p class="text-sm text-gray-900 dark:text-gray-100">
-                        {% if assinatura.data_geracao %}
-                            {{ assinatura.data_geracao|date:"d/m/Y H:i" }}
+                        {% if assinatura.data_configuracao_chave %}
+                            {{ assinatura.data_configuracao_chave|date:"d/m/Y H:i" }}
                         {% else %}
                             Não disponível
                         {% endif %}
@@ -86,12 +81,23 @@
                 </div>
 
                 <div>
-                    <label class="block text-sm font-medium text-gray-500 dark:text-gray-400">Último Hash</label>
+                    <label class="block text-sm font-medium text-gray-500 dark:text-gray-400">Configurado por</label>
+                    <p class="text-sm text-gray-900 dark:text-gray-100">
+                        {% if assinatura.configurada_por %}
+                            {{ assinatura.configurada_por.get_full_name|default:assinatura.configurada_por.username }}
+                        {% else %}
+                            —
+                        {% endif %}
+                    </p>
+                </div>
+
+                <div>
+                    <label class="block text-sm font-medium text-gray-500 dark:text-gray-400">Último Hash em Cadeia</label>
                     <p class="text-sm text-gray-900 dark:text-gray-100 font-mono break-all">
                         {% if assinatura.ultimo_hash %}
-                            {{ assinatura.ultimo_hash|truncatechars:32 }}...
+                            {{ assinatura.ultimo_hash|truncatechars:32 }}…
                         {% else %}
-                            Nenhum documento assinado
+                            Nenhum documento assinado ainda
                         {% endif %}
                     </p>
                 </div>
@@ -99,70 +105,56 @@
 
             <div class="space-y-4">
                 <div>
-                    <label class="block text-sm font-medium text-gray-500 dark:text-gray-400">Certificado Digital</label>
+                    <label class="block text-sm font-medium text-gray-500 dark:text-gray-400">Chave Pública do Contribuinte</label>
                     <div class="flex items-center mt-1">
-                        {% if assinatura.certificado_digital %}
+                        {% if assinatura.chave_contribuinte_publica %}
                             <i class="fas fa-check-circle text-green-500 mr-2"></i>
-                            <span class="text-sm text-green-700 dark:text-green-300">Configurado</span>
+                            <span class="text-sm text-green-700 dark:text-green-300">Configurada (PEM)</span>
                         {% else %}
-                            <i class="fas fa-times-circle text-red-500 mr-2"></i>
-                            <span class="text-sm text-red-700 dark:text-red-300">Não configurado</span>
+                            <i class="fas fa-times-circle text-yellow-500 mr-2"></i>
+                            <span class="text-sm text-yellow-700 dark:text-yellow-300">Não fornecida (opcional)</span>
                         {% endif %}
                     </div>
                 </div>
 
                 <div>
-                    <label class="block text-sm font-medium text-gray-500 dark:text-gray-400">Chave Pública</label>
+                    <label class="block text-sm font-medium text-gray-500 dark:text-gray-400">Chave Privada do Contribuinte</label>
                     <div class="flex items-center mt-1">
-                        {% if assinatura.chave_publica %}
+                        {% if assinatura.chave_contribuinte_privada %}
                             <i class="fas fa-check-circle text-green-500 mr-2"></i>
-                            <span class="text-sm text-green-700 dark:text-green-300">Disponível</span>
+                            <span class="text-sm text-green-700 dark:text-green-300">Armazenada (cifrada AES)</span>
                         {% else %}
                             <i class="fas fa-times-circle text-red-500 mr-2"></i>
-                            <span class="text-sm text-red-700 dark:text-red-300">Não gerada</span>
+                            <span class="text-sm text-red-700 dark:text-red-300">Não configurada</span>
                         {% endif %}
                     </div>
                 </div>
 
                 <div>
-                    <label class="block text-sm font-medium text-gray-500 dark:text-gray-400">Chave Privada</label>
+                    <label class="block text-sm font-medium text-gray-500 dark:text-gray-400">Credenciais API AGT</label>
                     <div class="flex items-center mt-1">
-                        {% if assinatura.chave_privada %}
+                        {% if assinatura.api_username %}
                             <i class="fas fa-check-circle text-green-500 mr-2"></i>
-                            <span class="text-sm text-green-700 dark:text-green-300">Protegida</span>
+                            <span class="text-sm text-green-700 dark:text-green-300">{{ assinatura.api_username }}</span>
                         {% else %}
-                            <i class="fas fa-times-circle text-red-500 mr-2"></i>
-                            <span class="text-sm text-red-700 dark:text-red-300">Não gerada</span>
+                            <i class="fas fa-times-circle text-gray-400 mr-2"></i>
+                            <span class="text-sm text-gray-500 dark:text-gray-400">Não configuradas</span>
                         {% endif %}
                     </div>
-                </div>
-
-                <div>
-                    <label class="block text-sm font-medium text-gray-500 dark:text-gray-400">Validade do Certificado</label>
-                    <p class="text-sm text-gray-900 dark:text-gray-100">
-                        {% if assinatura.validade_certificado %}
-                            {{ assinatura.validade_certificado|date:"d/m/Y" }}
-                            {% if assinatura.validade_certificado|timeuntil %}
-                                <span class="text-xs text-gray-500">({{ assinatura.validade_certificado|timeuntil }} restantes)</span>
-                            {% endif %}
-                        {% else %}
-                            Não definida
-                        {% endif %}
-                    </p>
                 </div>
             </div>
         </div>
         {% else %}
         <div class="text-center py-8">
             <i class="fas fa-shield-alt text-gray-400 text-4xl mb-4"></i>
-            <h3 class="text-lg font-medium text-gray-900 dark:text-gray-100 mb-2">Assinatura Digital Não Configurada</h3>
+            <h3 class="text-lg font-medium text-gray-900 dark:text-gray-100 mb-2">Chave do Contribuinte Não Configurada</h3>
             <p class="text-gray-500 dark:text-gray-400 mb-6">
-                Configure a assinatura digital para garantir a integridade e autenticidade dos seus documentos fiscais.
+                Configure a chave emitida pela AGT para que o sistema possa assinar os documentos fiscais desta empresa.
             </p>
             <a href="{% url 'fiscal:assinatura-configurar' %}" 
                class="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700">
-                <i class="fas fa-cog mr-2"></i>
-                Configurar Agora
+                <i class="fas fa-key mr-2"></i>
+                Configurar Chave AGT
             </a>
         </div>
         {% endif %}
@@ -249,14 +241,14 @@
         </h3>
         
         <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <a href="{% url 'fiscal:assinatura-gerar-chaves-web' %}" 
+            <a href="{% url 'fiscal:assinatura-configurar' %}" 
                class="flex items-center p-4 border border-gray-200 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700">
                 <div class="flex-shrink-0">
                     <i class="fas fa-key text-blue-500 text-xl"></i>
                 </div>
                 <div class="ml-3">
-                    <p class="text-sm font-medium text-gray-900 dark:text-gray-100">Gerar Novas Chaves</p>
-                    <p class="text-xs text-gray-500 dark:text-gray-400">Criar novo par de chaves RSA</p>
+                    <p class="text-sm font-medium text-gray-900 dark:text-gray-100">Configurar Chave AGT</p>
+                    <p class="text-xs text-gray-500 dark:text-gray-400">Inserir chave emitida pela AGT</p>
                 </div>
             </a>
 
@@ -303,7 +295,7 @@ function assinaturaDigital() {
             this.resultadoTeste = null;
 
             try {
-                const response = await fetch('{% url "fiscal:ajax-status-assinatura" %}', {
+                const response = await fetch('{% url "fiscal:ajax-testar-assinatura" %}', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',

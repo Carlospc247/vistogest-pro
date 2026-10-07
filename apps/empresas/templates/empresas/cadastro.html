@@ -1,0 +1,10 @@
+<!-- templates/empresas/cadastro.html -->
+{% extends "empresas/base_publica.html" %}  {# ou o teu layout público, sem sidebar do ERP #}
+{% block content %}
+<h1>Registar a minha Empresa</h1>
+<form method="post" novalidate>
+  {% csrf_token %}
+  {{ form.as_p }}
+  <button type="submit">Criar conta</button>
+</form>
+{% endblock %}

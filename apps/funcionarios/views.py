@@ -49,7 +49,7 @@ class PermissaoAcaoMixin(AccessMixin):
             # Usa a lógica dinâmica do modelo Funcionario (que já criámos)
             if not funcionario.pode_realizar_acao(self.acao_requerida):
                 messages.error(request, f"Acesso negado. O seu cargo não permite realizar a ação de '{self.acao_requerida}'.")
-                return redirect(reverse_lazy('core:dashboard'))
+                return redirect(reverse_lazy('core_tenants:dashboard'))
 
         return super().dispatch(request, *args, **kwargs)
 
@@ -81,7 +81,7 @@ def permissao_acao_required(acao_requerida=None):
                     request,
                     "Acesso negado. O seu usuário não está ligado a um registro de funcionário."
                 )
-                return redirect(reverse_lazy('core:dashboard'))
+                return redirect(reverse_lazy('core_tenants:dashboard'))
 
             if acao_requerida:
                 if not funcionario.pode_realizar_acao(acao_requerida):
@@ -89,7 +89,7 @@ def permissao_acao_required(acao_requerida=None):
                         request,
                         f"Acesso negado. O seu cargo não permite realizar a ação de '{acao_requerida}'."
                     )
-                    return redirect(reverse_lazy('core:dashboard'))
+                    return redirect(reverse_lazy('core_tenants:dashboard'))
 
             return view_func(request, *args, **kwargs)
         return _wrapped_view
@@ -1529,7 +1529,7 @@ class FecharTurnoView(LoginRequiredMixin, TemplateView):
 
         except Funcionario.DoesNotExist:
             messages.error(request, 'Funcionário não encontrado.')
-            return redirect('core:dashboard')
+            return redirect('core_tenants:dashboard')
         except Exception as e:
             logging.exception("Erro ao fechar turno")
             messages.error(request, 'Erro ao fechar turno. Verifique os valores e tente novamente.')
@@ -1555,7 +1555,12 @@ class RelatorioFechamentoView(LoginRequiredMixin, DetailView):
         return context
 
 from django.template.loader import render_to_string
-from weasyprint import HTML
+try:
+    from weasyprint import HTML as WeasyHTML
+    WEASYPRINT_DISPONIVEL = True
+except (ImportError, OSError):
+    WeasyHTML = None
+    WEASYPRINT_DISPONIVEL = False
 
 class RelatorioFechamentoPDFView(LoginRequiredMixin, DetailView):
     model = FechamentoTurno
@@ -1574,7 +1579,7 @@ class RelatorioFechamentoPDFView(LoginRequiredMixin, DetailView):
             'request': request,
         })
         
-        pdf = HTML(string=html_string, base_url=request.build_absolute_uri()).write_pdf()
+        pdf = WeasyHTML(string=html_string, base_url=request.build_absolute_uri()).write_pdf()
         
         response = HttpResponse(pdf, content_type='application/pdf')
         response['Content-Disposition'] = f'inline; filename="fechamento_turno_{fechamento.pk}.pdf"'

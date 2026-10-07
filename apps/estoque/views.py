@@ -60,7 +60,7 @@ class PermissaoAcaoMixin(AccessMixin):
             # Usa a lógica dinâmica do modelo Funcionario (que já criámos)
             if not funcionario.pode_realizar_acao(self.acao_requerida):
                 messages.error(request, f"Acesso negado. O seu cargo não permite realizar a ação de '{self.acao_requerida}'.")
-                return redirect(reverse_lazy('core:dashboard'))
+                return redirect(reverse_lazy('core_tenants:dashboard'))
 
         return super().dispatch(request, *args, **kwargs)
 
@@ -69,43 +69,24 @@ class PermissaoAcaoMixin(AccessMixin):
 # DASHBOARD
 # =============================
 
-
 class EstoqueDashboardView(LoginRequiredMixin, TemplateView):
     template_name = 'estoque/estoque.html'
 
-    def get_empresa(self):
-        """ Método seguro para obter a empresa do utilizador logado. """
-        user = self.request.user
-        if hasattr(user, 'funcionario') and user.funcionario.empresa:
-            return user.funcionario.empresa
-        
-        return None
-
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        empresa = self.get_empresa()
 
-        if not empresa:
-            messages.warning(self.request, "Utilizador não associado a nenhuma empresa.")
-            context['movimentacoes_recentes'] = []
-            context['alertas_ativos'] = []
-            context['add_product_form'] = ProdutoForm() 
-        
-            return context
-
-
-        context['movimentacoes_recentes'] = MovimentacaoEstoque.objects.filter(
-            produto__empresa=empresa
-        ).select_related('produto', 'usuario').order_by('-created_at')[:10]
+        context['movimentacoes_recentes'] = (
+            MovimentacaoEstoque.objects.all()
+            .select_related('produto', 'usuario')
+            .order_by('-created_at')[:10]
+        )
 
         context['alertas_ativos'] = AlertaEstoque.objects.filter(
-            empresa=empresa,
             ativo=True
         ).order_by('-created_at')
-        
-        context['title'] = "Dashboard de Estoque" # Adicionado título para consistência
-        return context
 
+        context['title'] = "Dashboard de Estoque"
+        return context
 
 # =============================
 # LISTAS
@@ -169,29 +150,10 @@ from .forms import MovimentacaoEstoqueForm
 
 # --- MIXIN DE PERMISSÃO (BOA PRÁTICA) ---
 class MovimentacaoPermissionMixin(LoginRequiredMixin):
-    """
-    Mixin para garantir que o utilizador só acede a movimentações da sua empresa.
-    Evita a repetição de código.
-    """
+    
     model = MovimentacaoEstoque
 
-    def get_empresa(self):
-        """ Método seguro para obter a empresa do utilizador logado. """
-        user = self.request.user
-        if hasattr(user, 'funcionario') and user.funcionario and user.funcionario.empresa:
-            return user.funcionario.empresa
-        return None
-
-    def get_queryset(self):
-        """ Filtra o queryset base para a empresa do utilizador. """
-        empresa = self.get_empresa()
-        if not empresa:
-            return self.model.objects.none() # Retorna um queryset vazio se não houver empresa
-        
-        # --- CORREÇÃO PRINCIPAL APLICADA AQUI ---
-        # Filtra através da relação com o produto.
-        return self.model.objects.filter(produto__empresa=empresa).select_related('produto', 'usuario')
-
+    
 # --- VIEWS CRUD ---
 
 class MovimentacaoListView(MovimentacaoPermissionMixin, ListView):
@@ -200,7 +162,6 @@ class MovimentacaoListView(MovimentacaoPermissionMixin, ListView):
     paginate_by = 25
 
     def get_queryset(self):
-        # Chama o queryset já filtrado pela empresa e adiciona a ordenação.
         queryset = super().get_queryset()
 
         return queryset.order_by('-created_at')
@@ -243,8 +204,7 @@ class MovimentacaoCreateView(LoginRequiredMixin, CreateView):
 class MovimentacaoDetailView(MovimentacaoPermissionMixin, DetailView):
     template_name = 'estoque/movimentacao_detail.html'
     context_object_name = 'movimentacao'
-    # O queryset já é filtrado pela empresa graças ao MovimentacaoPermissionMixin
-
+    
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         context['title'] = f"Detalhes da Movimentação #{self.object.id}"
@@ -403,12 +363,11 @@ class LocalizacaoUpdateView(LoginRequiredMixin, UpdateView):
 # --- CRUD PARA INVENTÁRIO ---
 
 class InventarioBaseView(LoginRequiredMixin):
-    """ View base para garantir que as operações são feitas na empresa correta. """
+
     model = Inventario
     
     def get_queryset(self):
-        empresa = self.request.user.funcionario.empresa
-        return Inventario.objects.filter(empresa=empresa)
+        return Inventario.objects.all()
 
 class InventarioListView(InventarioBaseView, ListView):
     template_name = 'estoque/inventario_list.html'
@@ -482,7 +441,7 @@ class InventarioDetailView(InventarioBaseView, DetailView):
 
 class IniciarInventarioView(LoginRequiredMixin, View):
     def post(self, request, pk):
-        inventario = get_object_or_404(Inventario, pk=pk, empresa=request.user.funcionario.empresa)
+        inventario = get_object_or_404(Inventario, pk=pk)
         try:
             inventario.iniciar_inventario()
             messages.success(request, f"Inventário '{inventario.numero_inventario}' iniciado com sucesso! {inventario.total_produtos_planejados} itens foram gerados para contagem.")
@@ -497,7 +456,7 @@ class FinalizarInventarioView(LoginRequiredMixin, PermissaoAcaoMixin, View):
     def post(self, request, pk):
         inventario = get_object_or_404(
             Inventario.objects.select_for_update(), 
-            pk=pk, empresa=request.user.funcionario.empresa
+            pk=pk
         )
         try:
             with transaction.atomic():

@@ -1,0 +1,49 @@
+{% extends "admin/base_site.html" %}
+{% block content %}
+{% if cargo_codigo == "ADMIN" %}
+  <p class="errornote">Atenção: este é o cargo Administrador. Retirar permissões pode bloquear os admins da empresa.</p>
+{% endif %}
+
+<form method="post">{% csrf_token %}
+  {{ form.non_field_errors }}
+
+  <p>
+    <label for="{{ form.limite_desconto_percentual.id_for_label }}">Limite de desconto (%):</label>
+    {{ form.limite_desconto_percentual }}
+    {{ form.limite_desconto_percentual.errors }}
+  </p>
+
+  <p>
+    <input type="text" id="filtro" placeholder="Filtrar (ex.: saft, venda, iva)..." style="width:260px">
+    <button type="button" onclick="marcar(true)">Marcar visíveis</button>
+    <button type="button" onclick="marcar(false)">Desmarcar visíveis</button>
+  </p>
+
+  <div class="perm" style="columns:3; column-gap:2rem">
+    {% for field in campos_pode %}
+      <p style="break-inside:avoid; margin:4px 0">
+        {{ field }} <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+      </p>
+    {% endfor %}
+  </div>
+
+  <p style="margin-top:1rem">
+    <input type="submit" value="Guardar permissões" class="default">
+    <a href="{% url 'admin:core_usuario_atribuir_cargo' usuario.pk %}">Cancelar</a>
+  </p>
+</form>
+
+<script>
+  function marcar(v) {
+    document.querySelectorAll('.perm p').forEach(function (p) {
+      if (p.style.display !== 'none') p.querySelector('input[type=checkbox]').checked = v;
+    });
+  }
+  document.getElementById('filtro').addEventListener('input', function (e) {
+    var t = e.target.value.toLowerCase();
+    document.querySelectorAll('.perm p').forEach(function (p) {
+      p.style.display = p.textContent.toLowerCase().includes(t) ? '' : 'none';
+    });
+  });
+</script>
+{% endblock %}

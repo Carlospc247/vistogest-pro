@@ -1,3 +1,4 @@
+# apps/fiscal/utility/__init__.py
 import hashlib
 import base64
 import logging

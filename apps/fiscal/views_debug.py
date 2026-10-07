@@ -1,3 +1,4 @@
+# apps/fiscal/views_debug.py
 import logging
 import platform
 import socket
@@ -39,7 +40,6 @@ def debug_gerar_dados_teste(request):
         # Criar fornecedores fake
         for i in range(3):
             Fornecedor.objects.get_or_create(
-                empresa=empresa,
                 nome=f"Fornecedor Teste {i+1}",
                 nif=f"50000000{i+1}",
             )
@@ -47,7 +47,6 @@ def debug_gerar_dados_teste(request):
         # Criar taxas de IVA
         for perc in [7, 14, 23]:
             TaxaIVAAGT.objects.get_or_create(
-                empresa=empresa,
                 tax_percentage=Decimal(perc),
                 defaults={"descricao": f"IVA {perc}% (teste)", "ativo": True}
             )
@@ -55,7 +54,6 @@ def debug_gerar_dados_teste(request):
         # Criar retenções fake
         for i in range(3):
             RetencaoFonte.objects.create(
-                empresa=empresa,
                 descricao=f"Retenção {i+1}",
                 valor_retido=Decimal("100.00") * (i+1),
                 data_retencao=datetime.now()
@@ -126,32 +124,26 @@ def debug_info_sistema(request):
 @login_required
 @empresa_required
 @require_POST
+@login_required
+@require_POST
 def debug_testar_assinatura(request):
-    """Executa um teste de validação da assinatura digital."""
     if not settings.DEBUG:
         return JsonResponse({"success": False, "message": "Acesso restrito ao modo de debug."}, status=403)
-
     try:
-        empresa = request.user.empresa_ativa
-        assinatura = AssinaturaDigital.objects.filter(empresa=empresa).first()
-
+        assinatura = AssinaturaDigital.obter_configuracao()
         if not assinatura:
             return JsonResponse({"success": False, "message": "Assinatura digital não configurada."}, status=404)
 
         hash_teste = "TESTE_HASH_12345"
         assinatura.ultimo_hash = hash_teste
-        assinatura.save()
+        assinatura.save(update_fields=['ultimo_hash'])
 
-        return JsonResponse({
-            "success": True,
-            "message": "Assinatura digital testada com sucesso.",
-            "hash": hash_teste
-        })
+        return JsonResponse({"success": True, "message": "Assinatura digital testada com sucesso.", "hash": hash_teste})
     except Exception as e:
         logger.exception("Erro ao testar assinatura digital.")
         return JsonResponse({"success": False, "message": "Erro ao testar assinatura digital.", "error": str(e)}, status=500)
 
-
+    
 # -------------------------
 # 🔹 DEBUG: Simular Comunicação com AGT
 # -------------------------
