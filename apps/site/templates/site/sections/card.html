@@ -1,14 +1,20 @@
+<!-- card.html -->
 <section class="py-5">
-    <h2 class="text-center">{{ dados.titulo_secao }}</h2>
-    <div class="row">
-        {% for item in dados.itens %}
-        <div class="col-md-4">
-            <div class="card">
-                <i class="{{ item.icone }}"></i>
-                <h5>{{ item.titulo }}</h5>
-                <p>{{ item.descricao }}</p>
-            </div>
+  <div class="container">
+    <h2 class="text-center fw-bold mb-4">{{ dados.titulo_secao }}</h2>
+    <div class="row g-4">
+      {% for item in dados.itens %}
+      <div class="col-md-4">
+        <div class="card h-100 border-0 shadow-sm text-center p-3">
+          <div class="card-body">
+            <i class="{{ item.icone }} fa-2x text-primary mb-3"></i>
+            <h5>{{ item.titulo }}</h5>
+            <p class="text-muted">{{ item.descricao }}</p>
+            {% if item.link and item.link != '#' %}<a href="{{ item.link }}" class="small fw-bold">Saber mais →</a>{% endif %}
+          </div>
         </div>
-        {% endfor %}
+      </div>
+      {% endfor %}
     </div>
+  </div>
 </section>

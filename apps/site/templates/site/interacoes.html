@@ -1,0 +1,134 @@
+<!-- Interações do Público -->
+{% extends "base.html" %}
+{% block title %}Interações do Público{% endblock %}
+
+{% block extra_head %}
+<style>
+  .it-card{border:1px solid #e5e7eb;border-radius:.75rem;background:#fff}
+  .dark .it-card{background:#1f2937;border-color:#374151;color:#e5e7eb}
+  .it-chip{display:inline-flex;align-items:center;gap:.4rem;padding:.35rem .75rem;border-radius:999px;font-size:.78rem;font-weight:600;border:1px solid #d1d5db;color:#374151;background:#fff;text-decoration:none}
+  .dark .it-chip{background:#1f2937;color:#e5e7eb;border-color:#4b5563}
+  .it-chip.ativo{background:#4f46e5;border-color:#4f46e5;color:#fff}
+  .it-btn{font-size:.75rem;font-weight:600;padding:.3rem .65rem;border-radius:.4rem;border:1px solid #d1d5db;background:#fff;color:#374151;cursor:pointer;text-decoration:none}
+  .dark .it-btn{background:#374151;color:#f3f4f6;border-color:#4b5563}
+  .it-btn:hover{background:#eef2ff}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+
+  <div class="flex flex-wrap items-center justify-between gap-3">
+    <div>
+      <h1 class="text-xl font-bold text-gray-900 dark:text-gray-100">Interações do Público</h1>
+      <p class="text-sm text-gray-500 dark:text-gray-400">Tudo o que visitantes e clientes fizeram no teu site.</p>
+    </div>
+    <div class="flex flex-wrap gap-2">
+      <a class="it-chip {% if dias == 7 %}ativo{% endif %}"  href="?dias=7{% if filtro %}&tipo={{ filtro }}{% endif %}">7 dias</a>
+      <a class="it-chip {% if dias == 30 %}ativo{% endif %}" href="?dias=30{% if filtro %}&tipo={{ filtro }}{% endif %}">30 dias</a>
+      <a class="it-chip {% if dias == 90 %}ativo{% endif %}" href="?dias=90{% if filtro %}&tipo={{ filtro }}{% endif %}">90 dias</a>
+      <a class="it-chip" href="{{ url_dashboard }}"><i class="fas fa-arrow-left"></i> Gestão do site</a>
+    </div>
+  </div>
+
+  <!-- Audiência -->
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+    <div class="it-card p-4 lg:col-span-2">
+      <div class="flex items-baseline justify-between">
+        <p class="text-xs font-bold uppercase tracking-wide text-gray-500">Visitantes únicos por dia</p>
+        <p class="text-2xl font-bold">{{ visitas_total }}</p>
+      </div>
+      <div class="flex items-end gap-px mt-3" style="height:96px">
+        {% for g in grafico %}
+        <div title="{{ g.dia|date:'d/m' }}: {{ g.n }}" style="flex:1;height:{{ g.pct }}%;background:{% if g.n %}#6366f1{% else %}#e5e7eb{% endif %};border-radius:2px 2px 0 0"></div>
+        {% endfor %}
+      </div>
+      {% if not visitas_total %}
+      <p class="text-xs text-gray-400 mt-2">Ainda sem visitas registadas — começam a contar assim que o site estiver publicado e visitado.</p>
+      {% endif %}
+    </div>
+
+    <div class="it-card p-4 space-y-4">
+      <div>
+        <p class="text-xs font-bold uppercase tracking-wide text-gray-500 mb-1">Páginas mais vistas</p>
+        {% for p in top_paginas %}
+          <div class="flex justify-between text-sm"><span class="truncate">{{ p.caminho }}</span><strong>{{ p.n }}</strong></div>
+        {% empty %}<p class="text-xs text-gray-400">—</p>{% endfor %}
+      </div>
+      <div>
+        <p class="text-xs font-bold uppercase tracking-wide text-gray-500 mb-1">Produtos mais vistos</p>
+        {% for p in top_produtos %}
+          <div class="flex justify-between text-sm"><span class="truncate">{{ p.referencia }}</span><strong>{{ p.n }}</strong></div>
+        {% empty %}<p class="text-xs text-gray-400">—</p>{% endfor %}
+      </div>
+      <div class="text-xs text-gray-500">
+        {% for d in dispositivos %}{{ d.dispositivo|default:"?" }}: <strong>{{ d.n }}</strong>{% if not forloop.last %} · {% endif %}{% endfor %}
+      </div>
+    </div>
+  </div>
+
+  <!-- Filtros por tipo -->
+  <div class="flex flex-wrap gap-2">
+    <a class="it-chip {% if not filtro %}ativo{% endif %}" href="?dias={{ dias }}">Tudo</a>
+    {% for a in abas %}
+    <a class="it-chip {% if filtro == a.chave %}ativo{% endif %}" href="?dias={{ dias }}&tipo={{ a.chave }}">
+      <i class="{% if a.chave == 'whatsapp' %}fab{% else %}fas{% endif %} {{ a.icone }}" {% if filtro != a.chave %}style="color:{{ a.cor }}"{% endif %}></i>
+      {{ a.rotulo }} <strong>{{ a.n }}</strong>
+    </a>
+    {% endfor %}
+  </div>
+
+  <!-- Feed -->
+  <div class="it-card divide-y divide-gray-100 dark:divide-gray-700">
+    {% for i in feed %}
+    <div class="flex items-start gap-3 p-4" data-linha>
+      <div style="width:2.2rem;height:2.2rem;border-radius:999px;background:{{ i.cor }}22;color:{{ i.cor }};display:flex;align-items:center;justify-content:center;flex-shrink:0">
+        <i class="{% if i.tipo == 'whatsapp' %}fab{% else %}fas{% endif %} {{ i.icone }}"></i>
+      </div>
+      <div class="flex-1 min-w-0">
+        <div class="flex flex-wrap items-center gap-2">
+          <span class="text-sm font-semibold text-gray-900 dark:text-gray-100">{{ i.titulo }}</span>
+          <span class="text-xs px-2 py-0.5 rounded" style="background:{{ i.cor }}22;color:{{ i.cor }}">{{ i.rotulo }}</span>
+          {% if i.pendente %}<span class="badge-pend text-xs px-2 py-0.5 rounded font-semibold" style="background:#fee2e2;color:#991b1b">Pendente</span>{% endif %}
+        </div>
+        {% if i.detalhe %}<p class="text-sm text-gray-600 dark:text-gray-300 mt-0.5">{{ i.detalhe }}</p>{% endif %}
+        <p class="text-xs text-gray-400 mt-1">
+          {{ i.quando|date:"d/m/Y H:i" }} · há {{ i.quando|timesince }}{% if i.contacto %} · {{ i.contacto }}{% endif %}
+        </p>
+      </div>
+      <div class="flex flex-col gap-1 items-end">
+        {% if i.link %}<a class="it-btn" href="{{ i.link }}" target="_blank" rel="noopener"><i class="fas fa-paperclip"></i> Ficheiro</a>{% endif %}
+        {% if i.pendente and i.acao %}
+        <button type="button" class="it-btn" data-atender data-tipo="{{ i.tipo }}" data-pk="{{ i.pk }}">{{ i.acao }}</button>
+        {% endif %}
+      </div>
+    </div>
+    {% empty %}
+    <p class="p-10 text-center text-sm text-gray-500">
+      <i class="fas fa-inbox text-3xl block mb-3 text-gray-300"></i>
+      Sem interações neste período{% if filtro %} para este filtro{% endif %}.
+    </p>
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(() => {
+  const BASE = "{% url 'site:atender_interacao' 'contato' 0 %}";
+  document.querySelectorAll('[data-atender]').forEach(btn => btn.addEventListener('click', async () => {
+    const url = BASE.replace('/contato/0/', `/${btn.dataset.tipo}/${btn.dataset.pk}/`);
+    btn.disabled = true;
+    try {
+      const r = await fetch(url, {method: 'POST', headers: {'X-CSRFToken': '{{ csrf_token }}', 'X-Requested-With': 'XMLHttpRequest'}});
+      const j = await r.json();
+      if (!j.ok) throw new Error();
+      const linha = btn.closest('[data-linha]');
+      linha.querySelector('.badge-pend')?.remove();
+      btn.remove();
+    } catch { btn.disabled = false; alert('Não foi possível actualizar.'); }
+  }));
+})();
+</script>
+{% endblock %}

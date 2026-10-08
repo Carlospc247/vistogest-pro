@@ -1084,7 +1084,7 @@
                     </li>
                     {% endif %}
                     <!-- Estoque -->
-                     {% if request.user.empresa.regime_empresa == 'COMERCIO' or request.user.empresa.regime_empresa == 'SERVICOS' or request.user.empresa.regime_empresa == 'MISTO' %}
+                     {% if request.tenant.regime_empresa == 'COMERCIO' or request.tenant.regime_empresa == 'SERVICOS' or request.tenant.regime_empresa == 'MISTO' %}
                     <li x-data="{ open: {% if request.resolver_match.namespace == 'estoque' %}true{% else %}false{% endif %} }">
                         <button @click="open = !open"
                             class="menu-item text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 
@@ -1461,7 +1461,7 @@
                                 class="block px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700">
                                 <i class="fas fa-cash-register mr-2"></i>Nova Venda (PDV)
                             </a>
-                            {% if request.user.empresa.regime_empresa == 'COMERCIO' or request.user.empresa.regime_empresa == 'SERVICOS' or request.user.empresa.regime_empresa == 'MISTO' %}
+                            {% if request.tenant.regime_empresa == 'COMERCIO' or request.tenant.regime_empresa == 'SERVICOS' or request.tenant.regime_empresa == 'MISTO' %}
                             <a href="{% url 'produtos:criar' %}"
                                 class="block px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700">
                                 <i class="fas fa-box mr-2"></i>Cadastrar Produto
@@ -1471,7 +1471,7 @@
                                 class="block px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700">
                                 <i class="fas fa-user-plus mr-2"></i>Cadastrar Cliente
                             </a>
-                            {% if request.user.empresa.regime_empresa == 'COMERCIO' or request.user.empresa.regime_empresa == 'SERVICOS' or request.user.empresa.regime_empresa == 'MISTO' %}
+                            {% if request.tenant.regime_empresa == 'COMERCIO' or request.tenant.regime_empresa == 'SERVICOS' or request.tenant.regime_empresa == 'MISTO' %}
                             <a href="{% url 'produtos:lote_create' %}"
                                 class="block px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700">
                                 <i class="fas fa-truck mr-2"></i>Entrada de Estoque
@@ -1622,7 +1622,7 @@
                     <span class="text-sm text-gray-500 dark:text-gray-400">
                         Empresa:
                         {% if request.tenant %}
-                            {{ request.tenant.razao_social|default:request.tenant.name|default:"vistoGEST" }}
+                            {{ request.tenant.razao_social|default:request.tenant.nome|default:"vistoGEST" }}
                         {% else %}
                             vistoGEST
                         {% endif %}
@@ -1877,6 +1877,7 @@
 
     const POLL_URL    = '{% url "core_tenants:notifications_count_ajax" %}';
     const READ_URL    = '{% url "core_tenants:notifications_read_all" %}';
+    const READ_ONE_TPL = '{% url "core_tenants:notification_mark_read" 0 %}';
     const CSRF_TOKEN  = '{{ csrf_token }}';
     const INTERVAL_MS = 60000; // 60 segundos
 
@@ -1937,10 +1938,10 @@
 
         // Evento: marcar como lida ao clicar
         dropdownList.querySelectorAll('.notification-item[data-notif-id]').forEach(el => {
-            el.addEventListener('click', function() {
+            el.addEventListener('click', function () {
                 const pk = this.dataset.notifId;
                 if (!pk) return;
-                fetch(`/ajax/notifications/${pk}/read/`, {
+                fetch(READ_ONE_TPL.replace('/0/', `/${pk}/`), {
                     method: 'POST',
                     headers: { 'X-CSRFToken': CSRF_TOKEN, 'Content-Type': 'application/json' },
                 });

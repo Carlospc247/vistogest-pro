@@ -1,310 +1,468 @@
 {% extends "base.html" %}
-{% block content %}
-<!--Este template usa Bootstrap 5 + SortableJS para permitir que o usuário reorganize o site arrastando as seções.-->
-{
-    "slides": [
-        {
-            "imagem_url": "https://res.cloudinary.com/...",
-            "titulo": "Inovação para o seu Negócio",
-            "subtitulo": "Soluções VistoGEST Pro",
-            "texto_botao": "Saber Mais",
-            "link_botao": "/servicos/",
-            "alinhamento": "center"
-        }
-    ],
-    "autoplay": true,
-    "altura_px": 500
-}
+{% block title %}Gestão do Site — {{ config.nome_exibicao }}{% endblock %}
 
-{
-    "titulo_secao": "Nossos Serviços",
-    "estilo": "grid-3-colunas",
-    "itens": [
-        {
-            "icone": "fas fa-pills",
-            "titulo": "Farmácia",
-            "descricao": "Gestão completa de stock e receitas.",
-            "link": "#"
-        },
-        {
-            "icone": "fas fa-graduation-cap",
-            "titulo": "Escolas",
-            "descricao": "Controle académico e financeiro.",
-            "link": "#"
-        }
-    ]
-}
-{
-    "titulo": "Fale Conosco",
-    "subtitulo": "Responderemos em menos de 24h",
-    "mostrar_telefone": true,
-    "email_destino": "comercial@empresa.com",
-    "cor_botao": "#6366f1"
-}
-
-{
-    "titulo_mapa": "Onde Estamos",
-    "iframe_url": "https://www.google.com/maps/embed?pb=...",
-    "endereco_texto": "Rua Deolinda Rodrigues, Luanda, Angola",
-    "mostrar_info_contato": true,
-    "altura_mapa": 400
-}
-
-{
-    "numero_whatsapp": "244923000000",
-    "mensagem_predefinida": "Olá, vi o site da empresa e gostaria de mais informações.",
-    "posicao": "direita",
-    "texto_tooltip": "Estamos Online!",
-    "cor_icone": "#25D366"
-}
-
-{
-    "titulo": "Agende o seu Atendimento",
-    "subtitulo": "Escolha o melhor horário para si",
-    "mostrar_preco": true,
-    "mensagem_sucesso": "Agendamento realizado! Aguarde a nossa confirmação.",
-    "categorias_permitidas": ["consultas", "manutencao", "estetica"],
-    "cor_botao": "#6366f1"
-}
-
-
-
-<div class="container-fluid py-4">
-    <div class="row align-items-center mb-4">
-        <div class="col">
-            <h2 class="fw-bold text-dark">Editor de Site No-Code</h2>
-            <p class="text-muted">Gerencie a presença digital da <strong>{{ empresa_atual.nome }}</strong></p>
-        </div>
-        <div class="col-auto">
-            <a href="{% url 'site:pagina_detalhe' pagina.slug %}" target="_blank" class="btn btn-outline-primary rounded-pill">
-                <i class="fas fa-external-link-alt me-2"></i> Ver Site ao Vivo
-            </a>
-            <button class="btn btn-primary rounded-pill shadow" data-bs-toggle="modal" data-bs-target="#modalDesign">
-                <i class="fas fa-paint-brush me-2"></i> Design Global
-            </button>
-        </div>
-    </div>
-
-    <div class="row mb-4">
-        <div class="col-md-3">
-            <div class="card border-0 shadow-sm border-start border-primary border-4">
-                <div class="card-body">
-                    <h6 class="text-muted small text-uppercase">Leads de Contato</h6>
-                    <h3 class="mb-0">{{ stats.contatos_novos }}</h3>
-                </div>
-            </div>
-        </div>
-        <div class="col-md-3">
-            <div class="card border-0 shadow-sm border-start border-success border-4">
-                <div class="card-body">
-                    <h6 class="text-muted small text-uppercase">Candidaturas</h6>
-                    <h3 class="mb-0">{{ stats.candidaturas_pendentes }}</h3>
-                </div>
-            </div>
-        </div>
-        </div>
-
-    <div class="row">
-        <div class="col-lg-8">
-            <div class="card shadow-sm border-0">
-                <div class="card-header bg-white d-flex justify-content-between align-items-center py-3">
-                    <h5 class="mb-0">Estrutura da Página</h5>
-                    <button class="btn btn-sm btn-dark" data-bs-toggle="modal" data-bs-target="#modalAddSecao">
-                        <i class="fas fa-plus me-1"></i> Adicionar Bloco
-                    </button>
-                </div>
-                <div class="card-body">
-                    <div id="secoes-list" class="list-group">
-                        {% for secao in secoes %}
-                        <div class="list-group-item list-group-item-action d-flex align-items-center border rounded mb-2 py-3" data-id="{{ secao.id }}">
-                            <div class="me-3 cursor-move"><i class="fas fa-grip-vertical text-muted"></i></div>
-                            <div class="flex-grow-1">
-                                <span class="badge bg-soft-info text-info mb-1">{{ secao.get_tipo_display }}</span>
-                                <h6 class="mb-0">Bloco #{{ secao.ordem }}</h6>
-                            </div>
-                            <div class="btn-group">
-                                <a href="#" class="btn btn-sm btn-light"><i class="fas fa-edit"></i></a>
-                                <button class="btn btn-sm btn-light text-danger"><i class="fas fa-trash"></i></button>
-                            </div>
-                        </div>
-                        {% empty %}
-                        <div class="text-center py-5">
-                            <i class="fas fa-layer-group fa-3x text-light mb-3"></i>
-                            <p class="text-muted">Nenhuma seção adicionada. Comece a construir seu site!</p>
-                        </div>
-                        {% endfor %}
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <div class="col-lg-4">
-            <div class="card shadow-sm border-0">
-                <div class="card-header bg-white py-3">
-                    <h5 class="mb-0">Configurações de SEO</h5>
-                </div>
-                <div class="card-body">
-                    <form method="POST">
-                        {% csrf_token %}
-                        <div class="mb-3">
-                            <label class="form-label small fw-bold">Título da Aba (Browser)</label>
-                            <input type="text" class="form-control" value="{{ pagina.titulo }}">
-                        </div>
-                        <div class="mb-3">
-                            <label class="form-label small fw-bold">URL Amigável (Slug)</label>
-                            <div class="input-group">
-                                <span class="input-group-text bg-light small">/site/</span>
-                                <input type="text" class="form-control" value="{{ pagina.slug }}" readonly>
-                            </div>
-                        </div>
-                        <button type="submit" class="btn btn-primary w-100">Salvar Alterações</button>
-                    </form>
-                </div>
-            </div>
-        </div>
-
-        <div class="card bg-dark text-white shadow-lg border-0 mb-4">
-            <div class="card-body d-flex align-items-center justify-content-between p-4">
-                <div>
-                    <h4 class="text-white mb-1">Estado do Site: 
-                        {% if pagina.em_rascunho %}
-                            <span class="badge bg-warning text-dark">Rascunho</span>
-                        {% else %}
-                            <span class="badge bg-success">Publicado</span>
-                        {% endif %}
-                    </h4>
-                    <p class="text-light opacity-75 small mb-0">
-                        Última alteração guardada há {{ pagina.modified|timesince }}
-                    </p>
-                </div>
-                <div class="d-flex gap-2">
-                    <a href="{% url 'site:preview' pagina.slug pagina.preview_token %}" target="_blank" class="btn btn-outline-light">
-                        <i class="fas fa-eye me-2"></i> Preview Externo
-                    </a>
-                    
-                    <form method="POST" action="{% url 'site:publicar' pagina.id %}">
-                        {% csrf_token %}
-                        <button type="submit" class="btn btn-primary px-4">
-                            <i class="fas fa-rocket me-2"></i> Publicar Agora
-                        </button>
-                    </form>
-                </div>
-            </div>
-        </div>
-
-        <div class="offcanvas offcanvas-end" tabindex="-1" id="offcanvasEditor" style="width: 450px;">
-            <div class="offcanvas-header bg-dark text-white">
-                <h5 class="offcanvas-title" id="editorTitle">Editar Bloco</h5>
-                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="offcanvas"></button>
-            </div>
-            <div class="offcanvas-body">
-                <form id="formEditorSecao" method="POST" action="">
-                    {% csrf_token %}
-                    <div id="dynamicFields">
-                        </div>
-                    <hr>
-                    <button type="submit" class="btn btn-primary w-100 shadow-lg">
-                        <i class="fas fa-save me-2"></i> Aplicar Alterações
-                    </button>
-                </form>
-            </div>
-        </div>
-    </div>
-</div>
-
-<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
-<script>
-    const el = document.getElementById('secoes-list');
-    const sortable = Sortable.create(el, {
-        animation: 150,
-        ghostClass: 'bg-light',
-        onEnd: function (evt) {
-            // Aqui o senhor dispararia um AJAX para atualizar a 'ordem' no banco
-            console.log('Nova ordem definida para as seções');
-        },
-    });
-</script>
-<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
-
-<script>
-    function abrirEditor(secaoId) {
-    const offcanvas = new bootstrap.Offcanvas(document.getElementById('offcanvasEditor'));
-    const container = document.getElementById('dynamicFields');
-    const form = document.getElementById('formEditorSecao');
-    
-    // Define a URL de post dinamicamente
-    form.action = `/site/secao/${secaoId}/editar/`;
-
-    // Busca os dados via API
-    fetch(`/site/secao/${secaoId}/dados/`)
-        .then(response => response.json())
-        .then(data => {
-            container.innerHTML = ''; // Limpa o painel
-            document.getElementById('editorTitle').innerText = `Editar ${data.tipo.toUpperCase()}`;
-
-            // 🚀 Lógica No-Code: Gera inputs baseados nas chaves do JSON
-            for (const [key, value] of Object.entries(data.dados)) {
-                if (typeof value !== 'object') { // Campos simples (Título, Descrição)
-                    container.innerHTML += `
-                        <div class="mb-3">
-                            <label class="form-label small fw-bold text-uppercase">${key.replace('_', ' ')}</label>
-                            <input type="text" name="${key}" class="form-control" value="${value}">
-                        </div>
-                    `;
-                }
-            }
-            offcanvas.show();
-        });
-}
-
-    document.addEventListener('DOMContentLoaded', function() {
-        const el = document.getElementById('secoes-list');
-        
-        // Inicializa o arrastar e soltar
-        const sortable = Sortable.create(el, {
-            animation: 150,
-            handle: '.cursor-move', // O utilizador arrasta pelo ícone de "grip"
-            ghostClass: 'bg-light-primary',
-            onEnd: function (evt) {
-                // 1. Capturar a nova ordem de IDs
-                let ordem = [];
-                document.querySelectorAll('#secoes-list [data-id]').forEach((el, index) => {
-                    ordem.push({
-                        id: el.getAttribute('data-id'),
-                        posicao: index + 1
-                    });
-                });
-
-                // 2. Notificação visual de "A Guardar..."
-                const statusBadge = document.getElementById('status-save');
-                statusBadge.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i> A guardar nova ordem...';
-                statusBadge.className = 'badge bg-warning text-dark';
-
-                // 3. Enviar para o servidor via Fetch API
-                fetch("{% url 'site:reordenar_secoes' %}", {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-CSRFToken': '{{ csrf_token }}'
-                    },
-                    body: JSON.stringify({ secoes: ordem })
-                })
-                .then(response => response.json())
-                .then(data => {
-                    if (data.status === 'success') {
-                        statusBadge.innerHTML = '<i class="fas fa-check me-1"></i> Ordem guardada com rigor!';
-                        statusBadge.className = 'badge bg-success';
-                        setTimeout(() => { statusBadge.style.opacity = '0'; }, 2000);
-                    }
-                })
-                .catch(error => {
-                    console.error('Erro SOTARQ:', error);
-                    statusBadge.innerHTML = '<i class="fas fa-exclamation-triangle me-1"></i> Erro ao guardar.';
-                    statusBadge.className = 'badge bg-danger';
-                });
-            },
-        });
-    });
-</script>
+{% block extra_head %}
+<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
+<style>
+  .sb-btn{display:inline-flex;align-items:center;gap:.4rem;padding:.45rem .9rem;border-radius:.5rem;font-size:.8rem;font-weight:600;border:1px solid #d1d5db;color:#374151;background:#fff;cursor:pointer;transition:.15s;text-decoration:none}
+  .sb-btn:hover{background:#f3f4f6}
+  .sb-btn-primary{background:#4f46e5;border-color:#4f46e5;color:#fff}.sb-btn-primary:hover{background:#4338ca}
+  .sb-btn-success{background:#16a34a;border-color:#16a34a;color:#fff}.sb-btn-success:hover{background:#15803d}
+  .sb-btn-warn{background:#f59e0b;border-color:#f59e0b;color:#fff}.sb-btn-warn:hover{background:#d97706}
+  .sb-icon{padding:.4rem .55rem;border-radius:.4rem;color:#6b7280;background:transparent;border:0;cursor:pointer}
+  .sb-icon:hover{background:#eef2ff;color:#4f46e5}.sb-icon.danger:hover{background:#fef2f2;color:#dc2626}
+  .sb-input{width:100%;border:1px solid #d1d5db;border-radius:.5rem;padding:.45rem .65rem;font-size:.8rem;background:#fff;color:#111827}
+  .sb-label{display:block;font-size:.7rem;font-weight:700;text-transform:uppercase;letter-spacing:.03em;color:#6b7280;margin-bottom:.25rem}
+  .sb-card{border:1px solid #e5e7eb;border-radius:.75rem;background:#fff}
+  .dark .sb-btn{background:#1f2937;color:#e5e7eb;border-color:#4b5563}.dark .sb-btn:hover{background:#374151}
+  .dark .sb-btn-primary{background:#4f46e5;color:#fff}.dark .sb-btn-success{background:#16a34a;color:#fff}.dark .sb-btn-warn{background:#f59e0b;color:#fff}
+  .dark .sb-input{background:#1f2937;color:#f3f4f6;border-color:#4b5563}
+  .dark .sb-card{background:#1f2937;border-color:#374151;color:#e5e7eb}
+  .dark .sb-icon:hover{background:#374151}
+  .sortable-ghost{opacity:.4}
+</style>
 {% endblock %}
 
+{% block content %}
+<div class="space-y-6">
+
+  <!-- ░░ Cabeçalho ░░ -->
+  <div class="flex flex-wrap items-center justify-between gap-3">
+    <div>
+      <h1 class="text-xl font-bold text-gray-900 dark:text-gray-100">Gestão do Site</h1>
+      <p class="text-sm text-gray-500 dark:text-gray-400">
+        Presença digital de <strong>{{ empresa_atual.nome|default:config.nome_exibicao }}</strong>
+      </p>
+    </div>
+    <div class="flex flex-wrap items-center gap-2">
+      <a href="{{ url_interacoes }}" class="sb-btn">
+        <i class="fas fa-inbox"></i> Interações
+        {% if pendentes_total %}<span style="background:#dc2626;color:#fff;border-radius:999px;padding:0 .45rem;font-size:.7rem">{{ pendentes_total }}</span>{% endif %}
+      </a>
+      <a href="{{ url_editor }}" class="sb-btn"><i class="fas fa-columns"></i> Editor visual</a>
+      <button type="button" class="sb-btn" data-open="modal-design"><i class="fas fa-palette"></i> Design Global</button>
+    </div>
+  </div>
+
+  <!-- ░░ Endereço público + estado ░░ -->
+  <div class="sb-card p-4">
+    <div class="flex flex-wrap items-center gap-4">
+      <div class="flex-1 min-w-0">
+        <p class="sb-label">Endereço público do site</p>
+        <a id="url-site" href="{{ url_site }}" target="_blank" rel="noopener"
+           class="text-sm font-medium text-indigo-600 hover:underline break-all">{{ url_site }}</a>
+        <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">
+          Loja: <a href="{{ url_loja }}" target="_blank" rel="noopener" class="text-indigo-600 hover:underline">{{ url_loja }}</a>
+        </p>
+        {% if pagina.em_rascunho %}
+        <p class="text-xs mt-2" style="color:#b45309">
+          <i class="fas fa-exclamation-triangle"></i>
+          O site está em <strong>rascunho</strong>: o público vê “em construção” até publicares.
+        </p>
+        {% endif %}
+      </div>
+
+      <div class="flex flex-wrap items-center gap-2">
+        {% if pagina.em_rascunho %}
+          <span class="text-xs font-bold px-2 py-1 rounded" style="background:#fef3c7;color:#92400e">Rascunho</span>
+        {% else %}
+          <span class="text-xs font-bold px-2 py-1 rounded" style="background:#dcfce7;color:#166534">Publicado</span>
+        {% endif %}
+        <button type="button" id="btn-copiar" class="sb-btn"><i class="fas fa-copy"></i> Copiar link</button>
+        <a href="{{ url_preview }}" target="_blank" rel="noopener" class="sb-btn"><i class="fas fa-eye"></i> Preview</a>
+        {% if not pagina.em_rascunho %}
+        <a href="{{ url_site }}" target="_blank" rel="noopener" class="sb-btn"><i class="fas fa-external-link-alt"></i> Ver site</a>
+        {% endif %}
+        <form method="post" action="{% url 'site:publicar' pagina.pk %}" class="inline">
+          {% csrf_token %}
+          {% if pagina.em_rascunho %}
+            <button type="submit" class="sb-btn sb-btn-success"><i class="fas fa-rocket"></i> Publicar</button>
+          {% else %}
+            <input type="hidden" name="acao" value="despublicar">
+            <button type="submit" class="sb-btn sb-btn-warn" onclick="return confirm('Voltar a rascunho? O site deixa de ser visível ao público.')">
+              <i class="fas fa-eye-slash"></i> Despublicar
+            </button>
+          {% endif %}
+        </form>
+      </div>
+    </div>
+    {% if ultima_alteracao %}
+    <p class="text-xs text-gray-400 mt-3">Última alteração há {{ ultima_alteracao|timesince }}</p>
+    {% endif %}
+  </div>
+
+  <!-- ░░ Indicadores ░░ -->
+  <div class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
+    {% for c in cards %}
+    <a href="{{ c.url }}" class="sb-card p-4 block hover:shadow-md transition" style="border-left:4px solid {{ c.cor }}">
+      <div class="flex items-center justify-between">
+        <span class="sb-label" style="margin:0">{{ c.rotulo }}</span>
+        <i class="{{ c.icone }}" style="color:{{ c.cor }}"></i>
+      </div>
+      <p class="text-2xl font-bold mt-1 text-gray-900 dark:text-gray-100">{{ c.valor }}</p>
+    </a>
+    {% endfor %}
+  </div>
+
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+    <!-- ░░ Estrutura da página ░░ -->
+    <div class="lg:col-span-2 sb-card">
+      <div class="flex items-center justify-between px-5 py-4 border-b border-gray-200 dark:border-gray-700">
+        <h2 class="font-semibold text-gray-900 dark:text-gray-100">
+          Estrutura da Página <span id="status-save" class="ml-2 text-xs font-semibold px-2 py-0.5 rounded" style="display:none"></span>
+        </h2>
+        <button type="button" class="sb-btn sb-btn-primary" data-open="modal-add"><i class="fas fa-plus"></i> Adicionar bloco</button>
+      </div>
+
+      <div class="p-4">
+        <p id="lista-vazia" class="text-center py-10 text-sm text-gray-500 {% if secoes %}hidden{% endif %}">
+          <i class="fas fa-layer-group text-3xl block mb-3 text-gray-300"></i>
+          Nenhum bloco ainda. Clica em <strong>Adicionar bloco</strong> para começar.
+        </p>
+
+        <div id="secoes-list" class="space-y-2">
+          {% for secao in secoes %}
+          <div class="secao-item flex items-center gap-3 rounded-lg border border-gray-200 dark:border-gray-700 p-3 bg-white dark:bg-gray-800 {% if not secao.ativo %}opacity-60{% endif %}"
+               data-id="{{ secao.pk }}">
+            <span class="drag-handle text-gray-400 px-1" style="cursor:grab" title="Arrastar"><i class="fas fa-grip-vertical"></i></span>
+            <div class="flex-1 min-w-0">
+              <span class="text-xs font-bold uppercase tracking-wide text-indigo-600">{{ secao.get_tipo_display }}</span>
+              <p class="text-sm text-gray-600 dark:text-gray-300 truncate">
+                Bloco <span class="secao-ordem">{{ forloop.counter }}</span><span class="oculto-tag">{% if not secao.ativo %} · oculto{% endif %}</span>
+              </p>
+            </div>
+            <div class="flex items-center">
+              <button type="button" class="sb-icon" data-action="toggle"    title="Mostrar / ocultar"><i class="fas {% if secao.ativo %}fa-eye{% else %}fa-eye-slash{% endif %}"></i></button>
+              <button type="button" class="sb-icon" data-action="editar"    title="Editar conteúdo"><i class="fas fa-pen"></i></button>
+              <button type="button" class="sb-icon" data-action="duplicar"  title="Duplicar"><i class="fas fa-copy"></i></button>
+              <button type="button" class="sb-icon danger" data-action="eliminar" title="Eliminar"><i class="fas fa-trash"></i></button>
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+
+    <!-- ░░ SEO ░░ -->
+    <div class="sb-card h-fit">
+      <div class="px-5 py-4 border-b border-gray-200 dark:border-gray-700">
+        <h2 class="font-semibold text-gray-900 dark:text-gray-100">Configurações de SEO</h2>
+      </div>
+      <form method="post" action="{% url 'site:seo_pagina' pagina.pk %}" class="p-5 space-y-4">
+        {% csrf_token %}
+        <div>
+          <label class="sb-label">Título da aba (browser)</label>
+          <input type="text" name="titulo" value="{{ pagina.titulo }}" maxlength="200" class="sb-input" required>
+        </div>
+        <div>
+          <label class="sb-label">Descrição (Google, máx. 160)</label>
+          <textarea name="meta_descricao" rows="3" maxlength="160" class="sb-input">{{ pagina.meta_descricao }}</textarea>
+        </div>
+        <div>
+          <label class="sb-label">URL amigável</label>
+          <input type="text" value="{{ pagina.slug }}" class="sb-input" readonly style="opacity:.7">
+        </div>
+        <button type="submit" class="sb-btn sb-btn-primary w-full justify-center"><i class="fas fa-save"></i> Guardar SEO</button>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- ═════════ Modal: adicionar bloco ═════════ -->
+<div id="modal-add" class="hidden fixed inset-0 z-50 items-center justify-center bg-black/50 p-4" data-modal>
+  <div class="sb-card w-full max-w-3xl max-h-[90vh] overflow-hidden flex flex-col">
+    <div class="flex items-center justify-between px-5 py-4 border-b border-gray-200 dark:border-gray-700">
+      <h3 class="font-semibold">Adicionar bloco</h3>
+      <button type="button" class="sb-icon" data-close><i class="fas fa-times"></i></button>
+    </div>
+    <div class="p-5 overflow-y-auto grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+      {% for b in blocos %}
+      <button type="button" data-tipo="{{ b.tipo }}" class="bloco-btn sb-card p-3 text-center hover:shadow-md" style="cursor:pointer">
+        <i class="fas fa-{{ b.icone }} text-xl text-indigo-600 block mb-2"></i>
+        <span class="text-xs font-semibold">{{ b.nome }}</span>
+      </button>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+
+<!-- ═════════ Modal: design global ═════════ -->
+<div id="modal-design" class="hidden fixed inset-0 z-50 items-center justify-center bg-black/50 p-4" data-modal>
+  <form id="form-design" class="sb-card w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col">
+    <div class="flex items-center justify-between px-5 py-4 border-b border-gray-200 dark:border-gray-700">
+      <h3 class="font-semibold"><i class="fas fa-palette text-purple-500 mr-2"></i>Design Global</h3>
+      <button type="button" class="sb-icon" data-close><i class="fas fa-times"></i></button>
+    </div>
+    <div class="p-5 overflow-y-auto grid grid-cols-1 sm:grid-cols-2 gap-4">
+      <div>
+        <label class="sb-label">Tema</label>
+        <select name="tema_layout" class="sb-input">
+          <option value="moderno"     {% if config.tema_layout == 'moderno' %}selected{% endif %}>Moderno</option>
+          <option value="classico"    {% if config.tema_layout == 'classico' %}selected{% endif %}>Clássico</option>
+          <option value="minimalista" {% if config.tema_layout == 'minimalista' %}selected{% endif %}>Minimalista</option>
+          <option value="arrojado"    {% if config.tema_layout == 'arrojado' %}selected{% endif %}>Arrojado</option>
+          <option value="escuro"      {% if config.tema_layout == 'escuro' %}selected{% endif %}>Escuro</option>
+        </select>
+      </div>
+      <div>
+        <label class="sb-label">Raio dos cantos</label>
+        <select name="raio_bordas" class="sb-input">
+          <option value="none" {% if config.raio_bordas == 'none' %}selected{% endif %}>Sem raio</option>
+          <option value="sm"   {% if config.raio_bordas == 'sm' %}selected{% endif %}>Pequeno</option>
+          <option value="md"   {% if config.raio_bordas == 'md' %}selected{% endif %}>Médio</option>
+          <option value="lg"   {% if config.raio_bordas == 'lg' %}selected{% endif %}>Grande</option>
+          <option value="full" {% if config.raio_bordas == 'full' %}selected{% endif %}>Redondo</option>
+        </select>
+      </div>
+      <div>
+        <label class="sb-label">Cor primária</label>
+        <input type="color" name="cor_primaria" value="{{ config.cor_primaria }}" class="sb-input" style="height:2.4rem;padding:.2rem">
+      </div>
+      <div>
+        <label class="sb-label">Cor secundária</label>
+        <input type="color" name="cor_secundaria" value="{{ config.cor_secundaria }}" class="sb-input" style="height:2.4rem;padding:.2rem">
+      </div>
+      <div>
+        <label class="sb-label">Fonte dos títulos</label>
+        <select name="fonte_titulos" class="sb-input">
+          <option {% if config.fonte_titulos == 'Inter' %}selected{% endif %}>Inter</option>
+          <option {% if config.fonte_titulos == 'Poppins' %}selected{% endif %}>Poppins</option>
+          <option {% if config.fonte_titulos == 'Montserrat' %}selected{% endif %}>Montserrat</option>
+          <option {% if config.fonte_titulos == 'Roboto' %}selected{% endif %}>Roboto</option>
+          <option {% if config.fonte_titulos == 'Playfair Display' %}selected{% endif %}>Playfair Display</option>
+          <option {% if config.fonte_titulos == 'Lato' %}selected{% endif %}>Lato</option>
+          <option {% if config.fonte_titulos == 'Open Sans' %}selected{% endif %}>Open Sans</option>
+        </select>
+      </div>
+      <div>
+        <label class="sb-label">Fonte do corpo</label>
+        <select name="fonte_corpo" class="sb-input">
+          <option {% if config.fonte_corpo == 'Inter' %}selected{% endif %}>Inter</option>
+          <option {% if config.fonte_corpo == 'Roboto' %}selected{% endif %}>Roboto</option>
+          <option {% if config.fonte_corpo == 'Lato' %}selected{% endif %}>Lato</option>
+          <option {% if config.fonte_corpo == 'Open Sans' %}selected{% endif %}>Open Sans</option>
+          <option {% if config.fonte_corpo == 'Nunito' %}selected{% endif %}>Nunito</option>
+        </select>
+      </div>
+      <div>
+        <label class="sb-label">Rodapé — fundo</label>
+        <input type="color" name="rodape_cor" value="{{ config.rodape_cor }}" class="sb-input" style="height:2.4rem;padding:.2rem">
+      </div>
+      <div>
+        <label class="sb-label">Rodapé — texto</label>
+        <input type="color" name="rodape_texto_cor" value="{{ config.rodape_texto_cor }}" class="sb-input" style="height:2.4rem;padding:.2rem">
+      </div>
+      <div>
+        <label class="sb-label">Texto botão principal</label>
+        <input type="text" name="texto_botao_primario" value="{{ config.texto_botao_primario }}" maxlength="30" class="sb-input">
+      </div>
+      <div>
+        <label class="sb-label">Texto WhatsApp flutuante</label>
+        <input type="text" name="texto_whatsapp_flutuante" value="{{ config.texto_whatsapp_flutuante }}" maxlength="60" class="sb-input">
+      </div>
+      <div class="sm:col-span-2 flex flex-wrap gap-6 text-sm">
+        <label class="flex items-center gap-2"><input type="checkbox" name="sombras_activas" {% if config.sombras_activas %}checked{% endif %}> Sombras nos cards</label>
+        <label class="flex items-center gap-2"><input type="checkbox" name="animacoes_activas" {% if config.animacoes_activas %}checked{% endif %}> Animações de entrada</label>
+        <label class="flex items-center gap-2"><input type="checkbox" name="header_transparente" {% if config.header_transparente %}checked{% endif %}> Header transparente</label>
+      </div>
+    </div>
+    <div class="flex justify-end gap-2 px-5 py-4 border-t border-gray-200 dark:border-gray-700">
+      <button type="button" class="sb-btn" data-close>Cancelar</button>
+      <button type="submit" class="sb-btn sb-btn-primary"><i class="fas fa-save"></i> Guardar design</button>
+    </div>
+  </form>
+</div>
+
+<!-- ═════════ Painel lateral: editar bloco ═════════ -->
+<div id="panel-bg" class="hidden fixed inset-0 z-40 bg-black/40"></div>
+<aside id="panel" class="fixed top-0 right-0 z-50 h-full w-full max-w-md bg-white dark:bg-gray-900 shadow-2xl flex flex-col"
+       style="transform:translateX(100%);transition:transform .2s">
+  <div class="flex items-center justify-between px-5 py-4 bg-gray-900 text-white">
+    <h3 id="panel-titulo" class="font-semibold">Editar bloco</h3>
+    <button type="button" id="panel-fechar" class="sb-icon" style="color:#fff"><i class="fas fa-times"></i></button>
+  </div>
+  <form id="form-bloco" class="flex-1 flex flex-col overflow-hidden">
+    <div id="campos" class="flex-1 overflow-y-auto p-5 space-y-4"></div>
+    <div class="p-4 border-t border-gray-200 dark:border-gray-700">
+      <button type="submit" class="sb-btn sb-btn-primary w-full justify-center"><i class="fas fa-save"></i> Aplicar alterações</button>
+    </div>
+  </form>
+</aside>
+
+<div id="toast" class="hidden fixed bottom-5 left-1/2 z-50 px-4 py-2 rounded-lg text-white text-sm shadow-lg" style="transform:translateX(-50%)"></div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(() => {
+  const CSRF = '{{ csrf_token }}';
+  const URLS = {
+    adicionar: "{% url 'site:adicionar_secao' pagina.pk %}",
+    reordenar: "{% url 'site:reordenar_secoes' %}",
+    dados:     "{% url 'site:get_secao_dados' 0 %}",
+    editar:    "{% url 'site:editar_secao' 0 %}",
+    duplicar:  "{% url 'site:duplicar_secao' 0 %}",
+    eliminar:  "{% url 'site:eliminar_secao' 0 %}",
+    design:    "{% url 'site:design_global' %}",
+  };
+  const u = (base, id) => base.replace('/0/', `/${id}/`);
+  const $  = (s, r = document) => r.querySelector(s);
+  const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+  const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const HEADERS = {'X-CSRFToken': CSRF, 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest'};
+
+  async function api(url, data) {
+    try {
+      const opts = data === undefined
+        ? {headers: HEADERS}
+        : {method: 'POST', headers: HEADERS, body: JSON.stringify(data)};
+      const r = await fetch(url, opts);
+      if (!r.ok) return {ok: false, error: `HTTP ${r.status}`};
+      return await r.json();
+    } catch (e) { return {ok: false, error: e.message}; }
+  }
+
+  function toast(msg, ok = true) {
+    const t = $('#toast');
+    t.textContent = msg; t.style.background = ok ? '#16a34a' : '#dc2626';
+    t.classList.remove('hidden');
+    clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.add('hidden'), 2800);
+  }
+  function setStatus(msg, cor) {
+    const b = $('#status-save');
+    b.style.display = msg ? 'inline-block' : 'none';
+    b.textContent = msg;
+    b.style.background = {warn: '#fef3c7', ok: '#dcfce7', err: '#fee2e2'}[cor] || '';
+    b.style.color = {warn: '#92400e', ok: '#166534', err: '#991b1b'}[cor] || '';
+    if (cor === 'ok') setTimeout(() => setStatus(''), 2000);
+  }
+
+  /* ── modais ── */
+  const openModal  = id => { const m = $('#' + id); m.classList.remove('hidden'); m.classList.add('flex'); };
+  const closeModals = () => $$('[data-modal]').forEach(m => { m.classList.add('hidden'); m.classList.remove('flex'); });
+  $$('[data-open]').forEach(b => b.addEventListener('click', () => openModal(b.dataset.open)));
+  $$('[data-close]').forEach(b => b.addEventListener('click', closeModals));
+  $$('[data-modal]').forEach(m => m.addEventListener('mousedown', e => { if (e.target === m) closeModals(); }));
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeModals(); fecharPainel(); } });
+
+  /* ── copiar link ── */
+  $('#btn-copiar').addEventListener('click', async () => {
+    try { await navigator.clipboard.writeText($('#url-site').href); toast('Link copiado!'); }
+    catch { toast('Não foi possível copiar', false); }
+  });
+
+  /* ── adicionar bloco ── */
+  $$('.bloco-btn').forEach(b => b.addEventListener('click', async () => {
+    const r = await api(URLS.adicionar, {tipo: b.dataset.tipo});
+    if (r.ok) location.reload(); else toast(r.error || 'Erro ao adicionar', false);
+  }));
+
+  /* ── arrastar & soltar ── */
+  const lista = $('#secoes-list');
+  const renumerar = () => $$('.secao-ordem', lista).forEach((el, i) => el.textContent = i + 1);
+  Sortable.create(lista, {
+    animation: 150, handle: '.drag-handle', ghostClass: 'sortable-ghost',
+    onEnd: async () => {
+      const ordem = $$('.secao-item', lista).map((el, i) => ({id: +el.dataset.id, ordem: i + 1}));
+      setStatus('A guardar…', 'warn');
+      const r = await api(URLS.reordenar, {ordem});
+      if (r.ok) { renumerar(); setStatus('Ordem guardada', 'ok'); } else setStatus('Erro ao guardar', 'err');
+    },
+  });
+
+  /* ── acções por bloco ── */
+  lista.addEventListener('click', async e => {
+    const btn = e.target.closest('[data-action]'); if (!btn) return;
+    const item = btn.closest('.secao-item'); const id = item.dataset.id;
+    const acao = btn.dataset.action;
+
+    if (acao === 'editar') return abrirEditor(id);
+
+    if (acao === 'toggle') {
+      const r = await api(u(URLS.editar, id), {toggle_ativo: true});
+      if (!r.ok) return toast('Erro', false);
+      item.classList.toggle('opacity-60', !r.ativo);
+      $('i', btn).className = 'fas ' + (r.ativo ? 'fa-eye' : 'fa-eye-slash');
+      $('.oculto-tag', item).textContent = r.ativo ? '' : ' · oculto';
+    }
+    if (acao === 'duplicar') {
+      const r = await api(u(URLS.duplicar, id), {});
+      if (r.ok) location.reload(); else toast('Erro ao duplicar', false);
+    }
+    if (acao === 'eliminar') {
+      if (!confirm('Eliminar este bloco?')) return;
+      const r = await api(u(URLS.eliminar, id), {});
+      if (!r.ok) return toast('Erro ao eliminar', false);
+      item.remove(); renumerar();
+      if (!$$('.secao-item', lista).length) $('#lista-vazia').classList.remove('hidden');
+      toast('Bloco eliminado');
+    }
+  });
+
+  /* ── painel lateral (editor de conteúdo) ── */
+  let atual = null;
+  const painel = $('#panel'), fundo = $('#panel-bg');
+  function abrirPainel()  { fundo.classList.remove('hidden'); painel.style.transform = 'translateX(0)'; }
+  function fecharPainel() { fundo.classList.add('hidden');    painel.style.transform = 'translateX(100%)'; }
+  fundo.addEventListener('click', fecharPainel);
+  $('#panel-fechar').addEventListener('click', fecharPainel);
+
+  const rotulo = k => k.replaceAll('_', ' ');
+
+  function campoHtml(k, v) {
+    const lbl = `<label class="sb-label">${esc(rotulo(k))}</label>`;
+    if (typeof v === 'boolean')
+      return `<label class="flex items-center gap-2 text-sm"><input type="checkbox" data-key="${esc(k)}" data-kind="bool" ${v ? 'checked' : ''}> ${esc(rotulo(k))}</label>`;
+    if (typeof v === 'number')
+      return `<div>${lbl}<input type="number" class="sb-input" data-key="${esc(k)}" data-kind="number" value="${esc(v)}"></div>`;
+    if (v !== null && typeof v === 'object')
+      return `<div>${lbl}<textarea rows="8" class="sb-input" data-key="${esc(k)}" data-kind="json" style="font-family:monospace">${esc(JSON.stringify(v, null, 2))}</textarea>
+              <p class="text-xs text-gray-400 mt-1">Lista/objeto em formato JSON</p></div>`;
+    const s = String(v ?? '');
+    if (s.length > 70 || /[<\n]/.test(s))
+      return `<div>${lbl}<textarea rows="5" class="sb-input" data-key="${esc(k)}" data-kind="text">${esc(s)}</textarea></div>`;
+    return `<div>${lbl}<input type="text" class="sb-input" data-key="${esc(k)}" data-kind="text" value="${esc(s)}"></div>`;
+  }
+
+  async function abrirEditor(id) {
+    const r = await api(u(URLS.dados, id));
+    if (r.status !== 'success') return toast('Não foi possível carregar o bloco', false);
+    atual = {id, tipo: r.tipo};
+    $('#panel-titulo').textContent = 'Editar — ' + r.tipo;
+    const entradas = Object.entries(r.dados || {});
+    $('#campos').innerHTML = entradas.length
+      ? entradas.map(([k, v]) => campoHtml(k, v)).join('')
+      : '<p class="text-sm text-gray-500">Este bloco ainda não tem campos editáveis.</p>';
+    abrirPainel();
+  }
+
+  $('#form-bloco').addEventListener('submit', async e => {
+    e.preventDefault(); if (!atual) return;
+    const dados = {}; let erro = '';
+    $$('[data-key]', e.target).forEach(el => {
+      const k = el.dataset.key, kind = el.dataset.kind;
+      if (kind === 'bool') dados[k] = el.checked;
+      else if (kind === 'number') dados[k] = el.value === '' ? '' : Number(el.value);
+      else if (kind === 'json') { try { dados[k] = JSON.parse(el.value || 'null'); } catch { erro = `Campo “${rotulo(k)}”: JSON inválido`; } }
+      else dados[k] = el.value;
+    });
+    if (erro) return toast(erro, false);
+    const r = await api(u(URLS.editar, atual.id), {dados});
+    if (r.ok) { toast('Bloco guardado'); fecharPainel(); } else toast(r.error || 'Erro ao guardar', false);
+  });
+
+  /* ── design global ── */
+  $('#form-design').addEventListener('submit', async e => {
+    e.preventDefault();
+    const data = {};
+    $$('input, select', e.target).forEach(el => {
+      if (!el.name) return;
+      data[el.name] = el.type === 'checkbox' ? el.checked : el.value;
+    });
+    const r = await api(URLS.design, data);
+    if (r.ok) { toast('Design guardado'); closeModals(); } else toast('Erro ao guardar design', false);
+  });
+})();
+</script>
+{% endblock %}

@@ -1,0 +1,24 @@
+<section class="py-5">
+  <div class="container">
+    <h2 class="text-center fw-bold mb-4">{{ dados.titulo }}</h2>
+    <div class="row g-4">
+      {% for p in secao.itens_vitrine %}
+      <div class="col-6 col-md-4 col-lg-3">
+        <div class="card h-100 border-0 shadow-sm">
+          {% if p.imagem %}<img src="{{ p.imagem }}" class="card-img-top" style="height:180px;object-fit:cover" alt="{{ p.nome }}">{% endif %}
+          <div class="card-body d-flex flex-column">
+            <h6 class="fw-bold">{{ p.nome }}</h6>
+            <p class="text-primary fw-bold mb-3">{{ p.preco }} {{ config.moeda }}</p>
+            <div class="mt-auto d-grid gap-2">
+              <a href="{% url 'site:produto_detalhe' p.id %}" class="btn btn-outline-secondary btn-sm">Ver detalhes</a>
+              <button type="button" class="btn btn-primary btn-sm" onclick="addCarrinho('produto', {{ p.id }}, this)">Adicionar ao carrinho</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      {% empty %}
+      <p class="text-center text-muted">Sem produtos disponíveis de momento.</p>
+      {% endfor %}
+    </div>
+  </div>
+</section>

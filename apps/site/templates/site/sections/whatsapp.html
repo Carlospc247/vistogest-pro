@@ -1,13 +1,29 @@
-<a href="https://wa.me/{{ dados.numero_whatsapp }}?text={{ dados.mensagem_predefinida|urlencode }}" 
-   target="_blank" 
-   class="whatsapp-btn shadow-lg d-flex align-items-center justify-content-center"
-   style="position: fixed; bottom: 30px; {{ dados.posicao|default:'right' }}: 30px; z-index: 1000; width: 60px; height: 60px; background-color: #25D366; color: white; border-radius: 50%; text-decoration: none; transition: transform 0.3s;">
-    <i class="fab fa-whatsapp fa-2x"></i>
-    <span class="tooltip-text">{{ dados.texto_tooltip }}</span>
+<!--whatsapp.html-->
+<!-- WhatsApp Button -->
+{% with numero=dados.numero_whatsapp|default:config.numero_whatsapp %}
+{% if numero %}
+<a id="wa-{{ secao.id }}"
+   href="https://wa.me/{{ numero }}?text={{ dados.mensagem_predefinida|default:config.mensagem_whatsapp|urlencode }}"
+   target="_blank" rel="noopener"
+   class="whatsapp-btn {% if dados.posicao == 'esquerda' or dados.posicao == 'left' %}wa-esq{% endif %} shadow-lg d-flex align-items-center justify-content-center"
+   style="position:fixed;bottom:30px;{% if dados.posicao == 'esquerda' or dados.posicao == 'left' %}left{% else %}right{% endif %}:30px;z-index:1000;width:60px;height:60px;background:#25D366;color:#fff;border-radius:50%;text-decoration:none;transition:transform .3s">
+  <i class="fab fa-whatsapp fa-2x"></i>
+  <span class="tooltip-text">{{ dados.texto_tooltip|default:config.texto_whatsapp_flutuante }}</span>
 </a>
-
 <style>
-    .whatsapp-btn:hover { transform: scale(1.1); color: white; }
-    .tooltip-text { position: absolute; right: 70px; background: #333; color: #fff; padding: 5px 10px; border-radius: 5px; font-size: 12px; white-space: nowrap; visibility: hidden; opacity: 0; transition: 0.3s; }
-    .whatsapp-btn:hover .tooltip-text { visibility: visible; opacity: 1; }
+  .whatsapp-btn:hover{transform:scale(1.1);color:#fff}
+  .tooltip-text{position:absolute;right:70px;background:#333;color:#fff;padding:5px 10px;border-radius:5px;font-size:12px;white-space:nowrap;visibility:hidden;opacity:0;transition:.3s}
+  .wa-esq .tooltip-text{right:auto;left:70px}
+  .whatsapp-btn:hover .tooltip-text{visibility:visible;opacity:1}
 </style>
+<script>
+  document.getElementById('wa-{{ secao.id }}').addEventListener('click', function () {
+    fetch("{% url 'site:registar_evento' %}", {
+      method: 'POST', keepalive: true,
+      headers: {'Content-Type': 'application/json', 'X-CSRFToken': '{{ csrf_token }}'},
+      body: JSON.stringify({tipo: 'whatsapp', referencia: location.pathname})
+    }).catch(function () {});
+  });
+</script>
+{% endif %}
+{% endwith %}

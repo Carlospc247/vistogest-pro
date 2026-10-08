@@ -1,3 +1,110 @@
-{% for secao in secoes %}
-    {% include "site/sections/"|add:secao.tipo|add:".html" with dados=secao.dados %}
-{% endfor %}
+<!--index.html-->
+{% load static %}<!DOCTYPE html>
+<html lang="pt">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ pagina.titulo }} — {{ config.nome_exibicao }}</title>
+  {% if pagina.meta_descricao %}<meta name="description" content="{{ pagina.meta_descricao }}">{% endif %}
+  <meta property="og:title" content="{{ pagina.titulo }}">
+  {% if pagina.meta_imagem %}<meta property="og:image" content="{{ pagina.meta_imagem.url }}">{% endif %}
+  {% if modo_preview %}<meta name="robots" content="noindex">{% endif %}
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family={{ config.fonte_titulos|urlencode }}:wght@600;700&family={{ config.fonte_corpo|urlencode }}:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    :root{--cor-primaria:{{ config.cor_primaria }};--cor-secundaria:{{ config.cor_secundaria }}}
+    body{font-family:'{{ config.fonte_corpo }}',sans-serif}
+    h1,h2,h3,h4,h5,h6,.navbar-brand{font-family:'{{ config.fonte_titulos }}',sans-serif}
+    .btn-primary{background-color:var(--cor-primaria);border-color:var(--cor-primaria)}
+    .btn-primary:hover{filter:brightness(.9);background-color:var(--cor-primaria);border-color:var(--cor-primaria)}
+    .text-primary{color:var(--cor-primaria)!important}
+    .site-footer{background:{{ config.rodape_cor }};color:{{ config.rodape_texto_cor }}}
+    .site-footer a{color:inherit;opacity:.85}
+    {% if not config.sombras_activas %}.shadow,.shadow-sm,.shadow-lg{box-shadow:none!important}{% endif %}
+  </style>
+</head>
+<body>
+{% if modo_preview %}
+  <div class="bg-warning text-dark text-center small py-1 fw-bold">PRÉ-VISUALIZAÇÃO — este conteúdo ainda não está publicado</div>
+{% endif %}
+
+<nav class="navbar navbar-expand-lg bg-white shadow-sm {% if config.header_transparente %}position-absolute w-100{% else %}sticky-top{% endif %}" {% if config.header_transparente %}style="background:transparent!important;z-index:10"{% endif %}>
+  <div class="container">
+    <a class="navbar-brand fw-bold" href="{% url 'site:pagina_home' %}">
+      {% if config.logo %}<img src="{{ config.logo.url }}" alt="{{ config.nome_exibicao }}" height="36">{% else %}{{ config.nome_exibicao }}{% endif %}
+    </a>
+    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#nav"><span class="navbar-toggler-icon"></span></button>
+    <div id="nav" class="collapse navbar-collapse">
+      <ul class="navbar-nav ms-auto align-items-lg-center gap-lg-2">
+        <li class="nav-item"><a class="nav-link" href="{% url 'site:pagina_home' %}">Início</a></li>
+        {% if config.loja_activa %}<li class="nav-item"><a class="nav-link" href="{% url 'site:loja' %}">Loja</a></li>{% endif %}
+        <li class="nav-item"><a class="nav-link" href="{% url 'site:contato' %}">Contacto</a></li>
+        {% if config.loja_activa %}
+        <li class="nav-item"><a class="nav-link" href="{% url 'site:carrinho' %}"><i class="fas fa-shopping-cart"></i> <span id="cart-badge" class="badge bg-primary">{{ carrinho_total }}</span></a></li>
+        {% endif %}
+        <li class="nav-item">
+          {% if cliente_logado %}<a class="nav-link" href="{% url 'site:cliente_perfil' %}"><i class="fas fa-user"></i> {{ cliente_logado.nome|truncatechars:14 }}</a>
+          {% else %}<a class="nav-link" href="{% url 'site:cliente_login' %}">Entrar</a>{% endif %}
+        </li>
+      </ul>
+    </div>
+  </div>
+</nav>
+
+{% if messages %}
+<div class="container mt-3">
+  {% for m in messages %}<div class="alert alert-{% if m.tags == 'error' %}danger{% else %}{{ m.tags|default:'info' }}{% endif %}">{{ m }}</div>{% endfor %}
+</div>
+{% endif %}
+
+<main>
+  {% for secao in secoes %}
+    {% include secao.templates_render with dados=secao.dados %}
+  {% empty %}
+    <div class="container py-5 text-center text-muted">Esta página ainda não tem conteúdo.</div>
+  {% endfor %}
+</main>
+
+<footer class="site-footer py-5 mt-5">
+  <div class="container">
+    <div class="row g-4">
+      <div class="col-md-5">
+        <h5>{{ config.nome_exibicao }}</h5>
+        <p class="small opacity-75">{{ config.slogan }}</p>
+      </div>
+      <div class="col-md-4 small">
+        {% if config.endereco_publico %}<p class="mb-1"><i class="fas fa-map-marker-alt me-2"></i>{{ config.endereco_publico }}</p>{% endif %}
+        {% if config.telefone_publico %}<p class="mb-1"><i class="fas fa-phone me-2"></i>{{ config.telefone_publico }}</p>{% endif %}
+        {% if config.email_publico %}<p class="mb-1"><i class="fas fa-envelope me-2"></i>{{ config.email_publico }}</p>{% endif %}
+      </div>
+      <div class="col-md-3 fs-5">
+        {% if config.facebook %}<a href="{{ config.facebook }}" target="_blank" rel="noopener" class="me-3"><i class="fab fa-facebook"></i></a>{% endif %}
+        {% if config.instagram %}<a href="{{ config.instagram }}" target="_blank" rel="noopener" class="me-3"><i class="fab fa-instagram"></i></a>{% endif %}
+        {% if config.linkedin %}<a href="{{ config.linkedin }}" target="_blank" rel="noopener" class="me-3"><i class="fab fa-linkedin"></i></a>{% endif %}
+        {% if config.youtube %}<a href="{{ config.youtube }}" target="_blank" rel="noopener"><i class="fab fa-youtube"></i></a>{% endif %}
+      </div>
+    </div>
+    <hr class="opacity-25">
+    <p class="small opacity-75 mb-0">© {% now "Y" %} {{ config.nome_exibicao }}. Todos os direitos reservados.</p>
+  </div>
+</footer>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+  // Usado pelas vitrines de produtos/serviços
+  window.addCarrinho = async function (tipo, id, btn) {
+    const fd = new FormData();
+    fd.append('tipo', tipo); fd.append('item_id', id); fd.append('quantidade', 1);
+    if (btn) btn.disabled = true;
+    try {
+      const r = await fetch("{% url 'site:adicionar_carrinho' %}", {method: 'POST', headers: {'X-CSRFToken': '{{ csrf_token }}'}, body: fd});
+      const j = await r.json();
+      if (!j.success) throw new Error(j.error);
+      const b = document.getElementById('cart-badge'); if (b) b.textContent = j.total_itens;
+      if (btn) { const t = btn.textContent; btn.textContent = 'Adicionado ✓'; setTimeout(() => { btn.textContent = t; btn.disabled = false; }, 1500); }
+    } catch (e) { if (btn) btn.disabled = false; alert('Não foi possível adicionar ao carrinho.'); }
+  };
+</script>
+</body>
+</html>

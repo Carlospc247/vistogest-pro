@@ -10,6 +10,18 @@ urlpatterns = [
     path('p/<slug:slug>/', views.PaginaDetailView.as_view(), name='pagina_detalhe'),
     path('p/<slug:slug>/preview/<uuid:token>/', views.SitePreviewView.as_view(), name='preview'),
 
+    # Painel de interações do público (S12)
+    path('admin/interacoes/', views.InteracoesSiteView.as_view(), name='interacoes'),
+    path('admin/interacoes/<str:tipo>/<int:pk>/atender/', views.AtenderInteracaoView.as_view(), name='atender_interacao'),
+ 
+    # SEO da página (título + meta descrição)
+    path('admin/pagina/<int:pk>/seo/', views.AtualizarSeoPaginaView.as_view(), name='seo_pagina'),
+ 
+    # Tracking público (cliques no WhatsApp)
+    path('track/', views.RegistarEventoView.as_view(), name='registar_evento'),
+
+
+    
     # ── Loja Online — Catálogo ────────────────────────────────────────────────
     path('loja/', views.LojaView.as_view(), name='loja'),
     path('loja/produto/<int:pk>/', views.ProdutoDetalheView.as_view(), name='produto_detalhe'),

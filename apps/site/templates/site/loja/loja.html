@@ -1,0 +1,606 @@
+<!DOCTYPE html>
+{% comment %}
+  site/loja/loja.html
+  Contexto (LojaView): config, carrinho, carrinho_total, cliente_logado,
+  produtos, servicos, config_produto, config_servico, em_destaque_p, em_destaque_s.
+
+  Autónomo: não estende nenhum base, para não depender do resto do site.
+  Preço e destaque vêm de produto.configuracao_site / servico.configuracao_site
+  (OneToOne). Quando não existe configuração, o Django devolve vazio e o
+  |default usa o preço original.
+{% endcomment %}
+<html lang="pt-pt">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="csrf-token" content="{{ csrf_token }}">
+    <title>Loja | {{ config.nome_exibicao }}</title>
+    {% if config.favicon %}<link rel="icon" href="{{ config.favicon.url }}">{% endif %}
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family={{ config.fonte_titulos|default:'Inter'|urlencode }}:wght@500;700&family={{ config.fonte_corpo|default:'Inter'|urlencode }}:wght@400;500;600&display=swap" rel="stylesheet">
+
+    <style>
+        :root {
+            --primaria: {{ config.cor_primaria|default:"#1E40AF" }};
+            --secundaria: {{ config.cor_secundaria|default:"#F59E0B" }};
+            --sobre-primaria: #fff;
+            --raio: {% if config.raio_bordas == 'none' %}0{% elif config.raio_bordas == 'sm' %}4px{% elif config.raio_bordas == 'lg' %}16px{% elif config.raio_bordas == 'full' %}24px{% else %}10px{% endif %};
+            --raio-botao: {% if config.raio_bordas == 'full' %}999px{% else %}var(--raio){% endif %};
+            --f-titulos: "{{ config.fonte_titulos|default:'Inter' }}", system-ui, sans-serif;
+            --f-corpo: "{{ config.fonte_corpo|default:'Inter' }}", system-ui, sans-serif;
+
+            --fundo: #F6F7F9;
+            --superficie: #FFFFFF;
+            --texto: #14181F;
+            --suave: #5B6472;
+            --linha: #E3E6EB;
+            --sombra: {% if config.sombras_activas %}0 1px 2px rgba(20,24,31,.06), 0 8px 20px rgba(20,24,31,.06){% else %}none{% endif %};
+            --rodape: {{ config.rodape_cor|default:"#1E293B" }};
+            --rodape-texto: {{ config.rodape_texto_cor|default:"#FFFFFF" }};
+            --alt-topo: 64px;
+        }
+        {% if config.tema_layout == 'escuro' %}
+        :root {
+            --fundo: #0E1116;
+            --superficie: #171B22;
+            --texto: #EEF1F5;
+            --suave: #A3ACB9;
+            --linha: #262C36;
+        }
+        {% endif %}
+
+        *, *::before, *::after { box-sizing: border-box; }
+        html { -webkit-text-size-adjust: 100%; }
+        body {
+            margin: 0;
+            background: var(--fundo);
+            color: var(--texto);
+            font-family: var(--f-corpo);
+            font-size: 16px;
+            line-height: 1.55;
+        }
+        img { max-width: 100%; display: block; }
+        a { color: inherit; }
+        h1, h2, h3 { font-family: var(--f-titulos); line-height: 1.2; margin: 0; }
+        :focus-visible { outline: 3px solid var(--secundaria); outline-offset: 2px; }
+        .wrap { width: 100%; max-width: 1180px; margin: 0 auto; padding: 0 20px; }
+        .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+        [hidden] { display: none !important; }
+
+        /* ── Topo ─────────────────────────────────────────── */
+        .topo {
+            position: sticky; top: 0; z-index: 30;
+            height: var(--alt-topo);
+            background: var(--superficie);
+            border-bottom: 1px solid var(--linha);
+        }
+        .topo-in { height: 100%; display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+        .marca { display: flex; align-items: center; gap: 10px; text-decoration: none; font-family: var(--f-titulos); font-weight: 700; font-size: 1.15rem; min-width: 0; }
+        .marca img { height: 36px; width: auto; }
+        .marca span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .topo-nav { display: flex; align-items: center; gap: 6px; }
+        .topo-nav a { text-decoration: none; padding: 8px 12px; border-radius: var(--raio-botao); font-weight: 500; font-size: .95rem; color: var(--suave); }
+        .topo-nav a:hover { color: var(--texto); background: var(--fundo); }
+        .topo-nav a.carrinho { display: inline-flex; align-items: center; gap: 8px; color: var(--texto); background: var(--fundo); border: 1px solid var(--linha); }
+        .topo-nav a.carrinho svg { width: 18px; height: 18px; }
+        .badge { min-width: 22px; height: 22px; padding: 0 6px; border-radius: 999px; background: var(--primaria); color: var(--sobre-primaria); font-size: .78rem; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; }
+        .cart-total { font-size: .88rem; color: var(--suave); }
+
+        /* ── Introdução ───────────────────────────────────── */
+        .intro { padding-top: 40px; padding-bottom: 24px; }
+        .intro h1 { font-size: clamp(1.9rem, 4vw, 2.6rem); font-weight: 700; letter-spacing: -.01em; }
+        .intro p { margin: 8px 0 0; color: var(--suave); max-width: 60ch; }
+
+        /* ── Barra de filtros ─────────────────────────────── */
+        .filtros {
+            position: sticky; top: var(--alt-topo); z-index: 20;
+            background: var(--fundo);
+            border-bottom: 1px solid var(--linha);
+            padding: 12px 0;
+        }
+        .filtros-in { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+        .pesquisa { flex: 1 1 260px; position: relative; }
+        .pesquisa input {
+            width: 100%; height: 44px; padding: 0 14px;
+            border: 1px solid var(--linha); border-radius: var(--raio-botao);
+            background: var(--superficie); color: var(--texto); font: inherit;
+        }
+        .pesquisa input::placeholder { color: var(--suave); }
+        .abas { display: inline-flex; border: 1px solid var(--linha); border-radius: var(--raio-botao); background: var(--superficie); padding: 3px; }
+        .abas button { border: 0; background: transparent; color: var(--suave); font: inherit; font-weight: 500; font-size: .95rem; padding: 7px 14px; border-radius: calc(var(--raio-botao) - 3px); cursor: pointer; }
+        .abas button[aria-pressed="true"] { background: var(--primaria); color: var(--sobre-primaria); }
+        .chips { flex-basis: 100%; display: flex; gap: 8px; overflow-x: auto; padding-bottom: 2px; scrollbar-width: thin; }
+        .chips button { flex: none; border: 1px solid var(--linha); background: var(--superficie); color: var(--texto); font: inherit; font-size: .9rem; padding: 6px 14px; border-radius: 999px; cursor: pointer; }
+        .chips button[aria-pressed="true"] { border-color: var(--primaria); color: var(--primaria); font-weight: 600; }
+        .contagem { color: var(--suave); font-size: .9rem; margin-left: auto; }
+
+        /* ── Secções e grelha ─────────────────────────────── */
+        main { padding-bottom: 72px; }
+        .secao { padding-top: 36px; }
+        .secao-cab { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 18px; gap: 12px; }
+        .secao-cab h2 { font-size: 1.4rem; font-weight: 700; }
+        .grelha { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 20px; }
+
+        .card {
+            display: flex; flex-direction: column;
+            background: var(--superficie);
+            border: 1px solid var(--linha);
+            border-radius: var(--raio);
+            box-shadow: var(--sombra);
+            overflow: hidden;
+        }
+        .card-img { position: relative; display: block; aspect-ratio: 4 / 3; background: var(--linha); overflow: hidden; }
+        .card-img img { width: 100%; height: 100%; object-fit: cover; }
+        .sem-foto { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-family: var(--f-titulos); font-size: 3rem; font-weight: 700; color: var(--suave); }
+        .selo { position: absolute; top: 10px; left: 10px; background: var(--secundaria); color: #111; font-size: .78rem; font-weight: 600; padding: 3px 10px; border-radius: 999px; }
+        .card-corpo { display: flex; flex-direction: column; gap: 6px; padding: 14px 16px 16px; flex: 1; }
+        .cat { margin: 0; font-size: .82rem; color: var(--suave); }
+        .card h3 { font-size: 1.02rem; font-weight: 600; }
+        .card h3 a { text-decoration: none; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+        .card h3 a:hover { text-decoration: underline; }
+        .desc { margin: 0; color: var(--suave); font-size: .92rem; }
+        .preco { margin: auto 0 0; padding-top: 8px; font-family: var(--f-titulos); font-size: 1.35rem; font-weight: 700; }
+        .preco small { font-family: var(--f-corpo); font-size: .8rem; font-weight: 500; color: var(--suave); margin-left: 2px; }
+        .preco-consulta { font-family: var(--f-corpo); font-size: 1rem; font-weight: 500; color: var(--suave); }
+
+        .btn {
+            margin-top: 10px; width: 100%; height: 44px;
+            border: 0; border-radius: var(--raio-botao);
+            background: var(--primaria); color: var(--sobre-primaria);
+            font: inherit; font-weight: 600; cursor: pointer;
+        }
+        .btn:hover { filter: brightness(1.08); }
+        .btn:disabled { background: var(--linha); color: var(--suave); cursor: not-allowed; filter: none; }
+        .btn-sec { background: transparent; color: var(--primaria); border: 1px solid var(--primaria); }
+
+        /* Faixa de destaques */
+        .faixa { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(220px, 260px); gap: 16px; overflow-x: auto; padding-bottom: 8px; scroll-snap-type: x proximity; }
+        .faixa .card { scroll-snap-align: start; }
+        .faixa .card-img { aspect-ratio: 16 / 10; }
+
+        /* Estados vazios */
+        .vazio { text-align: center; padding: 64px 20px; color: var(--suave); }
+        .vazio h2 { color: var(--texto); font-size: 1.3rem; margin-bottom: 6px; }
+        .vazio .btn { width: auto; padding: 0 22px; margin-top: 16px; }
+
+        /* Mensagens do Django */
+        .mensagens { padding-top: 16px; display: grid; gap: 8px; }
+        .mensagem { padding: 12px 16px; border-radius: var(--raio); border: 1px solid var(--linha); background: var(--superficie); }
+        .mensagem.error { border-color: #dc2626; color: #b91c1c; }
+        .mensagem.success { border-color: #16a34a; color: #15803d; }
+        .mensagem.warning { border-color: #d97706; color: #b45309; }
+
+        /* Aviso (toast) */
+        #toast {
+            position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%);
+            background: var(--texto); color: var(--fundo);
+            padding: 12px 20px; border-radius: var(--raio-botao);
+            font-weight: 500; z-index: 60; max-width: calc(100% - 32px);
+        }
+        #toast.erro { background: #b91c1c; color: #fff; }
+
+        /* WhatsApp flutuante */
+        .wa {
+            position: fixed; right: 20px; bottom: 20px; z-index: 40;
+            display: inline-flex; align-items: center; gap: 10px;
+            background: #25D366; color: #07290f; text-decoration: none;
+            font-weight: 600; padding: 12px 18px; border-radius: 999px;
+            box-shadow: 0 8px 24px rgba(0,0,0,.2);
+        }
+        .wa svg { width: 22px; height: 22px; }
+
+        /* Rodapé */
+        .rodape { background: var(--rodape); color: var(--rodape-texto); padding: 40px 0 48px; }
+        .rodape-in { display: grid; gap: 24px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+        .rodape h2 { font-size: 1.1rem; margin-bottom: 8px; }
+        .rodape p { margin: 0 0 4px; opacity: .85; font-size: .95rem; }
+        .rodape a { color: inherit; }
+        .rodape .redes { display: flex; flex-wrap: wrap; gap: 14px; }
+        .rodape .copy { grid-column: 1 / -1; opacity: .65; font-size: .85rem; border-top: 1px solid rgba(255,255,255,.18); padding-top: 16px; }
+
+        {% if config.animacoes_activas %}
+        @media (prefers-reduced-motion: no-preference) {
+            .card-img img { transition: transform .35s ease; }
+            .card:hover .card-img img { transform: scale(1.03); }
+            .btn { transition: filter .15s ease; }
+        }
+        {% endif %}
+
+        @media (max-width: 640px) {
+            .topo-nav a:not(.carrinho) { display: none; }
+            .cart-total { display: none; }
+            .grelha { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+            .card-corpo { padding: 12px; }
+            .wa span { display: none; }
+            .wa { padding: 14px; }
+            .contagem { flex-basis: 100%; margin-left: 0; }
+        }
+    </style>
+</head>
+
+<body>
+    <!-- Topo -->
+    <header class="topo">
+        <div class="wrap topo-in">
+            <a class="marca" href="{% url 'site:pagina_home' %}">
+                {% if config.logo %}<img src="{{ config.logo.url }}" alt="">{% endif %}
+                <span>{{ config.nome_exibicao }}</span>
+            </a>
+            <nav class="topo-nav" aria-label="Principal">
+                <a href="{% url 'site:pagina_home' %}">Início</a>
+                {% if cliente_logado %}
+                    <a href="{% url 'site:cliente_perfil' %}">{{ cliente_logado.nome }}</a>
+                {% else %}
+                    <a href="{% url 'site:cliente_login' %}">Entrar</a>
+                {% endif %}
+                <a class="carrinho" href="{% url 'site:carrinho' %}">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="20" r="1.5"/><circle cx="18" cy="20" r="1.5"/><path d="M2 3h3l2.6 12.4a2 2 0 0 0 2 1.6h7.7a2 2 0 0 0 2-1.5L21 8H6"/></svg>
+                    <span>Carrinho</span>
+                    <span id="cart-count" class="badge">{{ carrinho_total|default:0 }}</span>
+                    <span class="cart-total"><span id="cart-total">{{ carrinho.total|floatformat:"2g" }}</span> {{ config.moeda }}</span>
+                </a>
+            </nav>
+        </div>
+    </header>
+
+    <!-- Introdução -->
+    <section class="wrap intro">
+        <h1>Loja online</h1>
+        <p>{% if config.slogan %}{{ config.slogan }}. {% endif %}Adicione ao carrinho e finalize o pedido. Depois entramos em contacto para confirmar.</p>
+    </section>
+
+    {% if produtos or servicos %}
+    <!-- Filtros -->
+    <div class="filtros">
+        <div class="wrap filtros-in">
+            <div class="pesquisa">
+                <label class="sr-only" for="q">Pesquisar na loja</label>
+                <input id="q" type="search" placeholder="Pesquisar por nome" autocomplete="off">
+            </div>
+
+            {% if produtos and servicos %}
+            <div class="abas" role="group" aria-label="Tipo de item">
+                <button type="button" data-aba="todos" aria-pressed="true">Tudo</button>
+                <button type="button" data-aba="produto" aria-pressed="false">Produtos</button>
+                <button type="button" data-aba="servico" aria-pressed="false">Serviços</button>
+            </div>
+            {% endif %}
+
+            <span class="contagem" id="contagem" aria-live="polite"></span>
+            <div class="chips" id="chips" role="group" aria-label="Categorias" hidden></div>
+        </div>
+    </div>
+    {% endif %}
+
+    <main class="wrap">
+        {% if messages %}
+        <div class="mensagens">
+            {% for message in messages %}
+            <div class="mensagem {{ message.tags }}" role="status">{{ message }}</div>
+            {% endfor %}
+        </div>
+        {% endif %}
+
+        {% if not produtos and not servicos %}
+        <div class="vazio">
+            <h2>O catálogo ainda está vazio</h2>
+            <p>Ainda não há produtos nem serviços publicados. Volte em breve.</p>
+        </div>
+        {% else %}
+
+        <!-- Em destaque -->
+        {% if em_destaque_p or em_destaque_s %}
+        <section class="secao" id="sec-destaque" aria-labelledby="t-destaque">
+            <div class="secao-cab"><h2 id="t-destaque">Em destaque</h2></div>
+            <div class="faixa">
+                {% for produto in em_destaque_p %}
+                <article class="card">
+                    <a class="card-img" href="{% url 'site:produto_detalhe' produto.pk %}" aria-label="{{ produto.nome_produto }}">
+                        {% if produto.foto %}<img src="{{ produto.foto.url }}" alt="" loading="lazy">{% else %}<span class="sem-foto" aria-hidden="true">{{ produto.nome_produto|slice:":1"|upper }}</span>{% endif %}
+                    </a>
+                    <div class="card-corpo">
+                        <h3><a href="{% url 'site:produto_detalhe' produto.pk %}">{{ produto.nome_produto }}</a></h3>
+                        <p class="preco">{{ produto.configuracao_site.preco_final|default:produto.preco_venda|floatformat:"2g" }} <small>{{ config.moeda }}</small></p>
+                        {% if produto.estoque_atual > 0 %}
+                        <button type="button" class="btn js-add" data-tipo="produto" data-id="{{ produto.pk }}">Adicionar ao carrinho</button>
+                        {% else %}
+                        <button type="button" class="btn" disabled>Indisponível</button>
+                        {% endif %}
+                    </div>
+                </article>
+                {% endfor %}
+                {% for servico in em_destaque_s %}
+                <article class="card">
+                    <div class="card-corpo">
+                        <p class="cat">Serviço</p>
+                        <h3><a href="{% url 'site:servico_detalhe' servico.pk %}">{{ servico.nome }}</a></h3>
+                        {% with preco=servico.configuracao_site.preco_final|default:servico.preco %}
+                        <p class="preco">{% if preco %}{{ preco|floatformat:"2g" }} <small>{{ config.moeda }}</small>{% else %}<span class="preco-consulta">Sob consulta</span>{% endif %}</p>
+                        {% endwith %}
+                        <button type="button" class="btn js-add" data-tipo="servico" data-id="{{ servico.pk }}">Adicionar ao carrinho</button>
+                    </div>
+                </article>
+                {% endfor %}
+            </div>
+        </section>
+        {% endif %}
+
+        <!-- Produtos -->
+        {% if produtos %}
+        <section class="secao" id="sec-produtos" aria-labelledby="t-produtos">
+            <div class="secao-cab"><h2 id="t-produtos">Produtos</h2></div>
+            <div class="grelha">
+                {% for produto in produtos %}
+                <article class="card item" data-tipo="produto"
+                         data-cat="{{ produto.categoria.nome|default:'' }}"
+                         data-nome="{{ produto.nome_produto|lower }} {{ produto.nome_comercial|lower }}">
+                    <a class="card-img" href="{% url 'site:produto_detalhe' produto.pk %}" aria-label="{{ produto.nome_produto }}">
+                        {% if produto.foto %}<img src="{{ produto.foto.url }}" alt="" loading="lazy">{% else %}<span class="sem-foto" aria-hidden="true">{{ produto.nome_produto|slice:":1"|upper }}</span>{% endif %}
+                        {% if produto.configuracao_site.destaque %}<span class="selo">Destaque</span>{% endif %}
+                    </a>
+                    <div class="card-corpo">
+                        {% if produto.categoria %}<p class="cat">{{ produto.categoria.nome }}</p>{% endif %}
+                        <h3><a href="{% url 'site:produto_detalhe' produto.pk %}">{{ produto.nome_produto }}</a></h3>
+                        <p class="preco">{{ produto.configuracao_site.preco_final|default:produto.preco_venda|floatformat:"2g" }} <small>{{ config.moeda }}</small></p>
+                        {% if produto.estoque_atual > 0 %}
+                        <button type="button" class="btn js-add" data-tipo="produto" data-id="{{ produto.pk }}">Adicionar ao carrinho</button>
+                        {% else %}
+                        <button type="button" class="btn" disabled>Indisponível</button>
+                        {% endif %}
+                    </div>
+                </article>
+                {% endfor %}
+            </div>
+        </section>
+        {% endif %}
+
+        <!-- Serviços -->
+        {% if servicos %}
+        <section class="secao" id="sec-servicos" aria-labelledby="t-servicos">
+            <div class="secao-cab"><h2 id="t-servicos">Serviços</h2></div>
+            <div class="grelha">
+                {% for servico in servicos %}
+                <article class="card item" data-tipo="servico" data-cat=""
+                         data-nome="{{ servico.nome|lower }}">
+                    <div class="card-corpo">
+                        <h3><a href="{% url 'site:servico_detalhe' servico.pk %}">{{ servico.nome }}</a></h3>
+                        {% if servico.descricao %}<p class="desc">{{ servico.descricao|truncatechars:120 }}</p>{% endif %}
+                        {% with preco=servico.configuracao_site.preco_final|default:servico.preco %}
+                        <p class="preco">{% if preco %}{{ preco|floatformat:"2g" }} <small>{{ config.moeda }}</small>{% else %}<span class="preco-consulta">Sob consulta</span>{% endif %}</p>
+                        {% endwith %}
+                        <button type="button" class="btn js-add" data-tipo="servico" data-id="{{ servico.pk }}">Adicionar ao carrinho</button>
+                    </div>
+                </article>
+                {% endfor %}
+            </div>
+        </section>
+        {% endif %}
+
+        <!-- Nenhum resultado (filtros) -->
+        <div class="vazio" id="vazio" hidden>
+            <h2>Nada encontrado</h2>
+            <p>Nenhum item corresponde à pesquisa ou ao filtro escolhido.</p>
+            <button type="button" class="btn btn-sec" id="limpar">Limpar filtros</button>
+        </div>
+        {% endif %}
+    </main>
+
+    <!-- Rodapé -->
+    <footer class="rodape">
+        <div class="wrap rodape-in">
+            <div>
+                <h2>{{ config.nome_exibicao }}</h2>
+                {% if config.slogan %}<p>{{ config.slogan }}</p>{% endif %}
+            </div>
+            {% if config.email_publico or config.telefone_publico or config.endereco_publico %}
+            <div>
+                <h2>Contactos</h2>
+                {% if config.telefone_publico %}<p>{{ config.telefone_publico }}</p>{% endif %}
+                {% if config.email_publico %}<p><a href="mailto:{{ config.email_publico }}">{{ config.email_publico }}</a></p>{% endif %}
+                {% if config.endereco_publico %}<p>{{ config.endereco_publico|linebreaksbr }}</p>{% endif %}
+            </div>
+            {% endif %}
+            {% if config.facebook or config.instagram or config.linkedin or config.youtube %}
+            <div>
+                <h2>Redes sociais</h2>
+                <div class="redes">
+                    {% if config.facebook %}<a href="{{ config.facebook }}" target="_blank" rel="noopener">Facebook</a>{% endif %}
+                    {% if config.instagram %}<a href="{{ config.instagram }}" target="_blank" rel="noopener">Instagram</a>{% endif %}
+                    {% if config.linkedin %}<a href="{{ config.linkedin }}" target="_blank" rel="noopener">LinkedIn</a>{% endif %}
+                    {% if config.youtube %}<a href="{{ config.youtube }}" target="_blank" rel="noopener">YouTube</a>{% endif %}
+                </div>
+            </div>
+            {% endif %}
+            <p class="copy">&copy; {% now "Y" %} {{ config.nome_exibicao }}. Todos os direitos reservados.</p>
+        </div>
+    </footer>
+
+    {% if config.mostrar_whatsapp and config.numero_whatsapp %}
+    <a class="wa" id="wa" href="{{ config.url_whatsapp }}" target="_blank" rel="noopener">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 11.5a8.4 8.4 0 0 1-12.4 7.4L3 20.5l1.7-5.4A8.4 8.4 0 1 1 21 11.5Z"/></svg>
+        <span>{{ config.texto_whatsapp_flutuante|default:"Falar no WhatsApp" }}</span>
+    </a>
+    {% endif %}
+
+    <div id="toast" role="status" aria-live="polite" hidden></div>
+
+    <script>
+    (function () {
+        'use strict';
+
+        var CSRF = document.querySelector('meta[name="csrf-token"]').content;
+        var URL_ADICIONAR = "{% url 'site:adicionar_carrinho' %}";
+        var URL_EVENTO = "{% url 'site:registar_evento' %}";
+
+        /* ── Aviso ───────────────────────────────────────── */
+        var toastEl = document.getElementById('toast');
+        var toastTimer;
+        function aviso(texto, erro) {
+            toastEl.textContent = texto;
+            toastEl.className = erro ? 'erro' : '';
+            toastEl.hidden = false;
+            clearTimeout(toastTimer);
+            toastTimer = setTimeout(function () { toastEl.hidden = true; }, 2600);
+        }
+
+        function formatar(n) {
+            return Number(n).toLocaleString('pt-AO', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        }
+
+        /* ── Adicionar ao carrinho ───────────────────────── */
+        function adicionar(btn) {
+            if (btn.dataset.ocupado) return;
+            btn.dataset.ocupado = '1';
+            var original = btn.textContent;
+            btn.textContent = 'A adicionar…';
+
+            var fd = new FormData();
+            fd.append('tipo', btn.dataset.tipo);
+            fd.append('item_id', btn.dataset.id);
+            fd.append('quantidade', '1');
+
+            fetch(URL_ADICIONAR, {
+                method: 'POST',
+                body: fd,
+                credentials: 'same-origin',
+                headers: { 'X-CSRFToken': CSRF, 'X-Requested-With': 'XMLHttpRequest' }
+            })
+            .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
+            .then(function (res) {
+                if (res.ok && res.d.success) {
+                    document.getElementById('cart-count').textContent = res.d.total_itens;
+                    document.getElementById('cart-total').textContent = formatar(res.d.total);
+                    btn.textContent = 'Adicionado';
+                    aviso('Adicionado ao carrinho.');
+                } else {
+                    btn.textContent = original;
+                    aviso(res.d.error || 'Não foi possível adicionar ao carrinho.', true);
+                }
+            })
+            .catch(function () {
+                btn.textContent = original;
+                aviso('Sem ligação. Tente novamente.', true);
+            })
+            .then(function () {
+                setTimeout(function () {
+                    btn.textContent = original;
+                    delete btn.dataset.ocupado;
+                }, 1400);
+            });
+        }
+
+        document.addEventListener('click', function (e) {
+            var btn = e.target.closest('.js-add');
+            if (btn) adicionar(btn);
+        });
+
+        /* ── Filtros: pesquisa, tipo e categoria ─────────── */
+        var itens = [].slice.call(document.querySelectorAll('.item'));
+        if (itens.length) {
+            var campoQ = document.getElementById('q');
+            var chipsEl = document.getElementById('chips');
+            var abasEl = document.querySelectorAll('.abas button');
+            var contagemEl = document.getElementById('contagem');
+            var vazioEl = document.getElementById('vazio');
+            var secProdutos = document.getElementById('sec-produtos');
+            var secServicos = document.getElementById('sec-servicos');
+            var secDestaque = document.getElementById('sec-destaque');
+            var estado = { q: '', aba: 'todos', cat: '' };
+
+            // Categorias existentes nos produtos
+            var cats = [];
+            itens.forEach(function (el) {
+                var c = el.dataset.cat;
+                if (c && cats.indexOf(c) === -1) cats.push(c);
+            });
+            cats.sort(function (a, b) { return a.localeCompare(b, 'pt'); });
+            if (cats.length > 1) {
+                var todas = [''].concat(cats);
+                todas.forEach(function (c) {
+                    var b = document.createElement('button');
+                    b.type = 'button';
+                    b.dataset.cat = c;
+                    b.textContent = c || 'Todas as categorias';
+                    b.setAttribute('aria-pressed', c === '' ? 'true' : 'false');
+                    chipsEl.appendChild(b);
+                });
+                chipsEl.hidden = false;
+            }
+
+            function aplicar() {
+                var visiveis = 0;
+                var q = estado.q.trim().toLowerCase();
+                itens.forEach(function (el) {
+                    var ok = true;
+                    if (estado.aba !== 'todos' && el.dataset.tipo !== estado.aba) ok = false;
+                    if (ok && estado.cat && el.dataset.cat !== estado.cat) ok = false;
+                    if (ok && q && el.dataset.nome.indexOf(q) === -1) ok = false;
+                    el.hidden = !ok;
+                    if (ok) visiveis++;
+                });
+
+                [secProdutos, secServicos].forEach(function (sec) {
+                    if (!sec) return;
+                    sec.hidden = !sec.querySelector('.item:not([hidden])');
+                });
+                var filtrando = q || estado.cat || estado.aba !== 'todos';
+                if (secDestaque) secDestaque.hidden = !!filtrando;
+
+                vazioEl.hidden = visiveis > 0;
+                contagemEl.textContent = visiveis + (visiveis === 1 ? ' resultado' : ' resultados');
+            }
+
+            campoQ.addEventListener('input', function () { estado.q = campoQ.value; aplicar(); });
+
+            abasEl.forEach(function (b) {
+                b.addEventListener('click', function () {
+                    estado.aba = b.dataset.aba;
+                    abasEl.forEach(function (x) { x.setAttribute('aria-pressed', x === b ? 'true' : 'false'); });
+                    aplicar();
+                });
+            });
+
+            chipsEl.addEventListener('click', function (e) {
+                var b = e.target.closest('button');
+                if (!b) return;
+                estado.cat = b.dataset.cat;
+                [].forEach.call(chipsEl.querySelectorAll('button'), function (x) {
+                    x.setAttribute('aria-pressed', x === b ? 'true' : 'false');
+                });
+                aplicar();
+            });
+
+            document.getElementById('limpar').addEventListener('click', function () {
+                estado = { q: '', aba: 'todos', cat: '' };
+                campoQ.value = '';
+                abasEl.forEach(function (x) { x.setAttribute('aria-pressed', x.dataset.aba === 'todos' ? 'true' : 'false'); });
+                [].forEach.call(chipsEl.querySelectorAll('button'), function (x) {
+                    x.setAttribute('aria-pressed', x.dataset.cat === '' ? 'true' : 'false');
+                });
+                aplicar();
+            });
+
+            aplicar();
+        }
+
+        /* ── Registo do clique no WhatsApp ───────────────── */
+        var wa = document.getElementById('wa');
+        if (wa) {
+            wa.addEventListener('click', function () {
+                try {
+                    fetch(URL_EVENTO, {
+                        method: 'POST',
+                        keepalive: true,
+                        credentials: 'same-origin',
+                        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF },
+                        body: JSON.stringify({ tipo: 'whatsapp', referencia: 'loja' })
+                    });
+                } catch (err) { /* o registo nunca deve impedir o clique */ }
+            });
+        }
+    })();
+    </script>
+</body>
+</html>

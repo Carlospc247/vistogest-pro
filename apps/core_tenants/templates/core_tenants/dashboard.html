@@ -7,7 +7,8 @@
 
 {% block content %}
 <!-- Cards de estatísticas -->
-<div class="mt-8 grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3">
+<div class="mt-8 grid grid-cols-1 gap-6 sm:grid-cols-2 {% if request.tenant.schema_name != 'public' and request.user.vinculo_auditoria %}lg:grid-cols-4{% else %}lg:grid-cols-3{% endif %}">
+
     <div class="flex-1 overflow-hidden rounded-lg bg-gradient-to-br from-green-400 to-green-600 px-6 py-8 shadow-md transition-transform duration-300 hover:scale-105">
         <div class="flex items-center">
             <div class="flex-shrink-0">
@@ -17,7 +18,7 @@
             </div>
             <div class="ml-5 w-0 flex-1">
                 <dt class="truncate text-lg font-medium text-white">Vendas Hoje</dt>
-                <dd class="text-3xl font-bold tracking-tight text-white mt-1">AKZ {{ vendas_hoje.total|floatformat:2|default:"0,00"|intcomma }}</dd>
+                <dd class="text-3xl font-bold tracking-tight text-white mt-1">AKZ {{ vendas_hoje.total|floatformat:"2g" }}</dd>
             </div>
         </div>
         <div class="mt-4 text-xs text-white text-opacity-80">
@@ -58,64 +59,76 @@
             Produtos a necessitar de reposição
         </div>
     </div>
-</div>
-<!--Card específico para o Lucro do Auditor, que só aparecerá se houver um vínculo de auditoria ativo.-->
-{% if request.tenant.schema_name != 'public' and request.user.vinculo_auditoria %}
-<div class="flex-1 overflow-hidden rounded-lg bg-gradient-to-br from-purple-500 to-purple-700 px-6 py-8 shadow-md transition-transform duration-300 hover:scale-105">
-    <div class="flex items-center">
-        <div class="flex-shrink-0">
-            <div class="flex h-16 w-16 items-center justify-center rounded-full bg-white bg-opacity-30">
-                <i class="fas fa-chart-line text-3xl text-white"></i>
+
+    <!-- Lucro do Auditor: só aparece se houver vínculo de auditoria activo -->
+    {% if request.tenant.schema_name != 'public' and request.user.vinculo_auditoria %}
+    <div class="flex-1 overflow-hidden rounded-lg bg-gradient-to-br from-purple-500 to-purple-700 px-6 py-8 shadow-md transition-transform duration-300 hover:scale-105">
+        <div class="flex items-center">
+            <div class="flex-shrink-0">
+                <div class="flex h-16 w-16 items-center justify-center rounded-full bg-white bg-opacity-30">
+                    <i class="fas fa-chart-line text-3xl text-white"></i>
+                </div>
+            </div>
+            <div class="ml-5 w-0 flex-1">
+                <dt class="truncate text-lg font-medium text-white">Lucro Estimado (Ativos)</dt>
+                <dd class="text-3xl font-bold tracking-tight text-white mt-1">AKZ {{ lucro_total|floatformat:"2g" }}</dd>
             </div>
         </div>
-        <div class="ml-5 w-0 flex-1">
-            <dt class="truncate text-lg font-medium text-white">Lucro Estimado (Ativos)</dt>
-            <dd class="text-3xl font-bold tracking-tight text-white mt-1">AKZ {{ lucro_total|floatformat:2|intcomma }}</dd>
+        <div class="mt-4 text-xs text-white text-opacity-80">
+            Baseado nos lotes e fabricantes financiados
         </div>
     </div>
-    <div class="mt-4 text-xs text-white text-opacity-80">
-        Baseado nos lotes e fabricantes financiados
-    </div>
+    {% endif %}
 </div>
-{% endif %}
 
 <div class="mt-8 grid grid-cols-1 gap-6 lg:grid-cols-3">
     <div class="lg:col-span-2">
+
+        <!-- Análise de Vendas -->
         <div class="overflow-hidden rounded-lg bg-white dark:bg-gray-800 px-6 py-5 shadow-sm">
-            <div class="flex justify-between items-center mb-4">
+            <div class="flex flex-wrap justify-between items-center gap-2 mb-4">
                 <h3 class="text-base font-semibold leading-6 text-gray-900 dark:text-white">Análise de Vendas</h3>
-                <div class="flex space-x-2">
-                    <button id="btnMensal" class="px-3 py-1 text-sm bg-primary text-white rounded-lg hover:bg-primary-600 transition-colors" onclick="mostrarGrafico('mensal')">Mensal</button>
-                    <button id="btnSemanal" class="px-3 py-1 text-sm bg-gray-300 dark:bg-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-400 dark:hover:bg-gray-500 transition-colors" onclick="mostrarGrafico('semanal')">Semanal</button>
-                    <button id="btnAnual" class="px-3 py-1 text-sm bg-gray-300 dark:bg-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-400 dark:hover:bg-gray-500 transition-colors" onclick="mostrarGrafico('anual')">Anual</button>
+                <div class="flex flex-wrap gap-2">
+                    <button type="button" data-periodo="diario"  class="px-3 py-1 text-sm rounded-lg transition-colors">Diário</button>
+                    <button type="button" data-periodo="semanal" class="px-3 py-1 text-sm rounded-lg transition-colors">Semanal</button>
+                    <button type="button" data-periodo="mensal"  class="px-3 py-1 text-sm rounded-lg transition-colors">Mensal</button>
+                    <button type="button" data-periodo="anual"   class="px-3 py-1 text-sm rounded-lg transition-colors">Anual</button>
                 </div>
             </div>
-            <div style="height: 300px;">
+            <div class="relative" style="height: 300px;">
                 <canvas id="vendasChart"></canvas>
+                <p id="vendasChartVazio" class="hidden absolute inset-0 flex items-center justify-center text-sm text-gray-500 dark:text-gray-400">
+                    Sem vendas registadas neste período.
+                </p>
             </div>
         </div>
-        
+
         <!-- Gráficos adicionais -->
         <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mt-6">
-            <!-- Formas de Pagamento -->
             <div class="overflow-hidden rounded-lg bg-white dark:bg-gray-800 px-6 py-5 shadow-sm">
-                <h3 class="text-base font-semibold leading-6 text-gray-900 dark:text-white mb-4">Formas de Pagamento</h3>
-                <div style="height: 200px;">
+                <h3 class="text-base font-semibold leading-6 text-gray-900 dark:text-white mb-4">Formas de Pagamento (Mês)</h3>
+                <div class="relative" style="height: 200px;">
                     <canvas id="pagamentoChart"></canvas>
+                    <p id="pagamentoChartVazio" class="hidden absolute inset-0 flex items-center justify-center text-sm text-gray-500 dark:text-gray-400">
+                        Sem vendas este mês.
+                    </p>
                 </div>
             </div>
-            
-            <!-- Metas vs Realizado -->
+
             <div class="overflow-hidden rounded-lg bg-white dark:bg-gray-800 px-6 py-5 shadow-sm">
                 <h3 class="text-base font-semibold leading-6 text-gray-900 dark:text-white mb-4">Meta vs Realizado</h3>
-                <div style="height: 200px;">
+                <div class="relative" style="height: 200px;">
                     <canvas id="metaChart"></canvas>
+                    <p id="metaChartVazio" class="hidden absolute inset-0 flex items-center justify-center text-sm text-gray-500 dark:text-gray-400">
+                        Sem metas activas.
+                    </p>
                 </div>
             </div>
         </div>
     </div>
 
     <div class="lg:col-span-1">
+        <!-- Vendas Recentes -->
         <div class="overflow-hidden rounded-lg bg-white dark:bg-gray-800 shadow-sm">
             <div class="p-6">
                 <h3 class="text-base font-semibold leading-6 text-gray-900 dark:text-white">Vendas Recentes</h3>
@@ -138,18 +151,18 @@
                                 </p>
                             </div>
                             <div class="ml-auto flex flex-col items-end">
-                                <p class="text-sm font-semibold text-gray-900 dark:text-white">AKZ {{ venda.total|floatformat:2|intcomma }}</p>
-                                <p class="text-sm text-gray-500 dark:text-gray-400">{{ venda.data_venda|date:"H:i" }}</p>
+                                <p class="text-sm font-semibold text-gray-900 dark:text-white">AKZ {{ venda.total|floatformat:"2g" }}</p>
+                                <p class="text-sm text-gray-500 dark:text-gray-400">{{ venda.data_venda|date:"d/m H:i" }}</p>
                             </div>
                         </li>
                     {% empty %}
-                        <li class="py-4 text-center text-sm text-gray-500 dark:text-gray-400">Nenhuma venda registada hoje.</li>
+                        <li class="py-4 text-center text-sm text-gray-500 dark:text-gray-400">Nenhuma venda registada.</li>
                     {% endfor %}
                 </ul>
             </div>
         </div>
-        
-        <!-- Performance de Vendedores -->
+
+        <!-- Top Vendedores -->
         <div class="overflow-hidden rounded-lg bg-white dark:bg-gray-800 shadow-sm mt-6">
             <div class="p-6">
                 <h3 class="text-base font-semibold leading-6 text-gray-900 dark:text-white">Top Vendedores (Mês)</h3>
@@ -158,7 +171,7 @@
                         <li class="flex py-3">
                             <div class="flex-shrink-0">
                                 <div class="h-8 w-8 rounded-full bg-primary text-white flex items-center justify-center text-sm">
-                                    {{ vendedor.vendedor__nome_completo|first|upper|default:"?" }}
+                                    {{ vendedor.vendedor__nome_completo|default:"?"|first|upper }}
                                 </div>
                             </div>
                             <div class="ml-3 flex-1">
@@ -166,7 +179,7 @@
                                 <p class="text-xs text-gray-500 dark:text-gray-400">{{ vendedor.total_vendas }} vendas</p>
                             </div>
                             <div class="text-right">
-                                <p class="text-sm font-semibold text-gray-900 dark:text-white">AKZ {{ vendedor.total_faturamento|floatformat:2|intcomma }}</p>
+                                <p class="text-sm font-semibold text-gray-900 dark:text-white">AKZ {{ vendedor.total_faturamento|floatformat:"2g" }}</p>
                             </div>
                         </li>
                     {% empty %}
@@ -178,142 +191,177 @@
     </div>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+{{ dados_vendas|json_script:"dados-vendas" }}
+{{ dados_formas_pagamento|json_script:"dados-pagamento" }}
+{{ dados_metas|json_script:"dados-metas" }}
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 <script>
-document.addEventListener('DOMContentLoaded', function() {
-    // ⚠️ Verificar se os dados existem antes de usar
-    let dadosVendasMensal, dadosVendasSemanal, dadosVendasAnual, dadosFormasPagamento, dadosMetas;
-    
-    try {
-        dadosVendasMensal = {{ dados_vendas_mensal|safe }};
-        dadosVendasSemanal = {{ dados_vendas_semanal|safe }};
-        dadosVendasAnual = {{ dados_vendas_anual|safe }};
-        dadosFormasPagamento = {{ dados_formas_pagamento|safe }};
-        dadosMetas = {{ dados_metas|safe }};
-    } catch (e) {
-        console.error('Erro ao carregar dados:', e);
-        // Dados fallback
-        dadosVendasMensal = {labels: [], valores: []};
-        dadosVendasSemanal = {labels: [], valores: []};
-        dadosVendasAnual = {labels: [], valores: []};
-        dadosFormasPagamento = {labels: [], valores: []};
-        dadosMetas = {labels: [], metas: [], realizados: []};
+document.addEventListener('DOMContentLoaded', function () {
+
+    /* ---------- Dados ---------- */
+    function lerJSON(id, fallback) {
+        const el = document.getElementById(id);
+        if (!el) return fallback;
+        try { return JSON.parse(el.textContent); }
+        catch (e) { console.error('JSON inválido em #' + id, e); return fallback; }
     }
-    
-    let vendasChart = null;
-    let pagamentoChart = null;
-    let metaChart = null;
+
+    const dadosVendas          = lerJSON('dados-vendas', {});
+    const dadosFormasPagamento = lerJSON('dados-pagamento', { labels: [], valores: [] });
+    const dadosMetas           = lerJSON('dados-metas', { labels: [], metas: [], realizados: [] });
+
+    let vendasChart = null, pagamentoChart = null, metaChart = null;
     let graficoAtivo = 'mensal';
-    
-    // Configuração de cores
-    const cores = {
-        primary: '#5D5CDE',
-        success: '#10B981',
-        warning: '#F59E0B',
-        danger: '#EF4444',
-        info: '#3B82F6'
+
+    /* ---------- Utilitários ---------- */
+    const cores = { primary: '#5D5CDE', success: '#10B981', warning: '#F59E0B', danger: '#EF4444', info: '#3B82F6' };
+    const NOMES = {
+        diario:  'Diária (30 dias)',
+        semanal: 'Semanal (12 semanas)',
+        mensal:  'Mensal (12 meses)',
+        anual:   'Anual (5 anos)'
     };
-    
-    // Gráfico principal de vendas
-    function criarGraficoVendas(tipo) {
-        const ctx = document.getElementById('vendasChart');
-        if (!ctx) return;
-        
-        if (vendasChart) { vendasChart.destroy(); }
-        
-        let dados, titulo;
-        switch(tipo) {
-            case 'mensal': dados = dadosVendasMensal; titulo = 'Análise Mensal (Faturamento vs Lucro)'; break;
-            case 'semanal': dados = dadosVendasSemanal; titulo = 'Análise Semanal (Faturamento vs Lucro)'; break;
-            case 'anual': dados = dadosVendasAnual; titulo = 'Análise Anual (Faturamento vs Lucro)'; break;
+    const MSG_SEM_LIB = 'Não foi possível carregar a biblioteca de gráficos.';
+
+    const isDark   = () => document.documentElement.classList.contains('dark');
+    const corTexto = () => isDark() ? '#9ca3af' : '#6b7280';
+    const corGrade = () => isDark() ? '#374151' : '#f3f4f6';
+
+    const fmtAKZ = v => 'AKZ ' + Number(v || 0).toLocaleString('pt-AO', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const fmtCurto = v => {
+        const n = Math.abs(v);
+        if (n >= 1e6) return (v / 1e6).toFixed(1).replace('.0', '') + ' M';
+        if (n >= 1e3) return (v / 1e3).toFixed(1).replace('.0', '') + ' K';
+        return String(v);
+    };
+
+    // Mostra o canvas ou a mensagem de "sem dados"
+    function alternarVazio(canvasId, avisoId, temDados, mensagem) {
+        const canvas = document.getElementById(canvasId);
+        const aviso  = document.getElementById(avisoId);
+        if (canvas) canvas.classList.toggle('hidden', !temDados);
+        if (aviso) {
+            if (mensagem) aviso.textContent = mensagem;
+            aviso.classList.toggle('hidden', temDados);
         }
-        
-        
-        // ⚠️ Verificar se há dados
-        if (!dados || !dados.labels || dados.labels.length === 0) {
-            ctx.getContext('2d').clearRect(0, 0, ctx.width, ctx.height);
-            const context = ctx.getContext('2d');
-            context.font = '16px Arial';
-            context.textAlign = 'center';
-            context.fillText('Nenhum dado disponível', ctx.width/2, ctx.height/2);
+    }
+
+    const temValores = arr => Array.isArray(arr) && arr.some(v => Number(v) !== 0);
+
+    /* ---------- Botões de período ---------- */
+    const BTN_ATIVO   = 'px-3 py-1 text-sm rounded-lg transition-colors bg-primary text-white hover:bg-primary-600';
+    const BTN_INATIVO = 'px-3 py-1 text-sm rounded-lg transition-colors bg-gray-300 dark:bg-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-400 dark:hover:bg-gray-500';
+
+    function atualizarBotoes() {
+        document.querySelectorAll('[data-periodo]').forEach(btn => {
+            const ativo = btn.dataset.periodo === graficoAtivo;
+            btn.className = ativo ? BTN_ATIVO : BTN_INATIVO;
+            btn.setAttribute('aria-pressed', ativo ? 'true' : 'false');
+        });
+    }
+
+    /* ---------- Análise de Vendas ---------- */
+    function criarGraficoVendas(tipo) {
+        const canvas = document.getElementById('vendasChart');
+        if (!canvas) return;
+
+        graficoAtivo = tipo;
+        atualizarBotoes();                         // sempre, mesmo sem dados
+
+        if (vendasChart) { vendasChart.destroy(); vendasChart = null; }
+
+        if (typeof Chart === 'undefined') {
+            alternarVazio('vendasChart', 'vendasChartVazio', false, MSG_SEM_LIB);
             return;
         }
-        
-        vendasChart = new Chart(ctx.getContext('2d'), {
+
+        const d = dadosVendas[tipo];
+        const temDados = !!d && Array.isArray(d.labels) && d.labels.length > 0 &&
+                         (temValores(d.faturamento) || temValores(d.lucro));
+
+        alternarVazio('vendasChart', 'vendasChartVazio', temDados, 'Sem vendas registadas neste período.');
+        if (!temDados) return;
+
+        vendasChart = new Chart(canvas.getContext('2d'), {
+            type: 'bar',
             data: {
-                labels: dados.labels,
+                labels: d.labels,
                 datasets: [
                     {
-                        type: 'line', // Linha para o Lucro
+                        type: 'line',
                         label: 'Lucro Líquido (AKZ)',
-                        data: dados.lucro,
-                        borderColor: '#10B981', // Verde Sucesso
+                        data: d.lucro,
+                        borderColor: cores.success,
                         backgroundColor: 'rgba(16, 185, 129, 0.1)',
                         borderWidth: 3,
-                        fill: false,
-                        tension: 0.4,
-                        yAxisID: 'y',
+                        tension: 0.35,
+                        pointRadius: d.labels.length > 15 ? 2 : 4,
+                        order: 0
                     },
                     {
-                        type: 'bar', // Barras para o Faturamento
+                        type: 'bar',
                         label: 'Faturamento Bruto (AKZ)',
-                        data: dados.faturamento,
-                        backgroundColor: 'rgba(59, 130, 246, 0.6)', // Azul SOTARQ
+                        data: d.faturamento,
+                        backgroundColor: 'rgba(59, 130, 246, 0.6)',
                         borderColor: cores.primary,
                         borderWidth: 1,
-                        yAxisID: 'y',
+                        order: 1
                     }
                 ]
             },
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
+                interaction: { mode: 'index', intersect: false },
                 plugins: {
-                    title: { display: true, text: titulo, color: document.documentElement.classList.contains('dark') ? '#fff' : '#1f2937' },
-                    tooltip: {
-                        mode: 'index',
-                        intersect: false,
-                        callbacks: {
-                            label: function(context) {
-                                return context.dataset.label + ': AKZ ' + context.parsed.y.toLocaleString('pt-AO', { minimumFractionDigits: 2 });
-                            }
-                        }
-                    }
+                    title: {
+                        display: true,
+                        text: 'Análise ' + NOMES[tipo] + ' — Faturamento vs Lucro',
+                        color: isDark() ? '#fff' : '#1f2937'
+                    },
+                    legend: { labels: { color: corTexto() } },
+                    tooltip: { callbacks: { label: c => c.dataset.label + ': ' + fmtAKZ(c.parsed.y) } }
                 },
                 scales: {
+                    x: { grid: { color: corGrade() }, ticks: { color: corTexto(), maxRotation: 45, autoSkip: true } },
                     y: {
                         beginAtZero: true,
-                        ticks: {
-                            callback: function(value) { return 'AKZ ' + value.toLocaleString('pt-AO'); },
-                            color: '#9ca3af'
-                        }
+                        grid: { color: corGrade() },
+                        ticks: { color: corTexto(), callback: v => 'AKZ ' + fmtCurto(v) }
                     }
                 }
             }
         });
-        
-        graficoAtivo = tipo;
-        atualizarBotoes();
     }
-    
-    // Gráfico de Formas de Pagamento
+
+    /* ---------- Formas de Pagamento ---------- */
     function criarGraficoPagamento() {
-        const ctx = document.getElementById('pagamentoChart');
-        if (!ctx || !dadosFormasPagamento.labels || dadosFormasPagamento.labels.length === 0) return;
-        
-        if (pagamentoChart) {
-            pagamentoChart.destroy();
+        const canvas = document.getElementById('pagamentoChart');
+        if (!canvas) return;
+
+        if (pagamentoChart) { pagamentoChart.destroy(); pagamentoChart = null; }
+
+        if (typeof Chart === 'undefined') {
+            alternarVazio('pagamentoChart', 'pagamentoChartVazio', false, MSG_SEM_LIB);
+            return;
         }
-        
-        pagamentoChart = new Chart(ctx.getContext('2d'), {
+
+        const d = dadosFormasPagamento;
+        const temDados = !!d && Array.isArray(d.labels) && d.labels.length > 0 && temValores(d.valores);
+
+        alternarVazio('pagamentoChart', 'pagamentoChartVazio', temDados, 'Sem vendas este mês.');
+        if (!temDados) return;
+
+        pagamentoChart = new Chart(canvas.getContext('2d'), {
             type: 'doughnut',
             data: {
-                labels: dadosFormasPagamento.labels,
+                labels: d.labels,
                 datasets: [{
-                    data: dadosFormasPagamento.valores,
+                    data: d.valores,
                     backgroundColor: [cores.success, cores.primary, cores.warning, cores.info, cores.danger, '#8B5CF6'],
                     borderWidth: 2,
-                    borderColor: '#fff'
+                    borderColor: isDark() ? '#1f2937' : '#fff'
                 }]
             },
             options: {
@@ -322,21 +370,15 @@ document.addEventListener('DOMContentLoaded', function() {
                 plugins: {
                     legend: {
                         position: 'bottom',
-                        labels: {
-                            padding: 20,
-                            color: document.documentElement.classList.contains('dark') ? '#9ca3af' : '#6b7280',
-                            font: { size: 12 }
-                        }
+                        labels: { padding: 20, color: corTexto(), font: { size: 12 } }
                     },
                     tooltip: {
                         backgroundColor: 'rgba(0, 0, 0, 0.8)',
                         callbacks: {
-                            label: function(context) {
-                                const total = context.dataset.data.reduce((a, b) => a + b, 0);
-                                const percentual = total > 0 ? ((context.parsed / total) * 100).toFixed(1) : 0;
-                                return context.label + ': AKZ ' + (context.parsed || 0).toLocaleString('pt-AO', {
-                                    minimumFractionDigits: 2
-                                }) + ' (' + percentual + '%)';
+                            label: function (c) {
+                                const total = c.dataset.data.reduce((a, b) => a + b, 0);
+                                const pct = total > 0 ? ((c.parsed / total) * 100).toFixed(1) : '0.0';
+                                return c.label + ': ' + fmtAKZ(c.parsed) + ' (' + pct + '%)';
                             }
                         }
                     }
@@ -344,31 +386,40 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         });
     }
-    
-    // Gráfico de Metas
+
+    /* ---------- Meta vs Realizado ---------- */
     function criarGraficoMetas() {
-        const ctx = document.getElementById('metaChart');
-        if (!ctx || !dadosMetas.labels || dadosMetas.labels.length === 0) return;
-        
-        if (metaChart) {
-            metaChart.destroy();
+        const canvas = document.getElementById('metaChart');
+        if (!canvas) return;
+
+        if (metaChart) { metaChart.destroy(); metaChart = null; }
+
+        if (typeof Chart === 'undefined') {
+            alternarVazio('metaChart', 'metaChartVazio', false, MSG_SEM_LIB);
+            return;
         }
-        
-        metaChart = new Chart(ctx.getContext('2d'), {
+
+        const d = dadosMetas;
+        const temDados = !!d && Array.isArray(d.labels) && d.labels.length > 0;
+
+        alternarVazio('metaChart', 'metaChartVazio', temDados, 'Sem metas activas.');
+        if (!temDados) return;
+
+        metaChart = new Chart(canvas.getContext('2d'), {
             type: 'bar',
             data: {
-                labels: dadosMetas.labels,
+                labels: d.labels,
                 datasets: [
                     {
                         label: 'Meta',
-                        data: dadosMetas.metas,
+                        data: d.metas,
                         backgroundColor: 'rgba(239, 68, 68, 0.7)',
                         borderColor: cores.danger,
                         borderWidth: 1
                     },
                     {
                         label: 'Realizado',
-                        data: dadosMetas.realizados,
+                        data: d.realizados,
                         backgroundColor: 'rgba(16, 185, 129, 0.7)',
                         borderColor: cores.success,
                         borderWidth: 1
@@ -379,91 +430,53 @@ document.addEventListener('DOMContentLoaded', function() {
                 responsive: true,
                 maintainAspectRatio: false,
                 plugins: {
-                    legend: {
-                        position: 'top',
-                        labels: { color: document.documentElement.classList.contains('dark') ? '#9ca3af' : '#6b7280' }
-                    },
+                    legend: { position: 'top', labels: { color: corTexto() } },
                     tooltip: {
                         backgroundColor: 'rgba(0, 0, 0, 0.8)',
-                        callbacks: {
-                            label: function(context) {
-                                return context.dataset.label + ': AKZ ' + (context.parsed.y || 0).toLocaleString('pt-AO', {
-                                    minimumFractionDigits: 2
-                                });
-                            }
-                        }
+                        callbacks: { label: c => c.dataset.label + ': ' + fmtAKZ(c.parsed.y) }
                     }
                 },
                 scales: {
-                    x: {
-                        grid: { color: document.documentElement.classList.contains('dark') ? '#374151' : '#f3f4f6' },
-                        ticks: { color: document.documentElement.classList.contains('dark') ? '#9ca3af' : '#6b7280' }
-                    },
+                    x: { grid: { color: corGrade() }, ticks: { color: corTexto() } },
                     y: {
                         beginAtZero: true,
-                        grid: { color: document.documentElement.classList.contains('dark') ? '#374151' : '#f3f4f6' },
-                        ticks: {
-                            color: document.documentElement.classList.contains('dark') ? '#9ca3af' : '#6b7280',
-                            callback: function(value) {
-                                return 'AKZ ' + (value || 0).toLocaleString('pt-AO');
-                            }
-                        }
+                        grid: { color: corGrade() },
+                        ticks: { color: corTexto(), callback: v => 'AKZ ' + fmtCurto(v) }
                     }
                 }
             }
         });
     }
-    
-    // Função para mostrar gráfico específico
-    window.mostrarGrafico = function(tipo) {
-        criarGraficoVendas(tipo);
-    }
-    
-    // Atualizar estilo dos botões
-    function atualizarBotoes() {
-        document.querySelectorAll('[id^="btn"]').forEach(btn => {
-            btn.className = 'px-3 py-1 text-sm bg-gray-300 dark:bg-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-400 dark:hover:bg-gray-500 transition-colors';
-        });
-        
-        const btnAtivo = document.getElementById(`btn${graficoAtivo.charAt(0).toUpperCase() + graficoAtivo.slice(1)}`);
-        if (btnAtivo) {
-            btnAtivo.className = 'px-3 py-1 text-sm bg-primary text-white rounded-lg hover:bg-primary-600 transition-colors';
-        }
-    }
-    
-    // Inicializar gráficos
+
+    /* ---------- Eventos e arranque ---------- */
+    document.querySelectorAll('[data-periodo]').forEach(btn =>
+        btn.addEventListener('click', () => criarGraficoVendas(btn.dataset.periodo)));
+
     criarGraficoVendas('mensal');
     criarGraficoPagamento();
     criarGraficoMetas();
-    
-    // Debug: Verificar dados no console
-    console.log('Dados Mensal:', dadosVendasMensal);
-    console.log('Dados Semanal:', dadosVendasSemanal);
-    console.log('Dados Anual:', dadosVendasAnual);
-    console.log('Dados Pagamento:', dadosFormasPagamento);
-    console.log('Dados Metas:', dadosMetas);
-    
-    // Export functionality
-    document.getElementById('exportBtn').addEventListener('click', function() {
-        const dadosExport = {
-            vendas_mensal: dadosVendasMensal,
-            vendas_semanal: dadosVendasSemanal,
-            vendas_anual: dadosVendasAnual,
-            formas_pagamento: dadosFormasPagamento,
-            metas: dadosMetas,
-            data_export: new Date().toISOString()
-        };
-        
-        const blob = new Blob([JSON.stringify(dadosExport, null, 2)], {type: 'application/json'});
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `dashboard_vendas_${new Date().toISOString().split('T')[0]}.json`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-    });
+
+    /* ---------- Exportação (só se o botão existir no base.html) ---------- */
+    const exportBtn = document.getElementById('exportBtn');
+    if (exportBtn) {
+        exportBtn.addEventListener('click', function () {
+            const dadosExport = {
+                vendas: dadosVendas,
+                formas_pagamento: dadosFormasPagamento,
+                metas: dadosMetas,
+                data_export: new Date().toISOString()
+            };
+            const blob = new Blob([JSON.stringify(dadosExport, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'dashboard_vendas_' + new Date().toISOString().split('T')[0] + '.json';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        });
+    }
 });
 </script>
 {% endblock %}

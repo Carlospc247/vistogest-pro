@@ -1,5 +1,6 @@
+<!--editor.html-->
 {% extends "base.html" %}
-{% load static %}
+{% load static site_builder_tags %}
 
 {% block title %}Editor de Site — {{ pagina.titulo }}{% endblock %}
 
@@ -174,13 +175,13 @@
                                     <i class="fas fa-{% if secao.ativo %}eye{% else %}eye-slash{% endif %}"></i>
                                 </button>
                                 <!-- Editar -->
-                                <button @click="editarSecao({{ secao.pk }}, '{{ secao.tipo }}', {{ secao.dados|safe }})"
+                                <button @click="editarSecao({{ secao.pk }}, '{{ secao.tipo }}', {{ secao|dados_json }})"
                                         class="p-1.5 text-gray-400 hover:text-indigo-500 transition-colors rounded"
                                         title="Editar conteúdo">
                                     <i class="fas fa-pen"></i>
                                 </button>
                                 <!-- Design da secção -->
-                                <button @click="editarDesignSecao({{ secao.pk }}, {{ secao|secao_design_json|safe }})"
+                                <button @click="editarDesignSecao({{ secao.pk }}, {{ secao|secao_design_json }})"
                                         class="p-1.5 text-gray-400 hover:text-purple-500 transition-colors rounded"
                                         title="Design desta secção">
                                     <i class="fas fa-paint-brush"></i>
@@ -203,7 +204,7 @@
                         <!-- Pré-visualização resumida da secção -->
                         <div class="px-4 py-3 text-sm text-gray-500 dark:text-gray-400 select-none"
                              :data-anim="'{{ secao.animacao_entrada }}'">
-                            {% include "site/sections/preview_"|add:secao.tipo|add:".html" with secao=secao silent_variable_failure=True %}
+                            <span class="text-xs">{{ secao.get_tipo_display }}</span>
                             {% if not secao.dados %}
                             <div class="flex items-center justify-center h-16 border-2 border-dashed
                                         border-gray-200 dark:border-gray-700 rounded-lg text-gray-300
@@ -565,7 +566,7 @@
 const CSRF = '{{ csrf_token }}';
 const PAGINA_ID = {{ pagina.pk }};
 const URL_ADICIONAR = "{% url 'site:adicionar_secao' pagina.pk %}";
-const URL_EDITAR_BASE = "{% url 'site:editar_secao' 0 %}".replace('/0/', '/');
+const URL_EDITAR_BASE = "{% url 'site:editar_secao' 0 %}".replace(/0\/editar\/$/, '');
 const URL_REORDENAR = "{% url 'site:reordenar_secoes' %}";
 const URL_DESIGN_GLOBAL = "{% url 'site:design_global' %}";
 const URL_PUBLICAR = "{% url 'site:publicar' pagina.pk %}";

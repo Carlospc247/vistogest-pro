@@ -1,0 +1,15 @@
+<section class="py-5 bg-light">
+  <div class="container" style="max-width:640px">
+    <h2 class="fw-bold text-center mb-4">{{ dados.titulo|default:'Contacte-nos' }}</h2>
+    <form method="post" action="{% url 'site:contato' %}" class="bg-white p-4 shadow-sm rounded-3">
+      {% csrf_token %}
+      <div class="mb-3"><label class="small fw-bold">Nome</label><input name="nome" class="form-control" required></div>
+      <div class="row">
+        <div class="col-md-6 mb-3"><label class="small fw-bold">Email</label><input type="email" name="email" class="form-control" required></div>
+        <div class="col-md-6 mb-3"><label class="small fw-bold">Telefone</label><input name="telefone" class="form-control"></div>
+      </div>
+      <div class="mb-3"><label class="small fw-bold">Mensagem</label><textarea name="mensagem" rows="4" class="form-control" required></textarea></div>
+      <button class="btn btn-primary w-100 fw-bold">{{ dados.texto_botao|default:'Enviar' }}</button>
+    </form>
+  </div>
+</section>

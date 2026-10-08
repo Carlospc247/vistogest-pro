@@ -1,18 +1,4 @@
 # apps/site/models.py
-"""
-App Site — VistoGest Pro / SOTARQ Software.
-
-TENANT_APP: reside em cada schema de tenant.
-NÃO usar 'empresa=' em queries — o schema já isola por empresa.
-
-Funcionalidades:
-  - Site institucional com editor no-code (secções customizáveis)
-  - Loja online: todos os Produto e Servico activos visíveis automaticamente
-  - Pedido Online → operador cria Venda no sistema principal
-  - Atendimento via WhatsApp (número configurável)
-  - Auto-cadastro de clientes visitantes
-  - Concursos/recrutamento, reclamações, agendamentos
-"""
 import uuid
 from decimal import Decimal
 from django.db import models
@@ -21,6 +7,8 @@ from apps.core.models import TimeStampedModel
 from apps.produtos.models import Produto
 from apps.servicos.models import Servico
 from cloudinary.models import CloudinaryField
+from django.urls import reverse
+
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -156,24 +144,41 @@ class ConfiguracaoSite(TimeStampedModel):
 # ──────────────────────────────────────────────────────────────────────────────
 # Página institucional
 # ──────────────────────────────────────────────────────────────────────────────
-
 class Pagina(TimeStampedModel):
     """
-    Página pública do site institucional da empresa.
-    Bug 1 corrigido: campo 'empresa' adicionado.
-    Nota: 'empresa' aqui é redundante no contexto tenant (schema já isola),
-    mas necessário para URLs únicas e referência em __str__.
+    Página pública do site institucional do tenant.
+
+    O isolamento por empresa é garantido pelo schema do django-tenants.
+    Não é necessário armazenar uma FK para Empresa neste modelo.
     """
-    titulo          = models.CharField(max_length=200)
-    slug            = models.SlugField(unique=True)
-    conteudo_json   = models.JSONField(default=dict)
-    ativo           = models.BooleanField(default=True)
-    em_rascunho     = models.BooleanField(default=True)
-    preview_token   = models.UUIDField(default=uuid.uuid4, editable=False)
-    meta_descricao  = models.CharField(max_length=160, blank=True,
-                      help_text='Descrição para SEO (max 160 chars).')
-    meta_imagem     = CloudinaryField('meta_imagem', blank=True, null=True,
-                      help_text='Imagem Open Graph (partilha em redes sociais).')
+
+    titulo = models.CharField(max_length=200)
+
+    slug = models.SlugField(unique=True)
+
+    conteudo_json = models.JSONField(default=dict)
+
+    ativo = models.BooleanField(default=True)
+
+    em_rascunho = models.BooleanField(default=True)
+
+    preview_token = models.UUIDField(
+        default=uuid.uuid4,
+        editable=False
+    )
+
+    meta_descricao = models.CharField(
+        max_length=160,
+        blank=True,
+        help_text='Descrição para SEO (max 160 chars).'
+    )
+
+    meta_imagem = CloudinaryField(
+        'meta_imagem',
+        blank=True,
+        null=True,
+        help_text='Imagem Open Graph (partilha em redes sociais).'
+    )
 
     class Meta:
         verbose_name = 'Página'
@@ -186,11 +191,75 @@ class Pagina(TimeStampedModel):
         self.preview_token = uuid.uuid4()
         self.save(update_fields=['preview_token'])
 
-    @classmethod
-    def obter_principal(cls):
-        """Obtém a primeira página activa do tenant."""
-        return cls.objects.filter(ativo=True).first()
+    def get_absolute_url(self):
+        """
+        Retorna a URL pública da página.
 
+        A primeira página criada no tenant é considerada a Home.
+        """
+        principal_pk = (
+            type(self)
+            .objects
+            .order_by('pk')
+            .values_list('pk', flat=True)
+            .first()
+        )
+
+        if principal_pk == self.pk:
+            return reverse('site:pagina_home')
+
+        return reverse(
+            'site:pagina_detalhe',
+            kwargs={'slug': self.slug}
+        )
+
+    @classmethod
+    def obter_principal(cls, apenas_publicada=True):
+        """
+        Retorna a página principal do tenant.
+
+        A primeira página criada é considerada a Home.
+        Caso esteja em rascunho ou inativa, retorna None
+        quando apenas_publicada=True.
+        """
+        pagina = cls.objects.order_by('pk').first()
+
+        if pagina is None:
+            return None
+
+        if (
+            apenas_publicada
+            and (pagina.em_rascunho or not pagina.ativo)
+        ):
+            return None
+
+        return pagina
+    
+
+# ── 4. Novo modelo: eventos do público (visitas, cliques no WhatsApp, etc.) ──
+class EventoSite(TimeStampedModel):
+    """Interação anónima do público. Não guarda IP nem dados pessoais."""
+    TIPO_CHOICES = [
+        ('visita',   'Visita à página'),
+        ('whatsapp', 'Clique no WhatsApp'),
+        ('produto',  'Visualização de produto'),
+        ('carrinho', 'Item adicionado ao carrinho'),
+    ]
+    tipo        = models.CharField(max_length=20, choices=TIPO_CHOICES, db_index=True)
+    caminho     = models.CharField(max_length=300, blank=True)
+    referencia  = models.CharField(max_length=120, blank=True)
+    session_key = models.CharField(max_length=40, blank=True, db_index=True)
+    dispositivo = models.CharField(max_length=10, blank=True)
+ 
+    class Meta:
+        verbose_name = 'Evento do Site'
+        verbose_name_plural = 'Eventos do Site'
+        ordering = ['-created_at']
+        indexes = [models.Index(fields=['tipo', 'created_at'])]
+ 
+    def __str__(self):
+        return f"{self.get_tipo_display()} — {self.caminho or self.referencia}"
+    
 
 class Secao(TimeStampedModel):
     """Secção customizável de uma página (editor no-code / drag-and-drop)."""
@@ -213,6 +282,7 @@ class Secao(TimeStampedModel):
         ('parceiros',   'Logos de Parceiros / Clientes'),
         ('video',       'Vídeo Incorporado'),
         ('formulario',  'Formulário de Contacto'),
+        ('agendamento', 'Agendamento de Servico'),
         ('divider',     'Separador / Espaço'),
     ]
 

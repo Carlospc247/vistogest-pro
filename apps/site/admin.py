@@ -1,3 +1,7 @@
+"""
+prompt: este admin não deveria existir porque a configuração do site é feito no template.
+
+"""
 # apps/site/admin.py
 """Admin da app site — Bug 6 corrigido: admin.py estava vazio."""
 from django.contrib import admin

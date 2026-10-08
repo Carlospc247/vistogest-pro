@@ -1,0 +1,7 @@
+<section class="py-5 text-white text-center" style="background:var(--cor-primaria)">
+  <div class="container">
+    <h2 class="fw-bold">{{ dados.titulo }}</h2>
+    <p class="lead opacity-90">{{ dados.descricao }}</p>
+    <a href="{{ dados.link_botao|default:'/contato/' }}" class="btn btn-light btn-lg rounded-pill shadow">{{ dados.texto_botao|default:'Contactar' }}</a>
+  </div>
+</section>

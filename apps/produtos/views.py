@@ -67,6 +67,53 @@ from django.views.generic import ListView, CreateView, UpdateView, DetailView, D
 from django.contrib.auth.mixins import LoginRequiredMixin
 from .models import Fabricante
 from .forms import FabricanteForm
+import csv
+import io
+import logging
+import re
+import unicodedata
+import uuid
+from datetime import datetime
+from decimal import Decimal, InvalidOperation
+from xml.sax.saxutils import escape
+
+import pandas as pd
+import requests
+from django.contrib import messages
+from django.contrib.auth.mixins import LoginRequiredMixin
+from django.db import transaction
+from django.http import HttpResponse, HttpResponseBadRequest
+from django.urls import reverse_lazy
+from django.utils.text import slugify
+from django.views import View
+from django.views.generic import FormView
+from django_tenants.utils import get_public_schema_name
+from openpyxl import Workbook
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+from openpyxl.utils import get_column_letter
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+from reportlab.lib.units import cm
+from reportlab.lib.utils import ImageReader
+from reportlab.platypus import Image, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+from django.http import HttpResponse, HttpResponseBadRequest
+from django.utils import timezone
+from django.utils.text import slugify
+from django.views import View
+from django.contrib.auth.mixins import LoginRequiredMixin
+from openpyxl import Workbook
+from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
+from openpyxl.utils import get_column_letter
+from openpyxl.worksheet.datavalidation import DataValidation
+
+
+
+
+
+
+
+
 
 
 
@@ -1002,57 +1049,214 @@ class FabricanteDeleteView(LoginRequiredMixin, DeleteView):
     template_name = 'fabricantes/confirm_delete.html'
     success_url = reverse_lazy('fabricantes:fabricante_lista')
 
-##################
-# =============================================================================
-# Importação / Exportação de Produtos — versão django_tenants
-#
-# Isolamento: feito pelo schema do tenant (request.tenant). Não existe mais
-# filtro por "empresa" nem get_empresa().
-#
-# MANTENHA no seu views.py os imports de projeto que já existiam, por exemplo:
-#   from .forms import ImportarProdutosForm
-#   from .models import Produto, Categoria, Fabricante, Lote, TaxaIVAAGT
-#   from apps.fornecedores.models import Fornecedor
-# (os caminhos exatos dependem do seu projeto; não alterei nenhum deles)
-# =============================================================================
-import csv
-import io
-import logging
-import re
-import unicodedata
-import uuid
-from datetime import datetime
-from decimal import Decimal, InvalidOperation
-from xml.sax.saxutils import escape
-
-import pandas as pd
-import requests
-from django.contrib import messages
-from django.contrib.auth.mixins import LoginRequiredMixin
-from django.db import transaction
-from django.http import HttpResponse, HttpResponseBadRequest
-from django.urls import reverse_lazy
-from django.utils.text import slugify
-from django.views import View
-from django.views.generic import FormView
-from django_tenants.utils import get_public_schema_name
-from openpyxl import Workbook
-from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
-from openpyxl.utils import get_column_letter
-from reportlab.lib import colors
-from reportlab.lib.pagesizes import A4
-from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
-from reportlab.lib.units import cm
-from reportlab.lib.utils import ImageReader
-from reportlab.platypus import Image, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
-
-# from .forms import ImportarProdutosForm
-# from .models import Produto, Categoria, Fabricante, Lote, TaxaIVAAGT
-# from apps.fornecedores.models import Fornecedor
 
 logger = logging.getLogger(__name__)
 
 
+
+
+logger = logging.getLogger(__name__)
+
+
+# =============================================================================
+# TEMPLATE DE IMPORTAÇÃO
+# =============================================================================
+class TemplateProdutosView(LoginRequiredMixin, TenantRequeridoMixin, View):
+    """
+    Gera o modelo .xlsx para ImportarProdutosView.
+    Colunas = cabeçalhos da exportação + campos extra aceites pela importação,
+    de modo que exportar -> editar -> importar e template -> importar usem o
+    mesmo formato.
+    """
+    # Colunas que só existem na importação (a exportação não as inclui)
+    HEADERS_EXTRA = [
+        'numero_lote', 'data_validade',
+        'estoque_minimo', 'estoque_maximo',
+        'margem_lucro', 'desconto_percentual',
+        'observacoes',
+    ]
+    # Único campo estritamente obrigatório na importação
+    OBRIGATORIOS = {'nome_produto'}
+    # Recomendados (produtos novos ficam incompletos sem eles)
+    RECOMENDADOS = {'codigo_barras', 'categoria', 'preco_custo', 'preco_venda'}
+    # Colunas que devem ficar como texto (evita 7,89E+12, perda de zeros, datas convertidas)
+    COLUNAS_TEXTO = {'codigo_barras', 'codigo_interno', 'numero_lote', 'data_validade'}
+    COLUNAS_NUMERICAS = {
+        'preco_custo', 'preco_venda', 'Taxa IVA (%)', 'estoque_atual', 'estoque_minimo',
+        'estoque_maximo', 'margem_lucro', 'desconto_percentual',
+    }
+    LINHAS_FORMATADAS = 1000  # linhas pré-formatadas / com validação
+
+    EXEMPLO = {
+        'nome_produto': 'Paracetamol 500mg',
+        'codigo_barras': '7891234567890',
+        'categoria': 'Analgésicos',
+        'preco_custo': 105.50,
+        'preco_venda': 200.00,
+        'Taxa IVA (%)': 14,
+        'nome_comercial': 'Paracetamol 500mg',
+        'codigo_interno': 'PARA500',
+        'fabricante': 'NEWAY FARMÁCIA',
+        'fornecedor': 'NEWAY MED',
+        'estoque_atual': 100,
+        'ativo': 'Ativo',
+        'numero_lote': 'LOTE202801',
+        'data_validade': '2028-12-31',
+        'estoque_minimo': 10,
+        'estoque_maximo': 1000,
+        'margem_lucro': 100.00,
+        'desconto_percentual': 0.00,
+        'observacoes': 'Produto de exemplo - apague esta linha antes de importar',
+    }
+
+    INSTRUCOES = [
+        ("INSTRUÇÕES PARA IMPORTAÇÃO DE PRODUTOS", 'titulo'),
+        ("", None),
+        ("CAMPO OBRIGATÓRIO (cabeçalho a laranja):", 'secao'),
+        ("- nome_produto: nome do produto. Linhas sem nome são ignoradas.", None),
+        ("", None),
+        ("CAMPOS RECOMENDADOS (cabeçalho a amarelo):", 'secao'),
+        ("- codigo_barras: identifica o produto. Se já existir, o produto é ATUALIZADO; se não, é criado.", None),
+        ("- categoria: criada automaticamente se não existir.", None),
+        ("- preco_custo / preco_venda: números (ex.: 12.50). Se vazios em produto novo, ficam 0.", None),
+        ("", None),
+        ("CAMPOS OPCIONAIS:", 'secao'),
+        ("- Taxa IVA (%): percentagem de IVA (ex.: 14, 7, 0), entre 0 e 100. Vazio = 0% em produto novo. A taxa é criada se não existir.", None),
+        ("- nome_comercial: se vazio, usa nome_produto.", None),
+        ("- codigo_interno: se vazio em produto novo, é gerado automaticamente (INT-xxxxxxxx).", None),
+        ("- fabricante: criado automaticamente se não existir.", None),
+        ("- fornecedor: NÃO é criado. Deve existir no sistema (nome fantasia, razão social, código ou NIF/BI). Se não for encontrado, o vínculo é ignorado e o produto é importado sem fornecedor.", None),
+        ("- estoque_atual: quantidade em stock (padrão em produto novo: 0).", None),
+        ("- estoque_minimo (padrão: 1) e estoque_maximo (padrão: 100).", None),
+        ("- margem_lucro e desconto_percentual: em % (padrão: 0).", None),
+        ("- observacoes: texto livre.", None),
+        ("- ativo: Ativo/Inativo (também aceita 1/0, sim/não, true/false). Padrão: Ativo.", None),
+        ("", None),
+        ("LOTE E VALIDADE:", 'secao'),
+        ("- Para criar/atualizar um lote, preencha numero_lote E data_validade.", None),
+        ("- Se estoque_atual estiver preenchido, esse valor passa a ser a quantidade do lote.", None),
+        ("- Datas aceites: AAAA-MM-DD (recomendado), DD/MM/AAAA, AAAA/MM/DD, DD-MM-AAAA, DD.MM.AAAA.", None),
+        ("- Data de validade inválida faz a linha falhar (as restantes continuam).", None),
+        ("", None),
+        ("FORMATOS:", 'secao'),
+        ("- Decimais: use ponto (12.50). Também são aceites formatos como 1.234,56 e valores com %, Kz ou AKZ.", None),
+        ("- Células vazias ou com '-' são tratadas como não preenchidas.", None),
+        ("", None),
+        ("NOTAS IMPORTANTES:", 'secao'),
+        ("- Em produtos EXISTENTES, células vazias NÃO apagam dados: só os campos preenchidos são atualizados.", None),
+        ("- O produto é localizado pelo codigo_barras; se vazio, pelo codigo_interno.", None),
+        ("- Se ambos estiverem vazios, é criado um produto novo a cada importação (gera duplicados ao reimportar).", None),
+        ("- Os dados são importados apenas para a empresa atual (isolamento por tenant).", None),
+        ("- Linhas com erro são ignoradas e listadas no resumo; as restantes são importadas.", None),
+        ("- Apague a linha de exemplo (linha 2) antes de importar.", None),
+        ("- Pode reutilizar o ficheiro de exportação de produtos como base de importação.", None),
+    ]
+
+    def get(self, request):
+        try:
+            headers = list(ExportarProdutosExcelView.HEADERS) + self.HEADERS_EXTRA
+
+            wb = Workbook()
+            ws = wb.active
+            ws.title = "Produtos"  # tem de ser a 1.ª folha: é a que a importação lê
+
+            bold = Font(bold=True)
+            center = Alignment(horizontal="center", vertical="center")
+            thin_border = Border(
+                left=Side(style="thin"), right=Side(style="thin"),
+                top=Side(style="thin"), bottom=Side(style="thin"),
+            )
+            fill_obrigatorio = PatternFill(start_color="F8B26A", end_color="F8B26A", fill_type="solid")
+            fill_recomendado = PatternFill(start_color="FFE699", end_color="FFE699", fill_type="solid")
+            fill_opcional = PatternFill(start_color="DDDDDD", end_color="DDDDDD", fill_type="solid")
+
+            # --- Cabeçalho (linha 1: o importador procura-o nas primeiras 15 linhas) ---
+            ws.append(headers)
+            for col, nome in enumerate(headers, 1):
+                cell = ws.cell(row=1, column=col)
+                cell.font = bold
+                cell.alignment = center
+                cell.border = thin_border
+                if nome in self.OBRIGATORIOS:
+                    cell.fill = fill_obrigatorio
+                elif nome in self.RECOMENDADOS:
+                    cell.fill = fill_recomendado
+                else:
+                    cell.fill = fill_opcional
+            ws.freeze_panes = "A2"
+
+            # --- Formatação das colunas (texto / numérico) ---
+            ultima = self.LINHAS_FORMATADAS + 1
+            for col, nome in enumerate(headers, 1):
+                if nome in self.COLUNAS_TEXTO:
+                    formato = '@'
+                elif nome in self.COLUNAS_NUMERICAS:
+                    formato = '#,##0.00'
+                else:
+                    continue
+                for row in range(2, ultima + 1):
+                    ws.cell(row=row, column=col).number_format = formato
+
+            # --- Linha de exemplo (mapeada por nome de coluna, nunca por posição) ---
+            for col, nome in enumerate(headers, 1):
+                valor = self.EXEMPLO.get(nome)
+                if valor is not None:
+                    ws.cell(row=2, column=col, value=valor)
+
+            # --- Validações ---
+            col_ativo = get_column_letter(headers.index('ativo') + 1)
+            dv_ativo = DataValidation(
+                type="list", formula1='"Ativo,Inativo"', allow_blank=True,
+                showErrorMessage=True, errorTitle="Valor inválido",
+                error="Use Ativo ou Inativo.",
+            )
+            dv_ativo.add(f"{col_ativo}2:{col_ativo}{ultima}")
+            ws.add_data_validation(dv_ativo)
+
+            col_taxa = get_column_letter(headers.index('Taxa IVA (%)') + 1)
+            dv_taxa = DataValidation(
+                type="decimal", operator="between", formula1="0", formula2="100",
+                allow_blank=True, showErrorMessage=True,
+                errorTitle="Taxa inválida", error="A taxa de IVA deve estar entre 0 e 100.",
+            )
+            dv_taxa.add(f"{col_taxa}2:{col_taxa}{ultima}")
+            ws.add_data_validation(dv_taxa)
+
+            # --- Larguras ---
+            for col, nome in enumerate(headers, 1):
+                exemplo = self.EXEMPLO.get(nome)
+                comprimento = max(len(str(nome)), len(str(exemplo)) if exemplo is not None else 0)
+                ws.column_dimensions[get_column_letter(col)].width = min(max(comprimento + 2, 12), 40)
+
+            # --- Folha de instruções ---
+            ws_instr = wb.create_sheet("Instruções")
+            ws_instr.column_dimensions['A'].width = 120
+            for row, (texto, tipo) in enumerate(self.INSTRUCOES, 1):
+                cell = ws_instr.cell(row=row, column=1, value=texto)
+                cell.alignment = Alignment(wrap_text=True, vertical="top")
+                if tipo == 'titulo':
+                    cell.font = Font(bold=True, size=14)
+                elif tipo == 'secao':
+                    cell.font = bold
+
+            # --- Resposta ---
+            buffer = io.BytesIO()
+            wb.save(buffer)
+
+            nome_ficheiro = slugify(self.nome_tenant) or self.tenant.schema_name
+            response = HttpResponse(
+                buffer.getvalue(),
+                content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+            )
+            response['Content-Disposition'] = (
+                f'attachment; filename="template_produtos_{nome_ficheiro}_'
+                f'{timezone.now().strftime("%Y%m%d")}.xlsx"'
+            )
+            return response
+
+        except Exception as exc:
+            logger.exception(f"Erro ao gerar template de produtos: {exc}")
+            return HttpResponseBadRequest(f'Erro ao gerar template: {exc}')
 
 # =============================================================================
 # IMPORTAÇÃO
@@ -1676,3 +1880,6 @@ class ExportarProdutosPDFView(LoginRequiredMixin, TenantRequeridoMixin, View):
         nome_ficheiro = slugify(nome_empresa) or self.tenant.schema_name
         response["Content-Disposition"] = f'attachment; filename="produtos_{nome_ficheiro}.pdf"'
         return response
+
+
+

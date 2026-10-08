@@ -1,0 +1,11 @@
+<!-- Hero Section -->
+<section class="text-white d-flex align-items-center"
+         style="min-height:{{ dados.altura_px|default:500 }}px;background:{% if dados.imagem_url %}linear-gradient(rgba(0,0,0,.55),rgba(0,0,0,.55)),url('{{ dados.imagem_url }}') center/cover{% else %}linear-gradient(135deg,var(--cor-primaria),var(--cor-secundaria)){% endif %}">
+  <div class="container text-center py-5">
+    <h1 class="display-4 fw-bold">{{ dados.titulo }}</h1>
+    {% if dados.subtitulo %}<p class="lead">{{ dados.subtitulo }}</p>{% endif %}
+    {% if dados.texto_botao %}
+    <a href="{{ dados.link_botao|default:'#' }}" class="btn btn-light btn-lg rounded-pill mt-3 shadow">{{ dados.texto_botao }}</a>
+    {% endif %}
+  </div>
+</section>

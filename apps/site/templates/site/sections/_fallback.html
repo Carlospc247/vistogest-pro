@@ -1,0 +1,8 @@
+{# Usado quando um tipo de bloco ainda não tem template próprio. No site público não mostra nada. #}
+{% if modo_preview %}
+<div class="container my-3">
+  <div class="border border-2 border-dashed rounded p-3 text-center text-muted small">
+    Bloco “{{ secao.tipo }}” ainda sem template (site/sections/{{ secao.tipo }}.html).
+  </div>
+</div>
+{% endif %}

@@ -1,0 +1,6 @@
+<section class="py-5">
+  <div class="container text-{% if dados.alinhamento == 'centro' %}center{% elif dados.alinhamento == 'direita' %}end{% else %}start{% endif %}">
+    {% if dados.titulo %}<h2 class="fw-bold mb-3">{{ dados.titulo }}</h2>{% endif %}
+    {{ dados.conteudo|default:dados.conteudo_html|safe }}
+  </div>
+</section>

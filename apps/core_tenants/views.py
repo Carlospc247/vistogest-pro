@@ -34,7 +34,9 @@ from apps.core.models import AuditoriaAcesso, IPConhecido, VerificacaoSeguranca
 from apps.analytics.models import AuditoriaInvestimento, NotificacaoAlerta
 from apps.produtos.models import Categoria, Produto
 from apps.servicos.models import NotificacaoAgendamento
-from apps.vendas.models import Venda
+from apps.vendas.models import ItemVenda, Venda
+from apps.vendas.dashboard_data import dados_analise_vendas, lucro_total
+
 
 logger = logging.getLogger('core_tenants.security')
 
@@ -78,88 +80,123 @@ class BaseMPAView(TemplateView):
 
 class DashboardView(LoginRequiredMixin, BaseMPAView):
     """
-    DASHBOARD ESTRUTURAL: Unifica métricas de vendas, lucro e ativos.
-    CORREÇÃO MRO: LoginRequiredMixin vem antes da BaseMPAView.
+    Dashboard executivo: vendas, lucro e ativos.
+    Regras de consistência:
+      - Todos os valores monetários saem de `vendas_qs`, que nunca faz JOIN
+        com itens (o filtro de investidor usa pk__in com subquery).
+      - Lucro do cartão e do gráfico usam a mesma fórmula (dashboard_data).
+      - Datas em hora local (timezone.localdate), não em UTC.
+      - O contexto envia dicts Python; o template serializa com json_script.
     """
     template_name = 'core/dashboard.html'
     module_name = 'dashboard'
 
-    def get_vendas_filtradas(self, user, empresa):
-        """Filtro de Compliance: Investidores vêem apenas seus ativos."""
-        # Se estivermos no schema public, retornamos queryset vazio para evitar o crash
-        from django.db import connection
+    # ------------------------------------------------------------------
+    # Filtros de compliance (investidores)
+    # ------------------------------------------------------------------
+
+    def _vinculo_restrito(self, user):
+        """Devolve o vínculo de auditoria se o utilizador estiver limitado
+        aos seus ativos; None se tiver acesso total."""
+        if user.is_superuser:
+            return None
+        from apps.analytics.models import AuditoriaInvestimento
+        vinculo = AuditoriaInvestimento.objects.filter(usuario=user).first()
+        if vinculo is None or vinculo.pode_auditar_tudo:
+            return None
+        return vinculo
+
+    def get_vendas_filtradas(self, user, empresa=None):
+        """Queryset de vendas finalizadas, SEM joins (seguro para Sum/Count)."""
         if connection.schema_name == 'public':
             return Venda.objects.none()
-        
-        qs = Venda.objects.filter(status='finalizada')
-        try:
-            vinculo = AuditoriaInvestimento.objects.get(usuario=user)
-            if not user.is_superuser and not vinculo.pode_auditar_tudo:
-                qs = qs.filter(
-                    Q(itens__produto__lotes__in=vinculo.lotes_vinculados.all()) |
-                    Q(itens__produto__fabricante__in=vinculo.fabricantes_vinculados.all())
-                ).distinct()
-        except AuditoriaInvestimento.DoesNotExist:
-            pass
-        return qs
+
+        base = Venda.objects.filter(status='finalizada')
+        vinculo = self._vinculo_restrito(user)
+        if vinculo is None:
+            return base
+
+        ids = (ItemVenda.objects
+               .filter(venda__status='finalizada')
+               .filter(Q(produto__lotes__in=vinculo.lotes_vinculados.all()) |
+                       Q(produto__fabricante__in=vinculo.fabricantes_vinculados.all()))
+               .values('venda_id'))
+        return base.filter(pk__in=ids)
+
+    def get_produtos_base(self, user):
+        base = Produto.objects.filter(ativo=True)
+        vinculo = self._vinculo_restrito(user)
+        if vinculo is None:
+            return base
+
+        ids = (Produto.objects
+               .filter(Q(lotes__in=vinculo.lotes_vinculados.all()) |
+                       Q(fabricante__in=vinculo.fabricantes_vinculados.all()))
+               .values('pk'))
+        return base.filter(pk__in=ids)
+
+    # ------------------------------------------------------------------
+    # Métricas
+    # ------------------------------------------------------------------
 
     def get_lucro_investidor(self, vendas_qs):
-        """Cálculo de lucro bruto via F() expressions."""
-        lucro_data = vendas_qs.aggregate(
-            total_lucro=Sum(
-                (F('itens__preco_unitario') - F('itens__produto__preco_custo')) * F('itens__quantidade')
-            )
-        )
-        return lucro_data['total_lucro'] or Decimal('0.00')
-
-    # --- MÉTODOS DE GRÁFICOS ---
-
-    def get_vendas_mensais(self, vendas_qs):
-        vendas_por_mes = vendas_qs.filter(
-            data_venda__gte=timezone.now() - timedelta(days=365)
-        ).annotate(mes=TruncMonth('data_venda')).values('mes').annotate(
-            faturamento=Sum('total'),
-            lucro=Sum((F('itens__preco_unitario') - F('itens__produto__preco_custo')) * F('itens__quantidade'))
-        ).order_by('mes')
-        
-        return {
-            'labels': [item['mes'].strftime('%b/%Y') for item in vendas_por_mes],
-            'faturamento': [float(item['faturamento'] or 0) for item in vendas_por_mes],
-            'lucro': [float(item['lucro'] or 0) for item in vendas_por_mes]
-        }
-
-    def get_vendas_semanais(self, vendas_qs):
-        vendas_por_semana = vendas_qs.filter(
-            data_venda__gte=timezone.now() - timedelta(weeks=8)
-        ).annotate(semana=TruncWeek('data_venda')).values('semana').annotate(
-            faturamento=Sum('total'),
-            lucro=Sum((F('itens__preco_unitario') - F('itens__produto__preco_custo')) * F('itens__quantidade'))
-        ).order_by('semana')
-        
-        return {
-            'labels': [item['semana'].strftime('%d/%m') for item in vendas_por_semana],
-            'faturamento': [float(item['faturamento'] or 0) for item in vendas_por_semana],
-            'lucro': [float(item['lucro'] or 0) for item in vendas_por_semana]
-        }
+        return lucro_total(vendas_qs)
 
     def get_formas_pagamento(self, vendas_qs):
-        inicio_mes = timezone.now().date().replace(day=1)
-        vendas_pagamento = vendas_qs.filter(
-            data_venda__date__gte=inicio_mes
-        ).values('forma_pagamento__nome').annotate(total=Sum('total')).order_by('-total')
-        
+        inicio_mes = timezone.localdate().replace(day=1)
+        qs = (vendas_qs
+              .filter(data_venda__date__gte=inicio_mes)
+              .values('forma_pagamento__nome')
+              .annotate(total=Sum('total'))
+              .order_by('-total'))
+
         dados = {'labels': [], 'valores': []}
-        for item in vendas_pagamento:
+        for item in qs:
             if item['total']:
                 dados['labels'].append(item['forma_pagamento__nome'] or 'Outros')
                 dados['valores'].append(float(item['total']))
         return dados
 
+    def get_metas(self, vendas_qs, hoje):
+        """Metas de faturamento activas hoje vs realizado (sem JOIN com itens)."""
+        from apps.vendas.models import MetaVenda
+
+        metas = (MetaVenda.objects
+                 .filter(status='ativa', meta_faturamento__isnull=False,
+                         data_inicio__lte=hoje, data_fim__gte=hoje)
+                 .order_by('data_inicio')[:6])
+
+        dados = {'labels': [], 'metas': [], 'realizados': []}
+        for m in metas:
+            qs = vendas_qs.filter(data_venda__date__gte=m.data_inicio,
+                                  data_venda__date__lte=m.data_fim)
+            if m.vendedor_id:
+                qs = qs.filter(vendedor_id=m.vendedor_id)
+            realizado = qs.aggregate(t=Sum('total'))['t'] or Decimal('0.00')
+
+            dados['labels'].append(m.nome)
+            dados['metas'].append(float(m.meta_faturamento))
+            dados['realizados'].append(float(realizado))
+        return dados
+
+    def get_top_vendedores(self, vendas_qs):
+        inicio_mes = timezone.localdate().replace(day=1)
+        return list(
+            vendas_qs
+            .filter(data_venda__date__gte=inicio_mes, vendedor__isnull=False)
+            .values('vendedor__nome_completo')
+            .annotate(total_vendas=Count('id'), total_faturamento=Sum('total'))
+            .order_by('-total_faturamento')[:5]
+        )
+
+    # ------------------------------------------------------------------
+    # Contexto
+    # ------------------------------------------------------------------
+
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        from django.db import connection
-        
-        # RIGOR SOTARQ: Bloqueio de segurança para Schema Public
+
+        # Schema public: tudo vazio, mas com a estrutura completa
         if connection.schema_name == 'public':
             context.update({
                 'vendas_hoje': {'total': Decimal('0.00'), 'quantidade': 0},
@@ -167,50 +204,42 @@ class DashboardView(LoginRequiredMixin, BaseMPAView):
                 'produtos_stats': {'total': 0, 'total_categorias': 0},
                 'estoque_stats': {'estoque_baixo': 0},
                 'vendas_recentes': [],
-                'dados_vendas_mensal': json.dumps({'labels': [], 'faturamento': [], 'lucro': []}),
-                'dados_vendas_semanal': json.dumps({'labels': [], 'faturamento': [], 'lucro': []}),
-                'dados_formas_pagamento': json.dumps({'labels': [], 'valores': []}),
+                'top_vendedores': [],
+                'dados_vendas': dados_analise_vendas(Venda.objects.none()),
+                'dados_formas_pagamento': {'labels': [], 'valores': []},
+                'dados_metas': {'labels': [], 'metas': [], 'realizados': []},
             })
             return context
 
-        # --- LÓGICA PARA TENANTS (CLIENTES REAIS) ---
-        empresa = context['empresa_atual']
         user = self.request.user
-        hoje = timezone.now().date()
+        hoje = timezone.localdate()
 
-        vendas_qs = self.get_vendas_filtradas(user, empresa)
-        
-        # Resumo Financeiro
-        v_hoje = vendas_qs.filter(data_venda__date=hoje).aggregate(t=Sum('total'), q=Count('id'))
-        
-        # Estatísticas de Estoque (Blindadas contra AuditoriaInvestimento)
-        produtos_base = Produto.objects.filter(ativo=True)
-        try:
-            # Import dinâmico para evitar falhas de carregamento no boot
-            from apps.analytics.models import AuditoriaInvestimento
-            vinculo = AuditoriaInvestimento.objects.get(usuario=user)
-            if not user.is_superuser and not vinculo.pode_auditar_tudo:
-                produtos_base = produtos_base.filter(
-                    Q(lotes__in=vinculo.lotes_vinculados.all()) |
-                    Q(fabricante__in=vinculo.fabricantes_vinculados.all())
-                ).distinct()
-        except (ImportError, Exception):
-            pass
+        vendas_qs = self.get_vendas_filtradas(user, context.get('empresa_atual'))
+        produtos_base = self.get_produtos_base(user)
+
+        v_hoje = vendas_qs.filter(data_venda__date=hoje).aggregate(
+            t=Sum('total'), q=Count('id'))
 
         context.update({
-            'vendas_hoje': {'total': v_hoje['t'] or Decimal('0.00'), 'quantidade': v_hoje['q'] or 0},
+            'vendas_hoje': {
+                'total': v_hoje['t'] or Decimal('0.00'),
+                'quantidade': v_hoje['q'] or 0,
+            },
             'lucro_total': self.get_lucro_investidor(vendas_qs),
             'produtos_stats': {
                 'total': produtos_base.count(),
                 'total_categorias': Categoria.objects.filter(ativa=True).count(),
             },
             'estoque_stats': {
-                'estoque_baixo': produtos_base.filter(estoque_atual__lte=F('estoque_minimo')).count()
+                'estoque_baixo': produtos_base.filter(
+                    estoque_atual__lte=F('estoque_minimo')).count(),
             },
-            'vendas_recentes': vendas_qs.select_related('cliente').order_by('-data_venda')[:10],
-            'dados_vendas_mensal': json.dumps(self.get_vendas_mensais(vendas_qs)),
-            'dados_vendas_semanal': json.dumps(self.get_vendas_semanais(vendas_qs)),
-            'dados_formas_pagamento': json.dumps(self.get_formas_pagamento(vendas_qs)),
+            'vendas_recentes': (vendas_qs.select_related('cliente')
+                                .order_by('-data_venda')[:10]),
+            'top_vendedores': self.get_top_vendedores(vendas_qs),
+            'dados_vendas': dados_analise_vendas(vendas_qs),
+            'dados_formas_pagamento': self.get_formas_pagamento(vendas_qs),
+            'dados_metas': self.get_metas(vendas_qs, hoje),
         })
         return context
 
@@ -423,97 +452,81 @@ class NotificacaoMarcarTodasLidasView(LoginRequiredMixin, View):
         return JsonResponse({'ok': True, 'updated': updated})
 
 
+import logging
+from django.db import connection, transaction
+
+log = logging.getLogger('core_tenants.notifications')
+
+
 class NotificacaoCountAjaxView(LoginRequiredMixin, View):
-    """
-    AJAX polling — devolve o count de notificações não lidas para o utilizador.
+    """Polling de notificações (alertas + agendamentos + expiração)."""
 
-    Combina três fontes:
-      1. NotificacaoAlerta (analytics) — alertas inteligentes por utilizador
-      2. NotificacaoAgendamento (servicos) — agendamentos pendentes
-      3. AlertaProdutoExpiracao (produtos) — produtos a expirar não enviados
-
-    Só tem sentido no schema de tenant (onde existem os modelos acima) —
-    daí viver em core_tenants e não em core.
-    """
+    def handle_no_permission(self):
+        return JsonResponse({'count': 0, 'notifications': [], 'auth': False}, status=401)
 
     def get(self, request):
+        if connection.schema_name == 'public':
+            return JsonResponse({'count': 0, 'notifications': []})
+
         from apps.produtos.models import AlertaProdutoExpiracao
 
-        count = 0
-        notifs = []
+        count, notifs = 0, []
 
         try:
-            analytics_notifs = (
-                NotificacaoAlerta.objects
-                .filter(usuario=request.user, lida=False)
-                .select_related('alerta')[:10]
-            )
-            for n in analytics_notifs:
-                alerta = n.alerta
-                if alerta:
+            with transaction.atomic():
+                qs = (NotificacaoAlerta.objects
+                      .filter(usuario=request.user, lida=False)
+                      .select_related('alerta'))
+                count += qs.count()
+                for n in qs.order_by('-alerta__created_at')[:5]:
+                    a = n.alerta
+                    if a:
+                        notifs.append({
+                            'id': n.pk, 'title': a.titulo, 'message': a.mensagem[:80],
+                            'url': f'/analytics/alertas/{a.pk}/',
+                            'icon': _icon_for_alerta(a.tipo),
+                            'type': _color_for_prioridade(a.prioridade),
+                            'created_at': a.created_at.isoformat(), 'source': 'alerta',
+                        })
+        except Exception:
+            log.exception('Falha na fonte: alertas')
+
+        try:
+            with transaction.atomic():
+                qs = NotificacaoAgendamento.objects.filter(status='pendente')
+                count += qs.count()
+                for n in qs.select_related('cliente').order_by('-data_agendada_envio')[:5]:
                     notifs.append({
-                        'id': n.pk,
-                        'title': alerta.titulo,
-                        'message': alerta.mensagem[:80],
-                        'url': f'/analytics/alertas/{alerta.pk}/',
-                        'icon': _icon_for_alerta(alerta.tipo),
-                        'type': _color_for_prioridade(alerta.prioridade),
-                        'created_at': alerta.created_at.isoformat(),
-                        'source': 'alerta',
+                        'id': None,
+                        'title': f"{n.get_tipo_notificacao_display()} — {n.cliente.nome_completo}",
+                        'message': (n.mensagem or '')[:80],
+                        'url': f'/notificacoes/{n.id}/editar/',
+                        'icon': 'bell', 'type': 'blue',
+                        'created_at': n.created_at.isoformat(), 'source': 'agendamento',
                     })
-            count += analytics_notifs.count()
         except Exception:
-            pass
+            log.exception('Falha na fonte: agendamentos')
 
         try:
-            agend_notifs = (
-                NotificacaoAgendamento.objects
-                .filter(status='pendente')
-                .order_by('-data_agendada_envio')[:5]
-            )
-            for n in agend_notifs:
-                notifs.append({
-                    'id': None,
-                    'title': f"{n.get_tipo_notificacao_display()} — {n.cliente.nome_completo}",
-                    'message': (n.mensagem or '')[:80],
-                    'url': f'/notificacoes/{n.id}/editar/',
-                    'icon': 'bell',
-                    'type': 'blue',
-                    'created_at': n.created_at.isoformat(),
-                    'source': 'agendamento',
-                })
-            count += agend_notifs.count()
+            with transaction.atomic():
+                qs = AlertaProdutoExpiracao.objects.filter(enviado=False)
+                count += qs.count()
+                hoje = timezone.localdate()
+                for a in qs.select_related('lote__produto').order_by('-created_at')[:5]:
+                    dias = (a.lote.data_validade - hoje).days
+                    notifs.append({
+                        'id': None, 'title': 'Produto prestes a expirar',
+                        'message': f"{a.lote.produto.nome_comercial} vence em {dias} dias",
+                        'url': f'/produtos/lotes/{a.lote.id}/',
+                        'icon': 'exclamation-triangle', 'type': 'red',
+                        'created_at': a.created_at.isoformat(), 'source': 'expiracao',
+                    })
         except Exception:
-            pass
-
-        try:
-            alertas_exp = (
-                AlertaProdutoExpiracao.objects
-                .filter(enviado=False)
-                .order_by('-created_at')[:5]
-            )
-            for a in alertas_exp:
-                dias = (a.lote.data_validade - timezone.now().date()).days
-                notifs.append({
-                    'id': None,
-                    'title': 'Produto prestes a expirar',
-                    'message': f"{a.lote.produto.nome_comercial} vence em {dias} dias",
-                    'url': f'/produtos/lotes/{a.lote.id}/',
-                    'icon': 'exclamation-triangle',
-                    'type': 'red',
-                    'created_at': a.created_at.isoformat(),
-                    'source': 'expiracao',
-                })
-            count += alertas_exp.count()
-        except Exception:
-            pass
+            log.exception('Falha na fonte: expiração')
 
         notifs.sort(key=lambda x: x['created_at'], reverse=True)
+        return JsonResponse({'count': count, 'notifications': notifs[:5]})
 
-        return JsonResponse({
-            'count': count,
-            'notifications': notifs[:5],
-        })
 
 
 def _icon_for_alerta(tipo):
@@ -534,3 +547,5 @@ def _color_for_prioridade(prioridade):
         'alta': 'orange',
         'critica': 'red',
     }.get(prioridade, 'blue')
+
+

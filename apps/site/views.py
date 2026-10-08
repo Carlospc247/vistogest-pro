@@ -29,7 +29,7 @@ from .models import (
     Carrinho, ItemCarrinho,
     PedidoOnline, ItemPedidoOnline,
     Concurso, Candidatura,
-    SolicitacaoContato, Reclamacao, ComprovativoCompra,
+    SolicitacaoContato, Reclamacao, ComprovativoCompra, EventoSite,
 )
 from .serializers import (
     ConfiguracaoSiteSerializer, PaginaSerializer, SecaoSerializer,
@@ -48,6 +48,36 @@ from .forms import CandidaturaForm
 
 def _obter_config():
     return ConfiguracaoSite.obter()
+
+
+from django.core.exceptions import PermissionDenied
+from django.db import connection
+from django_tenants.utils import get_public_schema_name
+
+
+def _esta_no_public():
+    return getattr(connection, 'schema_name', None) == get_public_schema_name()
+
+
+class TenantOnlyMixin:
+    """
+    Bloqueia a view quando o pedido chega no schema public.
+    Deve vir DEPOIS de LoginRequiredMixin e ANTES de View.
+    """
+    redirect_url_name = 'core_tenants:dashboard'   # confirma que este nome existe
+
+    def dispatch(self, request, *args, **kwargs):
+        if _esta_no_public():
+            if request.headers.get('X-Requested-With') == 'XMLHttpRequest' \
+                    or request.content_type == 'application/json':
+                raise PermissionDenied("Operação permitida apenas no domínio da empresa.")
+            messages.error(
+                request,
+                "O gestor do site só está disponível no domínio da sua empresa."
+            )
+            return redirect(self.redirect_url_name)
+        return super().dispatch(request, *args, **kwargs)
+
 
 
 def _obter_carrinho(request):
@@ -139,41 +169,8 @@ class PedidoOnlineViewSet(TenantBaseViewSet):
 # Site Institucional (público)
 # ─────────────────────────────────────────────────────────────────────────────
 
-class PaginaDetailView(View):
-    """Página pública do site institucional."""
-    template_name = 'site/index.html'
-
-    def get(self, request, slug=None):
-        if slug:
-            pagina = get_object_or_404(Pagina, slug=slug, ativo=True)
-        else:
-            pagina = Pagina.obter_principal()
-            if not pagina:
-                return render(request, 'site/em_construcao.html', _contexto_base(request))
-
-        config = _obter_config()
-        ctx = _contexto_base(request)
-        ctx.update({
-            'pagina':    pagina,
-            'secoes':    pagina.secoes.filter(ativo=True).order_by('ordem'),
-            'concursos': Concurso.objects.filter(ativo=True),
-        })
-        return render(request, self.template_name, ctx)
 
 
-class SitePreviewView(LoginRequiredMixin, View):
-    """Preview de rascunho (só para utilizadores autenticados internos)."""
-    template_name = 'site/index.html'
-
-    def get(self, request, slug, token):
-        pagina = get_object_or_404(Pagina, slug=slug, preview_token=token)
-        ctx = _contexto_base(request)
-        ctx.update({
-            'pagina':       pagina,
-            'modo_preview': True,
-            'secoes':       pagina.secoes.all().order_by('ordem'),
-        })
-        return render(request, self.template_name, ctx)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -211,6 +208,7 @@ class LojaView(View):
         servicos = Servico.objects.filter(ativo=True).exclude(id__in=ocultos_servico)
         config_servico = {s.servico_id: s for s in ServicoSite.objects.filter(visivel_na_loja=True)}
 
+        registar_evento(request, 'visita')  # loja
         ctx = _contexto_base(request)
         ctx.update({
             'produtos':        produtos,
@@ -239,6 +237,7 @@ class ProdutoDetalheView(View):
             preco = getattr(produto, 'preco_venda', Decimal('0.00'))
 
         ctx = _contexto_base(request)
+        registar_evento(request, 'produto', produto.nome_produto)  # track-produto
         ctx.update({'produto': produto, 'preco': preco})
         return render(request, self.template_name, ctx)
 
@@ -317,6 +316,7 @@ class AdicionarCarrinhoView(View):
         except Exception as exc:
             return JsonResponse({'success': False, 'error': str(exc)}, status=400)
 
+        registar_evento(request, "carrinho", f"{tipo}:{item_id}")  # track-carrinho
         return JsonResponse({
             'success': True,
             'total_itens': carrinho.total_itens,
@@ -530,7 +530,7 @@ class CandidaturaCreateView(SuccessMessageMixin, CreateView):
 
     def get_success_url(self):
         from django.urls import reverse_lazy
-        return reverse_lazy('site:pagina_detalhe', kwargs={'slug': 'home'})
+        return reverse_lazy('site:pagina_home')
 
 
 class SolicitacaoContatoCreateView(View):
@@ -572,43 +572,22 @@ class ReclamacaoCreateView(View):
 # ─────────────────────────────────────────────────────────────────────────────
 # Dashboard administrativo (editor no-code interno)
 # ─────────────────────────────────────────────────────────────────────────────
-
-class SiteConfigDashboardView(LoginRequiredMixin, View):
-    """Dashboard de gestão do site para o operador interno."""
-    template_name = 'site/dashboard_config.html'
-
-    def get(self, request):
-        config = _obter_config()
-        try:
-            from django.db import connection
-            schema = connection.schema_name
-            slug_default = slugify(schema)
-        except Exception:
-            slug_default = 'home'
-
-        pagina, _ = Pagina.objects.get_or_create(
-            slug=slug_default,
-            defaults={'titulo': f"Site — {config.nome_exibicao}"}
+def _obter_pagina_principal(config):
+    """Página principal do tenant: a primeira existente, ou cria uma."""
+    pagina = Pagina.objects.order_by('pk').first()
+    if pagina is None:
+        pagina = Pagina.objects.create(
+            slug=slugify(connection.schema_name) or 'home',
+            titulo=f"Site — {config.nome_exibicao}",
         )
+    return pagina
 
-        pedidos_pendentes = PedidoOnline.objects.filter(status='pendente').count()
 
-        return render(request, self.template_name, {
-            'config':  config,
-            'pagina':  pagina,
-            'secoes':  pagina.secoes.all().order_by('ordem'),
-            'stats': {
-                'candidaturas_pendentes': Candidatura.objects.filter(status='pendente').count(),
-                'contatos_novos':         SolicitacaoContato.objects.filter(atendido=False).count(),
-                'reclamacoes_abertas':    Reclamacao.objects.filter(atendido=False).count(),
-                'pedidos_pendentes':      pedidos_pendentes,
-            },
-        })
-
+    
 
 # ─── S12 Site Builder ───────────────────────────────────────────────────────
 
-class SiteEditorView(LoginRequiredMixin, View):
+class SiteEditorView(LoginRequiredMixin, TenantOnlyMixin, View):
     """
     S12 — Editor visual de página com drag-and-drop.
     Permite ao gestor da empresa editar o site sem saber programação.
@@ -639,85 +618,518 @@ class SiteEditorView(LoginRequiredMixin, View):
 
     def get(self, request, pagina_id=None):
         config = _obter_config()
-        if pagina_id:
-            pagina = get_object_or_404(Pagina, pk=pagina_id)
-        else:
-            slug_default = slugify(request.tenant.schema_name if hasattr(request, 'tenant') else 'home')
-            pagina, _ = Pagina.objects.get_or_create(
-                slug=slug_default,
-                defaults={'titulo': f"Site — {config.nome_exibicao}"}
-            )
-        secoes = pagina.secoes.all().order_by('ordem')
+        pagina = (
+            get_object_or_404(Pagina, pk=pagina_id)
+            if pagina_id
+            else _obter_pagina_principal(config)
+        )
+        secoes = pagina.secoes.order_by('ordem')
         return render(request, self.template_name, {
             'config':             config,
             'pagina':             pagina,
             'secoes':             secoes,
-            'blocos_disponiveis': self.BLOCOS,
+            'blocos_disponiveis': BLOCOS_DISPONIVEIS,
         })
+    
+
+####################################
+# ═════════════════════════════════════════════════════════════════════════════
+# apps/site/views.py — ALTERAÇÕES (4 partes)
+# ═════════════════════════════════════════════════════════════════════════════
+
+# ── PARTE 0 — imports (topo do ficheiro) ─────────────────────────────────────
+import copy
+import logging
+import re
+from datetime import timedelta
+
+from django.db.models import Count, Max
+from django.db.models.functions import TruncDate
+from django.urls import reverse
+from django.utils import timezone
+# no import de .models acrescenta:  EventoSite
+
+logger = logging.getLogger('site')
 
 
-class AdicionarSecaoView(LoginRequiredMixin, View):
-    """AJAX POST — adiciona uma nova secção à página."""
+# ── PARTE 1 — helpers (colar depois de _contexto_base) ───────────────────────
+_BOT_RE = re.compile(r'bot|crawl|spider|slurp|preview|monitor|facebookexternalhit|curl|wget', re.I)
+
+
+def registar_evento(request, tipo, referencia=''):
+    """Regista interação anónima. Nunca deve partir a página."""
+    try:
+        ua = request.META.get('HTTP_USER_AGENT', '')
+        if _BOT_RE.search(ua) or request.user.is_authenticated:   # ignora bots e equipa interna
+            return
+        if not request.session.session_key:
+            request.session.create()
+        sk = request.session.session_key or ''
+        if tipo == 'visita':   # 1 visita por sessão/página/30 min
+            if EventoSite.objects.filter(
+                tipo='visita', session_key=sk, caminho=request.path[:300],
+                created_at__gte=timezone.now() - timedelta(minutes=30),
+            ).exists():
+                return
+        EventoSite.objects.create(
+            tipo=tipo, caminho=request.path[:300], referencia=str(referencia)[:120],
+            session_key=sk, dispositivo='mobile' if 'Mobi' in ua else 'desktop',
+        )
+    except Exception as exc:
+        logger.warning("registar_evento falhou: %s", exc)
+
+
+def _vitrine_produtos(limite, so_destaque=False):
+    ocultos = set(ProdutoSite.objects.filter(visivel_na_loja=False).values_list('produto_id', flat=True))
+    cfg = {c.produto_id: c for c in ProdutoSite.objects.filter(visivel_na_loja=True)}
+    itens = []
+    for p in Produto.objects.filter(ativo=True).exclude(id__in=ocultos):
+        c = cfg.get(p.id)
+        if so_destaque and not (c and c.destaque):
+            continue
+        img = ''
+        try:
+            img = p.imagem.url if getattr(p, 'imagem', None) else ''
+        except Exception:
+            pass
+        itens.append({'id': p.id, 'nome': p.nome_produto, 'imagem': img,
+                      'preco': c.preco_final if c else getattr(p, 'preco_venda', Decimal('0.00'))})
+        if len(itens) >= limite:
+            break
+    return itens
+
+
+def _vitrine_servicos(limite):
+    ocultos = set(ServicoSite.objects.filter(visivel_na_loja=False).values_list('servico_id', flat=True))
+    cfg = {c.servico_id: c for c in ServicoSite.objects.filter(visivel_na_loja=True)}
+    itens = []
+    for s in Servico.objects.filter(ativo=True).exclude(id__in=ocultos)[:limite]:
+        c = cfg.get(s.id)
+        itens.append({'id': s.id, 'nome': s.nome, 'descricao': getattr(s, 'descricao', ''),
+                      'preco': c.preco_final if c else getattr(s, 'preco', Decimal('0.00'))})
+    return itens
+
+
+def _preparar_secoes(qs):
+    """
+    Anexa a cada secção a lista de templates (com fallback, para um tipo sem
+    template não rebentar o site) e os dados da BD que as vitrines precisam.
+    """
+    secoes = list(qs)
+    for s in secoes:
+        s.templates_render = [f"site/sections/{s.tipo}.html", "site/sections/_fallback.html"]
+        dados = s.dados if isinstance(s.dados, dict) else {}
+        try:
+            limite = int(dados.get('limite') or 8)
+        except (TypeError, ValueError):
+            limite = 8
+        if s.tipo == 'produtos':
+            s.itens_vitrine = _vitrine_produtos(limite, bool(dados.get('so_destaque')))
+        elif s.tipo == 'servicos':
+            s.itens_vitrine = _vitrine_servicos(limite)
+    return secoes
+
+
+# ── PARTE 2 — views públicas (SUBSTITUIR as classes com o mesmo nome) ────────
+class PaginaDetailView(View):
+    """Página pública. Só mostra páginas PUBLICADAS (em_rascunho=False)."""
+    template_name = 'site/index.html'
+
+    def get(self, request, slug=None):
+        if slug:
+            pagina = get_object_or_404(Pagina, slug=slug, ativo=True, em_rascunho=False)
+        else:
+            pagina = Pagina.obter_principal()
+            if not pagina:
+                return render(request, 'site/em_construcao.html', _contexto_base(request))
+
+        registar_evento(request, 'visita')
+        ctx = _contexto_base(request)
+        ctx.update({
+            'pagina':               pagina,
+            'secoes':               _preparar_secoes(pagina.secoes.filter(ativo=True).order_by('ordem')),
+            'concursos':            Concurso.objects.filter(ativo=True),
+            'servicos_disponiveis': Servico.objects.filter(ativo=True),   # usado por agendamento.html
+        })
+        return render(request, self.template_name, ctx)
+
+
+class SitePreviewView(LoginRequiredMixin, View):
+    """Preview de rascunho (equipa interna, com token)."""
+    template_name = 'site/index.html'
+
+    def get(self, request, slug, token):
+        pagina = get_object_or_404(Pagina, slug=slug, preview_token=token)
+        ctx = _contexto_base(request)
+        ctx.update({
+            'pagina':               pagina,
+            'modo_preview':         True,
+            'secoes':               _preparar_secoes(pagina.secoes.all().order_by('ordem')),
+            'servicos_disponiveis': Servico.objects.filter(ativo=True),
+        })
+        return render(request, self.template_name, ctx)
+
+
+# CandidaturaCreateView.get_success_url — o slug 'home' fixo dava 404:
+#     return reverse('site:pagina_home')
+
+# Tracking nas views existentes (1 linha em cada):
+#   LojaView.get ............... registar_evento(request, 'visita')
+#   ProdutoDetalheView.get ..... registar_evento(request, 'produto', produto.nome_produto)
+#   AdicionarCarrinhoView.post . registar_evento(request, 'carrinho', f"{tipo}:{item_id}")   # depois do try/except OK
+
+
+# ── PARTE 3 — ADMIN: apaga AS DUAS versões de AdicionarSecaoView e as antigas
+#    SiteConfigDashboardView / PublicarSiteView, e cola isto ──────────────────
+
+BLOCOS_DISPONIVEIS = [
+    {'tipo': 'hero',        'nome': 'Hero / Banner',      'icone': 'image',           'cor': 'indigo'},
+    {'tipo': 'carrossel',   'nome': 'Carrossel',          'icone': 'images',          'cor': 'yellow'},
+    {'tipo': 'texto',       'nome': 'Texto Rico',         'icone': 'align-left',      'cor': 'blue'},
+    {'tipo': 'card',        'nome': 'Cards',              'icone': 'th-large',        'cor': 'green'},
+    {'tipo': 'produtos',    'nome': 'Vitrine Produtos',   'icone': 'store',           'cor': 'emerald'},
+    {'tipo': 'servicos',    'nome': 'Vitrine Serviços',   'icone': 'concierge-bell',  'cor': 'teal'},
+    {'tipo': 'agendamento', 'nome': 'Agendamento',        'icone': 'calendar-check',  'cor': 'indigo'},
+    {'tipo': 'cta',         'nome': 'Call-to-Action',     'icone': 'bullhorn',        'cor': 'orange'},
+    {'tipo': 'galeria',     'nome': 'Galeria',            'icone': 'photo-video',     'cor': 'pink'},
+    {'tipo': 'depoimentos', 'nome': 'Depoimentos',        'icone': 'quote-right',     'cor': 'purple'},
+    {'tipo': 'faq',         'nome': 'Perguntas (FAQ)',    'icone': 'question-circle', 'cor': 'cyan'},
+    {'tipo': 'contador',    'nome': 'Contadores',         'icone': 'sort-numeric-up', 'cor': 'red'},
+    {'tipo': 'equipa',      'nome': 'Equipa',             'icone': 'users',           'cor': 'violet'},
+    {'tipo': 'parceiros',   'nome': 'Parceiros/Clientes', 'icone': 'handshake',       'cor': 'gray'},
+    {'tipo': 'video',       'nome': 'Vídeo',              'icone': 'play-circle',     'cor': 'rose'},
+    {'tipo': 'formulario',  'nome': 'Formulário',         'icone': 'envelope',        'cor': 'sky'},
+    {'tipo': 'localizacao', 'nome': 'Mapa',               'icone': 'map-marker-alt',  'cor': 'amber'},
+    {'tipo': 'whatsapp',    'nome': 'Botão WhatsApp',     'icone': 'comment-dots',    'cor': 'green'},
+    {'tipo': 'divider',     'nome': 'Separador',          'icone': 'minus',           'cor': 'gray'},
+]
+# em SiteEditorView troca a lista BLOCOS por:   BLOCOS = BLOCOS_DISPONIVEIS
+
+# Chaves ALINHADAS com os templates de site/sections/ (antes cada versão usava chaves diferentes)
+SECAO_DEFAULTS = {
+    'hero':        {'titulo': 'O Seu Título Principal', 'subtitulo': 'Frase de impacto aqui', 'imagem_url': '',
+                    'texto_botao': 'Saber Mais', 'link_botao': '/loja/', 'altura_px': 500},
+    'carrossel':   {'slides': [{'imagem_url': '', 'titulo': 'Slide 1', 'subtitulo': '', 'texto_botao': 'Ver mais',
+                                'link_botao': '', 'alinhamento': 'center'}], 'autoplay': True, 'altura_px': 450},
+    'card':        {'titulo_secao': 'Nossos Destaques',
+                    'itens': [{'icone': 'fas fa-star', 'titulo': 'Destaque', 'descricao': 'Descrição breve.', 'link': ''}]},
+    'texto':       {'titulo': '', 'conteudo': '<p>Clique em editar para inserir o seu texto.</p>', 'alinhamento': 'esquerda'},
+    'imagem_fixa': {'imagem_url': '', 'legenda': '', 'largura_total': True},
+    'localizacao': {'titulo_mapa': 'A Nossa Localização', 'iframe_url': '', 'endereco_texto': '',
+                    'mostrar_info_contato': True, 'altura_mapa': 400},
+    'whatsapp':    {'numero_whatsapp': '', 'mensagem_predefinida': 'Olá! Vim do vosso site.',
+                    'posicao': 'direita', 'texto_tooltip': 'Fale connosco'},
+    'produtos':    {'titulo': 'Os Nossos Produtos', 'limite': 8, 'so_destaque': False},
+    'servicos':    {'titulo': 'Os Nossos Serviços', 'limite': 6},
+    'agendamento': {'titulo': 'Agende o seu Atendimento', 'subtitulo': 'Escolha o melhor horário para si',
+                    'mostrar_preco': True, 'mensagem_sucesso': 'Agendamento realizado! Aguarde a nossa confirmação.',
+                    'cor_botao': '#6366f1'},
+    'depoimentos': {'titulo': 'O Que Dizem de Nós',
+                    'depoimentos_json': [{'nome': 'Cliente Exemplo', 'cargo': 'CEO', 'texto': 'Excelente serviço!', 'foto': ''}]},
+    'faq':         {'titulo': 'Perguntas Frequentes',
+                    'faqs_json': [{'pergunta': 'Como funciona?', 'resposta': 'É muito simples...'}]},
+    'cta':         {'titulo': 'Pronto para começar?', 'descricao': 'Entre em contacto connosco.',
+                    'texto_botao': 'Contactar', 'link_botao': '/contato/'},
+    'galeria':     {'titulo': 'Galeria', 'colunas': '3', 'imagens_json': []},
+    'contador':    {'titulo': 'Números que Importam',
+                    'contadores_json': [{'numero': 100, 'sufixo': '+', 'label': 'Clientes', 'icone': 'fas fa-users'}]},
+    'equipa':      {'titulo': 'A Nossa Equipa',
+                    'membros_json': [{'nome': 'Nome Apelido', 'cargo': 'Cargo', 'foto': '', 'linkedin': ''}]},
+    'parceiros':   {'titulo': 'Os Nossos Parceiros', 'logos_json': [{'url': '', 'alt': 'Parceiro', 'link': ''}]},
+    'video':       {'url_video': '', 'titulo': '', 'altura_px': 450},
+    'formulario':  {'titulo': 'Contacte-nos', 'texto_botao': 'Enviar'},
+    'divider':     {'espessura': 1, 'cor': '#e5e7eb', 'margem': 'md'},
+}
+
+
+def _json_body(request):
+    try:
+        return json.loads(request.body or b'{}')
+    except Exception:
+        return request.POST.dict()
+
+
+class AdicionarSecaoView(LoginRequiredMixin, TenantOnlyMixin, View):
+    """Adiciona secção. Aceita JSON (AJAX) ou form POST. ÚNICA versão."""
     def post(self, request, pagina_id):
         pagina = get_object_or_404(Pagina, pk=pagina_id)
-
         is_ajax = request.headers.get('X-Requested-With') == 'XMLHttpRequest'
-        if is_ajax:
-            try:
-                body = json.loads(request.body)
-                tipo = body.get('tipo', 'texto')
-            except Exception:
-                tipo = request.POST.get('tipo', 'texto')
-        else:
-            tipo = request.POST.get('tipo', 'texto')
+        body = _json_body(request) if is_ajax else request.POST
+        tipo = body.get('tipo', 'texto')
 
-        defaults_por_tipo = {
-            'hero':        {'titulo': 'O Seu Título Principal', 'subtitulo': 'Frase de impacto aqui', 'texto_botao': 'Saber Mais', 'link_botao': '/loja/', 'altura_px': 500},
-            'carrossel':   {'slides': [{'imagem_url': '', 'titulo': 'Slide 1', 'subtitulo': '', 'texto_botao': 'Ver mais', 'link_botao': ''}], 'autoplay': True, 'intervalo_ms': 4000, 'altura_px': 450},
-            'card':        {'titulo': 'Nossos Destaques', 'colunas': '3', 'cards_json': [{'icone': 'fas fa-star', 'titulo': 'Destaque', 'texto': 'Descrição breve.', 'link': ''}]},
-            'texto':       {'titulo': '', 'conteudo': '<p>Clique no botão editar para inserir o seu texto.</p>', 'alinhamento': 'esquerda'},
-            'imagem_fixa': {'imagem_url': '', 'legenda': '', 'largura_total': True},
-            'localizacao': {'titulo_mapa': 'A Nossa Localização', 'endereco_texto': ''},
-            'whatsapp':    {'numero': '', 'mensagem': 'Olá! Vim do vosso site.', 'tooltip': 'Fale connosco'},
-            'produtos':    {'titulo': 'Os Nossos Produtos', 'limite': 8, 'so_destaque': False},
-            'servicos':    {'titulo': 'Os Nossos Serviços', 'limite': 6},
-            'depoimentos': {'titulo': 'O Que Dizem de Nós', 'depoimentos_json': [{'nome': 'Cliente Exemplo', 'cargo': 'CEO', 'texto': 'Excelente serviço!', 'foto': ''}]},
-            'faq':         {'titulo': 'Perguntas Frequentes', 'faqs_json': [{'pergunta': 'Como funciona?', 'resposta': 'É muito simples...'}]},
-            'cta':         {'titulo': 'Pronto para começar?', 'descricao': 'Entre em contacto connosco.', 'texto_botao': 'Contactar', 'link_botao': '/contato/'},
-            'galeria':     {'titulo': 'Galeria', 'colunas': '3', 'imagens_json': []},
-            'contador':    {'titulo': 'Números que Importam', 'contadores_json': [{'numero': 100, 'sufixo': '+', 'label': 'Clientes', 'icone': 'fas fa-users'}]},
-            'equipa':      {'titulo': 'A Nossa Equipa', 'membros_json': [{'nome': 'Nome Apelido', 'cargo': 'Cargo', 'foto': '', 'linkedin': ''}]},
-            'parceiros':   {'titulo': 'Os Nossos Parceiros', 'logos_json': [{'url': '', 'alt': 'Parceiro', 'link': ''}]},
-            'video':       {'url_video': '', 'titulo': '', 'altura_px': 450},
-            'formulario':  {'titulo': 'Contacte-nos', 'campos': ['nome', 'email', 'mensagem'], 'texto_botao': 'Enviar'},
-            'divider':     {'espessura': 1, 'cor': '#e5e7eb', 'margem': 'md'},
-        }
+        if tipo not in dict(Secao.TIPO_CHOICES):
+            return JsonResponse({'ok': False, 'error': 'Tipo de bloco inválido'}, status=400)
 
-        nova_secao = Secao.objects.create(
-            pagina=pagina,
-            tipo=tipo,
-            dados=defaults_por_tipo.get(tipo, {}),
-            ordem=pagina.secoes.count() + 1
+        ordem = (pagina.secoes.aggregate(m=Max('ordem'))['m'] or 0) + 1
+        nova = Secao.objects.create(
+            pagina=pagina, tipo=tipo, ordem=ordem,
+            dados=copy.deepcopy(SECAO_DEFAULTS.get(tipo, {})),
         )
-
         if is_ajax:
-            return JsonResponse({'ok': True, 'id': nova_secao.pk})
-
-        messages.success(request, f"Secção '{nova_secao.get_tipo_display()}' adicionada.")
-        return redirect('site:editor', pagina_id=pagina_id)
-
-
-class PublicarSiteView(LoginRequiredMixin, View):
-    def post(self, request, pk):
-        pagina = get_object_or_404(Pagina, pk=pk)
-        pagina.em_rascunho = False
-        pagina.ativo = True
-        pagina.save(update_fields=['em_rascunho', 'ativo'])
-        messages.success(request, "Site publicado com sucesso!")
+            return JsonResponse({'ok': True, 'id': nova.pk})
+        messages.success(request, f"Bloco '{nova.get_tipo_display()}' adicionado.")
         return redirect('site:configuracao_dashboard')
 
 
-class AtualizarDesignGlobalView(LoginRequiredMixin, View):
+class SiteConfigDashboardView(LoginRequiredMixin, TenantOnlyMixin, View):
+    """Dashboard de gestão do site (só em schema de tenant)."""
+    template_name = 'site/dashboard_config.html'
+
+    def get(self, request):
+        config = _obter_config()
+        pagina = _obter_pagina_principal(config)
+        desde = timezone.now() - timedelta(days=7)
+        ev = EventoSite.objects.filter(created_at__gte=desde)
+
+        stats = {
+            'contatos_novos':         SolicitacaoContato.objects.filter(atendido=False).count(),
+            'candidaturas_pendentes': Candidatura.objects.filter(status='pendente').count(),
+            'reclamacoes_abertas':    Reclamacao.objects.filter(atendido=False).count(),
+            'pedidos_pendentes':      PedidoOnline.objects.filter(status='pendente').count(),
+            'visitas_7d':             ev.filter(tipo='visita').values('session_key').distinct().count(),
+            'whatsapp_7d':            ev.filter(tipo='whatsapp').count(),
+        }
+        pendentes = (stats['contatos_novos'] + stats['candidaturas_pendentes']
+                     + stats['reclamacoes_abertas'] + stats['pedidos_pendentes'])
+
+        base_int = reverse('site:interacoes')
+        cards = [
+            {'rotulo': 'Visitas (7 dias)', 'valor': stats['visitas_7d'],             'icone': 'fas fa-eye',          'cor': '#6366f1', 'url': base_int},
+            {'rotulo': 'Cliques WhatsApp', 'valor': stats['whatsapp_7d'],            'icone': 'fab fa-whatsapp',     'cor': '#25D366', 'url': base_int + '?tipo=whatsapp'},
+            {'rotulo': 'Contactos novos',  'valor': stats['contatos_novos'],         'icone': 'fas fa-envelope',     'cor': '#4f46e5', 'url': base_int + '?tipo=contato'},
+            {'rotulo': 'Pedidos pendentes','valor': stats['pedidos_pendentes'],      'icone': 'fas fa-shopping-bag', 'cor': '#16a34a', 'url': base_int + '?tipo=pedido'},
+            {'rotulo': 'Candidaturas',     'valor': stats['candidaturas_pendentes'], 'icone': 'fas fa-user-tie',     'cor': '#d97706', 'url': base_int + '?tipo=candidatura'},
+            {'rotulo': 'Reclamações',      'valor': stats['reclamacoes_abertas'],    'icone': 'fas fa-exclamation-circle', 'cor': '#dc2626', 'url': base_int + '?tipo=reclamacao'},
+        ]
+
+        return render(request, self.template_name, {
+            'config':           config,
+            'pagina':           pagina,
+            'secoes':           pagina.secoes.order_by('ordem'),
+            'blocos':           BLOCOS_DISPONIVEIS,
+            'empresa_atual':    getattr(connection, 'tenant', None),
+            'cards':            cards,
+            'pendentes_total':  pendentes,
+            'ultima_alteracao': getattr(pagina, 'updated_at', None) or getattr(pagina, 'modified', None),
+            # links públicos (absolutos, no domínio do tenant)
+            'url_site':       request.build_absolute_uri(reverse('site:pagina_home')),
+            'url_loja':       request.build_absolute_uri(reverse('site:loja')),
+            'url_preview':    reverse('site:preview', args=[pagina.slug, pagina.preview_token]),
+            'url_editor':     reverse('site:editor'),
+            'url_interacoes': base_int,
+        })
+
+
+class PublicarSiteView(LoginRequiredMixin, TenantOnlyMixin, View):
+    """Publica ou despublica (campo POST acao=despublicar)."""
+    def post(self, request, pk):
+        pagina = get_object_or_404(Pagina, pk=pk)
+        if request.POST.get('acao') == 'despublicar':
+            pagina.em_rascunho = True
+            msg = "Site passou a rascunho (já não é visível ao público)."
+        else:
+            pagina.em_rascunho = False
+            pagina.ativo = True
+            msg = "Site publicado com sucesso!"
+        pagina.save(update_fields=['em_rascunho', 'ativo'])
+        if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+            return JsonResponse({'ok': True, 'em_rascunho': pagina.em_rascunho})
+        messages.success(request, msg)
+        return redirect('site:configuracao_dashboard')
+
+
+class AtualizarSeoPaginaView(LoginRequiredMixin, TenantOnlyMixin, View):
+    def post(self, request, pk):
+        pagina = get_object_or_404(Pagina, pk=pk)
+        titulo = request.POST.get('titulo', '').strip()
+        if titulo:
+            pagina.titulo = titulo[:200]
+        pagina.meta_descricao = request.POST.get('meta_descricao', '').strip()[:160]
+        pagina.save(update_fields=['titulo', 'meta_descricao'])
+        messages.success(request, "Configurações de SEO guardadas.")
+        return redirect('site:configuracao_dashboard')
+
+
+class RegistarEventoView(View):
+    """Endpoint público: só aceita cliques no WhatsApp."""
+    def post(self, request):
+        body = _json_body(request)
+        if body.get('tipo') == 'whatsapp':
+            registar_evento(request, 'whatsapp', body.get('referencia', ''))
+        return JsonResponse({'ok': True})
+
+
+# ── PARTE 4 — PAINEL DE INTERAÇÕES DO PÚBLICO ───────────────────────────────
+
+TIPOS_INTERACAO = {   # chave: (rótulo, ícone FA, cor)
+    'pedido':       ('Pedidos',        'fa-shopping-bag',       '#16a34a'),
+    'contato':      ('Contactos',      'fa-envelope',           '#4f46e5'),
+    'agendamento':  ('Agendamentos',   'fa-calendar-check',     '#0891b2'),
+    'candidatura':  ('Candidaturas',   'fa-user-tie',           '#d97706'),
+    'reclamacao':   ('Reclamações',    'fa-exclamation-circle', '#dc2626'),
+    'comprovativo': ('Comprovativos',  'fa-receipt',            '#7c3aed'),
+    'cliente':      ('Novos clientes', 'fa-user-plus',          '#0ea5e9'),
+    'carrinho':     ('Carrinhos',      'fa-shopping-cart',      '#64748b'),
+    'whatsapp':     ('WhatsApp',       'fa-whatsapp',           '#25D366'),
+}
+
+
+def _aware(dt):
+    if dt is None:
+        return timezone.now()
+    return timezone.make_aware(dt) if timezone.is_naive(dt) else dt
+
+
+def _item(tipo, pk, titulo, detalhe, quando, pendente=False, acao='', contacto='', link=''):
+    rotulo, icone, cor = TIPOS_INTERACAO[tipo]
+    return {'tipo': tipo, 'pk': pk, 'rotulo': rotulo, 'icone': icone, 'cor': cor,
+            'titulo': titulo, 'detalhe': detalhe, 'quando': _aware(quando),
+            'pendente': pendente, 'acao': acao, 'contacto': contacto, 'link': link}
+
+
+def _url_ficheiro(campo):
+    try:
+        return campo.url if campo else ''
+    except Exception:
+        return ''
+
+
+def _feed_interacoes(desde, filtro=''):
+    quer = lambda t: not filtro or filtro == t
+    L = 100
+    it = []
+
+    if quer('pedido'):
+        for p in PedidoOnline.objects.filter(created_at__gte=desde).select_related('cliente_site')[:L]:
+            it.append(_item('pedido', p.pk, f"Pedido {p.referencia}",
+                            f"{p.nome_destinatario} · {p.total} {p.moeda} · {p.get_status_display()}",
+                            p.created_at, p.status == 'pendente', 'Confirmar',
+                            p.telefone_entrega or p.cliente_site.email))
+    if quer('contato'):
+        for c in SolicitacaoContato.objects.filter(created_at__gte=desde)[:L]:
+            it.append(_item('contato', c.pk, c.nome, f"{c.get_tipo_display()}: {c.mensagem[:160]}",
+                            c.created_at, not c.atendido, 'Marcar atendido', c.email or c.telefone))
+    if quer('candidatura'):
+        for c in Candidatura.objects.filter(created_at__gte=desde).select_related('concurso')[:L]:
+            it.append(_item('candidatura', c.pk, c.nome, f"Vaga: {c.concurso.titulo}", c.created_at,
+                            c.status == 'pendente', 'Marcar avaliada', c.email, _url_ficheiro(c.cv)))
+    if quer('reclamacao'):
+        for r in Reclamacao.objects.filter(created_at__gte=desde)[:L]:
+            it.append(_item('reclamacao', r.pk, f"{r.cliente_nome} — {r.assunto}", r.mensagem[:160],
+                            r.created_at, not r.atendido, 'Marcar atendida', r.cliente_email or r.cliente_telefone))
+    if quer('comprovativo'):
+        for c in ComprovativoCompra.objects.filter(created_at__gte=desde).select_related('pedido')[:L]:
+            ref = c.pedido.referencia if c.pedido else 'sem pedido'
+            it.append(_item('comprovativo', c.pk, f"Comprovativo — {ref}", c.descricao or c.nome,
+                            c.created_at, not c.verificado, 'Marcar verificado', '', _url_ficheiro(c.imagem)))
+    if quer('cliente'):
+        for c in ClienteSite.objects.filter(created_at__gte=desde)[:L]:
+            it.append(_item('cliente', c.pk, c.nome, "Registou-se no site", c.created_at,
+                            contacto=c.email or c.telefone))
+    if quer('carrinho'):
+        for c in (Carrinho.objects.filter(ativo=True, itens__isnull=False, created_at__gte=desde)
+                  .distinct().prefetch_related('itens')[:L]):
+            who = c.cliente_site.nome if c.cliente_site_id else 'Visitante anónimo'
+            it.append(_item('carrinho', c.pk, who, f"{c.total_itens} item(ns) · {c.total} — não finalizado",
+                            c.created_at, contacto=c.cliente_site.email if c.cliente_site_id else ''))
+    if quer('whatsapp'):
+        for e in EventoSite.objects.filter(tipo='whatsapp', created_at__gte=desde)[:L]:
+            it.append(_item('whatsapp', e.pk, "Clicou no WhatsApp", f"Página: {e.caminho} · {e.dispositivo}", e.created_at))
+    if quer('agendamento'):
+        try:
+            for a in AgendamentoServico.objects.filter(status='agendado').select_related('cliente', 'servico').order_by('-pk')[:L]:
+                criado = getattr(a, 'created_at', None) or a.data_hora
+                if _aware(criado) < desde:
+                    continue
+                it.append(_item('agendamento', a.pk, getattr(a.cliente, 'nome_completo', str(a.cliente)),
+                                f"{a.servico.nome} · para {a.data_hora:%d/%m/%Y %H:%M}", criado,
+                                contacto=getattr(a.cliente, 'telefone', '') or getattr(a.cliente, 'email', '')))
+        except Exception as exc:
+            logger.warning("Agendamentos no painel: %s", exc)
+
+    it.sort(key=lambda i: i['quando'], reverse=True)
+    return it[:150]
+
+
+class InteracoesSiteView(LoginRequiredMixin, TenantOnlyMixin, View):
+    """Painel com todas as interações do público no site."""
+    template_name = 'site/interacoes.html'
+
+    def get(self, request):
+        try:
+            dias = int(request.GET.get('dias', 30))
+        except ValueError:
+            dias = 30
+        dias = dias if dias in (7, 30, 90) else 30
+        filtro = request.GET.get('tipo', '')
+        if filtro not in TIPOS_INTERACAO:
+            filtro = ''
+
+        desde = timezone.now() - timedelta(days=dias)
+        hoje = timezone.localdate()
+        lista_dias = [hoje - timedelta(days=i) for i in range(dias - 1, -1, -1)]
+        ev = EventoSite.objects.filter(created_at__date__gte=lista_dias[0])
+
+        # gráfico de visitas únicas por dia
+        por_dia = {r['d']: r['n'] for r in (
+            ev.filter(tipo='visita').annotate(d=TruncDate('created_at'))
+              .values('d').annotate(n=Count('session_key', distinct=True)))}
+        maximo = max(por_dia.values(), default=1) or 1
+        grafico = [{'dia': d, 'n': por_dia.get(d, 0),
+                    'pct': max(4, round(por_dia.get(d, 0) / maximo * 100)) if por_dia.get(d) else 2}
+                   for d in lista_dias]
+
+        contagens = {
+            'pedido':       PedidoOnline.objects.filter(created_at__gte=desde).count(),
+            'contato':      SolicitacaoContato.objects.filter(created_at__gte=desde).count(),
+            'candidatura':  Candidatura.objects.filter(created_at__gte=desde).count(),
+            'reclamacao':   Reclamacao.objects.filter(created_at__gte=desde).count(),
+            'comprovativo': ComprovativoCompra.objects.filter(created_at__gte=desde).count(),
+            'cliente':      ClienteSite.objects.filter(created_at__gte=desde).count(),
+            'carrinho':     Carrinho.objects.filter(ativo=True, itens__isnull=False, created_at__gte=desde).distinct().count(),
+            'whatsapp':     ev.filter(tipo='whatsapp').count(),
+            'agendamento':  len(_feed_interacoes(desde, 'agendamento')),
+        }
+        abas = [{'chave': k, 'rotulo': v[0], 'icone': v[1], 'cor': v[2], 'n': contagens[k]}
+                for k, v in TIPOS_INTERACAO.items()]
+
+        return render(request, self.template_name, {
+            'dias': dias, 'filtro': filtro, 'abas': abas,
+            'feed': _feed_interacoes(desde, filtro),
+            'visitas_total': ev.filter(tipo='visita').values('session_key').distinct().count(),
+            'grafico': grafico,
+            'top_paginas': ev.filter(tipo='visita').values('caminho').annotate(n=Count('id')).order_by('-n')[:5],
+            'top_produtos': ev.filter(tipo='produto').values('referencia').annotate(n=Count('id')).order_by('-n')[:5],
+            'dispositivos': ev.filter(tipo='visita').values('dispositivo').annotate(n=Count('id')).order_by('-n'),
+            'url_dashboard': reverse('site:configuracao_dashboard'),
+        })
+
+
+class AtenderInteracaoView(LoginRequiredMixin, TenantOnlyMixin, View):
+    """Marca uma interação como tratada (AJAX)."""
+    def post(self, request, tipo, pk):
+        if tipo == 'contato':
+            SolicitacaoContato.objects.filter(pk=pk).update(atendido=True)
+        elif tipo == 'reclamacao':
+            Reclamacao.objects.filter(pk=pk).update(atendido=True)
+        elif tipo == 'candidatura':
+            Candidatura.objects.filter(pk=pk, status='pendente').update(status='avaliada')
+        elif tipo == 'pedido':
+            PedidoOnline.objects.filter(pk=pk, status='pendente').update(status='confirmado')
+        elif tipo == 'comprovativo':
+            ComprovativoCompra.objects.filter(pk=pk).update(verificado=True)
+        else:
+            return JsonResponse({'ok': False, 'error': 'tipo inválido'}, status=400)
+        return JsonResponse({'ok': True})
+
+# As restantes (AtualizarDesignGlobalView, AtualizarConfiguracaoView, ReordenarSecoesView,
+# EditarConteudoSecaoView, DuplicarSecaoView, EliminarSecaoView, ProcessarAgendamentoSiteView)
+# ficam como estão.
+####################################
+
+
+
+class AtualizarDesignGlobalView(LoginRequiredMixin, TenantOnlyMixin, View):
     """S12 — Actualiza design global: cores, fonte, tema, raio, efeitos, rodapé."""
     def post(self, request):
         config = _obter_config()
@@ -752,7 +1164,7 @@ class AtualizarDesignGlobalView(LoginRequiredMixin, View):
         return redirect('site:configuracao_dashboard')
 
 
-class AtualizarConfiguracaoView(LoginRequiredMixin, View):
+class AtualizarConfiguracaoView(LoginRequiredMixin, TenantOnlyMixin, View):
     """Actualiza ConfiguracaoSite (WhatsApp, loja, contactos, etc.)."""
     def post(self, request):
         config = _obter_config()
@@ -776,26 +1188,9 @@ class AtualizarConfiguracaoView(LoginRequiredMixin, View):
         return redirect('site:configuracao_dashboard')
 
 
-class AdicionarSecaoView(LoginRequiredMixin, View):
-    def post(self, request, pagina_id):
-        pagina = get_object_or_404(Pagina, pk=pagina_id)
-        tipo   = request.POST.get('tipo', 'texto')
-        esquemas = {
-            'carrossel':   {'slides': [{'imagem_url': '', 'titulo': 'Novo Slide', 'subtitulo': '', 'texto_botao': 'Clique Aqui', 'link_botao': ''}], 'autoplay': True},
-            'card':        {'titulo_secao': 'Título', 'itens': [{'icone': 'fas fa-star', 'titulo': 'Destaque', 'descricao': '...'}]},
-            'texto':       {'conteudo_html': '<h2>Título</h2><p>Texto...</p>', 'fundo_claro': True},
-            'imagem_fixa': {'imagem_url': '', 'legenda': '', 'largura_total': True},
-            'localizacao': {'titulo_mapa': 'A Nossa Localização', 'iframe_url': '', 'endereco_texto': 'Endereço...'},
-            'whatsapp':    {'numero': '', 'mensagem': 'Olá!', 'tooltip': 'Fale connosco'},
-            'produtos':    {'titulo_secao': 'Os Nossos Produtos', 'mostrar_preco': True},
-            'servicos':    {'titulo_secao': 'Os Nossos Serviços', 'mostrar_preco': True},
-        }
-        Secao.objects.create(pagina=pagina, tipo=tipo, dados=esquemas.get(tipo, {}), ordem=pagina.secoes.count() + 1)
-        messages.success(request, f"Secção '{tipo}' adicionada.")
-        return redirect('site:configuracao_dashboard')
 
 
-class ReordenarSecoesView(LoginRequiredMixin, View):
+class ReordenarSecoesView(LoginRequiredMixin, TenantOnlyMixin, View):
     def post(self, request):
         try:
             data = json.loads(request.body)
@@ -806,6 +1201,11 @@ class ReordenarSecoesView(LoginRequiredMixin, View):
         with db_transaction.atomic():
             # Aceita tanto {'secoes': [...]} como {'ordem': [...]}
             lista = data.get('ordem') or data.get('secoes', [])
+            if isinstance(lista, str):
+                try:
+                    lista = json.loads(lista)
+                except Exception:
+                    lista = []
             for item in lista:
                 pk  = item.get('id') or item.get('pk')
                 ord_ = item.get('ordem', item.get('posicao', 0))
@@ -814,7 +1214,7 @@ class ReordenarSecoesView(LoginRequiredMixin, View):
         return JsonResponse({'ok': True})
 
 
-class EditarConteudoSecaoView(LoginRequiredMixin, View):
+class EditarConteudoSecaoView(LoginRequiredMixin, TenantOnlyMixin, View):
     """S12 — Editar conteúdo e design de uma secção via AJAX."""
     def get(self, request, secao_id):
         secao = get_object_or_404(Secao, pk=secao_id)
@@ -876,7 +1276,7 @@ class EditarConteudoSecaoView(LoginRequiredMixin, View):
         return redirect('site:configuracao_dashboard')
 
 
-class DuplicarSecaoView(LoginRequiredMixin, View):
+class DuplicarSecaoView(LoginRequiredMixin, TenantOnlyMixin, View):
     """S12 — Duplica uma secção."""
     def post(self, request, secao_id):
         secao = get_object_or_404(Secao, pk=secao_id)
@@ -905,7 +1305,7 @@ class DuplicarSecaoView(LoginRequiredMixin, View):
         return redirect('site:configuracao_dashboard')
 
 
-class EliminarSecaoView(LoginRequiredMixin, View):
+class EliminarSecaoView(LoginRequiredMixin, TenantOnlyMixin, View):
     """S12 — Elimina uma secção."""
     def post(self, request, secao_id):
         secao = get_object_or_404(Secao, pk=secao_id)
