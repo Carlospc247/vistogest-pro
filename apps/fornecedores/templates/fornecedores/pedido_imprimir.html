@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}Imprimir {{ pedido.numero_pedido }}{% endblock %}
+{% block content %}
+<div class="max-w-3xl mx-auto bg-white p-8 my-6 border rounded">
+  <div class="flex justify-between items-start mb-6">
+    <div><h1 class="text-xl font-bold">PEDIDO DE COMPRA</h1><p class="text-gray-600">{{ pedido.numero_pedido }}</p></div>
+    <div class="text-right text-sm"><p>Data: {{ pedido.data_pedido|date:"d/m/Y" }}</p><p>Estado: {{ pedido.get_status_display }}</p></div>
+  </div>
+  <div class="mb-6 text-sm">
+    <p class="font-semibold">{{ pedido.fornecedor.razao_social }}</p>
+    <p>NIF/BI: {{ pedido.fornecedor.nif_bi }}</p><p>{{ pedido.fornecedor.endereco_completo }}</p>
+  </div>
+  <table class="w-full text-sm border-collapse">
+    <thead><tr class="border-b-2"><th class="text-left py-2">Produto</th><th>Qtd</th><th class="text-right">P. Unit.</th><th class="text-right">Total</th></tr></thead>
+    <tbody>{% for it in pedido.itens.all %}
+      <tr class="border-b"><td class="py-1">{{ it.produto.nome_comercial }}</td><td class="text-center">{{ it.quantidade }}</td>
+      <td class="text-right">{{ it.preco_unitario|floatformat:2 }}</td><td class="text-right">{{ it.total|floatformat:2 }}</td></tr>{% endfor %}</tbody>
+  </table>
+  <p class="text-right text-lg font-bold mt-4">TOTAL: {{ pedido.total|floatformat:2 }} Kz</p>
+  {% if pedido.observacoes %}<p class="mt-6 text-sm"><strong>Observações:</strong> {{ pedido.observacoes }}</p>{% endif %}
+</div>
+<script>window.addEventListener('load', () => setTimeout(() => window.print(), 400));</script>
+{% endblock %}

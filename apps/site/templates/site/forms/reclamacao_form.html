@@ -1,0 +1,116 @@
+<!-- site/forms/reclamacao_form.html -->
+{% extends "site/loja/base_loja.html" %}
+
+{% block titulo %}Enviar reclamação{% endblock %}
+
+{% block conteudo %}
+<section class="pagina">
+    <div class="estreito">
+
+        <div class="migalhas">
+            <a href="{% url 'site:pagina_home' %}">Início</a>
+            <span> / </span>
+            <span>Reclamação</span>
+        </div>
+
+        <div class="painel">
+            <h1>Enviar reclamação</h1>
+
+            <p class="suave">
+                Preencha o formulário abaixo para enviar a sua reclamação.
+                A nossa equipa irá analisar o caso e responder assim que possível.
+            </p>
+
+            {% if cliente_formulario %}
+                <div class="aviso">
+                    A sua reclamação será associada à conta de
+                    <strong>{{ cliente_formulario.email }}</strong>.
+                    Pode acompanhar a resposta no seu
+                    <a href="{% url 'site:cliente_perfil' %}">perfil</a>.
+                </div>
+            {% endif %}
+
+            <form method="post">
+                {% csrf_token %}
+
+                {# Os nomes dos campos têm de coincidir com ReclamacaoCreateView: cliente_nome, cliente_email, cliente_telefone #}
+                <div class="campo">
+                    <label for="id_cliente_nome">Nome</label>
+                    <input
+                        type="text"
+                        id="id_cliente_nome"
+                        name="cliente_nome"
+                        value="{{ cliente_formulario.nome|default:'' }}"
+                        {% if cliente_formulario %}readonly{% endif %}
+                        required
+                        autocomplete="name"
+                        placeholder="Seu nome completo"
+                    >
+                </div>
+
+                <div class="campo">
+                    <label for="id_cliente_email">Email</label>
+                    <input
+                        type="email"
+                        id="id_cliente_email"
+                        name="cliente_email"
+                        value="{{ cliente_formulario.email|default:'' }}"
+                        {% if cliente_formulario %}readonly{% endif %}
+                        required
+                        autocomplete="email"
+                        placeholder="seu@email.com"
+                    >
+                </div>
+
+                <div class="campo">
+                    <label for="id_cliente_telefone">Telefone</label>
+                    <input
+                        type="tel"
+                        id="id_cliente_telefone"
+                        name="cliente_telefone"
+                        value="{{ cliente_formulario.telefone|default:'' }}"
+                        {# só bloqueia se o cliente já tiver telefone guardado #}
+                        {% if cliente_formulario.telefone %}readonly{% endif %}
+                        autocomplete="tel"
+                        placeholder="Seu número de telefone"
+                    >
+                </div>
+
+                <div class="campo">
+                    <label for="id_assunto">Assunto</label>
+                    <input
+                        type="text"
+                        id="id_assunto"
+                        name="assunto"
+                        required
+                        maxlength="200"
+                        placeholder="Assunto da reclamação"
+                    >
+                </div>
+
+                <div class="campo">
+                    <label for="id_mensagem">Mensagem</label>
+                    <textarea
+                        id="id_mensagem"
+                        name="mensagem"
+                        rows="7"
+                        required
+                        placeholder="Descreva detalhadamente a situação..."
+                    ></textarea>
+                </div>
+
+                <div class="acoes-formulario">
+                    <button type="submit" class="btn">
+                        Enviar reclamação
+                    </button>
+
+                    <a href="{% url 'site:pagina_home' %}" class="btn btn-sec">
+                        Cancelar
+                    </a>
+                </div>
+            </form>
+        </div>
+
+    </div>
+</section>
+{% endblock %}

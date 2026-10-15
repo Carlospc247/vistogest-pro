@@ -1,0 +1,9 @@
+{% if is_paginated %}
+<div class="mt-4 flex justify-between items-center text-sm">
+  <span class="rh-muted">Página {{ page_obj.number }} de {{ paginator.num_pages }}</span>
+  <div class="flex gap-2">
+    {% if page_obj.has_previous %}<a class="rh-btn" href="?page={{ page_obj.previous_page_number }}{% for k,v in request.GET.items %}{% if k != 'page' %}&{{ k }}={{ v|urlencode }}{% endif %}{% endfor %}">Anterior</a>{% endif %}
+    {% if page_obj.has_next %}<a class="rh-btn" href="?page={{ page_obj.next_page_number }}{% for k,v in request.GET.items %}{% if k != 'page' %}&{{ k }}={{ v|urlencode }}{% endif %}{% endfor %}">Seguinte</a>{% endif %}
+  </div>
+</div>
+{% endif %}

@@ -1,0 +1,14 @@
+{# recibos/processamento_list.html #}
+{% extends "funcionarios/_rh_base.html" %}
+{% block title %}Processamentos salariais{% endblock %}
+{% block rh_content %}
+{% include "recibos/nav.html" %}
+<div class="flex justify-between items-center mb-4"><h1 class="text-2xl font-bold">Processamentos salariais</h1>
+  <a class="rh-btn rh-btn-p" href="{% url 'funcionarios:processamento_novo' %}"><i class="fas fa-plus mr-1"></i> Novo processamento</a></div>
+<div class="rh-card p-0 overflow-x-auto"><table class="rh-table"><thead><tr><th>Período</th><th>Descrição</th><th>Estado</th><th>Pagamento</th><th></th></tr></thead><tbody>
+  {% for p in processamentos %}<tr><td>{{ p.mes_nome }}/{{ p.ano }}</td><td>{{ p.descricao }}</td>
+    <td><span class="rh-badge {% if p.estado == 'PAGO' %}rh-ok{% elif p.estado == 'CANCELADO' %}rh-bad{% else %}rh-warn{% endif %}">{{ p.get_estado_display }}</span></td>
+    <td>{{ p.data_pagamento|date:"d/m/Y"|default:"—" }}</td><td class="text-right"><a class="text-indigo-600" href="{% url 'funcionarios:processamento_detalhe' pk=p.pk %}">Abrir</a></td></tr>
+  {% empty %}<tr><td colspan="5" class="text-center py-8 rh-muted">Nenhum processamento.</td></tr>{% endfor %}</tbody></table></div>
+{% include "funcionarios/_paginacao.html" %}
+{% endblock %}

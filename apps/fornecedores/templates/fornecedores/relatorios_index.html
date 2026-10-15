@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}Relatórios de Fornecedores{% endblock %}
+{% block content %}
+<div class="container mx-auto px-4 py-8 max-w-4xl">
+  <h1 class="text-2xl font-bold text-gray-800 mb-6">Relatórios de Fornecedores</h1>
+  <div class="grid sm:grid-cols-2 gap-4">
+    <a href="{% url 'fornecedores:relatorio_compras' %}" class="block bg-white rounded-xl border p-5 hover:shadow-md"><i class="fas fa-shopping-basket text-indigo-600 text-2xl mb-2"></i><h2 class="font-semibold">Compras</h2><p class="text-sm text-gray-500">Total comprado por fornecedor num período.</p></a>
+    <a href="{% url 'fornecedores:relatorio_performance' %}" class="block bg-white rounded-xl border p-5 hover:shadow-md"><i class="fas fa-tachometer-alt text-indigo-600 text-2xl mb-2"></i><h2 class="font-semibold">Performance</h2><p class="text-sm text-gray-500">Pontualidade, notas e pedidos atrasados.</p></a>
+    <a href="{% url 'fornecedores:relatorio_pagamentos' %}" class="block bg-white rounded-xl border p-5 hover:shadow-md"><i class="fas fa-money-check-alt text-indigo-600 text-2xl mb-2"></i><h2 class="font-semibold">Pagamentos</h2><p class="text-sm text-gray-500">Valores por liquidar e vencimentos.</p></a>
+    <a href="{% url 'fornecedores:qualificacao' %}" class="block bg-white rounded-xl border p-5 hover:shadow-md"><i class="fas fa-certificate text-indigo-600 text-2xl mb-2"></i><h2 class="font-semibold">Qualificação</h2><p class="text-sm text-gray-500">Situação de cada fornecedor e documentos vencidos.</p></a>
+    <a href="{% url 'fornecedores:ranking' %}" class="block bg-white rounded-xl border p-5 hover:shadow-md"><i class="fas fa-trophy text-indigo-600 text-2xl mb-2"></i><h2 class="font-semibold">Ranking</h2><p class="text-sm text-gray-500">Melhores fornecedores por nota média.</p></a>
+  </div>
+</div>
+{% endblock %}

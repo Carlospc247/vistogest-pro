@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}Comunicações{% endblock %}
+{% block content %}
+<div class="container mx-auto px-4 py-8 max-w-5xl">
+  <a href="{% url 'fornecedores:lista' %}" class="text-sm text-indigo-600 hover:underline">&larr; Fornecedores</a>
+  <h1 class="text-2xl font-bold text-gray-800 my-4">Comunicações com fornecedores</h1>
+  <div class="space-y-3">
+  {% for f in fornecedores %}
+    <details class="bg-white rounded-xl border border-gray-100 shadow-sm p-4">
+      <summary class="cursor-pointer flex justify-between items-center">
+        <span class="font-medium">{{ f.nome_exibicao }}</span>
+        <span class="text-xs text-gray-500">{{ f.email_principal|default:"sem email" }} • {{ f.whatsapp|default:"sem WhatsApp" }}</span>
+      </summary>
+      <div class="grid md:grid-cols-2 gap-4 mt-4">
+        <form method="post" action="{% url 'fornecedores:enviar_email' pk=f.pk %}" class="space-y-2">{% csrf_token %}
+          <input type="hidden" name="next" value="{% url 'fornecedores:comunicacao_lista' %}">
+          <input name="assunto" placeholder="Assunto" class="w-full border rounded px-3 py-2 text-sm" required>
+          <textarea name="corpo" rows="3" placeholder="Mensagem" class="w-full border rounded px-3 py-2 text-sm" required></textarea>
+          <button class="px-3 py-2 rounded bg-indigo-600 text-white text-sm" {% if not f.email_principal %}disabled{% endif %}><i class="fas fa-envelope mr-1"></i> Enviar email</button>
+        </form>
+        <form method="post" action="{% url 'fornecedores:enviar_whatsapp' pk=f.pk %}" class="space-y-2">{% csrf_token %}
+          <textarea name="mensagem" rows="3" placeholder="Mensagem de WhatsApp" class="w-full border rounded px-3 py-2 text-sm"></textarea>
+          <button class="px-3 py-2 rounded bg-green-600 text-white text-sm" {% if not f.whatsapp %}disabled{% endif %}><i class="fab fa-whatsapp mr-1"></i> Abrir WhatsApp</button>
+        </form>
+      </div>
+    </details>
+  {% empty %}<p class="text-gray-500">Sem fornecedores activos.</p>{% endfor %}
+  </div>
+  {% if is_paginated %}
+  <div class="mt-4 flex gap-2 text-sm">
+    {% if page_obj.has_previous %}<a class="px-3 py-1.5 border rounded bg-white" href="?page={{ page_obj.previous_page_number }}">Anterior</a>{% endif %}
+    {% if page_obj.has_next %}<a class="px-3 py-1.5 border rounded bg-white" href="?page={{ page_obj.next_page_number }}">Seguinte</a>{% endif %}
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

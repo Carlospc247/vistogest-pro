@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}{{ titulo|default:"Eliminar" }}{% endblock %}
+{% block content %}
+<div class="max-w-lg mx-auto px-4 py-12">
+  <div class="bg-white rounded-xl shadow-sm border border-red-100 p-6 text-center">
+    <i class="fas fa-exclamation-triangle text-4xl text-red-500 mb-3"></i>
+    <h1 class="text-xl font-bold text-gray-800 mb-2">{{ titulo|default:"Eliminar registo" }}</h1>
+    <p class="text-gray-600 mb-6">Tem a certeza de que quer eliminar <strong>{{ object }}</strong>? Esta acção não pode ser desfeita.</p>
+    <form method="post" class="flex justify-center gap-3">
+      {% csrf_token %}
+      <a href="javascript:history.back()" class="px-4 py-2 rounded-md border border-gray-300 text-gray-700 hover:bg-gray-50">Cancelar</a>
+      <button type="submit" class="px-4 py-2 rounded-md bg-red-600 text-white hover:bg-red-700">Sim, eliminar</button>
+    </form>
+  </div>
+</div>
+{% endblock %}

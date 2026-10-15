@@ -1,0 +1,8 @@
+{# ponto/ajustes.html #}
+{% extends "funcionarios/_rh_base.html" %}
+{% block title %}Ajustes de ponto{% endblock %}
+{% block rh_content %}
+<h1 class="text-2xl font-bold mb-4">Ajustes de ponto</h1>
+<div class="p-3 mb-3 rounded bg-yellow-50 text-yellow-800 text-sm">A edição manual de marcações ainda não está implementada na view. Por agora é possível consultar o registo de cada funcionário.</div>
+{% include "ponto/_buscar_funcionario.html" %}
+{% endblock %}

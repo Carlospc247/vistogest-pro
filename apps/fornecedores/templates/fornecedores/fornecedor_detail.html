@@ -1,118 +1,91 @@
 {% extends "base.html" %}
-
-{% block title %}Detalhe - {{ fornecedor.razao_social }}{% endblock %}
-
+{% block title %}{{ fornecedor.nome_exibicao }}{% endblock %}
 {% block content %}
-<div class="container mt-4">
-    <div class="d-flex justify-content-between align-items-center mb-4">
-        <h2>Detalhe do Fornecedor: {{ fornecedor.nome_exibicao }}</h2>
-        
-        {# Bloco de Ações Críticas (Ativar, Bloquear, Avaliar) #}
-        <div class="btn-group">
-            <a href="{% url 'fornecedores:avaliacao_create' fornecedor_pk=fornecedor.pk %}" class="btn btn-warning" title="Avaliar Performance">
-                <i class="fas fa-star"></i> Avaliar
-            </a>
-            <a href="{% url 'fornecedores:historico_avaliacoes' pk=fornecedor.pk %}" class="btn btn-secondary" title="Ver Histórico">
-                <i class="fas fa-history"></i> Histórico
-            </a>
-
-            {% if fornecedor.ativo %}
-                <form method="post" action="{% url 'fornecedores:bloquear_fornecedor' pk=fornecedor.pk %}" style="display:inline;">
-                    {% csrf_token %}
-                    <button type="submit" class="btn btn-danger" title="Bloquear Fornecedor">
-                        <i class="fas fa-lock"></i> Bloquear
-                    </button>
-                </form>
-            {% else %}
-                <form method="post" action="{% url 'fornecedores:ativar_fornecedor' pk=fornecedor.pk %}" style="display:inline;">
-                    {% csrf_token %}
-                    <button type="submit" class="btn btn-success" title="Ativar Fornecedor">
-                        <i class="fas fa-unlock"></i> Ativar
-                    </button>
-                </form>
-            {% endif %}
-
-            <a href="{% url 'fornecedores:editar_fornecedor' pk=fornecedor.pk %}" class="btn btn-info" title="Editar Dados">
-                <i class="fas fa-edit"></i> Editar
-            </a>
-            <a href="{% url 'fornecedores:deletar_fornecedor' pk=fornecedor.pk %}" class="btn btn-danger" title="Eliminar Fornecedor">
-                <i class="fas fa-trash-alt"></i> Eliminar
-            </a>
-        </div>
-        
+<div class="container mx-auto px-4 py-8 max-w-6xl space-y-6">
+  <div class="flex flex-wrap justify-between items-start gap-3">
+    <div>
+      <a href="{% url 'fornecedores:lista' %}" class="text-sm text-indigo-600 hover:underline">&larr; Fornecedores</a>
+      <h1 class="text-3xl font-bold text-gray-800 mt-1">{{ fornecedor.nome_exibicao }}</h1>
+      <p class="text-gray-500">{{ fornecedor.razao_social }} • {{ fornecedor.codigo_fornecedor }} • {{ fornecedor.get_categoria_display }}</p>
     </div>
-
-    <div class="card shadow-sm">
-        <div class="card-header bg-primary text-white">
-            Informações Essenciais
-        </div>
-        <div class="card-body">
-            <div class="row">
-                
-                {# Informações de Identificação e Foto #}
-                <div class="col-md-4 text-center">
-                    <img src="{{ fornecedor.foto.url }}" class="img-fluid rounded-circle mb-3" alt="Foto Fornecedor" style="width: 150px; height: 150px; object-fit: cover;">
-                    <p class="h5">{{ fornecedor.razao_social }}</p>
-                    <p class="text-muted">{{ fornecedor.get_categoria_display }} | {{ fornecedor.get_porte_display }}</p>
-                    
-                    <span class="badge 
-                        {% if fornecedor.ativo and not fornecedor.bloqueado %}bg-success
-                        {% elif fornecedor.bloqueado %}bg-danger
-                        {% else %}bg-warning{% endif %} 
-                        fs-6 mt-2">
-                        {% if fornecedor.bloqueado %}BLOQUEADO: {{ fornecedor.motivo_bloqueio|default:"Motivo Não Registrado" }}
-                        {% elif fornecedor.ativo %}STATUS: Ativo
-                        {% else %}STATUS: Inativo{% endif %}
-                    </span>
-                </div>
-                
-                {# Dados de Contato e Documentos #}
-                <div class="col-md-8">
-                    <dl class="row">
-                        <dt class="col-sm-4">Código / NIF:</dt>
-                        <dd class="col-sm-8">{{ fornecedor.codigo_fornecedor }} / **{{ fornecedor.nif_bi }}**</dd>
-
-                        <dt class="col-sm-4">Telefone Principal:</dt>
-                        <dd class="col-sm-8">{{ fornecedor.telefone_principal|default:"N/A" }}</dd>
-
-                        <dt class="col-sm-4">Email Principal:</dt>
-                        <dd class="col-sm-8">{{ fornecedor.email_principal }}</dd>
-                        
-                        <dt class="col-sm-4">Endereço:</dt>
-                        <dd class="col-sm-8 text-wrap">{{ fornecedor.endereco_completo }}</dd>
-                        
-                        <dt class="col-sm-4">Website:</dt>
-                        <dd class="col-sm-8"><a href="{{ fornecedor.site }}" target="_blank">{{ fornecedor.site|default:"N/A" }}</a></dd>
-                    </dl>
-                </div>
-            </div>
-            
-            <h5 class="mt-4 border-bottom pb-2">Desempenho e Condições Comerciais</h5>
-            <dl class="row">
-                <dt class="col-sm-4">Nota Média (0-10):</dt>
-                <dd class="col-sm-8">
-                    <span class="fw-bold text-success">{{ fornecedor.nota_avaliacao|floatformat:1|default:"N/A" }}</span>
-                    (Total de Pedidos: {{ fornecedor.total_pedidos }})
-                </dd>
-
-                <dt class="col-sm-4">Total Comprado (Kz):</dt>
-                <dd class="col-sm-8">**Kz {{ fornecedor.total_comprado|floatformat:2 }}**</dd>
-                
-                <dt class="col-sm-4">Prazo Padrão de Entrega:</dt>
-                <dd class="col-sm-8">{{ fornecedor.prazo_entrega_dias }} dias</dd>
-                
-                <dt class="col-sm-4">Permite Devolução:</dt>
-                <dd class="col-sm-8">{{ fornecedor.permite_devolucao|yesno:"Sim, Não" }} (Prazo: {{ fornecedor.prazo_devolucao_dias }} dias)</dd>
-            </dl>
-            
-            <h5 class="mt-4 border-bottom pb-2">Observações</h5>
-            <p>{{ fornecedor.observacoes|linebreaksbr|default:"Nenhuma observação geral registrada." }}</p>
-        </div>
+    <div class="flex flex-wrap gap-2">
+      <a href="{% url 'fornecedores:update' pk=fornecedor.pk %}" class="px-3 py-2 border rounded bg-white hover:bg-gray-50 text-sm"><i class="fas fa-edit mr-1"></i> Editar</a>
+      <a href="{% url 'fornecedores:avaliar' pk=fornecedor.pk %}" class="px-3 py-2 border rounded bg-white hover:bg-gray-50 text-sm"><i class="fas fa-star mr-1"></i> Avaliar</a>
+      <a href="{% url 'fornecedores:contato_lista' fornecedor_pk=fornecedor.pk %}" class="px-3 py-2 border rounded bg-white hover:bg-gray-50 text-sm"><i class="fas fa-address-book mr-1"></i> Contactos</a>
+      <a href="{% url 'fornecedores:historico' pk=fornecedor.pk %}" class="px-3 py-2 border rounded bg-white hover:bg-gray-50 text-sm"><i class="fas fa-history mr-1"></i> Histórico</a>
+      <a href="{% url 'fornecedores:pedido_create' %}?fornecedor={{ fornecedor.pk }}" class="px-3 py-2 rounded bg-indigo-600 text-white text-sm"><i class="fas fa-shopping-cart mr-1"></i> Novo Pedido</a>
     </div>
-    <div class="mt-3">
-        <a href="{% url 'fornecedores:lista' %}" class="btn btn-secondary">
-            <i class="fas fa-arrow-left"></i> Voltar à Lista
-        </a>
+  </div>
+
+  <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-5 flex flex-wrap items-center justify-between gap-4">
+    <div>
+      <span class="px-3 py-1 rounded-full text-sm font-medium
+        {% if fornecedor.bloqueado %}bg-red-100 text-red-800{% elif fornecedor.ativo %}bg-green-100 text-green-800{% else %}bg-yellow-100 text-yellow-800{% endif %}">
+        {% if fornecedor.bloqueado %}BLOQUEADO{% elif fornecedor.ativo %}ACTIVO{% else %}INACTIVO{% endif %}
+      </span>
+      {% if fornecedor.bloqueado and fornecedor.motivo_bloqueio %}<p class="text-sm text-red-700 mt-2">Motivo: {{ fornecedor.motivo_bloqueio }}</p>{% endif %}
     </div>
+    <div class="flex flex-wrap gap-2 items-center">
+      {% if not fornecedor.ativo or fornecedor.bloqueado %}
+      <form method="post" action="{% url 'fornecedores:ativar' pk=fornecedor.pk %}">{% csrf_token %}
+        <button class="px-3 py-2 rounded bg-green-600 text-white text-sm">Activar</button></form>
+      {% endif %}
+      {% if not fornecedor.bloqueado %}
+      <form method="post" action="{% url 'fornecedores:bloquear' pk=fornecedor.pk %}" class="flex gap-2">{% csrf_token %}
+        <input name="motivo" placeholder="Motivo do bloqueio" class="border rounded px-2 py-1.5 text-sm">
+        <button class="px-3 py-2 rounded bg-red-600 text-white text-sm">Bloquear</button></form>
+      {% endif %}
+      <a href="{% url 'fornecedores:delete' pk=fornecedor.pk %}" class="px-3 py-2 border border-red-300 text-red-600 rounded text-sm">Eliminar</a>
+    </div>
+  </div>
+
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+    <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-5 space-y-2 text-sm">
+      <h2 class="font-semibold text-gray-800 mb-2">Dados gerais</h2>
+      <p><span class="text-gray-500">NIF/BI:</span> {{ fornecedor.nif_bi }}</p>
+      <p><span class="text-gray-500">Morada:</span> {{ fornecedor.endereco_completo }}</p>
+      <p><span class="text-gray-500">Email:</span> {{ fornecedor.email_principal }}</p>
+      <p><span class="text-gray-500">Telefone:</span> {{ fornecedor.telefone_principal|default:"—" }}</p>
+      <p><span class="text-gray-500">WhatsApp:</span> {{ fornecedor.whatsapp|default:"—" }}</p>
+      <p><span class="text-gray-500">Site:</span> {{ fornecedor.site|default:"—" }}</p>
+    </div>
+    <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-5 space-y-2 text-sm">
+      <h2 class="font-semibold text-gray-800 mb-2">Condições comerciais</h2>
+      <p><span class="text-gray-500">Condição de pagamento:</span> {{ fornecedor.condicao_pagamento_padrao|default:"—" }}</p>
+      <p><span class="text-gray-500">Prazo de entrega:</span> {{ fornecedor.prazo_entrega_dias }} dias</p>
+      <p><span class="text-gray-500">Pedido mínimo:</span> {{ fornecedor.valor_minimo_pedido|floatformat:2 }} Kz</p>
+      <p><span class="text-gray-500">Banco:</span> {{ fornecedor.banco_principal|default:"—" }} {{ fornecedor.conta_corrente }}</p>
+      <p><span class="text-gray-500">Devoluções:</span> {{ fornecedor.permite_devolucao|yesno:"Sim,Não" }} ({{ fornecedor.prazo_devolucao_dias }} dias)</p>
+    </div>
+    <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-5 space-y-2 text-sm">
+      <h2 class="font-semibold text-gray-800 mb-2">Desempenho</h2>
+      <p><span class="text-gray-500">Nota:</span> {{ fornecedor.nota_avaliacao|default:"—" }}/10</p>
+      <p><span class="text-gray-500">Pontualidade:</span> {{ fornecedor.pontualidade_entrega }}%</p>
+      <p><span class="text-gray-500">Pedidos concluídos:</span> {{ fornecedor.total_pedidos }}</p>
+      <p><span class="text-gray-500">Total comprado:</span> {{ fornecedor.total_comprado|floatformat:2 }} Kz</p>
+      <p><span class="text-gray-500">Dias sem pedido:</span> {{ fornecedor.dias_sem_pedido|default_if_none:"—" }}</p>
+    </div>
+  </div>
+
+  <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-5">
+    <h2 class="font-semibold text-gray-800 mb-3">Últimos pedidos</h2>
+    <table class="w-full text-sm">
+      <thead><tr class="text-left text-gray-500 border-b"><th class="py-2">Pedido</th><th>Data</th><th>Estado</th><th class="text-right">Total</th></tr></thead>
+      <tbody>
+      {% for p in fornecedor.pedidos.all|slice:":8" %}
+        <tr class="border-b last:border-0"><td class="py-2"><a class="text-indigo-600 hover:underline" href="{% url 'fornecedores:pedido_detail' pk=p.pk %}">{{ p.numero_pedido }}</a></td>
+        <td>{{ p.data_pedido|date:"d/m/Y" }}</td><td>{{ p.get_status_display }}</td><td class="text-right">{{ p.total|floatformat:2 }} Kz</td></tr>
+      {% empty %}<tr><td colspan="4" class="py-4 text-gray-500 text-center">Sem pedidos.</td></tr>{% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {% if fornecedor.observacoes or fornecedor.observacoes_internas %}
+  <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-5 text-sm space-y-2">
+    <h2 class="font-semibold text-gray-800">Observações</h2>
+    {% if fornecedor.observacoes %}<p>{{ fornecedor.observacoes|linebreaksbr }}</p>{% endif %}
+    {% if fornecedor.observacoes_internas %}<p class="text-gray-500"><em>Internas:</em> {{ fornecedor.observacoes_internas|linebreaksbr }}</p>{% endif %}
+  </div>
+  {% endif %}
 </div>
 {% endblock %}

@@ -1,0 +1,256 @@
+{% extends "base.html" %}
+
+{#
+  Template intermédio de compatibilidade.
+  Os templates fiscais antigos continuam a usar:
+    - title
+    - topbar_title / topbar_subtitle
+    - extra_head
+    - content
+    - extra_js
+  O layout global, sidebar, navegação, mensagens, tema e footer vêm de base.html.
+#}
+
+{% block title %}{{ title|default:"Gestão Fiscal" }}{% endblock %}
+
+{% block breadcrumbs %}
+    {% url 'fiscal:dashboard' as fiscal_dashboard_url %}
+    <li>
+        {% if fiscal_dashboard_url %}
+            <a href="{{ fiscal_dashboard_url }}"
+               class="text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300"
+               aria-label="Painel fiscal">
+                <i class="fas fa-home" aria-hidden="true"></i>
+            </a>
+        {% else %}
+            <span class="text-gray-500 dark:text-gray-400">VistoGEST</span>
+        {% endif %}
+    </li>
+    <li>
+        <span class="text-gray-500 dark:text-gray-400">Fiscalidade</span>
+    </li>
+    <li>
+        <span class="font-semibold text-gray-700 dark:text-gray-200">
+            {% block topbar_title %}Área fiscal{% endblock %}
+        </span>
+    </li>
+    <li>
+        <small class="text-gray-400 dark:text-gray-500">
+            {% block topbar_subtitle %}{% endblock %}
+        </small>
+    </li>
+{% endblock %}
+
+{#
+  Os templates fiscais antigos já colocam o título principal dentro do bloco
+  content (normalmente em .page-head). Escondemos apenas o cabeçalho automático
+  de base.html para não mostrar dois títulos na mesma página.
+#}
+{% block page_header %}{% endblock %}
+
+{% block extra_css %}
+<style>
+    :root {
+        --fiscal-navy: #122b49;
+        --fiscal-blue: #2463a6;
+        --fiscal-bg: #f3f6fa;
+        --fiscal-paper: #ffffff;
+        --fiscal-ink: #192638;
+        --fiscal-muted: #68788c;
+        --fiscal-line: #dfe6ee;
+        --fiscal-ok: #16794b;
+        --fiscal-warn: #9a6100;
+        --fiscal-bad: #b42318;
+        --fiscal-radius: 15px;
+        --fiscal-shadow: 0 8px 28px rgba(20, 43, 73, .07);
+    }
+
+    html.dark {
+        --fiscal-navy: #e5edf8;
+        --fiscal-blue: #8ab8ff;
+        --fiscal-bg: #111827;
+        --fiscal-paper: #1f2937;
+        --fiscal-ink: #e5e7eb;
+        --fiscal-muted: #a8b4c5;
+        --fiscal-line: #374151;
+        --fiscal-ok: #86efac;
+        --fiscal-warn: #fcd34d;
+        --fiscal-bad: #fca5a5;
+        --fiscal-shadow: 0 8px 28px rgba(0, 0, 0, .18);
+    }
+
+    /* Classes de componentes herdadas pelos templates fiscais antigos. */
+    .eyebrow {
+        margin: 0 0 5px;
+        color: var(--fiscal-muted);
+        font-size: .75rem;
+        font-weight: 800;
+        letter-spacing: .12em;
+        text-transform: uppercase;
+    }
+
+    .page-head {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 18px;
+        flex-wrap: wrap;
+        margin: 0 0 24px;
+    }
+    .page-head h1 {
+        margin: 0;
+        color: var(--fiscal-navy);
+        font-size: clamp(1.45rem, 2.6vw, 2rem);
+        font-weight: 800;
+        line-height: 1.2;
+    }
+    .page-head p { margin: 8px 0 0; color: var(--fiscal-muted); max-width: 760px; }
+
+    .actions { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
+    .btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        border: 1px solid transparent;
+        border-radius: 10px;
+        padding: 10px 14px;
+        color: var(--fiscal-navy);
+        background: var(--fiscal-paper);
+        font: inherit;
+        font-size: .9rem;
+        font-weight: 700;
+        line-height: 1.25;
+        cursor: pointer;
+        text-decoration: none;
+        white-space: normal;
+        transition: filter .15s ease, background .15s ease, border-color .15s ease;
+    }
+    .btn:hover { text-decoration: none; filter: brightness(.97); }
+    .btn-primary { background: #2463a6; color: #fff; border-color: #2463a6; }
+    .btn-dark { background: #122b49; color: #fff; border-color: #122b49; }
+    .btn-light { background: var(--fiscal-paper); color: var(--fiscal-navy); border-color: var(--fiscal-line); }
+    .btn-danger { background: #fff1f0; color: #b42318; border-color: #ffd4d0; }
+    .btn-small { padding: 7px 10px; font-size: .82rem; }
+
+    .grid { gap: 18px; }
+    .grid.grid-2, .grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .grid.grid-3, .grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .grid.grid-4, .grid-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+
+    .card, .panel, .item-card, .kpi {
+        min-width: 0;
+        overflow: hidden;
+        border: 1px solid var(--fiscal-line);
+        border-radius: var(--fiscal-radius);
+        background: var(--fiscal-paper);
+        color: var(--fiscal-ink);
+        box-shadow: var(--fiscal-shadow);
+    }
+    .card-head, .panel-head, .toolbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        flex-wrap: wrap;
+        padding: 16px 20px;
+        border-bottom: 1px solid var(--fiscal-line);
+    }
+    .card-head h2, .card-head h3, .panel-head h2, .panel-head h3 {
+        margin: 0;
+        color: var(--fiscal-navy);
+        font-size: 1rem;
+        font-weight: 800;
+    }
+    .card-body, .panel-body { padding: 20px; }
+    .stat, .kpi { padding: 20px; }
+    .stat-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: var(--fiscal-muted); font-size: .86rem; font-weight: 650; }
+    .stat-icon { display: grid; place-items: center; width: 39px; height: 39px; border-radius: 12px; background: #eef4fb; color: #2463a6; font-size: 1.2rem; }
+    .stat strong, .kpi .value { display: block; margin: 10px 0 2px; color: var(--fiscal-navy); font-size: 1.85rem; font-weight: 800; line-height: 1.25; overflow-wrap: anywhere; }
+    .stat small, .kpi .label, .secondary { color: var(--fiscal-muted); }
+    .secondary { font-size: .82rem; }
+    .primary-cell { color: var(--fiscal-navy); font-weight: 750; }
+
+    .table-wrap { width: 100%; overflow-x: auto; }
+    .table-wrap table { width: 100%; min-width: 640px; border-collapse: collapse; font-size: .86rem; }
+    .table-wrap th, .table-wrap td { padding: 12px 14px; border-bottom: 1px solid var(--fiscal-line); text-align: left; vertical-align: middle; }
+    .table-wrap th { color: var(--fiscal-muted); background: rgba(148, 163, 184, .10); font-size: .72rem; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; white-space: nowrap; }
+    .table-wrap tbody tr:hover { background: rgba(148, 163, 184, .07); }
+
+    .badge, .pill { display: inline-flex; align-items: center; border-radius: 999px; padding: 4px 9px; background: #edf2f7; color: #536477; font-size: .75rem; line-height: 1.4; font-weight: 800; }
+    .badge.success, .status-success { background: #e4f6ed; color: #11663c; }
+    .badge.warning, .status-warning { background: #fff2d4; color: #8a5700; }
+    .badge.danger, .status-danger { background: #ffebe9; color: #a61b12; }
+    .badge.info, .status-info { background: #e8f2ff; color: #174f8a; }
+    html.dark .badge.success, html.dark .status-success { background: #064e3b; color: #d1fae5; }
+    html.dark .badge.warning, html.dark .status-warning { background: #78350f; color: #fef3c7; }
+    html.dark .badge.danger, html.dark .status-danger { background: #7f1d1d; color: #fee2e2; }
+    html.dark .badge.info, html.dark .status-info { background: #1e3a8a; color: #dbeafe; }
+
+    .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 17px; }
+    .form-row { min-width: 0; }
+    .form-row.full { grid-column: 1 / -1; }
+    .form-actions { display: flex; justify-content: flex-end; gap: 10px; flex-wrap: wrap; margin-top: 23px; padding-top: 18px; border-top: 1px solid var(--fiscal-line); }
+    .field, .search-input, form select, form textarea,
+    form input[type="text"], form input[type="email"],
+    form input[type="password"], form input[type="number"],
+    form input[type="date"], form input[type="datetime-local"],
+    form input[type="file"] {
+        max-width: 100%; padding: 10px 12px; border: 1px solid #cfd9e5;
+        border-radius: 9px; background: var(--fiscal-paper); color: var(--fiscal-ink); font: inherit;
+    }
+    .helptext, .help-text { display: block; margin-top: 5px; color: var(--fiscal-muted); font-size: .8rem; }
+    .errorlist { margin: 6px 0 0; padding-left: 18px; color: var(--fiscal-bad); font-size: .82rem; }
+    .form-errors { margin-bottom: 16px; padding: 12px 14px; border: 1px solid #ffd4d0; border-radius: 10px; background: #fff1f0; color: #b42318; }
+
+    .empty { padding: 42px 20px; text-align: center; }
+    .empty .empty-icon { font-size: 2rem; }
+    .empty h3 { margin: 8px 0 5px; color: var(--fiscal-navy); }
+    .empty p { max-width: 480px; margin: 0 auto 14px; color: var(--fiscal-muted); }
+    .list { display: grid; gap: 0; }
+    .list-item { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; padding: 14px 0; border-bottom: 1px solid var(--fiscal-line); }
+    .list-item:last-child { border-bottom: 0; }
+    .detail-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 13px; }
+    .detail { min-width: 0; padding: 13px; border: 1px solid var(--fiscal-line); border-radius: 11px; background: rgba(148, 163, 184, .06); }
+    .detail small { display: block; margin-bottom: 4px; color: var(--fiscal-muted); font-size: .78rem; }
+    .detail strong { overflow-wrap: anywhere; }
+    .notice, .alert { margin: 12px 0; padding: 14px 16px; border: 1px solid #cfe2fa; border-radius: 11px; background: #f0f7ff; color: #244c78; }
+    .notice.warning, .alert.warning { border-color: #ffdfa0; background: #fff8e7; color: #805500; }
+    .notice.danger, .alert.error { border-color: #ffd4d0; background: #fff5f4; color: #922018; }
+    .pagination { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 16px 20px; border-top: 1px solid var(--fiscal-line); color: var(--fiscal-muted); font-size: .85rem; }
+    .inline-form { display: inline; }
+    .checkline { display: flex; align-items: center; gap: 9px; }
+    .checkline input, input[type="checkbox"] { width: auto; }
+    .progress { height: 8px; overflow: hidden; border-radius: 99px; background: #eaf0f6; }
+    .progress span { display: block; height: 100%; border-radius: 99px; background: #2463a6; }
+    .code { overflow-wrap: anywhere; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: .86rem; }
+    .footer-note { margin-top: 24px; color: var(--fiscal-muted); font-size: .78rem; text-align: right; }
+
+    html.dark .card, html.dark .panel, html.dark .item-card, html.dark .kpi { background: #1f2937; color: #e5e7eb; border-color: #374151; }
+    html.dark .card-head, html.dark .panel-head, html.dark .toolbar { border-color: #374151; }
+    html.dark .table-wrap th { background: #273449; color: #cbd5e1; }
+    html.dark .table-wrap td { border-color: #374151; }
+    html.dark .btn-light { background: #1f2937; color: #e5e7eb; border-color: #4b5563; }
+    html.dark .field, html.dark .search-input, html.dark input, html.dark select, html.dark textarea { background: #111827; color: #e5e7eb; border-color: #4b5563; }
+
+    @media (max-width: 1100px) {
+        .grid.grid-4, .grid-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        .grid.grid-3, .grid-3, .detail-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+    @media (max-width: 760px) {
+        .page-head { display: block; }
+        .page-head .actions { margin-top: 15px; }
+        .grid.grid-4, .grid-4, .grid.grid-3, .grid-3, .grid.grid-2, .grid-2,
+        .form-grid, .detail-grid { grid-template-columns: 1fr; }
+        .form-row.full { grid-column: auto; }
+        .card-body, .panel-body { padding: 15px; }
+        .card-head, .panel-head, .toolbar { padding: 14px 15px; }
+        .pagination { padding: 13px 15px; }
+    }
+    @media print {
+        .actions, .toolbar, .form-actions, .pagination, .no-print { display: none !important; }
+        .card, .panel, .kpi { box-shadow: none; break-inside: avoid; }
+    }
+</style>
+{% block extra_head %}{% endblock %}
+{% endblock %}

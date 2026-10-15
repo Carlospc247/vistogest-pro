@@ -1,0 +1,12 @@
+{# avaliacoes/funcionario.html #}
+{% extends "funcionarios/_rh_base.html" %}
+{% block title %}Avaliações — {{ funcionario.nome_completo }}{% endblock %}
+{% block rh_content %}
+<a href="{% url 'funcionarios:detail' pk=funcionario.pk %}" class="text-sm text-indigo-600">&larr; {{ funcionario.nome_completo }}</a>
+<div class="flex justify-between items-center my-3"><h1 class="text-2xl font-bold">Avaliações</h1><a class="rh-btn rh-btn-p" href="{% url 'funcionarios:nova_avaliacao' pk=funcionario.pk %}">Nova avaliação</a></div>
+{% for a in avaliacoes %}
+<div class="rh-card mb-3 text-sm"><div class="flex justify-between"><strong>{{ a.get_tipo_avaliacao_display }} — {{ a.data_avaliacao|date:"d/m/Y" }}</strong><span class="rh-badge rh-ok">{{ a.nota_geral|floatformat:2 }}/5</span></div>
+  <p class="rh-muted">Período {{ a.periodo_inicio|date:"d/m/Y" }} a {{ a.periodo_fim|date:"d/m/Y" }} • Avaliador: {{ a.avaliador.nome_completo }}</p>
+  <p class="mt-2"><strong>Pontos fortes:</strong> {{ a.pontos_fortes }}</p><p><strong>A melhorar:</strong> {{ a.pontos_melhorar }}</p><p><strong>Metas:</strong> {{ a.metas_objetivos }}</p></div>
+{% empty %}<p class="rh-muted">Sem avaliações.</p>{% endfor %}
+{% endblock %}

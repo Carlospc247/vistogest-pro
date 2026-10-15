@@ -1,0 +1,10 @@
+{# beneficios/_tipo.html #}
+{% extends "funcionarios/_rh_base.html" %}
+{% block title %}{{ titulo }}{% endblock %}
+{% block rh_content %}
+<a href="{% url 'funcionarios:beneficio_lista' %}" class="text-sm text-indigo-600">&larr; Benefícios</a>
+<h1 class="text-2xl font-bold my-3">{{ titulo }}</h1>
+<div class="rh-card p-0 overflow-x-auto"><table class="rh-table"><thead><tr><th>Funcionário</th><th class="text-right">Valor</th><th>Estado</th></tr></thead><tbody>
+  {% for b in beneficios %}<tr><td>{{ b.funcionario.nome_completo }}</td><td class="text-right">{{ b.valor|floatformat:2 }}</td><td>{{ b.ativo|yesno:"Activo,Inactivo" }}</td></tr>
+  {% empty %}<tr><td colspan="3" class="text-center py-6 rh-muted">Sem registos.</td></tr>{% endfor %}</tbody></table></div>
+{% endblock %}

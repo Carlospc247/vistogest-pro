@@ -1,0 +1,16 @@
+{# recibos/previa.html #}
+{% extends "funcionarios/_rh_base.html" %}
+{% block title %}Pré-visualização{% endblock %}
+{% block extra_css %}{{ block.super }}{% include "recibos/_estilos.html" %}{% endblock %}
+{% block rh_content %}
+{% include "recibos/nav.html" %}
+<a href="{% url 'funcionarios:recibo_lista' %}" class="text-sm text-indigo-600">&larr; Recibos</a>
+<h1 class="text-2xl font-bold my-3">Pré-visualização do processamento</h1>
+{% if erro_parametros %}<div class="rv-erro">{{ erro_parametros }}</div>
+{% else %}
+  <p class="text-sm rh-muted mb-2">Nada foi gravado. Para gerar o recibo, crie ou abra o <a class="text-indigo-600" href="{% url 'funcionarios:processamento_lista' %}">processamento</a> do mês e clique em «Gerar / recalcular recibos».</p>
+  {% for e in res.erros %}<div class="rv-erro">{{ e }}</div>{% endfor %}
+  {% for a in res.avisos %}<div class="rv-aviso">{{ a }}</div>{% endfor %}
+  {% include "recibos/_documento.html" %}
+{% endif %}
+{% endblock %}

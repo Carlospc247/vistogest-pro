@@ -8,6 +8,70 @@ from django.contrib.contenttypes.models import ContentType
 from apps.analytics.utils import get_geolocation_data, parse_user_agent_string
 from .models import EventoAnalytics, AuditoriaAlteracao, AlertaInteligente
 
+
+from datetime import timedelta
+from django.db.models import Count
+from django.utils import timezone
+from .models import EventoAnalytics, AuditoriaAlteracao, AlertaInteligente, NotificacaoAlerta
+from .utils import obter_ip_cliente, snapshot_modelo, json_seguro
+
+
+def resumo_dashboard(usuario=None, dias=30):
+    inicio = timezone.now() - timedelta(days=dias)
+    eventos = EventoAnalytics.objects.filter(timestamp__gte=inicio)
+    alertas = AlertaInteligente.objects.filter(status="ativo")
+    notificacoes = NotificacaoAlerta.objects.filter(usuario=usuario, lida=False) if usuario else NotificacaoAlerta.objects.none()
+    por_categoria = list(eventos.values("categoria").annotate(total=Count("id")).order_by("-total"))
+    acoes = list(eventos.values("acao").annotate(total=Count("id")).order_by("-total")[:8])
+    return {
+        "eventos_periodo": eventos.count(),
+        "eventos_hoje": EventoAnalytics.objects.filter(timestamp__date=timezone.localdate()).count(),
+        "alteracoes_periodo": AuditoriaAlteracao.objects.filter(timestamp__gte=inicio).count(),
+        "alertas_ativos": alertas.count(),
+        "alertas_criticos": alertas.filter(prioridade="critica").count(),
+        "notificacoes_pendentes": notificacoes.count(),
+        "eventos_por_categoria": por_categoria,
+        "acoes_mais_frequentes": acoes,
+    }
+
+def registar_evento(request, categoria, acao, label="", propriedades=None, valor=None, url="", referrer=""):
+    """Regista um evento operacional com campos disponíveis no modelo EventoAnalytics."""
+    return EventoAnalytics.objects.create(
+        usuario=request.user if getattr(request, "user", None) and request.user.is_authenticated else None,
+        categoria=categoria, acao=acao, label=label or "", propriedades=json_seguro(propriedades or {}, {}), valor=valor,
+        ip_address=obter_ip_cliente(request), user_agent=request.META.get("HTTP_USER_AGENT", "")[:2000],
+        url=(url or request.build_absolute_uri())[:200], referrer=(referrer or request.META.get("HTTP_REFERER", ""))[:200],
+    )
+
+def registar_alteracao(usuario, objeto, tipo_operacao, dados_anteriores=None, dados_posteriores=None, motivo="", request=None):
+    if tipo_operacao not in {"create", "update", "delete"}:
+        raise ValueError("Operação de auditoria inválida.")
+    from django.contrib.contenttypes.models import ContentType
+    return AuditoriaAlteracao.objects.create(
+        usuario=usuario if getattr(usuario, "is_authenticated", False) else None,
+        content_type=ContentType.objects.get_for_model(objeto) if objeto is not None else None,
+        object_id=getattr(objeto, "pk", 0) or 0,
+        tipo_operacao=tipo_operacao,
+        dados_anteriores=json_seguro(dados_anteriores, None),
+        dados_posteriores=json_seguro(dados_posteriores if dados_posteriores is not None else snapshot_modelo(objeto), None),
+        campos_alterados=sorted([k for k in set((dados_anteriores or {}).keys()) | set((dados_posteriores or {}).keys()) if (dados_anteriores or {}).get(k) != (dados_posteriores or {}).get(k)]) if dados_anteriores is not None and dados_posteriores is not None else [],
+        motivo=motivo or "",
+        ip_address=obter_ip_cliente(request) if request else None,
+        user_agent=request.META.get("HTTP_USER_AGENT", "")[:2000] if request else "",
+    )
+
+def marcar_notificacao_lida(notificacao, usuario):
+    if notificacao.usuario_id != usuario.pk:
+        raise PermissionError("Não tem acesso a esta notificação.")
+    if not notificacao.lida:
+        from django.utils import timezone
+        notificacao.lida = True
+        notificacao.lida_em = timezone.now()
+        notificacao.save(update_fields=["lida", "lida_em"])
+    return notificacao
+
+
+
 class AnalyticsService:
     """Serviço para coleta e análise de eventos"""
     

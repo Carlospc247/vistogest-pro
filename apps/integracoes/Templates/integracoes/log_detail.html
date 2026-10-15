@@ -1,0 +1,19 @@
+{% extends "integracoes/_base.html" %}
+{% block title %}Log #{{ log.pk }}{% endblock %}
+{% block ig_content %}
+<a href="{% url 'integracoes:log_lista' %}" class="text-sm text-indigo-600">&larr; Logs</a>
+<h1 class="text-xl font-bold my-3">{{ log.configuracao.tipo_integracao.nome }} — {{ log.get_status_display }}</h1>
+<div class="ig-card text-sm grid md:grid-cols-4 gap-3 mb-4">
+  <p><span class="ig-muted">Quando</span><br>{{ log.timestamp|date:"d/m/Y H:i:s" }}</p><p><span class="ig-muted">Direcção</span><br>{{ log.get_direcao_display }}</p>
+  <p><span class="ig-muted">HTTP</span><br>{{ log.status_code|default:"—" }}</p><p><span class="ig-muted">Tempo / tentativas</span><br>{{ log.tempo_resposta|floatformat:2|default:"—" }}s / {{ log.tentativas }}</p>
+  <p class="md:col-span-4 break-all"><span class="ig-muted">Pedido</span><br><code>{{ log.metodo }} {{ log.url }}</code></p>
+  {% if log.usuario %}<p><span class="ig-muted">Utilizador</span><br>{{ log.usuario }}</p>{% endif %}
+</div>
+<p class="text-xs ig-muted mb-3"><i class="fas fa-shield-alt mr-1"></i>Cabeçalhos e campos sensíveis (token, secret, password, key…) são mascarados antes de gravar.</p>
+<div class="grid lg:grid-cols-2 gap-4">
+  <div><h2 class="font-semibold mb-1">Cabeçalhos</h2><pre class="ig-pre">{{ headers_json }}</pre></div>
+  <div><h2 class="font-semibold mb-1">Corpo enviado</h2><pre class="ig-pre">{{ payload_fmt|default:"—" }}</pre></div>
+  <div class="lg:col-span-2"><h2 class="font-semibold mb-1">Resposta</h2><pre class="ig-pre">{{ resposta_fmt|default:"—" }}</pre></div>
+  {% if log.contexto %}<div class="lg:col-span-2"><h2 class="font-semibold mb-1">Contexto</h2><pre class="ig-pre">{{ log.contexto }}</pre></div>{% endif %}
+</div>
+{% endblock %}

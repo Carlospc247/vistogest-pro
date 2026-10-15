@@ -6,7 +6,7 @@ from decimal import Decimal
 from typing import Dict, Any
 from django.contrib.auth.decorators import login_required, permission_required
 from django.http import HttpResponse, HttpResponseForbidden
-from django.shortcuts import get_object_or_404
+from django.shortcuts import get_object_or_404, render
 
 from django.contrib.admin.views.decorators import staff_member_required
 from django.http import HttpResponse, Http404
@@ -23,7 +23,7 @@ from django.views.decorators.http import require_http_methods
 from django.utils.decorators import method_decorator
 from django.views import View
 from django.core.paginator import Paginator
-from django.db import transaction
+from django.db import connection, transaction
 from django.utils import timezone
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.mixins import LoginRequiredMixin
@@ -37,7 +37,7 @@ from django.contrib.auth.decorators import login_required, user_passes_test
 from apps.fiscal.services.assinatura_service import AssinaturaDigitalService
 from apps.fiscal.services.pdf_agt_service import PDFDeclaracaoService
 from apps.fiscal.services.utils import FiscalServiceError, RetencaoFonteService, SAFTExportService, TaxaIVAService, validar_documentos_fiscais
-from .models import AssinaturaDigital
+from .models import AssinaturaDigital, DocumentoFiscal
 from django.shortcuts import get_object_or_404
 from apps.fiscal.services.audit_service import AuditLogService
 from apps.fiscal.services.relatorio_service import gerar_backup_fiscal, gerar_relatorio_retencoes, gerar_relatorio_taxas
@@ -665,7 +665,7 @@ class ValidarDocumentoView(View, PermissaoAcaoMixin):
             
             # Verificar se série fiscal existe
             serie = dados_documento.get('serie', 'DEFAULT')
-            assinatura = AssinaturaDigital.objects.filter(empresa=empresa).first()
+            assinatura = AssinaturaDigital.objects.filter().first()
             
             if not assinatura:
                 avisos.append("Assinatura digital não configurada")
@@ -813,7 +813,7 @@ class TaxaIVAListView(LoginRequiredMixin, PermissaoAcaoMixin, ListView):
     def get_queryset(self):
         empresa = self.request.user.empresa
         search = self.request.GET.get("q", "")
-        queryset = TaxaIVAAGT.objects.filter(empresa=empresa)
+        queryset = TaxaIVAAGT.objects.filter()
         if search:
             queryset = queryset.filter(Q(nome__icontains=search) | Q(tax_code__icontains=search))
         return queryset.order_by("-tax_percentage")
@@ -1030,9 +1030,8 @@ class RetencaoFonteListView(LoginRequiredMixin, PermissaoAcaoMixin, ListView):
     context_object_name = "retencoes"
 
     def get_queryset(self):
-        empresa = self.request.user.empresa
         search = self.request.GET.get("q", "")
-        queryset = RetencaoFonte.objects.filter(empresa=empresa)
+        queryset = RetencaoFonte.objects.filter()
         if search:
             queryset = queryset.filter(
                 Q(fornecedor__nome__icontains=search) |
@@ -1147,7 +1146,7 @@ class RetencaoMarcarPagaView(LoginRequiredMixin, PermissaoAcaoMixin, View):
 
     def post(self, request, *args, **kwargs):
         empresa = request.user.empresa
-        retencao = get_object_or_404(RetencaoFonte, pk=kwargs["pk"], empresa=empresa)
+        retencao = get_object_or_404(RetencaoFonte, pk=kwargs["pk"], )
         retencao.status = "paga"
         retencao.data_pagamento = timezone.now()
         retencao.save()
@@ -1175,7 +1174,7 @@ class RelatoriosView(LoginRequiredMixin, PermissaoAcaoMixin, TemplateView):
         context = super().get_context_data(**kwargs)
         empresa = self.request.user.empresa
         context["empresa"] = empresa
-        context["total_retencoes"] = RetencaoFonte.objects.filter(empresa=empresa).count()
+        context["total_retencoes"] = RetencaoFonte.objects.filter().count()
         context["total_taxas_iva"] = TaxaIVAAGT.objects.filter(ativo=True).count()
         context["ultimo_relatorio"] = timezone.now().strftime("%d/%m/%Y %H:%M")
         return context
@@ -1195,7 +1194,7 @@ class RelatorioRetencoesView(LoginRequiredMixin, PermissaoAcaoMixin, ListView):
 
     def get_queryset(self):
         empresa = self.request.user.empresa
-        queryset = RetencaoFonte.objects.filter(empresa=empresa)
+        queryset = RetencaoFonte.objects.filter()
         mes = self.request.GET.get("mes")
         ano = self.request.GET.get("ano")
         if mes and ano:
@@ -1228,7 +1227,7 @@ class RelatorioTaxasIVAView(LoginRequiredMixin, PermissaoAcaoMixin, ListView):
     def get_queryset(self):
         empresa = self.request.user.empresa
         ativos = self.request.GET.get("ativos", "true")
-        queryset = TaxaIVAAGT.objects.filter(empresa=empresa)
+        queryset = TaxaIVAAGT.objects.filter()
         if ativos == "true":
             queryset = queryset.filter(ativo=True)
         return queryset.order_by("-tax_percentage")
@@ -1425,11 +1424,9 @@ class ValidacoesView(LoginRequiredMixin, TemplateView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        empresa = self.request.user.empresa
-        context["empresa"] = empresa
         context["ultima_validacao"] = timezone.now().strftime("%d/%m/%Y %H:%M")
-        context["assinatura"] = getattr(empresa, "assinatura_fiscal", None)
-        context["total_retencoes"] = RetencaoFonte.objects.filter(empresa=empresa).count()
+        context["assinatura"] = getattr("assinatura_fiscal")
+        context["total_retencoes"] = RetencaoFonte.objects.filter().count()
         context["total_taxas"] = TaxaIVAAGT.objects.filter(ativo=True).count()
         return context
 
@@ -1443,7 +1440,7 @@ class ValidarDocumentosView(LoginRequiredMixin, View):
     multiple_permissions = {'AND': [EmpresaPermission, FiscalPermission]}
 
     def get(self, request, *args, **kwargs):
-        empresa = request.user.empresa
+        empresa = getattr(connection, 'tenant', None)
         try:
             resultado = validar_documentos_fiscais(empresa)
             messages.success(request, f"Validação concluída com {resultado['erros']} erros e {resultado['avisos']} avisos.")
@@ -1493,10 +1490,10 @@ class ConfiguracoesFiscaisView(LoginRequiredMixin, TemplateView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        empresa = self.request.user.empresa
+        empresa = getattr(connection, 'tenant', None)
         context["empresa"] = empresa
         context["assinatura_digital"] = getattr(empresa, "assinatura_fiscal", None)
-        context["total_taxas"] = TaxaIVAAGT.objects.filter(empresa=empresa).count()
+        context["total_taxas"] = TaxaIVAAGT.objects.filter().count()
         context["ultima_actualizacao"] = timezone.now().strftime("%d/%m/%Y %H:%M")
         return context
 
@@ -1511,7 +1508,7 @@ class ConfiguracaoEmpresaView(LoginRequiredMixin, TemplateView):
     multiple_permissions = {'AND': [EmpresaPermission, FiscalPermission]}
 
     def post(self, request, *args, **kwargs):
-        empresa = request.user.empresa
+        empresa = getattr(connection, 'tenant', None)
         try:
             empresa.nif = request.POST.get("nif", empresa.nif)
             empresa.save()
@@ -1674,7 +1671,7 @@ def ajax_dados_dashboard(request):
     """Retorna dados consolidados para o dashboard fiscal."""
     try:
         empresa = request.user.empresa
-        total_retencoes = RetencaoFonte.objects.filter(empresa=empresa).aggregate(total=Sum('valor_retido'))['total'] or Decimal('0')
+        total_retencoes = RetencaoFonte.objects.filter().aggregate(total=Sum('valor_retido'))['total'] or Decimal('0')
         total_iva = TaxaIVAAGT.objects.filter(ativo=True).count()
 
         return JsonResponse({
@@ -1701,7 +1698,7 @@ def ajax_metricas_periodo(request):
         periodo = request.GET.get('periodo', 'mensal')
         empresa = request.user.empresa
 
-        qs = RetencaoFonte.objects.filter(empresa=empresa)
+        qs = RetencaoFonte.objects.filter()
         metricas = qs.values('data_retencao__month').annotate(total=Sum('valor_retido')).order_by('data_retencao__month')
 
         return JsonResponse({
@@ -1725,7 +1722,7 @@ def ajax_grafico_retencoes(request):
     try:
         empresa = request.user.empresa
         dados = (RetencaoFonte.objects
-                 .filter(empresa=empresa)
+                 .filter()
                  .values('data_retencao__month')
                  .annotate(total=Sum('valor_retido'))
                  .order_by('data_retencao__month'))
@@ -1904,9 +1901,9 @@ class DownloadDashboardPDFView(LoginRequiredMixin, View):
         p.drawString(100, 780, f"NIF: {empresa.nif}")
         p.drawString(100, 760, f"Data: {timezone.now().strftime('%d/%m/%Y %H:%M')}")
         p.drawString(100, 740, "Resumo:")
-        p.drawString(120, 720, f"- Total Retenções: {RetencaoFonte.objects.filter(empresa=empresa).count()}")
-        p.drawString(120, 700, f"- Total Taxas IVA: {TaxaIVAAGT.objects.filter(empresa=empresa).count()}")
-        p.drawString(120, 680, f"- Última Exportação SAF-T: {SAFTExport.objects.filter(empresa=empresa).order_by('-created_at').first()}")
+        p.drawString(120, 720, f"- Total Retenções: {RetencaoFonte.objects.filter().count()}")
+        p.drawString(120, 700, f"- Total Taxas IVA: {TaxaIVAAGT.objects.filter().count()}")
+        p.drawString(120, 680, f"- Última Exportação SAF-T: {SAFTExport.objects.filter().order_by('-created_at').first()}")
         p.showPage()
         p.save()
         buffer.seek(0)
@@ -1923,7 +1920,7 @@ class DownloadSAFTFileView(LoginRequiredMixin, View):
 
     def get(self, request, export_id, *args, **kwargs):
         empresa = request.user.empresa
-        exportacao = get_object_or_404(SAFTExportService, pk=export_id, empresa=empresa)
+        exportacao = get_object_or_404(SAFTExportService, pk=export_id, )
         if not exportacao.arquivo or not exportacao.arquivo.path:
             raise Http404("Arquivo SAF-T não encontrado.")
         logger.info(f"Download SAF-T {exportacao.id} ({empresa.nome}) realizado.")

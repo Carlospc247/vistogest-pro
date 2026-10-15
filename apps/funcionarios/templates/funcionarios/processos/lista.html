@@ -1,0 +1,10 @@
+{# processos/lista.html #}
+{% extends "funcionarios/_rh_base.html" %}
+{% block title %}Processos seletivos{% endblock %}
+{% block rh_content %}
+<h1 class="text-2xl font-bold mb-4">Processos seletivos</h1>
+<div class="rh-card p-0 overflow-x-auto"><table class="rh-table"><thead><tr><th>Título</th><th>Início</th><th>Fim</th><th>Estado</th><th class="text-right">Candidatos</th></tr></thead><tbody>
+  {% for p in processos %}<tr><td>{{ p.titulo }}</td><td>{{ p.data_inicio|date:"d/m/Y" }}</td><td>{{ p.data_fim|date:"d/m/Y"|default:"—" }}</td>
+    <td>{% if p.em_andamento %}<span class="rh-badge rh-ok">Em andamento</span>{% else %}<span class="rh-badge">Encerrado</span>{% endif %}</td><td class="text-right">{{ p.candidatos.count }}</td></tr>
+  {% empty %}<tr><td colspan="5" class="text-center py-6 rh-muted">Sem processos.</td></tr>{% endfor %}</tbody></table></div>
+{% endblock %}

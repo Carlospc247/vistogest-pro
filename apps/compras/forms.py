@@ -1,53 +1,58 @@
+# apps/compras/forms.py
+from decimal import Decimal
 from django import forms
 from django.forms import inlineformset_factory
+from django.core.validators import MinValueValidator
 from .models import Compra, ItemCompra
-from apps.produtos.models import Produto
 from apps.fornecedores.models import Fornecedor
+from apps.produtos.models import Produto
+
+CONTROL = "block w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-200 dark:border-gray-600 dark:bg-gray-800 dark:text-white"
 
 class CompraForm(forms.ModelForm):
-    """
-    Formulário principal para os dados da Compra (o cabeçalho).
-    """
-    # Adicionamos um campo de fornecedor com queryset para garantir que apenas
-    # fornecedores ativos sejam selecionáveis.
-    fornecedor = forms.ModelChoiceField(
-        queryset=Fornecedor.objects.filter(ativo=True),
-        widget=forms.Select(attrs={'class': 'form-select'})
-    )
-
     class Meta:
-        model = Compra
-        fields = ['fornecedor']
-        # O campo 'data' é preenchido automaticamente, então não o incluímos.
-
+        model=Compra
+        fields=["fornecedor"]
+        widgets={"fornecedor": forms.Select(attrs={"class":CONTROL})}
+        labels={"fornecedor":"Fornecedor"}
+    def __init__(self,*args,**kwargs):
+        super().__init__(*args,**kwargs)
+        self.fields['fornecedor'].queryset=Fornecedor.objects.all().order_by('pk')
+        self.fields['fornecedor'].required=False
+        self.fields['fornecedor'].empty_label="Selecione um fornecedor (opcional)"
 
 class ItemCompraForm(forms.ModelForm):
-    """
-    Formulário para cada linha de item da compra.
-    """
-    # Usamos ModelChoiceField para ter um dropdown de produtos.
-    # Numa view mais avançada, isto seria substituído por um campo de busca (autocomplete).
-    produto = forms.ModelChoiceField(
-        queryset=Produto.objects.filter(ativo=True).order_by('nome_comercial'),
-        widget=forms.Select(attrs={'class': 'form-select item-produto'})
-    )
-
     class Meta:
-        model = ItemCompra
-        fields = ['produto', 'quantidade', 'preco_unitario']
-        widgets = {
-            'quantidade': forms.NumberInput(attrs={'class': 'form-control item-quantidade', 'min': '0.01', 'step': '0.01'}),
-            'preco_unitario': forms.NumberInput(attrs={'class': 'form-control item-preco', 'min': '0.01', 'step': '0.01'}),
+        model=ItemCompra
+        fields=["produto","quantidade","preco_unitario"]
+        widgets={
+            "produto":forms.Select(attrs={"class":CONTROL}),
+            "quantidade":forms.NumberInput(attrs={"class":CONTROL,"step":"0.01","min":"0.01"}),
+            "preco_unitario":forms.NumberInput(attrs={"class":CONTROL,"step":"0.01","min":"0"}),
         }
+        labels={"produto":"Produto","quantidade":"Quantidade","preco_unitario":"Preço unitário (AKZ)"}
+    def __init__(self,*args,**kwargs):
+        super().__init__(*args,**kwargs)
+        self.fields['produto'].queryset=Produto.objects.all().order_by('pk')
+    def clean_quantidade(self):
+        value=self.cleaned_data['quantidade']
+        if value <= 0: raise forms.ValidationError("A quantidade deve ser superior a zero.")
+        return value
+    def clean_preco_unitario(self):
+        value=self.cleaned_data['preco_unitario']
+        if value < 0: raise forms.ValidationError("O preço não pode ser negativo.")
+        return value
 
-# O 'FormSet' é a magia que permite ter múltiplos formulários de 'ItemCompra'
-# ligados a um único formulário de 'Compra'.
-ItemCompraFormSet = inlineformset_factory(
-    Compra,                  # Modelo pai
-    ItemCompra,              # Modelo filho (inline)
-    form=ItemCompraForm,     # Formulário a ser usado para cada item
-    extra=1,                 # Começa com 1 formulário de item em branco
-    can_delete=True,         # Permite que os utilizadores apaguem itens
-    can_delete_extra=True
-)
+ItemCompraFormSet=inlineformset_factory(Compra, ItemCompra, form=ItemCompraForm, extra=1, can_delete=True, min_num=1, validate_min=True)
 
+class CompraFiltroForm(forms.Form):
+    data_inicio=forms.DateField(required=False,widget=forms.DateInput(attrs={"type":"date","class":CONTROL}),label="De")
+    data_fim=forms.DateField(required=False,widget=forms.DateInput(attrs={"type":"date","class":CONTROL}),label="Até")
+    fornecedor=forms.ModelChoiceField(required=False,queryset=Fornecedor.objects.none(),widget=forms.Select(attrs={"class":CONTROL}),empty_label="Todos",label="Fornecedor")
+    def __init__(self,*args,**kwargs):
+        super().__init__(*args,**kwargs); self.fields['fornecedor'].queryset=Fornecedor.objects.all().order_by('pk')
+    def clean(self):
+        data=super().clean()
+        if data.get('data_inicio') and data.get('data_fim') and data['data_inicio']>data['data_fim']:
+            raise forms.ValidationError("A data inicial não pode ser posterior à data final.")
+        return data

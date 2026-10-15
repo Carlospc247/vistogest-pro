@@ -1,6140 +1,1576 @@
 # apps/relatorios/views.py
-from django.forms import CharField
-from django.shortcuts import render, redirect, get_object_or_404
-from django.views.generic import ListView, DetailView, CreateView, UpdateView, DeleteView, TemplateView, View
-from django.contrib.auth.mixins import LoginRequiredMixin, PermissionRequiredMixin
-from django.contrib.auth.decorators import login_required
-from django.http import JsonResponse, HttpResponse, Http404, HttpResponseForbidden, FileResponse
-from django.views.decorators.csrf import csrf_exempt
-from django.utils.decorators import method_decorator
-from django.contrib import messages
-from django.urls import reverse_lazy
-from django.db import transaction, connection
-from django.db.models import Q, Sum, Count, F, Avg, Max, Min, Case, When, Value, Variance, StdDev
-from django.db.models.functions import TruncDate, TruncHour, TruncMonth, TruncYear, TruncWeek, Cast
-from django.utils import timezone
-from django.contrib.contenttypes.models import ContentType
-from django.contrib.auth.models import User, Group, Permission
-from django.core.mail import send_mail, EmailMessage
-from django.core.cache import cache
-from django.conf import settings
-from django.core.management import call_command
-from datetime import datetime, timedelta, date, time
-from decimal import Decimal
+"""Views consolidadas da app relatorios.
+
+Esta versão evita filtros por Empresa em modelos tenant-scoped: o schema PostgreSQL
+selecionado pelo django-tenants é o limite de isolamento. Os relatórios consultam
+apenas o schema activo e recusam execução no schema public.
+"""
+from __future__ import annotations
+
+import csv
 import json
 import logging
-import csv
-import io
+import mimetypes
 import os
-import subprocess
-import calendar
-import statistics
-import pandas as pd
-import numpy as np
-from django.core.paginator import Paginator
-from django.template.loader import render_to_string
-from django.core.files.base import ContentFile
-from django.core.files.storage import default_storage
-import zipfile
-import shutil
-from pathlib import Path
-import tempfile
-import openpyxl
-from reportlab.pdfgen import canvas
-from reportlab.lib.pagesizes import letter, A4
-from reportlab.lib import colors
-from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
-from reportlab.lib.styles import getSampleStyleSheet
 import xml.etree.ElementTree as ET
-from django.core.serializers import serialize
-import xlsxwriter
-from celery import shared_task
-import csv
-import json
-import io
-from openpyxl import Workbook
-try:
-    from weasyprint import HTML as WeasyHTML
-    WEASYPRINT_DISPONIVEL = True
-except (ImportError, OSError):
-    WeasyHTML = None
-    WEASYPRINT_DISPONIVEL = False
-from django.db.models import Sum, Count, Avg, F
-from django.db.models.functions import ExtractHour
+from datetime import date, datetime, timedelta
+from decimal import Decimal
+from io import BytesIO, StringIO
+
 from django.contrib import messages
+from django.contrib.auth import get_user_model
 from django.contrib.auth.mixins import LoginRequiredMixin
-from django.http import HttpResponse, JsonResponse
+from django.contrib.auth.models import Group
+from django.core.exceptions import FieldDoesNotExist
+from django.core.mail import EmailMessage, send_mail
+from django.db import connection
+from django.db.models import Avg, Count, F, Q, Sum
+from django.db.models.functions import ExtractHour, TruncDate, TruncMonth
+from django.http import (
+    HttpResponse,
+    HttpResponseForbidden,
+    JsonResponse,
+)
 from django.shortcuts import get_object_or_404, redirect
-from django.template.loader import render_to_string
 from django.urls import reverse_lazy
+from django.utils import timezone
+from django.utils.dateparse import parse_date
+from django.views import View
 from django.views.generic import (
-    ListView, CreateView, DetailView, View, FormView, TemplateView
+    CreateView,
+    DetailView,
+    ListView,
+    TemplateView,
+    UpdateView,
 )
-from django.db.models import Sum, Count, Avg, F
-from django.db.models.functions import ExtractHour
-
-from apps.analytics import models
-from apps.compras.models import Compra, ItemCompra
-import pandas as pd
-from sklearn.cluster import KMeans
-from statsmodels.tsa.api import SimpleExpSmoothing
-from django.http import JsonResponse
-from django.views.generic import TemplateView, View
-from django.contrib.auth.mixins import LoginRequiredMixin
-from rest_framework.views import APIView
-from rest_framework.response import Response
-from rest_framework import status, viewsets
+from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
-from .models import (
-    LogAtividade, TipoRelatorio, RelatorioGerado, MetricaKPI, DashboardConfig,
-    AnaliseVendas, AnaliseEstoque, AnaliseClientes, AlertaGerencial,
-    TemplateRelatorio, Relatorio, AgendamentoRelatorio, LogRelatorio
-)
-from .forms import (
-    TipoRelatorioForm, RelatorioGeradoForm, MetricaKPIForm,
-    DashboardConfigForm, FiltroAnaliseVendasForm, FiltroAnaliseEstoqueForm,
-    FiltroAnaliseClientesForm, AlertaGerencialForm, TemplateRelatorioForm,
-    GerarRelatorioForm, AgendamentoRelatorioForm, ExportarRelatorioForm,
-    FiltroRelatoriosForm
-)
-from .utils import (
-    calcular_metricas_vendas, calcular_analise_abc_produtos,
-    calcular_segmentacao_rfm_clientes, gerar_relatorio_pdf,
-    gerar_relatorio_excel, gerar_relatorio_csv, processar_relatorio_assincrono,
-    calcular_previsao_vendas, analisar_sazonalidade, calcular_tendencias,
-    gerar_cubo_olap, executar_data_mining, calcular_correlacoes
-)
-from .tasks import processar_relatorio_task, enviar_relatorio_email_task
-from apps.core.mixins import BaseViewMixin
-from apps.vendas.models import Venda, ItemVenda, Orcamento
-from apps.produtos.models import ControleVencimento, Produto, Categoria
-from apps.clientes.models import Cliente, GrupoCliente
-from apps.funcionarios.models import (
-    AvaliacaoDesempenho, Capacitacao, Cargo, Departamento, FolhaPagamento, Funcionario, RegistroPonto, Ferias,
-    Capacitacao, AvaliacaoDesempenho, Departamento
-)
-from apps.fornecedores.models import (
-    Fornecedor, AvaliacaoFornecedor
-)
-from apps.financeiro.models import (
-    ContaReceber, ContaPagar, MovimentacaoFinanceira, CentroCusto
-)
-from apps.estoque.models import MovimentacaoEstoque, Inventario, AlertaEstoque
-from django.contrib.auth.mixins import LoginRequiredMixin
-from django.db.models import Sum, Count, F, Q, Case, When, Value, DecimalField
-from django.db.models.functions import TruncMonth, TruncDay
-from django.views.generic import TemplateView
-from datetime import datetime, date, timedelta
-from django.contrib.auth.mixins import AccessMixin
+from rest_framework.response import Response
+from rest_framework.views import APIView
 
+from apps.clientes.models import Cliente
+from apps.compras.models import Compra
+from apps.estoque.models import Inventario, MovimentacaoEstoque
+from apps.financeiro.models import ContaPagar, ContaReceber, MovimentacaoFinanceira
+from apps.fornecedores.models import Fornecedor
+from apps.funcionarios.models import (
+    AvaliacaoDesempenho,
+    Capacitacao,
+    Ferias,
+    FolhaPagamento,
+    Funcionario,
+    RegistroPonto,
+)
+from apps.produtos.models import Categoria, ControleVencimento, Produto
+from apps.vendas.models import ItemVenda, Venda
+
+from .models import (
+    AgendamentoRelatorio,
+    LogAtividade,
+    LogRelatorio,
+    MetricaKPI,
+    Relatorio,
+    RelatorioGerado,
+    TemplateRelatorio,
+    TipoRelatorio,
+)
 
 logger = logging.getLogger(__name__)
+User = get_user_model()
 
 
+# ---------------------------------------------------------------------------
+# Helpers de metadados. Validam os campos antes de construir filtros/queries,
+# evitando FieldError quando models relacionados têm nomes diferentes.
+# ---------------------------------------------------------------------------
+def _get_model_field(model, path):
+    current_model = model
+    field = None
+    for part in path.split("__"):
+        try:
+            field = current_model._meta.get_field(part)
+        except (FieldDoesNotExist, AttributeError):
+            return None
+        if getattr(field, "is_relation", False) and getattr(field, "related_model", None):
+            current_model = field.related_model
+    return field
 
 
-class PermissaoAcaoMixin(AccessMixin):
-    # CRÍTICO: Definir esta variável na View
-    acao_requerida = None 
+def _path_exists(model, path):
+    return _get_model_field(model, path) is not None
+
+
+def _first_existing_path(model, paths):
+    return next((path for path in paths if _path_exists(model, path)), None)
+
+
+def _safe_order(queryset, model, candidates):
+    field = _first_existing_path(model, candidates)
+    if field:
+        return queryset.order_by(f"-{field}")
+    return queryset.order_by("-pk")
+
+
+def _date_filtered(queryset, model, path, start, end):
+    if not path or not _path_exists(model, path):
+        return queryset
+    field = _get_model_field(model, path)
+    internal_type = field.get_internal_type() if field else ""
+    if internal_type == "DateTimeField":
+        return queryset.filter(**{f"{path}__date__range": (start, end)})
+    return queryset.filter(**{f"{path}__range": (start, end)})
+
+
+def _resolve_attr(obj, path):
+    value = obj
+    for part in path.split("__"):
+        if value is None:
+            return None
+        try:
+            value = getattr(value, part)
+        except (AttributeError, TypeError):
+            return None
+        if callable(value):
+            try:
+                value = value()
+            except TypeError:
+                return None
+    return value
+
+
+def _display(value):
+    if value is None:
+        return "—"
+    if isinstance(value, (date, datetime)):
+        return value.strftime("%d/%m/%Y %H:%M" if isinstance(value, datetime) else "%d/%m/%Y")
+    if isinstance(value, Decimal):
+        return f"{value:,.2f}".replace(",", " ")
+    if isinstance(value, bool):
+        return "Sim" if value else "Não"
+    if isinstance(value, (list, tuple, dict)):
+        return json.dumps(value, ensure_ascii=False, default=str)
+    return str(value)
+
+
+def _build_table(queryset, model, field_paths, title="Registos", limit=100, labels=None):
+    labels = labels or {}
+    paths = [p for p in field_paths if _path_exists(model, p)]
+    if not paths:
+        paths = [model._meta.pk.name]
+    columns = [labels.get(path, path.replace("__", " · ").replace("_", " ").capitalize()) for path in paths]
+    rows = []
+    for obj in queryset[:limit]:
+        rows.append([{"valor": _display(_resolve_attr(obj, path))} for path in paths])
+    return {"titulo": title, "colunas": columns, "linhas": rows, "total_limitado": len(rows)}
+
+
+def _model_fields(model):
+    return [field for field in model._meta.get_fields() if getattr(field, "concrete", False) and not getattr(field, "many_to_many", False)]
+
+
+def _dict_table(rows, columns, title="Registos", limit=100):
+    selected = rows[:limit]
+    return {
+        "titulo": title,
+        "colunas": [label for label, _key in columns],
+        "linhas": [[{"valor": _display(row.get(key))} for _label, key in columns] for row in selected],
+        "total_limitado": len(selected),
+    }
+
+
+def _sales_queryset(start=None, end=None):
+    qs = Venda.objects.all()
+    if _path_exists(Venda, "status"):
+        qs = qs.filter(status="finalizada")
+    if start and end:
+        date_field = _first_existing_path(Venda, ("data_venda", "data"))
+        if date_field:
+            qs = _date_filtered(qs, Venda, date_field, start, end)
+    return qs
+
+
+def _items_sales_queryset(start=None, end=None):
+    qs = ItemVenda.objects.all()
+    if _path_exists(ItemVenda, "venda__status"):
+        qs = qs.filter(venda__status="finalizada")
+    if start and end and _path_exists(ItemVenda, "venda__data_venda"):
+        qs = _date_filtered(qs, ItemVenda, "venda__data_venda", start, end)
+    elif start and end and _path_exists(ItemVenda, "venda__data"):
+        qs = _date_filtered(qs, ItemVenda, "venda__data", start, end)
+    if _path_exists(ItemVenda, "produto"):
+        qs = qs.filter(produto__isnull=False)
+    return qs
+
+
+def _item_revenue_expression():
+    # Usa o subtotal gravado quando existe; caso contrário calcula a linha sem
+    # presumir campos de desconto/IVA que podem variar entre versões do model.
+    if _path_exists(ItemVenda, "subtotal"):
+        return Sum("subtotal")
+    return Sum(F("quantidade") * F("preco_unitario"))
+
+
+def _grouped_items(start, end, group_candidates, limit=100, base_qs=None):
+    qs = base_qs if base_qs is not None else _items_sales_queryset(start, end)
+    group_paths = [(label, path) for label, path in group_candidates if _path_exists(ItemVenda, path)]
+    if not group_paths:
+        group_paths = [("Produto", "produto_id")] if _path_exists(ItemVenda, "produto") else []
+    if not group_paths:
+        return []
+    paths = [path for _label, path in group_paths]
+    values = qs.values(*paths).annotate(
+        quantidade_vendida=Sum("quantidade"),
+        faturamento=_item_revenue_expression(),
+        documentos=Count("venda", distinct=True) if _path_exists(ItemVenda, "venda") else Count("pk"),
+    ).order_by("-faturamento")
+    rows = list(values[:limit])
+    # Aliases visíveis para templates, sem depender de nomes de campos do cliente.
+    for row in rows:
+        for label, path in group_paths:
+            row[f"display_{label}"] = _display(row.get(path))
+        row["faturamento"] = row.get("faturamento") or 0
+        row["quantidade_vendida"] = row.get("quantidade_vendida") or 0
+    return rows
+
+
+def _create_log(user, action, details=""):
+    """Cria log usando apenas campos existentes no model LogRelatorio."""
+    kwargs = {}
+    if _path_exists(LogRelatorio, "usuario"):
+        kwargs["usuario"] = user
+    if _path_exists(LogRelatorio, "acao"):
+        allowed = {choice[0] for choice in LogRelatorio._meta.get_field("acao").choices or []}
+        kwargs["acao"] = action if action in allowed else (next(iter(allowed), action))
+    if _path_exists(LogRelatorio, "detalhes"):
+        kwargs["detalhes"] = str(details)[:4000]
+    if _path_exists(LogRelatorio, "tipo"):
+        allowed_tipo = {choice[0] for choice in LogRelatorio._meta.get_field("tipo").choices or []}
+        if "HISTORICO" in allowed_tipo:
+            kwargs["tipo"] = "HISTORICO"
+    try:
+        LogRelatorio.objects.create(**kwargs)
+    except Exception:
+        logger.exception("Não foi possível registar a actividade de relatórios")
+
+
+def _report_payload(report):
+    data = report.dados_resultado or {}
+    if isinstance(data, list):
+        return data
+    if isinstance(data, dict):
+        for key in ("rows", "linhas", "dados", "results", "resultados"):
+            if isinstance(data.get(key), list):
+                return data[key]
+        return [data]
+    return []
+
+
+def _normalise_rows(rows):
+    normalised = []
+    for row in rows:
+        if isinstance(row, dict):
+            normalised.append({str(k): _display(v) for k, v in row.items()})
+        elif isinstance(row, (list, tuple)):
+            normalised.append({f"Coluna {i + 1}": _display(v) for i, v in enumerate(row)})
+        else:
+            normalised.append({"Valor": _display(row)})
+    return normalised
+
+
+class TenantLoginRequiredMixin(LoginRequiredMixin):
+    """A app de relatórios opera apenas dentro do schema de cada tenant."""
+    login_url = "/contas/login/"
+    redirect_field_name = "next"
 
     def dispatch(self, request, *args, **kwargs):
-        if not request.user.is_authenticated:
-            return self.handle_no_permission()
-
-        try:
-            # Tenta obter o Funcionario (ligação fundamental)
-            funcionario = request.user.funcionario 
-        except Exception:
-            messages.error(request, "Acesso negado. O seu usuário não está ligado a um registro de funcionário.")
-            return self.handle_no_permission()
-
-        if self.acao_requerida:
-            # Usa a lógica dinâmica do modelo Funcionario (que já criámos)
-            if not funcionario.pode_realizar_acao(self.acao_requerida):
-                messages.error(request, f"Acesso negado. O seu cargo não permite realizar a ação de '{self.acao_requerida}'.")
-                return redirect(reverse_lazy('core_tenants:dashboard'))
-
+        if connection.schema_name == "public":
+            return HttpResponseForbidden("Os relatórios só estão disponíveis no espaço de trabalho da empresa.")
         return super().dispatch(request, *args, **kwargs)
 
 
+class RelatorioBaseView(TenantLoginRequiredMixin, TemplateView):
+    template_name = "relatorios/pagina.html"
+    titulo = "Relatórios"
 
+    def get_periodo(self):
+        hoje = timezone.localdate()
+        inicio = parse_date(self.request.GET.get("data_inicio", ""))
+        fim = parse_date(self.request.GET.get("data_fim", ""))
+        return inicio or (hoje - timedelta(days=29)), fim or hoje
 
-class RelatoriosDashboardView(BaseViewMixin, TemplateView):
-
-    def get_empresa(self):
-        """Retorna a empresa associada ao usuário logado."""
-        # Exemplo: se o modelo de usuário tem um campo empresa
-        return getattr(self.request.user, "empresa", None)
-    
-    template_name = 'relatorios/dashboard.html'
-    
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        empresa = self.get_empresa()
-        usuario = self.request.user
-        
-        # Relatórios mais executados
-        relatorios_populares = RelatorioGerado.objects.filter(
-            empresa=empresa
-        ).values(
-            'tipo_relatorio__nome',
-            'tipo_relatorio__categoria'
-        ).annotate(
-            total_execucoes=Count('id')
-        ).order_by('-total_execucoes')[:10]
-        
-        # Relatórios recentes do usuário
-        relatorios_recentes = RelatorioGerado.objects.filter(
-            solicitante=usuario
-        ).select_related('tipo_relatorio').order_by('-data_solicitacao')[:5]
-        
-        # Estatísticas gerais
-        hoje = timezone.now().date()
-        stats = {
-            'total_relatorios': RelatorioGerado.objects.filter(empresa=empresa).count(),
-            'relatorios_hoje': RelatorioGerado.objects.filter(
-                data_solicitacao__date=hoje
-            ).count(),
-            'templates_ativos': TipoRelatorio.objects.filter(ativo=True).count(),
-            'agendamentos_ativos': AgendamentoRelatorio.objects.filter(ativo=True).count(),
-            'templates_ativos': TemplateRelatorio.objects.filter(ativo=True).count(),
-            'relatorios_erro': RelatorioGerado.objects.filter(
-                status='erro'
-            ).count()
-        }
-        
-        # Relatórios por categoria (últimos 30 dias)
-        relatorios_por_categoria = RelatorioGerado.objects.filter(
-            data_solicitacao__gte=hoje - timedelta(days=30)
-        ).values(
-            'tipo_relatorio__categoria'
-        ).annotate(
-            total=Count('id')
-        ).order_by('-total')
-        
-        # KPIs em destaque (métricas importantes)
-        kpis_destaque = self._obter_kpis_destaque(empresa)
-        
-        # Alertas ativos
-        alertas_ativos = AlertaGerencial.objects.filter(
-            ativo=True,
-            data_referencia__gte=hoje
-        ).order_by('-prioridade', '-created_at')[:5]
-       
-        agendamentos_hoje = AgendamentoRelatorio.objects.filter(
-            
-            ativo=True,
-            frequencia=hoje
-        ).order_by('frequencia')
-        
-        ultimos_acessos = LogRelatorio.objects.filter(
-            
-            acao='visualizacao'
-        ).order_by('-timestamp')[:10]
-        
-        # Tempo médio de geração de relatórios
-        tempo_medio_geracao = RelatorioGerado.objects.filter(
-            status='concluido',
-            tempo_processamento__isnull=False
-        ).aggregate(Avg('tempo_processamento'))['tempo_processamento__avg']
-        
-        # Formatos mais utilizados
-        formatos_populares = RelatorioGerado.objects.filter(
-            empresa=empresa
-        ).values('formato').annotate(
-            total=Count('id')
-        ).order_by('-total')[:5]
-        
-        context.update({
-            'relatorios_populares': relatorios_populares,
-            'relatorios_recentes': relatorios_recentes,
-            'stats': stats,
-            'relatorios_por_categoria': relatorios_por_categoria,
-            'kpis_destaque': kpis_destaque,
-            'alertas_ativos': alertas_ativos,
-            'agendamentos_hoje': agendamentos_hoje,
-            'ultimos_acessos': ultimos_acessos,
-            'tempo_medio_geracao': tempo_medio_geracao,
-            'formatos_populares': formatos_populares,
-            'title': 'Dashboard de Relatórios'
-        })
-        
-        return context
-    
-    def _obter_kpis_destaque(self, empresa):
-        hoje = timezone.now().date()
-        
-        # Vendas hoje
-        vendas_hoje = Venda.objects.filter(
-            data_venda__date=hoje,
-            status='finalizada'
-        ).aggregate(
-            total=Sum('total'),
-            quantidade=Count('id')
-        )
-        
-        # Produtos em estoque baixo
-        produtos_estoque_baixo = Produto.objects.filter(
-            ativo=True,
-            estoque_atual__lte=F('estoque_minimo')
-        ).count()
-        
-        # Contas vencidas (somando valor_saldo)
-        # Contas vencidas: total e quantidade
-        contas_vencidas_qs = ContaReceber.objects.filter(
-            status__in=['aberta', 'vencida'],
-            data_vencimento__lt=hoje
-        )
-        contas_vencidas_total = contas_vencidas_qs.aggregate(Sum('valor_saldo'))['valor_saldo__sum'] or 0
-        contas_vencidas_qtd = contas_vencidas_qs.count()
-
-
-        contas_vencidas = contas_vencidas_qs.aggregate(
-            total=Sum('valor_saldo'),
-            quantidade=Count('id')
-        )
-        
-        # Novos clientes este mês
-        novos_clientes = Cliente.objects.filter(
-            created_at__month=hoje.month,
-            created_at__year=hoje.year
-        ).count()
-        
-        return {
-            'vendas_hoje': vendas_hoje,
-            'produtos_estoque_baixo': produtos_estoque_baixo,
-            'contas_vencidas_total': contas_vencidas_total,
-            'contas_vencidas_qtd': contas_vencidas_qtd,
-            'novos_clientes': novos_clientes
-        }
-
-    
-class CentralRelatoriosView(BaseViewMixin, TemplateView):
-    template_name = 'relatorios/central.html'
-    
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        empresa = self.get_empresa()
-        
-        # Todos os tipos de relatório por categoria
-        relatorios_por_categoria = {}
-        categorias = TipoRelatorio.CATEGORIA_CHOICES
-        
-        for categoria_code, categoria_name in categorias:
-            tipos = TipoRelatorio.objects.filter(
-                categoria=categoria_code,
-                ativo=True,
-                publico=True
-            ).order_by('ordem_exibicao', 'nome')
-            
-            if tipos.exists():
-                # Adicionar estatísticas de uso para cada relatório
-                tipos_com_stats = []
-                for tipo in tipos:
-                    execucoes = RelatorioGerado.objects.filter(
-                        tipo_relatorio=tipo,
-                        empresa=empresa
-                    ).count()
-                    
-                    ultima_execucao = RelatorioGerado.objects.filter(
-                        tipo_relatorio=tipo,
-                        empresa=empresa
-                    ).order_by('-data_solicitacao').first()
-                    
-                    tipos_com_stats.append({
-                        'tipo': tipo,
-                        'execucoes': execucoes,
-                        'ultima_execucao': ultima_execucao
-                    })
-                
-                relatorios_por_categoria[categoria_name] = tipos_com_stats
-        
-        # Templates personalizados da empresa
-        templates_personalizados = TemplateRelatorio.objects.filter(
-            ativo=True
-        ).annotate(
-            execucoes=Count('relatorio')
-        ).order_by('-execucoes', 'nome')
-        
-        # Relatórios favoritos do usuário (mais executados pelo usuário)
-        relatorios_favoritos = RelatorioGerado.objects.filter(
-            solicitante=self.request.user
-        ).values(
-            'tipo_relatorio__nome',
-            'tipo_relatorio__id'
-        ).annotate(
-            total_execucoes=Count('id')
-        ).order_by('-total_execucoes')[:8]
-        
-        # Estatísticas da central
-        stats_central = {
-            'total_tipos': TipoRelatorio.objects.filter(ativo=True, publico=True).count(),
-            'templates_empresa': templates_personalizados.count(),
-            'relatorios_executados_mes': RelatorioGerado.objects.filter(
-                data_solicitacao__month=timezone.now().month
-            ).count(),
-            'usuarios_ativos': RelatorioGerado.objects.filter(
-                data_solicitacao__gte=timezone.now().date() - timedelta(days=30)
-            ).values('solicitante').distinct().count()
-        }
-        
-        context.update({
-            'relatorios_por_categoria': relatorios_por_categoria,
-            'templates_personalizados': templates_personalizados,
-            'relatorios_favoritos': relatorios_favoritos,
-            'stats_central': stats_central,
-            'title': 'Central de Relatórios'
-        })
-        
+        inicio, fim = self.get_periodo()
+        context.setdefault("title", self.titulo)
+        context.setdefault("titulo", self.titulo)
+        context.setdefault("page_title", self.titulo)
+        context["data_inicio"] = inicio
+        context["data_fim"] = fim
+        context["show_date_filters"] = getattr(self, "show_date_filters", bool(getattr(self, "date_fields", ())))
+        context.setdefault("kpis", [])
+        context.setdefault("tabelas", [])
+        context.setdefault("filtros_ativos", bool(self.request.GET))
         return context
 
 
-class RelatoriosFavoritosView(BaseViewMixin, ListView):
-    model = RelatorioGerado
-    template_name = 'relatorios/favoritos.html'
-    context_object_name = 'relatorios'
-    paginate_by = 20
-    
+class ModeloRelatorioView(RelatorioBaseView):
+    """Lista segura e filtrada por período para uma fonte de dados do tenant."""
+    model = None
+    fields = ()
+    date_fields = ()
+    amount_fields = ()
+    template_name = "relatorios/pagina.html"
+    table_title = "Registos"
+    page_size = 100
+    status_finalizada = False
+
     def get_queryset(self):
-        # Relatórios mais executados pelo usuário
-        return RelatorioGerado.objects.filter(
-            empresa=self.get_empresa(),
-            solicitante=self.request.user
-        ).values(
-            'tipo_relatorio__nome',
-            'tipo_relatorio__id',
-            'tipo_relatorio__categoria',
-            'tipo_relatorio__descricao'
-        ).annotate(
-            total_execucoes=Count('id'),
-            ultima_execucao=Max('data_solicitacao'),
-            tempo_medio=Avg('tempo_processamento')
-        ).order_by('-total_execucoes')
-    
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        
-        # Estatísticas dos favoritos
-        usuario_stats = RelatorioGerado.objects.filter(
-            empresa=self.get_empresa(),
-            solicitante=self.request.user
-        ).aggregate(
-            total_relatorios=Count('id'),
-            formatos_usados=Count('formato', distinct=True),
-            tempo_total=Sum('tempo_processamento')
-        )
-        
-        context.update({
-            'usuario_stats': usuario_stats,
-            'title': 'Meus Relatórios Favoritos'
-        })
-        
-        return context
-
-
-class RelatoriosRecentesView(BaseViewMixin, ListView):
-    model = RelatorioGerado
-    template_name = 'relatorios/recentes.html'
-    context_object_name = 'relatorios'
-    paginate_by = 20
-    
-    def get_queryset(self):
-        return RelatorioGerado.objects.filter(
-            empresa=self.get_empresa(),
-            solicitante=self.request.user
-        ).select_related('tipo_relatorio').order_by('-data_solicitacao')
-    
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        
-        # Relatórios por status
-        relatorios_por_status = RelatorioGerado.objects.filter(
-            empresa=self.get_empresa(),
-            solicitante=self.request.user
-        ).values('status').annotate(
-            total=Count('id')
-        ).order_by('-total')
-        
-        context.update({
-            'relatorios_por_status': relatorios_por_status,
-            'title': 'Relatórios Recentes'
-        })
-        
-        return context
-
-
-# =====================================
-# CONSTRUTOR DE RELATÓRIOS
-# =====================================
-
-class ConstrutorRelatorioView(BaseViewMixin, TemplateView):
-    def get_empresa(self):
-        return getattr(self.request.user, "empresa", None)
-    
-    template_name = 'relatorios/construtor/dashboard.html'
-    
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        empresa = self.get_empresa()
-        
-        # Templates disponíveis para edição
-        templates_disponiveis = TemplateRelatorio.objects.filter(
-            ativo=True
-        ).order_by('-updated_at')
-        
-        # Modelos de dados disponíveis
-        modelos_disponiveis = [
-            {
-                'nome': 'Vendas',
-                'model': 'vendas.Venda',
-                'descricao': 'Dados de vendas e faturamento',
-                'campos_principais': ['data_venda', 'total', 'cliente', 'funcionario']
-            },
-            {
-                'nome': 'Produtos',
-                'model': 'produtos.Produto',
-                'descricao': 'Catálogo de produtos e estoque',
-                'campos_principais': ['nome_comercial', 'categoria', 'preco_venda', 'estoque_atual']
-            },
-            {
-                'nome': 'Clientes',
-                'model': 'clientes.Cliente',
-                'descricao': 'Base de clientes cadastrados',
-                'campos_principais': ['nome', 'cidade', 'data_nascimento', 'tipo_pessoa']
-            },
-            {
-                'nome': 'Funcionários',
-                'model': 'funcionarios.Funcionario',
-                'descricao': 'Quadro de funcionários',
-                'campos_principais': ['user__first_name', 'cargo', 'departamento', 'salario']
-            },
-            {
-                'nome': 'Fornecedores',
-                'model': 'fornecedores.Fornecedor',
-                'descricao': 'Cadastro de fornecedores',
-                'campos_principais': ['nome', 'cidade', 'categoria', 'ativo']
-            },
-            {
-                'nome': 'Financeiro',
-                'model': 'financeiro.ContaReceber',
-                'descricao': 'Contas a receber e pagar',
-                'campos_principais': ['valor', 'data_vencimento', 'status', 'cliente']
-            }
-        ]
-        
-        # Templates de exemplo por categoria
-        templates_exemplo = {
-            'Vendas': [
-                'Relatório de Vendas Diário',
-                'Ranking de Produtos',
-                'Performance de Vendedores'
-            ],
-            'Estoque': [
-                'Posição de Estoque',
-                'Movimentação por Período',
-                'Produtos Vencidos'
-            ],
-            'Financeiro': [
-                'Fluxo de Caixa',
-                'Contas em Aberto',
-                'DRE Gerencial'
-            ]
-        }
-        
-        # Estatísticas do construtor
-        stats_construtor = {
-            'templates_criados': TemplateRelatorio.objects.filter(empresa=empresa).count(),
-            'relatorios_gerados': Relatorio.objects.filter(
-                template__empresa=empresa
-            ).count(),
-            'usuarios_criadores': Relatorio.objects.filter(
-                template__empresa=empresa
-            ).values('gerado_por').distinct().count()
-        }
-        
-        context.update({
-            'templates_disponiveis': templates_disponiveis,
-            'modelos_disponiveis': modelos_disponiveis,
-            'templates_exemplo': templates_exemplo,
-            'stats_construtor': stats_construtor,
-            'title': 'Construtor de Relatórios'
-        })
-        
-        return context
-
-
-class NovoRelatorioView(BaseViewMixin, CreateView):
-    def get_empresa(self):
-        return getattr(self.request.user, "empresa", None)
-    
-    model = TemplateRelatorio
-    form_class = TemplateRelatorioForm
-    template_name = 'relatorios/construtor/novo.html'
-    success_url = reverse_lazy('relatorios:template_lista')
-    
-    def form_valid(self, form):
-        form.instance.empresa = self.get_empresa()
-        form.instance.created_by = self.request.user
-        
-        # Log da criação
-        LogRelatorio.objects.create(
-            empresa=self.get_empresa(),
-            usuario=self.request.user,
-            acao='criacao_template',
-            detalhes=f'Template "{form.instance.nome}" criado',
-            objeto_id=form.instance.id
-        )
-        
-        messages.success(self.request, 'Template de relatório criado com sucesso!')
-        return super().form_valid(form)
-    
-    def get_form_kwargs(self):
-        kwargs = super().get_form_kwargs()
-        #kwargs['empresa'] = self.get_empresa()
-        kwargs['usuario'] = self.request.user
-        return kwargs
-
-
-class EditarRelatorioView(BaseViewMixin, UpdateView):
-    def get_empresa(self):
-        return getattr(self.request.user, "empresa", None)
-    
-    model = TemplateRelatorio
-    form_class = TemplateRelatorioForm
-    template_name = 'relatorios/construtor/editar.html'
-    
-    def get_success_url(self):
-        return reverse_lazy('relatorios:template_detail', kwargs={'pk': self.object.pk})
-    
-    def get_queryset(self):
-        return TemplateRelatorio.objects.filter(empresa=self.get_empresa())
-    
-    def form_valid(self, form):
-        # Log da alteração
-        LogRelatorio.objects.create(
-            empresa=self.get_empresa(),
-            usuario=self.request.user,
-            acao='edicao_template',
-            detalhes=f'Template "{form.instance.nome}" editado',
-            objeto_id=form.instance.id
-        )
-        
-        messages.success(self.request, 'Template atualizado com sucesso!')
-        return super().form_valid(form)
-    
-    def get_form_kwargs(self):
-        kwargs = super().get_form_kwargs()
-        kwargs['empresa'] = self.get_empresa()
-        kwargs['usuario'] = self.request.user
-        return kwargs
-
-
-class CamposDisponiveisView(BaseViewMixin, View):
-    def get(self, request):
-        model_name = request.GET.get('model')
-        
-        if not model_name:
-            return JsonResponse({'error': 'Parâmetro model é obrigatório'}, status=400)
-        
-        try:
-            # Mapeamento de modelos disponíveis
-            models_map = {
-                'vendas': Venda,
-                'produtos': Produto,
-                'clientes': Cliente,
-                'funcionarios': Funcionario,
-                'fornecedores': Fornecedor,
-                'contas_receber': ContaReceber,
-                'contas_pagar': ContaPagar
-            }
-            
-            if model_name not in models_map:
-                return JsonResponse({'error': 'Modelo não encontrado'}, status=404)
-            
-            model_class = models_map[model_name]
-            
-            campos = []
-            for field in model_class._meta.fields:
-                campo_info = {
-                    'name': field.name,
-                    'verbose_name': str(field.verbose_name),
-                    'type': field.get_internal_type(),
-                    'required': not field.null,
-                    'help_text': field.help_text or '',
-                    'choices': []
-                }
-                
-                # Adicionar choices se existirem
-                if hasattr(field, 'choices') and field.choices:
-                    campo_info['choices'] = [
-                        {'value': choice[0], 'label': choice[1]}
-                        for choice in field.choices
-                    ]
-                
-                campos.append(campo_info)
-            
-            # Adicionar campos relacionados mais comuns
-            if model_name == 'vendas':
-                campos.extend([
-                    {
-                        'name': 'cliente__nome',
-                        'verbose_name': 'Nome do Cliente',
-                        'type': 'CharField',
-                        'required': False
-                    },
-                    {
-                        'name': 'funcionario__user__first_name',
-                        'verbose_name': 'Nome do Vendedor',
-                        'type': 'CharField',
-                        'required': False
-                    }
-                ])
-            
-            return JsonResponse({
-                'success': True,
-                'campos': campos,
-                'model_name': model_class._meta.verbose_name
-            })
-            
-        except Exception as e:
-            logger.error(f'Erro ao obter campos do modelo {model_name}: {e}')
-            return JsonResponse({'error': str(e)}, status=500)
-
-
-# =====================================
-# TEMPLATES DE RELATÓRIOS
-# =====================================
-
-class TemplateRelatorioListView(BaseViewMixin, ListView):
-    model = TemplateRelatorio
-    template_name = 'relatorios/templates/lista.html'
-    context_object_name = 'templates'
-    paginate_by = 20
-    
-    def get_queryset(self):
-        queryset = TemplateRelatorio.objects.filter(
-            empresa=self.get_empresa()
-        )
-        
-        # Filtros
-        categoria = self.request.GET.get('categoria')
-        busca = self.request.GET.get('busca')
-        ativo = self.request.GET.get('ativo')
-        
-        if categoria:
-            queryset = queryset.filter(categoria=categoria)
-        
-        if busca:
-            queryset = queryset.filter(
-                Q(nome__icontains=busca) |
-                Q(descricao__icontains=busca)
-            )
-        
-        if ativo is not None:
-            queryset = queryset.filter(ativo=ativo == 'true')
-        
-        return queryset.order_by('-updated_at')
-    
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        
-        # Categorias disponíveis
-        categorias = TemplateRelatorio.objects.filter(
-            empresa=self.get_empresa()
-        ).values_list('categoria', flat=True).distinct()
-        
-        # Estatísticas
-        stats = {
-            'total_templates': TemplateRelatorio.objects.filter(empresa=self.get_empresa()).count(),
-            'templates_ativos': TemplateRelatorio.objects.filter(
-                empresa=self.get_empresa(), ativo=True
-            ).count(),
-            'templates_usados': TemplateRelatorio.objects.filter(
-                empresa=self.get_empresa(),
-                relatorio__isnull=False
-            ).distinct().count()
-        }
-        
-        context.update({
-            'categorias': categorias,
-            'stats': stats,
-            'filtros': {
-                'categoria': self.request.GET.get('categoria'),
-                'busca': self.request.GET.get('busca'),
-                'ativo': self.request.GET.get('ativo')
-            },
-            'title': 'Templates de Relatórios'
-        })
-        
-        return context
-
-
-class TemplateRelatorioCreateView(BaseViewMixin, CreateView):
-    model = TemplateRelatorio
-    form_class = TemplateRelatorioForm
-    template_name = 'relatorios/templates/form.html'
-    success_url = reverse_lazy('relatorios:template_lista')
-    
-    def form_valid(self, form):
-        form.instance.empresa = self.get_empresa()
-        form.instance.created_by = self.request.user
-        messages.success(self.request, 'Template criado com sucesso!')
-        return super().form_valid(form)
-    
-    def get_form_kwargs(self):
-        kwargs = super().get_form_kwargs()
-        kwargs['empresa'] = self.get_empresa()
-        kwargs['usuario'] = self.request.user
-        return kwargs
-
-
-class TemplateRelatorioDetailView(BaseViewMixin, DetailView):
-    model = TemplateRelatorio
-    template_name = 'relatorios/templates/detail.html'
-    context_object_name = 'template'
-    
-    def get_queryset(self):
-        return TemplateRelatorio.objects.filter(empresa=self.get_empresa())
-    
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        template = self.get_object()
-        
-        # Relatórios gerados com este template
-        relatorios_gerados = Relatorio.objects.filter(
-            template=template
-        ).order_by('-data_geracao')[:10]
-        
-        # Estatísticas de uso
-        stats_uso = {
-            'total_execucoes': Relatorio.objects.filter(template=template).count(),
-            'execucoes_mes': Relatorio.objects.filter(
-                template=template,
-                data_geracao__month=timezone.now().month
-            ).count(),
-            'ultimo_uso': relatorios_gerados.first().data_geracao if relatorios_gerados.exists() else None,
-            'tempo_medio_geracao': Relatorio.objects.filter(
-                template=template
-            ).aggregate(Avg('tempo_processamento'))['tempo_processamento__avg']
-        }
-        
-        # Usuários que mais usam este template
-        usuarios_frequentes = Relatorio.objects.filter(
-            template=template
-        ).values(
-            'usuario__first_name',
-            'usuario__last_name'
-        ).annotate(
-            total_usos=Count('id')
-        ).order_by('-total_usos')[:5]
-        
-        context.update({
-            'relatorios_gerados': relatorios_gerados,
-            'stats_uso': stats_uso,
-            'usuarios_frequentes': usuarios_frequentes,
-            'title': f'Template: {template.nome}'
-        })
-        
-        return context
-
-
-class DuplicarTemplateView(BaseViewMixin, View):
-    def post(self, request, pk):
-        template_original = get_object_or_404(
-            TemplateRelatorio, pk=pk, empresa=self.get_empresa()
-        )
-        
-        try:
-            with transaction.atomic():
-                # Criar cópia
-                novo_template = TemplateRelatorio.objects.create(
-                    empresa=self.get_empresa(),
-                    nome=f"{template_original.nome} (Cópia)",
-                    descricao=template_original.descricao,
-                    categoria=template_original.categoria,
-                    modelo_base=template_original.modelo_base,
-                    campos=template_original.campos,
-                    filtros_disponiveis=template_original.filtros_disponiveis,
-                    ordenacao_padrao=template_original.ordenacao_padrao,
-                    formato_padrao=template_original.formato_padrao,
-                    layout_personalizado=template_original.layout_personalizado,
-                    configuracoes_avancadas=template_original.configuracoes_avancadas,
-                    ativo=True,
-                    created_by=request.user
-                )
-                
-                # Log da duplicação
-                LogRelatorio.objects.create(
-                    empresa=self.get_empresa(),
-                    usuario=request.user,
-                    acao='duplicacao_template',
-                    detalhes=f'Template "{template_original.nome}" duplicado como "{novo_template.nome}"',
-                    objeto_id=novo_template.id
-                )
-                
-                messages.success(request, f'Template duplicado com sucesso!')
-                return redirect('relatorios:template_detail', pk=novo_template.pk)
-                
-        except Exception as e:
-            logger.error(f'Erro ao duplicar template: {e}')
-            messages.error(request, f'Erro ao duplicar template: {str(e)}')
-            return redirect('relatorios:template_detail', pk=pk)
-
-
-class CompartilharTemplateView(BaseViewMixin, TemplateView):
-    template_name = 'relatorios/templates/compartilhar.html'
-    
-    def get_object(self):
-        return get_object_or_404(
-            TemplateRelatorio, pk=self.kwargs['pk'], empresa=self.get_empresa()
-        )
-    
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        template = self.get_object()
-        
-        # Usuários da empresa que podem receber o compartilhamento
-        usuarios_empresa = User.objects.filter(
-            funcionario__empresa=self.get_empresa(),
-            is_active=True
-        ).exclude(id=self.request.user.id)
-        
-        # Grupos de usuários
-        grupos_disponíveis = Group.objects.all()
-        
-        context.update({
-            'template': template,
-            'usuarios_empresa': usuarios_empresa,
-            'grupos_disponíveis': grupos_disponíveis,
-            'title': f'Compartilhar Template: {template.nome}'
-        })
-        
-        return context
-    
-    def post(self, request, pk):
-        template = self.get_object()
-        
-        try:
-            usuarios_ids = request.POST.getlist('usuarios')
-            grupos_ids = request.POST.getlist('grupos')
-            permissoes = request.POST.getlist('permissoes')
-            mensagem = request.POST.get('mensagem', '')
-            
-            # Criar registros de compartilhamento
-            usuarios_compartilhados = []
-            
-            # Compartilhar com usuários específicos
-            for user_id in usuarios_ids:
-                usuario = User.objects.get(id=user_id)
-                usuarios_compartilhados.append(usuario)
-            
-            # Compartilhar com grupos
-            for grupo_id in grupos_ids:
-                grupo = Group.objects.get(id=grupo_id)
-                usuarios_compartilhados.extend(grupo.user_set.all())
-            
-            # Enviar notificações por email
-            if usuarios_compartilhados:
-                for usuario in set(usuarios_compartilhados):  # Remove duplicatas
-                    if usuario.email:
-                        self._enviar_notificacao_compartilhamento(
-                            template, usuario, request.user, mensagem
-                        )
-                
-                # Log do compartilhamento
-                LogRelatorio.objects.create(
-                    empresa=self.get_empresa(),
-                    usuario=request.user,
-                    acao='compartilhamento_template',
-                    detalhes=f'Template "{template.nome}" compartilhado com {len(set(usuarios_compartilhados))} usuário(s)',
-                    objeto_id=template.id
-                )
-                
-                messages.success(
-                    request, 
-                    f'Template compartilhado com {len(set(usuarios_compartilhados))} usuário(s)!'
-                )
-            else:
-                messages.warning(request, 'Nenhum usuário foi selecionado para compartilhamento.')
-            
-            return redirect('relatorios:template_detail', pk=pk)
-            
-        except Exception as e:
-            logger.error(f'Erro ao compartilhar template: {e}')
-            messages.error(request, f'Erro ao compartilhar template: {str(e)}')
-            return redirect('relatorios:template_compartilhar', pk=pk)
-    
-    def _enviar_notificacao_compartilhamento(self, template, usuario_destino, usuario_origem, mensagem):
-        try:
-            assunto = f'Template de Relatório Compartilhado: {template.nome}'
-            
-            corpo = f"""
-            Olá {usuario_destino.get_full_name() or usuario_destino.username},
-            
-            O usuário {usuario_origem.get_full_name() or usuario_origem.username} compartilhou um template de relatório com você.
-            
-            Template: {template.nome}
-            Descrição: {template.descricao}
-            
-            {f'Mensagem: {mensagem}' if mensagem else ''}
-            
-            Para acessar o template, faça login no sistema e vá para a seção de Relatórios.
-            
-            Atenciosamente,
-            Sistema VistoGEST
-            """
-            
-            send_mail(
-                subject=assunto,
-                message=corpo,
-                from_email=settings.DEFAULT_FROM_EMAIL,
-                recipient_list=[usuario_destino.email],
-                fail_silently=False
-            )
-            
-        except Exception as e:
-            logger.error(f'Erro ao enviar email de compartilhamento: {e}')
-
-
-# =====================================
-# RELATÓRIOS DE VENDAS
-# =====================================
-
-
-from django.db.models import Sum, Count
-from datetime import timedelta
-from django.utils import timezone
-
-class RelatoriosVendasView(TemplateView):
-    template_name = 'relatorios/vendas/dashboard.html'
-
-    def get_empresa(self):
-        return getattr(self.request.user, "empresa", None)
+        if self.model is None:
+            return []
+        qs = self.model.objects.all()
+        inicio, fim = self.get_periodo()
+        date_field = _first_existing_path(self.model, self.date_fields)
+        if date_field:
+            qs = _date_filtered(qs, self.model, date_field, inicio, fim)
+        if self.status_finalizada and _path_exists(self.model, "status"):
+            qs = qs.filter(status="finalizada")
+        return _safe_order(qs, self.model, ("data_venda", "data", "created_at", "data_emissao", "data_pedido", "pk"))
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        empresa = self.get_empresa()
-        if not empresa:
-            context["erro"] = "Nenhuma empresa associada ao usuário."
+        if self.model is None:
             return context
-
-        hoje = timezone.now().date()
-        inicio_mes = hoje.replace(day=1)
-        inicio_ano = hoje.replace(month=1, day=1)
-
-        # === ESTATÍSTICAS GERAIS ===
-        vendas_hoje_qs = Venda.objects.filter(
-            data_venda__date=hoje,
-            status='finalizada'
-        )
-
-        vendas_hoje = vendas_hoje_qs.aggregate(
-            total=Sum('total'),
-            quantidade=Count('id')
-        )
-
-        vendas_hoje['ticket_medio'] = (
-            (vendas_hoje['total'] or 0) / vendas_hoje['quantidade']
-        ) if vendas_hoje['quantidade'] else 0
-
-        # === VENDAS MÊS ===
-        vendas_mes_qs = Venda.objects.filter( data_venda__date__gte=inicio_mes, status="finalizada"
-        )
-        vendas_mes = vendas_mes_qs.aggregate(
-            total_vendas=Sum("total"),
-            quantidade=Count("id")
-        )
-        vendas_mes['ticket_medio'] = (
-            (vendas_mes['total_vendas'] or 0) / vendas_mes['quantidade']
-        ) if vendas_mes['quantidade'] else 0
-
-        # === VENDAS ANO ===
-        vendas_ano_qs = Venda.objects.filter( data_venda__date__gte=inicio_ano, status="finalizada"
-        )
-        vendas_ano = vendas_ano_qs.aggregate(
-            total_vendas=Sum("total"),
-            quantidade=Count("id")
-        )
-        vendas_ano['ticket_medio'] = (
-            (vendas_ano['total_vendas'] or 0) / vendas_ano['quantidade']
-        ) if vendas_ano['quantidade'] else 0
-
-        # === COMPARAÇÃO COM MÊS ANTERIOR ===
-        mes_anterior = inicio_mes - timedelta(days=1)
-        inicio_mes_anterior = mes_anterior.replace(day=1)
-        vendas_mes_anterior = Venda.objects.filter(
-            data_venda__date__gte=inicio_mes_anterior,
-            data_venda__date__lt=inicio_mes,
-            status="finalizada"
-        ).aggregate(Sum("total"))["total__sum"] or 0
-
-        crescimento_mes = 0
-        if vendas_mes_anterior > 0:
-            crescimento_mes = (
-                ((vendas_mes['total_vendas'] or 0) - vendas_mes_anterior)
-                / vendas_mes_anterior
-            ) * 100
-
-        top_produtos = (
-            ItemVenda.objects.filter(
-                venda__data_venda__date__gte=inicio_mes,
-                venda__status="finalizada",
-                produto__isnull=False,
-            )
-            .select_related("produto")
-            .annotate(
-                nome=F("produto__nome_produto"),
-                quantidade_vendida=Sum("quantidade"),
-                faturamento=Sum(F("quantidade") * F("preco_unitario")),
-            )
-            .values("nome", "quantidade_vendida", "faturamento")
-            .order_by("-faturamento")[:10]
-        )
-
-        # === VENDAS POR VENDEDOR ===
-        vendas_por_vendedor = (
-            Venda.objects.filter(
-                data_venda__date__gte=inicio_mes,
-                status="finalizada",
-                vendedor__isnull=False,
-            )
-            .values("vendedor__nome_completo")
-            .annotate(
-                total_vendas=Count("id"),
-                faturamento=Sum("total"),
-                ticket_medio=Avg("total"),
-            )
-            .order_by("-faturamento")[:10]
-        )
-
-        # === VENDAS POR FORMA DE PAGAMENTO ===
-        vendas_forma_pagamento = (
-            Venda.objects.filter(
-                data_venda__date__gte=inicio_mes,
-                status="finalizada",
-            )
-            .values("forma_pagamento__nome")
-            .annotate(total=Sum("total"), quantidade=Count("id"))
-            .order_by("-total")
-        )
-
-        # === VENDAS POR DIA (últimos 30 dias) ===
-        vendas_por_dia = (
-            Venda.objects.filter(
-                data_venda__date__gte=hoje - timedelta(days=30),
-                status="finalizada",
-            )
-            .values("data_venda__date")
-            .annotate(total=Sum("total"), quantidade=Count("id"))
-            .order_by("data_venda__date")
-        )
-
-        # === META (se houver tabela de métricas) ===
-        meta_mes = MetricaKPI.objects.filter(
-            codigo="META_VENDAS_MES",
-            data_referencia__month=hoje.month,
-            data_referencia__year=hoje.year,
-        ).first()
-
-        percentual_meta = 0
-        if meta_mes and meta_mes.valor_meta > 0:
-            percentual_meta = (
-                (vendas_mes["total_vendas"] or 0) / meta_mes.valor_meta
-            ) * 100
-
-        context.update({
-            "vendas_hoje": vendas_hoje,
-            "vendas_mes": vendas_mes,
-            "vendas_ano": vendas_ano,
-            "crescimento_mes": round(crescimento_mes, 1),
-            "meta_mes": meta_mes,
-            "percentual_meta": round(percentual_meta, 1),
-            "title": "Relatório de Vendas",
-        })
+        qs = self.get_queryset()
+        model_fields = [field.name for field in _model_fields(self.model)]
+        fields = [field for field in self.fields if _path_exists(self.model, field)]
+        if not fields:
+            fields = [field for field in ("id", "nome", "nome_completo", "nome_produto", "codigo", "status", "data") if field in model_fields]
+        context["tabelas"] = [_build_table(qs, self.model, fields, self.table_title, self.page_size)]
+        count = qs.count() if hasattr(qs, "count") else len(qs)
+        context["kpis"] = [{"rotulo": "Registos", "valor": count}]
+        amount_field = _first_existing_path(self.model, self.amount_fields)
+        if amount_field:
+            try:
+                total = qs.aggregate(total=Sum(amount_field))["total"] or 0
+                context["kpis"].append({"rotulo": "Total", "valor": _display(total)})
+            except Exception:
+                logger.debug("Não foi possível agregar %s.%s", self.model.__name__, amount_field)
+        context["total_registos"] = count
+        context["page_title"] = self.titulo
+        context["title"] = self.titulo
+        context["titulo"] = self.titulo
         return context
 
 
-class RelatorioVendasDiarioView(BaseViewMixin, TemplateView):
-    def get_empresa(self):
-        return getattr(self.request.user, "empresa", None)
-    
-    template_name = 'relatorios/vendas/diario.html'
-    
+# ---------------------------------------------------------------------------
+# Painel, biblioteca e construtor de relatórios
+# ---------------------------------------------------------------------------
+class RelatoriosDashboardView(RelatorioBaseView):
+    template_name = "relatorios/dashboard.html"
+    titulo = "Painel de Relatórios"
+
     def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        empresa = self.get_empresa()
-        
-        # Data selecionada
-        data_str = self.request.GET.get('data')
-        if data_str:
-            data_selecionada = datetime.strptime(data_str, '%Y-%m-%d').date()
-        else:
-            data_selecionada = timezone.now().date()
-        
-        # Vendas do dia
-        vendas_dia = Venda.objects.filter(
-            data_venda=data_selecionada,
-            status='finalizada'
-        ).select_related('cliente', 'vendedor').order_by('-created_at')
-        
-        vendas_dia = vendas_dia.annotate(
-            total_itens = Sum('itens__quantidade')
-        )
-        # Estatísticas do dia
-        stats_dia = vendas_dia.aggregate(
-            total_vendas=Count('id'),
-            faturamento_total=Sum('total'),
-            ticket_medio=Avg('total'),
-            total_itens=Sum('itens__quantidade'),
-            desconto_total = Sum('itens__desconto_item')
-        )
-        
-        
-
-        vendas_por_hora = vendas_dia.annotate(
-            hora=ExtractHour(F('created_at'))
-        ).values('hora').annotate(
-            total=Sum('total'),
-            quantidade=Count('id')
-        ).order_by('hora')
-
-        
-        # Completar todas as horas (0-23)
-        vendas_hora_completa = []
-        vendas_dict = {int(v['hora']): v for v in vendas_por_hora}
-        
-        for hora in range(24):
-            if hora in vendas_dict:
-                vendas_hora_completa.append(vendas_dict[hora])
-            else:
-                vendas_hora_completa.append({
-                    'hora': hora,
-                    'total': 0,
-                    'quantidade': 0
-                })
-        
-        # Top produtos do dia
-        top_produtos_dia = ItemVenda.objects.filter(
-            venda__in=vendas_dia
-        ).values(
-            'produto__nome_comercial',
-            'produto__codigo_interno'
-        ).annotate(
-            quantidade_vendida=Sum('quantidade'),
-            faturamento=Sum(F('quantidade') * F('preco_unitario'))
-        ).order_by('-faturamento')[:10]
-        
-     
-        # Vendedores do dia
-        vendedores_dia = vendas_dia.filter(
-            vendedor__isnull=False
-        ).values(
-            'vendedor__nome_completo'  # pega diretamente o nome completo do Funcionario
-        ).annotate(
-            total_vendas=Count('id'),
-            faturamento=Sum('total')
-        ).order_by('-faturamento')
-
-        
-        # Formas de pagamento
-        formas_pagamento = vendas_dia.values(
-            'forma_pagamento'
-        ).annotate(
-            total=Sum('total'),
-            quantidade=Count('id')
-        ).order_by('-total')
-        
-        # Clientes do dia
-        clientes_dia = vendas_dia.filter(
-            cliente__isnull=False
-        ).values(
-            'cliente__nome_completo'
-        ).annotate(
-            total_compras=Sum('total'),
-            quantidade_compras=Count('id')
-        ).order_by('-total_compras')[:10]
-        
-        # Comparação com o mesmo dia da semana anterior
-        data_semana_anterior = data_selecionada - timedelta(days=7)
-        vendas_semana_anterior = Venda.objects.filter(
-            data_venda=data_semana_anterior,
-            status='finalizada'
-        ).aggregate(
-            total=Sum('total'),
-            quantidade=Count('id')
-        )
-        
-        # Análise de desempenho por período do dia
-        periodos_dia = {
-            'manha': vendas_dia.annotate(hora=ExtractHour(F('created_at'))).filter(hora__range=(6, 11)).aggregate(total=Sum('total'), qtd=Count('id')),
-            'tarde': vendas_dia.annotate(hora=ExtractHour(F('created_at'))).filter(hora__range=(12, 17)).aggregate(total=Sum('total'), qtd=Count('id')),
-            'noite': vendas_dia.annotate(hora=ExtractHour(F('created_at'))).filter(hora__range=(18, 23)).aggregate(total=Sum('total'), qtd=Count('id')),
-        }
-
-        
-        context.update({
-            'data_selecionada': data_selecionada,
-            'vendas_dia': vendas_dia,
-            'stats_dia': stats_dia,
-            'vendas_por_hora': vendas_hora_completa,
-            'top_produtos_dia': top_produtos_dia,
-            'vendedores_dia': vendedores_dia,
-            'formas_pagamento': formas_pagamento,
-            'clientes_dia': clientes_dia,
-            'vendas_semana_anterior': vendas_semana_anterior,
-            'periodos_dia': periodos_dia,
-            'title': f'Relatório Diário - {data_selecionada.strftime("%d/%m/%Y")}'
-        })
-        
-        return context
-
-
-class RelatorioVendasMensalView(BaseViewMixin, TemplateView):
-    def get_empresa(self):
-        
-        return getattr(self.request.user, "empresa", None)
-    
-    template_name = 'relatorios/vendas/mensal.html'
-    
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        empresa = self.get_empresa()
-        
-        # Mês e ano selecionados
-        mes = int(self.request.GET.get('mes', timezone.now().month))
-        ano = int(self.request.GET.get('ano', timezone.now().year))
-        
-        # Primeiro e último dia do mês
-        primeiro_dia = date(ano, mes, 1)
-        if mes == 12:
-            ultimo_dia = date(ano + 1, 1, 1) - timedelta(days=1)
-        else:
-            ultimo_dia = date(ano, mes + 1, 1) - timedelta(days=1)
-        
-        
-        vendas_mes = vendas_mes.annotate(
-            total_itens=Sum('itens__quantidade')  # aqui criamos o campo calculado
-        )
-
-        stats_mes = vendas_mes.aggregate(
-            total_vendas=Count('id'),
-            faturamento_total=Sum('total'),
-            ticket_medio=Avg('total'),
-            total_itens=Sum('total_itens'),  # agora funciona
-            desconto_total=Sum('desconto_valor')  # se o campo correto for desconto_valor
-        )
-
-        
-        # Vendas por dia do mês
-        vendas_por_dia = vendas_mes.values('data_venda').annotate(
-            total=Sum('total'),
-            quantidade=Count('id')
-        ).order_by('data_venda')
-        
-        # Criar lista completa de dias do mês
-        vendas_dia_completa = []
-        vendas_dict = {v['data_venda']: v for v in vendas_por_dia}
-        
-        current_date = primeiro_dia
-        while current_date <= ultimo_dia:
-            if current_date in vendas_dict:
-                vendas_dia_completa.append({
-                    'data': current_date,
-                    'total': vendas_dict[current_date]['total'],
-                    'quantidade': vendas_dict[current_date]['quantidade']
-                })
-            else:
-                vendas_dia_completa.append({
-                    'data': current_date,
-                    'total': 0,
-                    'quantidade': 0
-                })
-            current_date += timedelta(days=1)
-        
-        # Vendas por semana
-        vendas_por_semana = vendas_mes.annotate(
-            semana=TruncWeek('data_venda')
-        ).values('semana').annotate(
-            total=Sum('total'),
-            quantidade=Count('id')
-        ).order_by('semana')
-        
-        # Top vendedores do mês
-        top_vendedores = vendas_mes.filter(
-            funcionario__isnull=False
-        ).values(
-            'vendedor__user__first_name',
-            'vendedor__user__last_name',
-            'funcionario__id'
-        ).annotate(
-            total_vendas=Count('id'),
-            faturamento=Sum('total'),
-            ticket_medio=Avg('total')
-        ).order_by('-faturamento')[:10]
-        
-        # Top clientes do mês
-        top_clientes = vendas_mes.filter(
-            cliente__isnull=False
-        ).values(
-            'cliente__nome',
-            'cliente__id'
-        ).annotate(
-            total_compras=Count('id'),
-            faturamento=Sum('total')
-        ).order_by('-faturamento')[:10]
-        
-        # Produtos mais vendidos
-        produtos_mais_vendidos = ItemVenda.objects.filter(
-            venda__in=vendas_mes
-        ).values(
-            'produto__nome_produto',
-            'produto__categoria__nome'
-        ).annotate(
-            quantidade_vendida=Sum('quantidade'),
-            faturamento=Sum(F('quantidade') * F('preco_unitario'))
-        ).order_by('-faturamento')[:15]
-        
-        # Vendas por categoria
-        vendas_por_categoria = ItemVenda.objects.filter(
-            venda__in=vendas_mes
-        ).values(
-            'produto__categoria__nome'
-        ).annotate(
-            faturamento=Sum(F('quantidade') * F('preco_unitario')),
-            quantidade=Sum('quantidade')
-        ).order_by('-faturamento')
-        
-        # Análise de crescimento
-        # Mês anterior
-        if mes == 1:
-            mes_anterior = 12
-            ano_anterior = ano - 1
-        else:
-            mes_anterior = mes - 1
-            ano_anterior = ano
-        
-        primeiro_dia_anterior = date(ano_anterior, mes_anterior, 1)
-        if mes_anterior == 12:
-            ultimo_dia_anterior = date(ano_anterior + 1, 1, 1) - timedelta(days=1)
-        else:
-            ultimo_dia_anterior = date(ano_anterior, mes_anterior + 1, 1) - timedelta(days=1)
-        
-        vendas_mes_anterior = Venda.objects.filter(
-            data_venda__gte=primeiro_dia_anterior,
-            data_venda__lte=ultimo_dia_anterior,
-            status='finalizada'
-        ).aggregate(
-            total=Sum('total'),
-            quantidade=Count('id')
-        )
-        
-        # Calcular variações
-        variacao_faturamento = 0
-        variacao_quantidade = 0
-        
-        if vendas_mes_anterior['total']:
-            variacao_faturamento = (
-                (stats_mes['faturamento_total'] or 0) - vendas_mes_anterior['total']
-            ) / vendas_mes_anterior['total'] * 100
-        
-        if vendas_mes_anterior['quantidade']:
-            variacao_quantidade = (
-                (stats_mes['total_vendas'] or 0) - vendas_mes_anterior['quantidade']
-            ) / vendas_mes_anterior['quantidade'] * 100
-        
-        # Metas do mês
-        meta_faturamento = MetricaKPI.objects.filter(
-            codigo='META_FATURAMENTO_MES',
-            data_referencia__month=mes,
-            data_referencia__year=ano
-        ).first()
-        
-        meta_vendas = MetricaKPI.objects.filter(
-            codigo='META_VENDAS_MES',
-            data_referencia__month=mes,
-            data_referencia__year=ano
-        ).first()
-        
-        # Calcular percentual das metas
-        percentual_meta_faturamento = 0
-        percentual_meta_vendas = 0
-        
-        if meta_faturamento and meta_faturamento.valor_meta > 0:
-            percentual_meta_faturamento = (
-                (stats_mes['faturamento_total'] or 0) / meta_faturamento.valor_meta
-            ) * 100
-        
-        if meta_vendas and meta_vendas.valor_meta > 0:
-            percentual_meta_vendas = (
-                (stats_mes['total_vendas'] or 0) / meta_vendas.valor_meta
-            ) * 100
-        
-        context.update({
-            'mes': mes,
-            'ano': ano,
-            'nome_mes': calendar.month_name[mes],
-            'primeiro_dia': primeiro_dia,
-            'ultimo_dia': ultimo_dia,
-            'stats_mes': stats_mes,
-            'vendas_por_dia': vendas_dia_completa,
-            'vendas_por_semana': list(vendas_por_semana),
-            'top_vendedores': top_vendedores,
-            'top_clientes': top_clientes,
-            'produtos_mais_vendidos': produtos_mais_vendidos,
-            'vendas_por_categoria': vendas_por_categoria,
-            'vendas_mes_anterior': vendas_mes_anterior,
-            'variacao_faturamento': round(variacao_faturamento, 1),
-            'variacao_quantidade': round(variacao_quantidade, 1),
-            'meta_faturamento': meta_faturamento,
-            'meta_vendas': meta_vendas,
-            'percentual_meta_faturamento': round(percentual_meta_faturamento, 1),
-            'percentual_meta_vendas': round(percentual_meta_vendas, 1),
-            'title': f'Relatório Mensal - {calendar.month_name[mes]}/{ano}'
-        })
-        
-        return context
-
-
-class RelatorioVendasAnualView(BaseViewMixin, TemplateView):
-    def get_empresa(self):
-        
-        return getattr(self.request.user, "empresa", None)
-    
-    template_name = 'relatorios/vendas/anual.html'
-    
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        empresa = self.get_empresa()
-        
-        # Ano selecionado
-        ano = int(self.request.GET.get('ano', timezone.now().year))
-        
-        # Vendas do ano
-        vendas_ano = Venda.objects.filter(
-            data_venda__year=ano,
-            status='finalizada'
-        )
-        
-        # Estatísticas do ano
-        stats_ano = vendas_ano.aggregate(
-            total_vendas=Count('id'),
-            faturamento_total=Sum('total'),
-            ticket_medio=Avg('total'),
-            total_itens=Sum('total_itens'),
-            desconto_total=Sum('desconto')
-        )
-        
-        # Vendas por mês
-        vendas_por_mes = vendas_ano.annotate(
-            mes=TruncMonth('data_venda')
-        ).values('mes').annotate(
-            total=Sum('total'),
-            quantidade=Count('id')
-        ).order_by('mes')
-        
-        # Criar lista completa de meses
-        vendas_mes_completa = []
-        vendas_dict = {v['mes']: v for v in vendas_por_mes}
-        
-        for mes_num in range(1, 13):
-            mes_date = date(ano, mes_num, 1)
-            if mes_date in vendas_dict:
-                vendas_mes_completa.append({
-                    'mes': mes_num,
-                    'nome_mes': calendar.month_name[mes_num],
-                    'total': vendas_dict[mes_date]['total'],
-                    'quantidade': vendas_dict[mes_date]['quantidade']
-                })
-            else:
-                vendas_mes_completa.append({
-                    'mes': mes_num,
-                    'nome_mes': calendar.month_name[mes_num],
-                    'total': 0,
-                    'quantidade': 0
-                })
-        
-        # Vendas por trimestre
-        vendas_por_trimestre = []
-        trimestres = [
-            (1, 'Q1', [1, 2, 3]),
-            (2, 'Q2', [4, 5, 6]),
-            (3, 'Q3', [7, 8, 9]),
-            (4, 'Q4', [10, 11, 12])
+        ctx = super().get_context_data(**kwargs)
+        ctx["kpis"] = [
+            {"rotulo": "Tipos activos", "valor": TipoRelatorio.objects.filter(ativo=True).count()},
+            {"rotulo": "Relatórios gerados", "valor": RelatorioGerado.objects.count()},
+            {"rotulo": "Templates activos", "valor": TemplateRelatorio.objects.filter(ativo=True).count()},
+            {"rotulo": "Agendamentos activos", "valor": AgendamentoRelatorio.objects.filter(ativo=True).count()},
         ]
-        
-        for trimestre_num, trimestre_nome, meses in trimestres:
-            vendas_trimestre = vendas_ano.filter(
-                data_venda__month__in=meses
-            ).aggregate(
-                total=Sum('total'),
-                quantidade=Count('id')
-            )
-            
-            vendas_por_trimestre.append({
-                'trimestre': trimestre_num,
-                'nome': trimestre_nome,
-                'total': vendas_trimestre['total'] or 0,
-                'quantidade': vendas_trimestre['quantidade'] or 0
-            })
-        
-        # Performance dos vendedores no ano
-        performance_vendedores = vendas_ano.filter(
-            funcionario__isnull=False
-        ).values(
-            'funcionario__user__first_name',
-            'funcionario__user__last_name',
-            'funcionario__id'
-        ).annotate(
-            total_vendas=Count('id'),
-            faturamento=Sum('total'),
-            ticket_medio=Avg('total')
-        ).order_by('-faturamento')[:15]
-        
-        # Análise de sazonalidade
-        sazonalidade = []
-        for mes_data in vendas_mes_completa:
-            media_anual = stats_ano['faturamento_total'] / 12 if stats_ano['faturamento_total'] else 0
-            if media_anual > 0:
-                indice_sazonalidade = (mes_data['total'] / media_anual) * 100
-            else:
-                indice_sazonalidade = 0
-            
-            sazonalidade.append({
-                'mes': mes_data['mes'],
-                'nome_mes': mes_data['nome_mes'],
-                'indice': round(indice_sazonalidade, 1)
-            })
-        
-        # Top produtos do ano
-        top_produtos_ano = ItemVenda.objects.filter(
-            venda__in=vendas_ano
-        ).values(
-            'produto__nome_comercial',
-            'produto__categoria__nome'
-        ).annotate(
-            quantidade_vendida=Sum('quantidade'),
-            faturamento=Sum(F('quantidade') * F('preco_unitario'))
-        ).order_by('-faturamento')[:20]
-        
-        # Comparação com ano anterior
-        vendas_ano_anterior = Venda.objects.filter(
-            data_venda__year=ano-1,
-            status='finalizada'
-        ).aggregate(
-            total=Sum('total'),
-            quantidade=Count('id')
-        )
-        
-        # Calcular crescimento anual
-        crescimento_faturamento = 0
-        crescimento_vendas = 0
-        
-        if vendas_ano_anterior['total']:
-            crescimento_faturamento = (
-                (stats_ano['faturamento_total'] or 0) - vendas_ano_anterior['total']
-            ) / vendas_ano_anterior['total'] * 100
-        
-        if vendas_ano_anterior['quantidade']:
-            crescimento_vendas = (
-                (stats_ano['total_vendas'] or 0) - vendas_ano_anterior['quantidade']
-            ) / vendas_ano_anterior['quantidade'] * 100
-        
-        # Meta anual
-        meta_anual = MetricaKPI.objects.filter(
-            codigo='META_FATURAMENTO_ANUAL',
-            data_referencia__year=ano
-        ).first()
-        
-        percentual_meta_anual = 0
-        if meta_anual and meta_anual.valor_meta > 0:
-            percentual_meta_anual = (
-                (stats_ano['faturamento_total'] or 0) / meta_anual.valor_meta
-            ) * 100
-        
-        context.update({
-            'ano': ano,
-            'stats_ano': stats_ano,
-            'vendas_por_mes': vendas_mes_completa,
-            'vendas_por_trimestre': vendas_por_trimestre,
-            'performance_vendedores': performance_vendedores,
-            'sazonalidade': sazonalidade,
-            'top_produtos_ano': top_produtos_ano,
-            'vendas_ano_anterior': vendas_ano_anterior,
-            'crescimento_faturamento': round(crescimento_faturamento, 1),
-            'crescimento_vendas': round(crescimento_vendas, 1),
-            'meta_anual': meta_anual,
-            'percentual_meta_anual': round(percentual_meta_anual, 1),
-            'title': f'Relatório Anual - {ano}'
-        })
-        
-        return context
+        recentes = RelatorioGerado.objects.filter(solicitante=self.request.user).select_related("tipo_relatorio")
+        recentes = recentes.order_by("-data_solicitacao")[:10]
+        ctx["tabelas"] = [_build_table(recentes, RelatorioGerado,
+            ("codigo_relatorio", "tipo_relatorio__nome", "formato", "status", "data_solicitacao"),
+            "Os meus relatórios recentes", 10)]
+        ctx["tipos_populares"] = TipoRelatorio.objects.filter(ativo=True).order_by("nome")[:8]
+        return ctx
 
 
-class RelatorioVendasProdutoView(BaseViewMixin, TemplateView):
-    def get_empresa(self):
-        return getattr(self.request.user, "empresa", None)
-    
-    template_name = 'relatorios/vendas/produto.html'
-    
+class CentralRelatoriosView(RelatorioBaseView):
+    template_name = "relatorios/central.html"
+    titulo = "Central de Relatórios"
+
     def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        empresa = self.get_empresa()
-        
-        # Filtros
-        data_inicio = self.request.GET.get('data_inicio')
-        data_fim = self.request.GET.get('data_fim')
-        produto_id = self.request.GET.get('produto_id')
-        categoria_id = self.request.GET.get('categoria_id')
-        marca_id = self.request.GET.get('marca_id')
-        
-        # Definir período padrão (últimos 30 dias)
-        if not data_inicio:
-            data_inicio = timezone.now().date() - timedelta(days=30)
-        else:
-            data_inicio = datetime.strptime(data_inicio, '%Y-%m-%d').date()
-        
-        if not data_fim:
-            data_fim = timezone.now().date()
-        else:
-            data_fim = datetime.strptime(data_fim, '%Y-%m-%d').date()
-        
-        # Query base de vendas
-        vendas = Venda.objects.filter(
-            data_venda__gte=data_inicio,
-            data_venda__lte=data_fim,
-            status='finalizada'
-        )
-        
-        itens_vendidos = ItemVenda.objects.filter(venda__in=vendas)
-        
-        # Aplicar filtros
-        if produto_id:
-            itens_vendidos = itens_vendidos.filter(produto_id=produto_id)
-        
-        if categoria_id:
-            itens_vendidos = itens_vendidos.filter(produto__categoria_id=categoria_id)
-        
-        if marca_id:
-            itens_vendidos = itens_vendidos.filter(produto__marca_id=marca_id)
-        
-        # Ranking de produtos
-        ranking_produtos = itens_vendidos.values(
-            'produto__nome_comercial',
-            'produto__codigo',
-            'produto__categoria__nome',
-            'produto__marca__nome',
-            'produto__id'
-        ).annotate(
-            quantidade_vendida=Sum('quantidade'),
-            faturamento=Sum(F('quantidade') * F('preco_unitario')),
-            numero_documentos=Count('venda', distinct=True),
-            ticket_medio=Avg(F('quantidade') * F('preco_unitario')),
-            margem_media=Avg(F('preco_unitario') - F('produto__preco_custo'))
-        ).order_by('-faturamento')[:100]
-        
-        # Adicionar informações de estoque e giro
-        for produto in ranking_produtos:
-            produto_obj = Produto.objects.get(id=produto['produto__id'])
-            produto['estoque_atual'] = produto_obj.estoque_atual
-            produto['preco_venda'] = produto_obj.preco_venda
-            
-            # Calcular giro do produto
-            if produto_obj.estoque_atual > 0:
-                dias_periodo = (data_fim - data_inicio).days or 1
-                giro_periodo = produto['quantidade_vendida'] / produto_obj.estoque_atual
-                produto['giro_anual'] = (giro_periodo * 365) / dias_periodo
-            else:
-                produto['giro_anual'] = 0
-        
-        # Produtos por categoria
-        produtos_por_categoria = itens_vendidos.values(
-            'produto__categoria__nome',
-            'produto__categoria__id'
-        ).annotate(
-            quantidade_vendida=Sum('quantidade'),
-            faturamento=Sum(F('quantidade') * F('preco_unitario')),
-            produtos_distintos=Count('produto', distinct=True)
-        ).order_by('-faturamento')
-        
-        # Produtos por marca
-        produtos_por_marca = itens_vendidos.values(
-            'produto__marca__nome',
-            'produto__marca__id'
-        ).annotate(
-            quantidade_vendida=Sum('quantidade'),
-            faturamento=Sum(F('quantidade') * F('preco_unitario')),
-            produtos_distintos=Count('produto', distinct=True)
-        ).order_by('-faturamento')
-        
-        # Evolução de vendas por período
-        if produto_id:
-            # Para produto específico
-            evolucao_vendas = itens_vendidos.filter(
-                produto_id=produto_id
-            ).extra(
-                select={'data': 'DATE(venda.data_venda)'}
-            ).values('data').annotate(
-                quantidade=Sum('quantidade'),
-                faturamento=Sum(F('quantidade') * F('preco_unitario'))
-            ).order_by('data')
-        else:
-            # Para todos os produtos
-            evolucao_vendas = itens_vendidos.extra(
-                select={'data': 'DATE(venda.data_venda)'}
-            ).values('data').annotate(
-                quantidade=Sum('quantidade'),
-                faturamento=Sum(F('quantidade') * F('preco_unitario'))
-            ).order_by('data')
-        
-        # Análise ABC dos produtos
-        produtos_abc = []
-        total_faturamento = sum(p['faturamento'] for p in ranking_produtos)
-        
-        if total_faturamento > 0:
-            faturamento_acumulado = 0
-            for produto in ranking_produtos:
-                faturamento_acumulado += produto['faturamento']
-                percentual_acumulado = (faturamento_acumulado / total_faturamento) * 100
-                
-                if percentual_acumulado <= 80:
-                    classificacao = 'A'
-                elif percentual_acumulado <= 95:
-                    classificacao = 'B'
-                else:
-                    classificacao = 'C'
-                
-                produto['classificacao_abc'] = classificacao
-                produto['percentual_acumulado'] = round(percentual_acumulado, 1)
-                produtos_abc.append(produto)
-        
-        # Estatísticas gerais
-        stats_gerais = itens_vendidos.aggregate(
-            total_produtos_vendidos=Count('produto', distinct=True),
-            quantidade_total=Sum('quantidade'),
-            faturamento_total=Sum(F('quantidade') * F('preco_unitario')),
-            ticket_medio=Avg(F('quantidade') * F('preco_unitario'))
-        )
-        
-        # Produtos sem vendas no período
-        produtos_sem_vendas = Produto.objects.filter(
-            ativo=True
-        ).exclude(
-            id__in=itens_vendidos.values('produto_id').distinct()
-        ).count()
-        
-        # Filtros para formulário
-        produtos_disponiveis = Produto.objects.filter(
-            ativo=True
-        ).order_by('nome_comercial')[:1000]  # Limitar para performance
-        
-        categorias_disponiveis = Categoria.objects.filter(
-            ativa=True
-        ).order_by('nome')
-        
-        
-        context.update({
-            'data_inicio': data_inicio,
-            'data_fim': data_fim,
-            'ranking_produtos': ranking_produtos[:50],  # Limitar exibição
-            'produtos_por_categoria': produtos_por_categoria,
-            'produtos_por_marca': produtos_por_marca,
-            'evolucao_vendas': list(evolucao_vendas),
-            'produtos_abc': produtos_abc[:30],  # Top 30 para análise ABC
-            'stats_gerais': stats_gerais,
-            'produtos_sem_vendas': produtos_sem_vendas,
-            'produtos_disponiveis': produtos_disponiveis,
-            'categorias_disponiveis': categorias_disponiveis,
-            'produto_selecionado': produto_id,
-            'categoria_selecionada': categoria_id,
-            'marca_selecionada': marca_id,
-            'title': 'Relatório de Vendas por Produto'
-        })
-        
-        return context
+        ctx = super().get_context_data(**kwargs)
+        ctx["tipos_relatorio"] = TipoRelatorio.objects.filter(ativo=True).order_by("categoria", "nome")
+        ctx["templates_relatorio"] = TemplateRelatorio.objects.filter(ativo=True).order_by("nome")
+        ctx["categorias_relatorio"] = sorted(set(TipoRelatorio.objects.filter(ativo=True).values_list("categoria", flat=True)))
+        return ctx
 
 
-class RelatorioVendasCategoriaView(BaseViewMixin, TemplateView):
-    def get_empresa(self):
-        
-        return getattr(self.request.user, "empresa", None)
-    
-    template_name = 'relatorios/vendas/categoria.html'
-    
+class RelatoriosFavoritosView(RelatorioBaseView):
+    template_name = "relatorios/favoritos.html"
+    titulo = "Relatórios Favoritos"
+
     def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        empresa = self.get_empresa()
-        
-        # Filtros
-        data_inicio = self.request.GET.get('data_inicio')
-        data_fim = self.request.GET.get('data_fim')
-        categoria_id = self.request.GET.get('categoria_id')
-        
-        # Definir período padrão
-        if not data_inicio:
-            data_inicio = timezone.now().date() - timedelta(days=30)
-        else:
-            data_inicio = datetime.strptime(data_inicio, '%Y-%m-%d').date()
-        
-        if not data_fim:
-            data_fim = timezone.now().date()
-        else:
-            data_fim = datetime.strptime(data_fim, '%Y-%m-%d').date()
-        
-        # Vendas por categoria
-        vendas = Venda.objects.filter(
-            data_venda__gte=data_inicio,
-            data_venda__lte=data_fim,
-            status='finalizada'
-        )
-        
-        itens_query = ItemVenda.objects.filter(venda__in=vendas)
-        
-        if categoria_id:
-            itens_query = itens_query.filter(produto__categoria_id=categoria_id)
-        
-        vendas_por_categoria = itens_query.values(
-            'produto__categoria__nome',
-            'produto__categoria__id'
-        ).annotate(
-            quantidade_vendida=Sum('quantidade'),
-            faturamento=Sum(F('quantidade') * F('preco_unitario')),
-            numero_produtos=Count('produto', distinct=True),
-            numero_documentos=Count('venda', distinct=True),
-            ticket_medio=Avg(F('quantidade') * F('preco_unitario'))
-        ).order_by('-faturamento')
-        
-        # Calcular participação percentual
-        faturamento_total = sum(item['faturamento'] for item in vendas_por_categoria)
-        
-        for categoria in vendas_por_categoria:
-            categoria['participacao'] = (
-                categoria['faturamento'] / faturamento_total * 100
-            ) if faturamento_total > 0 else 0
-            categoria['participacao'] = round(categoria['participacao'], 1)
-        
-        # Evolução das categorias por período
-        evolucao_categorias = {}
-        
-        for categoria in vendas_por_categoria[:10]:  # Top 10 categorias
-            evolucao = ItemVenda.objects.filter(
-                venda__data_venda__gte=data_inicio,
-                venda__data_venda__lte=data_fim,
-                venda__status='finalizada',
-                produto__categoria_id=categoria['produto__categoria__id']
-            ).extra(
-                select={'data': 'DATE(venda.data_venda)'}
-            ).values('data').annotate(
-                faturamento=Sum(F('quantidade') * F('preco_unitario')),
-                quantidade=Sum('quantidade')
-            ).order_by('data')
-            
-            evolucao_categorias[categoria['produto__categoria__nome']] = list(evolucao)
-        
-        # Top produtos por categoria
-        top_produtos_categoria = {}
-        
-        for categoria in vendas_por_categoria[:5]:  # Top 5 categorias
-            produtos = ItemVenda.objects.filter(
-                venda__data_venda__gte=data_inicio,
-                venda__data_venda__lte=data_fim,
-                venda__status='finalizada',
-                produto__categoria_id=categoria['produto__categoria__id']
-            ).values(
-                'produto__nome_comercial',
-                'produto__codigo'
-            ).annotate(
-                quantidade_vendida=Sum('quantidade'),
-                faturamento=Sum(F('quantidade') * F('preco_unitario'))
-            ).order_by('-faturamento')[:5]
-            
-            top_produtos_categoria[categoria['produto__categoria__nome']] = list(produtos)
-        
-        # Análise de crescimento por categoria (comparar com período anterior)
-        dias_periodo = (data_fim - data_inicio).days
-        data_inicio_anterior = data_inicio - timedelta(days=dias_periodo)
-        data_fim_anterior = data_inicio - timedelta(days=1)
-        
-        vendas_anterior = Venda.objects.filter(
-            data_venda__gte=data_inicio_anterior,
-            data_venda__lte=data_fim_anterior,
-            status='finalizada'
-        )
-        
-        crescimento_categorias = []
-        
-        for categoria in vendas_por_categoria:
-            vendas_categoria_anterior = ItemVenda.objects.filter(
-                venda__in=vendas_anterior,
-                produto__categoria_id=categoria['produto__categoria__id']
-            ).aggregate(
-                faturamento=Sum(F('quantidade') * F('preco_unitario'))
-            )['faturamento'] or 0
-            
-            crescimento = 0
-            if vendas_categoria_anterior > 0:
-                crescimento = (
-                    (categoria['faturamento'] - vendas_categoria_anterior) /
-                    vendas_categoria_anterior * 100
-                )
-            
-            crescimento_categorias.append({
-                'categoria': categoria['produto__categoria__nome'],
-                'faturamento_atual': categoria['faturamento'],
-                'faturamento_anterior': vendas_categoria_anterior,
-                'crescimento': round(crescimento, 1)
-            })
-        
-        # Distribuição de margem por categoria
-        margem_por_categoria = []
-        
-        for categoria in vendas_por_categoria:
-            itens_categoria = ItemVenda.objects.filter(
-                venda__data_venda__gte=data_inicio,
-                venda__data_venda__lte=data_fim,
-                venda__status='finalizada',
-                produto__categoria_id=categoria['produto__categoria__id']
-            ).select_related('produto')
-            
-            margem_total = 0
-            custo_total = 0
-            
-            for item in itens_categoria:
-                preco_venda = item.preco_unitario * item.quantidade
-                preco_custo = (item.produto.preco_custo or 0) * item.quantidade
-                margem_total += preco_venda - preco_custo
-                custo_total += preco_custo
-            
-            percentual_margem = 0
-            if custo_total > 0:
-                percentual_margem = (margem_total / custo_total) * 100
-            
-            margem_por_categoria.append({
-                'categoria': categoria['produto__categoria__nome'],
-                'margem_valor': margem_total,
-                'percentual_margem': round(percentual_margem, 1)
-            })
-        
-        # Categorias disponíveis para filtro
-        categorias_disponiveis = Categoria.objects.filter(
-            ativa=True
-        ).order_by('nome')
-        
-        context.update({
-            'data_inicio': data_inicio,
-            'data_fim': data_fim,
-            'vendas_por_categoria': vendas_por_categoria,
-            'evolucao_categorias': evolucao_categorias,
-            'top_produtos_categoria': top_produtos_categoria,
-            'crescimento_categorias': crescimento_categorias,
-            'margem_por_categoria': margem_por_categoria,
-            'faturamento_total': faturamento_total,
-            'categorias_disponiveis': categorias_disponiveis,
-            'categoria_selecionada': categoria_id,
-            'title': 'Relatório de Vendas por Categoria'
-        })
-        
-        return context
+        ctx = super().get_context_data(**kwargs)
+        # O model não possui campo de favoritos; não simulamos um favorito persistente.
+        ctx["aviso"] = "A marcação de favoritos ainda não tem um campo persistente no model. São apresentados os seus relatórios recentes."
+        qs = RelatorioGerado.objects.filter(solicitante=self.request.user).select_related("tipo_relatorio").order_by("-data_solicitacao")[:25]
+        ctx["tabelas"] = [_build_table(qs, RelatorioGerado, ("codigo_relatorio", "tipo_relatorio__nome", "status", "formato", "data_solicitacao"), "Relatórios recentes", 25)]
+        return ctx
 
 
-class RelatorioVendasVendedorView(BaseViewMixin, TemplateView):
-    def get_empresa(self):
-        return getattr(self.request.user, "empresa", None)
-    
-    template_name = 'relatorios/vendas/vendedor.html'
-    
+class RelatoriosRecentesView(RelatorioBaseView):
+    template_name = "relatorios/recentes.html"
+    titulo = "Relatórios Recentes"
+
     def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        empresa = self.get_empresa()
-        
-        # Filtros
-        data_inicio = self.request.GET.get('data_inicio')
-        data_fim = self.request.GET.get('data_fim')
-        vendedor_id = self.request.GET.get('vendedor_id')
-        departamento_id = self.request.GET.get('departamento_id')
-        
-        # Definir período padrão
-        if not data_inicio:
-            data_inicio = timezone.now().date() - timedelta(days=30)
-        else:
-            data_inicio = datetime.strptime(data_inicio, '%Y-%m-%d').date()
-        
-        if not data_fim:
-            data_fim = timezone.now().date()
-        else:
-            data_fim = datetime.strptime(data_fim, '%Y-%m-%d').date()
-        
-        # Vendas por vendedor
-        vendas = Venda.objects.filter(
-            data_venda__gte=data_inicio,
-            data_venda__lte=data_fim,
-            status='finalizada',
-            funcionario__isnull=False
-        )
-        
-        if vendedor_id:
-            vendas = vendas.filter(funcionario_id=vendedor_id)
-        
-        if departamento_id:
-            vendas = vendas.filter(funcionario__departamento_id=departamento_id)
-        
-        vendas_por_vendedor = vendas.values(
-            'funcionario__user__first_name',
-            'funcionario__user__last_name',
-            'funcionario__id',
-            'funcionario__cargo__nome',
-            'funcionario__departamento__nome'
-        ).annotate(
-            total_vendas=Count('id'),
-            faturamento=Sum('total'),
-            ticket_medio=Avg('total'),
-            total_itens=Sum('total_itens'),
-            desconto_total=Sum('desconto')
-        ).order_by('-faturamento')
-        
-        # Adicionar informações adicionais para cada vendedor
-        vendedores_detalhado = []
-        
-        for vendedor_data in vendas_por_vendedor:
-            vendedor_id_atual = vendedor_data['funcionario__id']
-            vendedor_obj = Funcionario.objects.get(id=vendedor_id_atual)
-            
-            # Vendas do vendedor
-            vendas_vendedor = vendas.filter(funcionario_id=vendedor_id_atual)
-            
-            # Clientes únicos atendidos
-            clientes_unicos = vendas_vendedor.filter(
-                cliente__isnull=False
-            ).values('cliente').distinct().count()
-            
-            # Produtos vendidos
-            produtos_vendidos = ItemVenda.objects.filter(
-                venda__in=vendas_vendedor
-            ).values('produto').distinct().count()
-            
-            # Meta do vendedor (se existir)
-            meta_vendedor = MetricaKPI.objects.filter(
-                funcionario=vendedor_obj,
-                codigo='META_VENDAS_MENSAL',
-                data_referencia__month=data_fim.month,
-                data_referencia__year=data_fim.year
-            ).first()
-            
-            percentual_meta = 0
-            if meta_vendedor and meta_vendedor.valor_meta > 0:
-                percentual_meta = (vendedor_data['faturamento'] / meta_vendedor.valor_meta) * 100
-            
-            # Comissão estimada (assumindo 5% do faturamento)
-            comissao_estimada = vendedor_data['faturamento'] * Decimal('0.05')
-            
-            # Crescimento em relação ao período anterior
-            dias_periodo = (data_fim - data_inicio).days
-            data_inicio_anterior = data_inicio - timedelta(days=dias_periodo)
-            data_fim_anterior = data_inicio - timedelta(days=1)
-            
-            vendas_periodo_anterior = Venda.objects.filter(
-                funcionario_id=vendedor_id_atual,
-                data_venda__gte=data_inicio_anterior,
-                data_venda__lte=data_fim_anterior,
-                status='finalizada'
-            ).aggregate(Sum('total'))['total__sum'] or 0
-            
-            crescimento = 0
-            if vendas_periodo_anterior > 0:
-                crescimento = (
-                    (vendedor_data['faturamento'] - vendas_periodo_anterior) /
-                    vendas_periodo_anterior * 100
-                )
-            
-            vendedores_detalhado.append({
-                **vendedor_data,
-                'vendedor_obj': vendedor_obj,
-                'clientes_unicos': clientes_unicos,
-                'produtos_vendidos': produtos_vendidos,
-                'meta_vendedor': meta_vendedor,
-                'percentual_meta': round(percentual_meta, 1),
-                'comissao_estimada': comissao_estimada,
-                'crescimento': round(crescimento, 1)
-            })
-        
-        # Performance diária dos vendedores (top 5)
-        top_vendedores_ids = [v['funcionario__id'] for v in vendas_por_vendedor[:5]]
-        
-        performance_diaria = vendas.filter(
-            funcionario_id__in=top_vendedores_ids
-        ).values(
-            'data_venda',
-            'funcionario__user__first_name',
-            'funcionario__user__last_name',
-            'funcionario__id'
-        ).annotate(
-            total_vendas=Count('id'),
-            faturamento=Sum('total')
-        ).order_by('data_venda', '-faturamento')
-        
-        # Ranking de comissões
-        ranking_comissoes = []
-        for vendedor in vendedores_detalhado[:20]:  # Top 20
-            ranking_comissoes.append({
-                'vendedor': f"{vendedor['funcionario__user__first_name']} {vendedor['funcionario__user__last_name']}",
-                'faturamento': vendedor['faturamento'],
-                'comissao': vendedor['comissao_estimada'],
-                'total_vendas': vendedor['total_vendas'],
-                'ticket_medio': vendedor['ticket_medio']
-            })
-        
-        # Vendas por departamento
-        vendas_por_departamento = vendas.values(
-            'funcionario__departamento__nome'
-        ).annotate(
-            total_vendas=Count('id'),
-            faturamento=Sum('total'),
-            vendedores=Count('funcionario', distinct=True)
-        ).order_by('-faturamento')
-        
-        # Análise de produtividade
-        dias_uteis_periodo = self._calcular_dias_uteis(data_inicio, data_fim)
-        
-        produtividade_vendedores = []
-        for vendedor in vendedores_detalhado[:15]:
-            vendas_por_dia = vendedor['total_vendas'] / dias_uteis_periodo if dias_uteis_periodo > 0 else 0
-            faturamento_por_dia = vendedor['faturamento'] / dias_uteis_periodo if dias_uteis_periodo > 0 else 0
-            
-            produtividade_vendedores.append({
-                'vendedor': f"{vendedor['funcionario__user__first_name']} {vendedor['funcionario__user__last_name']}",
-                'vendas_por_dia': round(vendas_por_dia, 1),
-                'faturamento_por_dia': round(faturamento_por_dia, 2),
-                'clientes_por_venda': round(vendedor['clientes_unicos'] / vendedor['total_vendas'], 1) if vendedor['total_vendas'] > 0 else 0
-            })
-        
-        # Filtros disponíveis
-        vendedores_disponiveis = Funcionario.objects.filter(
-            ativo=True,
-            cargo__nome__icontains='vendedor'
-        ).select_related('user', 'departamento')
-        
-        departamentos_disponiveis = Departamento.objects.filter(
-            ativo=True
-        ).order_by('nome')
-        
-        context.update({
-            'data_inicio': data_inicio,
-            'data_fim': data_fim,
-            'vendedores_detalhado': vendedores_detalhado,
-            'performance_diaria': performance_diaria,
-            'ranking_comissoes': ranking_comissoes,
-            'vendas_por_departamento': vendas_por_departamento,
-            'produtividade_vendedores': produtividade_vendedores,
-            'vendedores_disponiveis': vendedores_disponiveis,
-            'departamentos_disponiveis': departamentos_disponiveis,
-            'vendedor_selecionado': vendedor_id,
-            'departamento_selecionado': departamento_id,
-            'dias_uteis_periodo': dias_uteis_periodo,
-            'title': 'Relatório de Vendas por Vendedor'
-        })
-        
-        return context
-    
-    def _calcular_dias_uteis(self, data_inicio, data_fim):
-        """Calcula o número de dias úteis entre duas datas (excluindo sábados e domingos)"""
-        dias_uteis = 0
-        current_date = data_inicio
-        
-        while current_date <= data_fim:
-            # 0 = Segunda, 6 = Domingo
-            if current_date.weekday() < 5:  # Segunda a Sexta
-                dias_uteis += 1
-            current_date += timedelta(days=1)
-        
-        return dias_uteis
+        ctx = super().get_context_data(**kwargs)
+        qs = RelatorioGerado.objects.filter(solicitante=self.request.user).select_related("tipo_relatorio").order_by("-data_solicitacao")[:50]
+        ctx["tabelas"] = [_build_table(qs, RelatorioGerado, ("codigo_relatorio", "tipo_relatorio__nome", "status", "formato", "data_solicitacao"), "Relatórios recentes", 50)]
+        return ctx
 
 
-class RelatorioVendasClienteView(BaseViewMixin, TemplateView):
-    def get_empresa(self):
-        return getattr(self.request.user, "empresa", None)
-    
-    template_name = 'relatorios/vendas/cliente.html'
-    
+class ConstrutorRelatorioView(RelatorioBaseView):
+    template_name = "relatorios/construtor.html"
+    titulo = "Construtor de Relatórios"
+
     def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        empresa = self.get_empresa()
-        
-        # Filtros
-        data_inicio = self.request.GET.get('data_inicio')
-        data_fim = self.request.GET.get('data_fim')
-        cliente_id = self.request.GET.get('cliente_id')
-        tipo_pessoa = self.request.GET.get('tipo_pessoa')
-        cidade = self.request.GET.get('cidade')
-        
-        # Definir período padrão
-        if not data_inicio:
-            data_inicio = timezone.now().date() - timedelta(days=30)
-        else:
-            data_inicio = datetime.strptime(data_inicio, '%Y-%m-%d').date()
-        
-        if not data_fim:
-            data_fim = timezone.now().date()
-        else:
-            data_fim = datetime.strptime(data_fim, '%Y-%m-%d').date()
-        
-        # Vendas por cliente
-        vendas = Venda.objects.filter(
-            data_venda__gte=data_inicio,
-            data_venda__lte=data_fim,
-            status='finalizada',
-            cliente__isnull=False
-        )
-        
-        if cliente_id:
-            vendas = vendas.filter(cliente_id=cliente_id)
-        
-        if tipo_pessoa:
-            vendas = vendas.filter(cliente__tipo_pessoa=tipo_pessoa)
-        
-        if cidade:
-            vendas = vendas.filter(cliente__cidade__icontains=cidade)
-        
-        vendas_por_cliente = vendas.values(
-            'cliente__nome',
-            'cliente__cpf_cnpj',
-            'cliente__id',
-            'cliente__tipo_pessoa',
-            'cliente__cidade',
-            'cliente__telefone',
-            'cliente__email'
-        ).annotate(
-            total_compras=Count('id'),
-            total=Sum('total'),
-            ticket_medio=Avg('total'),
-            primeira_compra=Min('data_venda'),
-            ultima_compra=Max('data_venda'),
-            total_itens=Sum('total_itens')
-        ).order_by('-total')[:200]  # Top 200 clientes
-        
-        # Análise RFM (Recência, Frequência, Valor Monetário)
-        clientes_rfm = []
-        
-        for cliente_data in vendas_por_cliente[:100]:  # Top 100 para análise RFM
-            # Recência (dias desde última compra)
-            recencia = (data_fim - cliente_data['ultima_compra']).days
-            
-            # Frequência (número de compras)
-            frequencia = cliente_data['total_compras']
-            
-            # Valor Monetário
-            valor_monetario = cliente_data['total']
-            
-            # Classificação RFM simplificada
-            score_recencia = 5 if recencia <= 7 else 4 if recencia <= 30 else 3 if recencia <= 90 else 2 if recencia <= 180 else 1
-            score_frequencia = 5 if frequencia >= 10 else 4 if frequencia >= 5 else 3 if frequencia >= 3 else 2 if frequencia >= 2 else 1
-            score_monetario = 5 if valor_monetario >= 5000 else 4 if valor_monetario >= 2000 else 3 if valor_monetario >= 1000 else 2 if valor_monetario >= 500 else 1
-            
-            # Determinar segmento
-            if score_recencia >= 4 and score_frequencia >= 4 and score_monetario >= 4:
-                segmento = 'Campeões'
-            elif score_recencia >= 3 and score_frequencia >= 4:
-                segmento = 'Clientes Fiéis'
-            elif score_recencia >= 4 and score_monetario >= 4:
-                segmento = 'Potenciais Fiéis'
-            elif score_recencia >= 4:
-                segmento = 'Novos Clientes'
-            elif score_monetario >= 4:
-                segmento = 'Não Podem Perder'
-            elif score_frequencia >= 3:
-                segmento = 'Promissores'
-            elif recencia <= 90:
-                segmento = 'Precisam de Atenção'
-            elif recencia <= 180:
-                segmento = 'Prestes a Dormir'
-            else:
-                segmento = 'Hibernando'
-            
-            clientes_rfm.append({
-                'cliente': cliente_data,
-                'recencia': recencia,
-                'frequencia': frequencia,
-                'valor_monetario': valor_monetario,
-                'score_r': score_recencia,
-                'score_f': score_frequencia,
-                'score_m': score_monetario,
-                'segmento': segmento
-            })
-        
-        # Distribuição por segmento RFM
-        segmentos_rfm = {}
-        for cliente_rfm in clientes_rfm:
-            segmento = cliente_rfm['segmento']
-            if segmento not in segmentos_rfm:
-                segmentos_rfm[segmento] = {'clientes': 0, 'valor': 0}
-            segmentos_rfm[segmento]['clientes'] += 1
-            segmentos_rfm[segmento]['valor'] += cliente_rfm['valor_monetario']
-        
-        # Top clientes por valor
-        top_clientes_valor = vendas_por_cliente[:20]
-        
-        # Clientes por cidade
-        clientes_por_cidade = vendas.values(
-            'cliente__cidade'
-        ).annotate(
-            total_clientes=Count('cliente', distinct=True),
-            faturamento_total=Sum('total')
-        ).order_by('-faturamento_total')[:15]
-        
-        # Análise de fidelidade (baseada em recorrência)
-        analise_fidelidade = []
-        
-        for cliente_data in vendas_por_cliente[:50]:
-            cliente_vendas = vendas.filter(cliente_id=cliente_data['cliente__id'])
-            
-            # Calcular intervalos entre compras
-            datas_compras = list(cliente_vendas.values_list('data_venda', flat=True).order_by('data_venda'))
-            
-            if len(datas_compras) > 1:
-                intervalos = []
-                for i in range(1, len(datas_compras)):
-                    intervalo = (datas_compras[i] - datas_compras[i-1]).days
-                    intervalos.append(intervalo)
-                
-                intervalo_medio = sum(intervalos) / len(intervalos)
-                regularidade = 100 - min(100, (statistics.stdev(intervalos) / intervalo_medio * 100)) if len(intervalos) > 1 else 100
-            else:
-                intervalo_medio = 0
-                regularidade = 0
-            
-            # Índice de fidelidade
-            if cliente_data['total_compras'] >= 5 and regularidade >= 70:
-                indice_fidelidade = 'Alto'
-            elif cliente_data['total_compras'] >= 3 and regularidade >= 50:
-                indice_fidelidade = 'Médio'
-            elif cliente_data['total_compras'] >= 2:
-                indice_fidelidade = 'Baixo'
-            else:
-                indice_fidelidade = 'Novo'
-            
-            analise_fidelidade.append({
-                'cliente': cliente_data,
-                'intervalo_medio': round(intervalo_medio, 1),
-                'regularidade': round(regularidade, 1),
-                'indice_fidelidade': indice_fidelidade
-            })
-        
-        # Produtos preferidos por cliente (para clientes selecionados)
-        produtos_por_cliente = {}
-        
-        if cliente_id:
-            produtos_cliente = ItemVenda.objects.filter(
-                venda__cliente_id=cliente_id,
-                venda__data_venda__gte=data_inicio,
-                venda__data_venda__lte=data_fim
-            ).values(
-                'produto__nome_comercial',
-                'produto__categoria__nome'
-            ).annotate(
-                quantidade_total=Sum('quantidade'),
-                total=Sum(F('quantidade') * F('preco_unitario'))
-            ).order_by('-total')[:10]
-            
-            produtos_por_cliente[cliente_id] = list(produtos_cliente)
-        
-        # Estatísticas gerais
-        stats_clientes = {
-            'total_clientes_periodo': vendas.values('cliente').distinct().count(),
-            'ticket_medio_geral': vendas.aggregate(Avg('total'))['total__avg'] or 0,
-            'faturamento_total': vendas.aggregate(Sum('total'))['total__sum'] or 0,
-            'clientes_recorrentes': vendas_por_cliente.filter(total_compras__gt=1).count()
-        }
-        
-        # Filtros disponíveis
-        clientes_disponiveis = Cliente.objects.filter(
-            ativo=True
-        ).order_by('nome')[:1000]
-        
-        cidades_disponiveis = Cliente.objects.filter(
-            empresa=empresa
-        ).values_list('cidade', flat=True).distinct().order_by('cidade')
-        
-        context.update({
-            'data_inicio': data_inicio,
-            'data_fim': data_fim,
-            'vendas_por_cliente': vendas_por_cliente[:100],  # Limitar exibição
-            'clientes_rfm': clientes_rfm,
-            'segmentos_rfm': segmentos_rfm,
-            'top_clientes_valor': top_clientes_valor,
-            'clientes_por_cidade': clientes_por_cidade,
-            'analise_fidelidade': analise_fidelidade,
-            'produtos_por_cliente': produtos_por_cliente,
-            'stats_clientes': stats_clientes,
-            'clientes_disponiveis': clientes_disponiveis,
-            'cidades_disponiveis': filter(None, cidades_disponiveis),
-            'cliente_selecionado': cliente_id,
-            'tipo_pessoa_selecionado': tipo_pessoa,
-            'cidade_selecionada': cidade,
-            'title': 'Relatório de Vendas por Cliente'
-        })
-        
-        return context
-
-
-class RelatorioVendasFormaPagamentoView(BaseViewMixin, TemplateView):
-    def get_empresa(self):
-        return getattr(self.request.user, "empresa", None)
-    
-    template_name = 'relatorios/vendas/forma_pagamento.html'
-    
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        empresa = self.get_empresa()
-        
-        # Filtros
-        data_inicio = self.request.GET.get('data_inicio')
-        data_fim = self.request.GET.get('data_fim')
-        forma_pagamento = self.request.GET.get('forma_pagamento')
-        
-        # Definir período padrão
-        if not data_inicio:
-            data_inicio = timezone.now().date() - timedelta(days=30)
-        else:
-            data_inicio = datetime.strptime(data_inicio, '%Y-%m-%d').date()
-        
-        if not data_fim:
-            data_fim = timezone.now().date()
-        else:
-            data_fim = datetime.strptime(data_fim, '%Y-%m-%d').date()
-        
-        # Vendas por forma de pagamento
-        vendas = Venda.objects.filter(
-            data_venda__gte=data_inicio,
-            data_venda__lte=data_fim,
-            status='finalizada'
-        )
-        
-        if forma_pagamento:
-            vendas = vendas.filter(forma_pagamento=forma_pagamento)
-        
-        vendas_por_forma = vendas.values(
-            'forma_pagamento'
-        ).annotate(
-            total_vendas=Count('id'),
-            total=Sum('total'),
-            ticket_medio=Avg('total'),
-            valor_maximo=Max('total'),
-            valor_minimo=Min('total')
-        ).order_by('-total')
-        
-        # Calcular participação percentual
-        total_geral = sum(item['total'] for item in vendas_por_forma)
-        
-        for forma in vendas_por_forma:
-            forma['participacao'] = (
-                forma['total'] / total_geral * 100
-            ) if total_geral > 0 else 0
-            forma['participacao'] = round(forma['participacao'], 1)
-        
-        # Evolução por forma de pagamento ao longo do período
-        evolucao_formas = {}
-        
-        for forma in vendas_por_forma:
-            evolucao = vendas.filter(
-                forma_pagamento=forma['forma_pagamento']
-            ).values('data_venda').annotate(
-                valor=Sum('total'),
-                quantidade=Count('id')
-            ).order_by('data_venda')
-            
-            evolucao_formas[forma['forma_pagamento']] = list(evolucao)
-        
-        # Vendas por forma de pagamento e faixa de valor
-        faixas_valor = [
-            (0, 50, 'Até AO 50'),
-            (50, 100, 'AO 50 - AO 100'),
-            (100, 200, 'AO 100 - AO 200'),
-            (200, 500, 'AO 200 - AO 500'),
-            (500, 1000, 'AO 500 - AO 1.000'),
-            (1000, float('inf'), 'Acima de AO 1.000')
+        ctx = super().get_context_data(**kwargs)
+        ctx["templates_relatorio"] = TemplateRelatorio.objects.filter(ativo=True).order_by("nome")
+        ctx["modelos_disponiveis"] = [
+            {"label": model._meta.verbose_name_plural.title(), "app_label": model._meta.app_label, "model": model._meta.model_name}
+            for model in (Venda, ItemVenda, Produto, Cliente, Compra, Fornecedor, ContaReceber, ContaPagar)
         ]
-        
-        vendas_por_faixa = {}
-        
-        for forma in vendas_por_forma:
-            vendas_forma = vendas.filter(forma_pagamento=forma['forma_pagamento'])
-            faixas = []
-            
-            for min_val, max_val, faixa_nome in faixas_valor:
-                if max_val == float('inf'):
-                    count = vendas_forma.filter(total__gte=min_val).count()
-                    valor = vendas_forma.filter(total__gte=min_val).aggregate(
-                        Sum('total'))['total__sum'] or 0
-                else:
-                    count = vendas_forma.filter(
-                        total__gte=min_val,
-                        total__lt=max_val
-                    ).count()
-                    valor = vendas_forma.filter(
-                        total__gte=min_val,
-                        total__lt=max_val
-                    ).aggregate(Sum('total'))['total__sum'] or 0
-                
-                faixas.append({
-                    'faixa': faixa_nome,
-                    'quantidade': count,
-                    'valor': valor,
-                    'percentual': (count / forma['total_vendas'] * 100) if forma['total_vendas'] > 0 else 0
-                })
-            
-            vendas_por_faixa[forma['forma_pagamento']] = faixas
-        
-        # Análise por período do dia
-        vendas_por_periodo = {}
-        
-        periodos = [
-            ('manha', 'Manhã', 6, 11),
-            ('tarde', 'Tarde', 12, 17),
-            ('noite', 'Noite', 18, 23)
+        return ctx
+
+
+class NovoRelatorioView(TenantLoginRequiredMixin, CreateView):
+    model = TemplateRelatorio
+    template_name = "relatorios/templates/form.html"
+    fields = ("nome", "descricao", "modelo_base", "campos", "filtros_disponiveis", "ativo")
+    success_url = reverse_lazy("relatorios:templates")
+
+    def form_valid(self, form):
+        response = super().form_valid(form)
+        _create_log(self.request.user, "CRIACAO", f'Template criado: {self.object.nome}')
+        messages.success(self.request, "Template criado com sucesso.")
+        return response
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        ctx.update({"title": "Novo template de relatório", "titulo": "Novo template de relatório"})
+        return ctx
+
+
+class EditarRelatorioView(TenantLoginRequiredMixin, UpdateView):
+    model = TemplateRelatorio
+    template_name = "relatorios/templates/form.html"
+    fields = ("nome", "descricao", "modelo_base", "campos", "filtros_disponiveis", "ativo")
+    success_url = reverse_lazy("relatorios:templates")
+
+    def form_valid(self, form):
+        response = super().form_valid(form)
+        _create_log(self.request.user, "ALTERACAO", f'Template actualizado: {self.object.nome}')
+        messages.success(self.request, "Template actualizado com sucesso.")
+        return response
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        ctx.update({"title": "Editar template", "titulo": "Editar template"})
+        return ctx
+
+
+class CamposDisponiveisView(RelatorioBaseView):
+    template_name = "relatorios/campos.html"
+    titulo = "Campos Disponíveis"
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        model_key = self.request.GET.get("modelo", "vendas.venda")
+        candidates = {f"{m._meta.app_label}.{m._meta.model_name}": m for m in (Venda, ItemVenda, Produto, Cliente, Compra, Fornecedor, ContaReceber, ContaPagar, Funcionario)}
+        model = candidates.get(model_key, Venda)
+        ctx["modelo_selecionado"] = f"{model._meta.app_label}.{model._meta.model_name}"
+        ctx["modelos_disponiveis"] = [{"value": key, "label": m._meta.verbose_name_plural.title()} for key, m in candidates.items()]
+        ctx["campos_disponiveis"] = [{"nome": f.name, "tipo": f.get_internal_type(), "obrigatorio": not getattr(f, "blank", True) and not getattr(f, "null", True)} for f in _model_fields(model)]
+        return ctx
+
+
+class TemplateRelatorioListView(TenantLoginRequiredMixin, ListView):
+    model = TemplateRelatorio
+    template_name = "relatorios/templates/lista.html"
+    context_object_name = "templates_relatorio"
+    paginate_by = 25
+
+    def get_queryset(self):
+        qs = TemplateRelatorio.objects.all().order_by("nome")
+        query = self.request.GET.get("q", "").strip()
+        if query:
+            qs = qs.filter(Q(nome__icontains=query) | Q(descricao__icontains=query))
+        return qs
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        ctx.update({"title": "Templates de Relatórios", "titulo": "Templates de Relatórios"})
+        return ctx
+
+
+class TemplateRelatorioCreateView(NovoRelatorioView):
+    pass
+
+
+class TemplateRelatorioDetailView(TenantLoginRequiredMixin, DetailView):
+    model = TemplateRelatorio
+    template_name = "relatorios/templates/detalhe.html"
+    context_object_name = "template_relatorio"
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        qs = Relatorio.objects.filter(template=self.object).order_by("-date_geracao") if _path_exists(Relatorio, "date_geracao") else Relatorio.objects.filter(template=self.object)
+        ctx["relatorios_gerados"] = qs[:25]
+        ctx.update({"title": self.object.nome, "titulo": self.object.nome})
+        return ctx
+
+
+class DuplicarTemplateView(TenantLoginRequiredMixin, View):
+    def post(self, request, pk, *args, **kwargs):
+        original = get_object_or_404(TemplateRelatorio, pk=pk)
+        nome = (request.POST.get("nome") or f"{original.nome} (cópia)").strip()[:200]
+        kwargs = {"nome": nome}
+        for field in ("descricao", "modelo_base", "campos", "filtros_disponiveis"):
+            if _path_exists(TemplateRelatorio, field):
+                kwargs[field] = getattr(original, field)
+        if _path_exists(TemplateRelatorio, "ativo"):
+            kwargs["ativo"] = False
+        clone = TemplateRelatorio.objects.create(**kwargs)
+        _create_log(request.user, "CRIACAO", f'Template duplicado de {original.pk}: {clone.nome}')
+        messages.success(request, "Template duplicado. Confirme os campos antes de o activar.")
+        return redirect("relatorios:template_detail", pk=clone.pk)
+
+
+class CompartilharTemplateView(TenantLoginRequiredMixin, DetailView):
+    model = TemplateRelatorio
+    template_name = "relatorios/templates/compartilhar.html"
+    context_object_name = "template_relatorio"
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        ctx["usuarios_empresa"] = User.objects.filter(is_active=True).exclude(pk=self.request.user.pk).order_by("username")
+        ctx["grupos_disponiveis"] = Group.objects.order_by("name")
+        ctx.update({"title": f"Compartilhar: {self.object.nome}", "titulo": f"Compartilhar: {self.object.nome}"})
+        return ctx
+
+    def post(self, request, *args, **kwargs):
+        self.object = self.get_object()
+        user_ids = request.POST.getlist("usuarios")
+        group_ids = request.POST.getlist("grupos")
+        mensagem = request.POST.get("mensagem", "").strip()
+        # O queryset de utilizadores é do schema actual, logo não atravessa tenants.
+        recipients = {u.pk: u for u in User.objects.filter(pk__in=user_ids, is_active=True).exclude(pk=request.user.pk)}
+        groups = Group.objects.filter(pk__in=group_ids)
+        for group in groups:
+            for user in group.user_set.filter(is_active=True).exclude(pk=request.user.pk):
+                recipients[user.pk] = user
+        sent = 0
+        for user in recipients.values():
+            if not user.email:
+                continue
+            try:
+                send_mail(
+                    subject=f"Template de relatório partilhado: {self.object.nome}",
+                    message=(f"{request.user.get_full_name() or request.user.username} partilhou o template "
+                             f'"{self.object.nome}" consigo.\n\nDescrição: {self.object.descricao or "—"}\n\n{mensagem}'),
+                    from_email=None,
+                    recipient_list=[user.email],
+                    fail_silently=False,
+                )
+                sent += 1
+            except Exception:
+                logger.exception("Falha no envio de partilha de template para %s", user.pk)
+        _create_log(request.user, "ACESSO", f"Partilha do template {self.object.pk}; emails enviados: {sent}")
+        messages.success(request, f"Notificações enviadas para {sent} utilizador(es). O acesso continua sujeito às permissões do sistema.")
+        return redirect("relatorios:template_detail", pk=self.object.pk)
+
+
+# ---------------------------------------------------------------------------
+# Relatórios operacionais. Os paths de campos são validados contra _meta.
+# ---------------------------------------------------------------------------
+class RelatoriosVendasView(ModeloRelatorioView):
+    model = Venda; titulo = "Relatório de Vendas"; table_title = "Vendas"
+    fields = ("numero_documento", "data_venda", "cliente__nome_completo", "funcionario__id", "status", "subtotal", "total")
+    date_fields = ("data_venda",); amount_fields = ("total",); status_finalizada = True
+    template_name = "relatorios/vendas/dashboard.html"
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        qs = self.get_queryset()
+        stats = qs.aggregate(
+            quantidade=Count("pk"),
+            faturamento=Sum("total") if _path_exists(Venda, "total") else Count("pk"),
+            ticket=Avg("total") if _path_exists(Venda, "total") else Count("pk"),
+        )
+        ctx["kpis"] = [
+            {"rotulo": "Vendas finalizadas", "valor": stats.get("quantidade") or 0},
+            {"rotulo": "Faturamento", "valor": _display(stats.get("faturamento") or 0)},
+            {"rotulo": "Ticket médio", "valor": _display(stats.get("ticket") or 0)},
         ]
-        
-        for codigo, nome, hora_inicio, hora_fim in periodos:
-            vendas_periodo = vendas.extra(
-                where=["EXTRACT(hour FROM created_at) BETWEEN %s AND %s"],
-                params=[hora_inicio, hora_fim]
-            ).values('forma_pagamento').annotate(
-                total=Sum('total'),
-                quantidade=Count('id')
-            ).order_by('-total')
-            
-            vendas_por_periodo[nome] = list(vendas_periodo)
-        
-        # Comparação com período anterior
-        dias_periodo = (data_fim - data_inicio).days
-        data_inicio_anterior = data_inicio - timedelta(days=dias_periodo)
-        data_fim_anterior = data_inicio - timedelta(days=1)
-        
-        vendas_anterior = Venda.objects.filter(
-            data_venda__gte=data_inicio_anterior,
-            data_venda__lte=data_fim_anterior,
-            status='finalizada'
-        ).values('forma_pagamento').annotate(
-            total=Sum('total'),
-            quantidade=Count('id')
-        )
-        
-        # Criar dicionário para fácil acesso
-        vendas_anterior_dict = {
-            v['forma_pagamento']: v for v in vendas_anterior
-        }
-        
-        # Calcular crescimento por forma de pagamento
-        crescimento_formas = []
-        
-        for forma in vendas_por_forma:
-            forma_nome = forma['forma_pagamento']
-            vendas_ant = vendas_anterior_dict.get(forma_nome, {'total': 0, 'quantidade': 0})
-            
-            crescimento_valor = 0
-            crescimento_qtd = 0
-            
-            if vendas_ant['total'] > 0:
-                crescimento_valor = (
-                    (forma['total'] - vendas_ant['total']) /
-                    vendas_ant['total'] * 100
-                )
-            
-            if vendas_ant['quantidade'] > 0:
-                crescimento_qtd = (
-                    (forma['total_vendas'] - vendas_ant['quantidade']) /
-                    vendas_ant['quantidade'] * 100
-                )
-            
-            crescimento_formas.append({
-                'forma_pagamento': forma_nome,
-                'crescimento_valor': round(crescimento_valor, 1),
-                'crescimento_quantidade': round(crescimento_qtd, 1)
-            })
-        
-        # Análise de concentração (índice Herfindahl)
-        # Mede a concentração de mercado por forma de pagamento
-        indice_concentracao = sum(
-            (forma['participacao'] / 100) ** 2 for forma in vendas_por_forma
-        )
-        
-        # Classificação da concentração
-        if indice_concentracao < 0.15:
-            nivel_concentracao = 'Baixa'
-        elif indice_concentracao < 0.25:
-            nivel_concentracao = 'Moderada'
-        else:
-            nivel_concentracao = 'Alta'
-        
-        # Formas de pagamento disponíveis
-        formas_disponiveis = vendas.values_list(
-            'forma_pagamento', flat=True
-        ).distinct().order_by('forma_pagamento')
-        
-        context.update({
-            'data_inicio': data_inicio,
-            'data_fim': data_fim,
-            'vendas_por_forma': vendas_por_forma,
-            'evolucao_formas': evolucao_formas,
-            'vendas_por_faixa': vendas_por_faixa,
-            'vendas_por_periodo': vendas_por_periodo,
-            'crescimento_formas': crescimento_formas,
-            'total_geral': total_geral,
-            'indice_concentracao': round(indice_concentracao, 3),
-            'nivel_concentracao': nivel_concentracao,
-            'formas_disponiveis': formas_disponiveis,
-            'forma_selecionada': forma_pagamento,
-            'title': 'Relatório de Vendas por Forma de Pagamento'
-        })
-        
-        return context
+        ctx["tabelas"] = [_build_table(qs, Venda, self.fields, "Vendas finalizadas no período", self.page_size)]
+        return ctx
 
-# =====================================
-# RELATÓRIOS DE ESTOQUE
-# =====================================
 
-class RelatoriosEstoqueView(BaseViewMixin, TemplateView):
-    def get_empresa(self):
-        return getattr(self.request.user, "empresa", None)
-    
-    template_name = 'relatorios/estoque/dashboard.html'
-    
+class RelatorioVendasDiarioView(RelatoriosVendasView):
+    titulo = "Relatório Diário de Vendas"; template_name = "relatorios/vendas/diario.html"
+    show_date_filters = False
+    show_single_date_filter = True
+    def get_periodo(self):
+        selected = parse_date(self.request.GET.get("data", "")) or timezone.localdate()
+        return selected, selected
     def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        empresa = self.get_empresa()
-        
-        # Estatísticas gerais de estoque
-        hoje = timezone.now().date()
-        
-        # Total de produtos
-        total_produtos = Produto.objects.filter(ativo=True).count()
-        
-        # Produtos com estoque baixo
-        produtos_estoque_baixo = Produto.objects.filter(
-            ativo=True,
-            estoque_atual__lte=F('estoque_minimo')
-        ).count()
-        
-        # Produtos sem estoque
-        produtos_sem_estoque = Produto.objects.filter(
-            ativo=True,
-            estoque_atual=0
-        ).count()
-        
-        # Valor total do estoque
-        total_estoque = Produto.objects.filter(
-            ativo=True
-        ).aggregate(
-            total=Sum(F('estoque_atual') * F('preco_custo'))
-        )['total'] or 0
-        
-        # Movimentações do dia
-        movimentacoes_hoje = MovimentacaoEstoque.objects.filter(
-            updated_at=hoje
-        ).count()
-        
-        # Produtos vencidos/próximos ao vencimento
-        produtos_vencendo = AlertaEstoque.objects.filter(
-            data_notificacao__lte=hoje + timedelta(days=30),
-            data_notificacao__gte=hoje
-        ).count()
-        
-        produtos_vencidos = AlertaEstoque.objects.filter(
-            data_notificacao__lt=hoje
-        ).count()
-        
-        # Giro de estoque (últimos 12 meses)
-        vendas_12_meses = ItemVenda.objects.filter(
-            venda__data_venda__gte=hoje - timedelta(days=365),
-            venda__status='finalizada'
-        ).aggregate(
-            quantidade_vendida=Sum('quantidade')
-        )['quantidade_vendida'] or 0
-        
-        estoque_medio = Produto.objects.filter(
-            ativo=True
-        ).aggregate(
-            estoque_medio=Avg('estoque_atual')
-        )['estoque_medio'] or 0
-        
-        giro_estoque_anual = vendas_12_meses / estoque_medio if estoque_medio > 0 else 0
-        
-        # Top categorias por valor de estoque
-        estoque_por_categoria = Produto.objects.filter(
-            ativo=True
-        ).values(
-            'categoria__nome'
-        ).annotate(
-            valor_estoque=Sum(F('estoque_atual') * F('preco_custo')),
-            quantidade_produtos=Count('id'),
-            quantidade_itens=Sum('estoque_atual')
-        ).order_by('-valor_estoque')[:10]
-        
-        # Movimentações recentes
-        movimentacoes_recentes = MovimentacaoEstoque.objects.filter(
-            produto__empresa=empresa
-        ).select_related('produto').order_by('-updated_at')[:10]
-        
-        # Produtos mais vendidos (impacto no estoque)
-        produtos_mais_vendidos = ItemVenda.objects.filter(
-            venda__data_venda__gte=hoje - timedelta(days=30),
-            venda__status='finalizada'
-        ).values(
-            'produto__nome_produto',
-            'produto__estoque_atual',
-            'produto__estoque_minimo'
-        ).annotate(
-            quantidade_vendida=Sum('quantidade')
-        ).order_by('-quantidade_vendida')[:10]
-        
-        stats_estoque = {
-            'total_produtos': total_produtos,
-            'produtos_estoque_baixo': produtos_estoque_baixo,
-            'produtos_sem_estoque': produtos_sem_estoque,
-            'total_estoque': total_estoque,
-            'movimentacoes_hoje': movimentacoes_hoje,
-            'produtos_vencendo': produtos_vencendo,
-            'produtos_vencidos': produtos_vencidos,
-            'giro_estoque_anual': round(giro_estoque_anual, 2)
-        }
-        
-        context.update({
-            'stats_estoque': stats_estoque,
-            'estoque_por_categoria': estoque_por_categoria,
-            'movimentacoes_recentes': movimentacoes_recentes,
-            'produtos_mais_vendidos': produtos_mais_vendidos,
-            'title': 'Relatórios de Estoque'
-        })
-        
-        return context
+        ctx = super().get_context_data(**kwargs)
+        ctx["data_selecionada"] = self.get_periodo()[0]
+        qs = self.get_queryset()
+        if _path_exists(Venda, "data_venda") and _get_model_field(Venda, "data_venda").get_internal_type() == "DateTimeField":
+            rows = list(qs.annotate(hora=ExtractHour("data_venda")).values("hora").annotate(quantidade=Count("pk"), faturamento=Sum("total")).order_by("hora"))
+            by_hour = {row["hora"]: row for row in rows}
+            rows = [{"hora": hour, "quantidade": by_hour.get(hour, {}).get("quantidade", 0), "faturamento": by_hour.get(hour, {}).get("faturamento", 0)} for hour in range(24)]
+            ctx["tabelas"].append(_dict_table(rows, [("Hora", "hora"), ("Vendas", "quantidade"), ("Faturamento", "faturamento")], "Vendas por hora", 24))
+        return ctx
 
 
-class RelatorioPosicaoEstoqueView(BaseViewMixin, TemplateView):
-    def get_empresa(self):
-        return getattr(self.request.user, "empresa", None)
-    
-    template_name = 'relatorios/estoque/posicao.html'
-    
+class RelatorioVendasMensalView(RelatoriosVendasView):
+    titulo = "Relatório Mensal de Vendas"; template_name = "relatorios/vendas/mensal.html"
+    show_date_filters = False
+    show_month_filter = True
+    def get_periodo(self):
+        hoje = timezone.localdate()
+        try: year, month = int(self.request.GET.get("ano", hoje.year)), int(self.request.GET.get("mes", hoje.month))
+        except (TypeError, ValueError): year, month = hoje.year, hoje.month
+        try: start = date(year, month, 1)
+        except ValueError: start = hoje.replace(day=1)
+        end = (start.replace(year=start.year + 1, month=1, day=1) - timedelta(days=1)) if start.month == 12 else (start.replace(month=start.month + 1, day=1) - timedelta(days=1))
+        return start, end
     def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        empresa = self.get_empresa()
-        
-        # Filtros
-        categoria_id = self.request.GET.get('categoria_id')
-        marca_id = self.request.GET.get('marca_id')
-        situacao = self.request.GET.get('situacao')
-        busca = self.request.GET.get('busca')
-        
-        # Query base
-        produtos = Produto.objects.filter(
-            ativo=True
-        ).select_related('categoria', 'marca')
-        
-        # Aplicar filtros
-        if categoria_id:
-            produtos = produtos.filter(categoria_id=categoria_id)
-        
-        if marca_id:
-            produtos = produtos.filter(marca_id=marca_id)
-        
+        ctx = super().get_context_data(**kwargs)
+        inicio, _fim = self.get_periodo()
+        ctx["mes"] = inicio.month; ctx["ano"] = inicio.year
+        ctx["meses_disponiveis"] = [(1, "Janeiro"), (2, "Fevereiro"), (3, "Março"), (4, "Abril"), (5, "Maio"), (6, "Junho"), (7, "Julho"), (8, "Agosto"), (9, "Setembro"), (10, "Outubro"), (11, "Novembro"), (12, "Dezembro")]
+        qs = self.get_queryset()
+        if _path_exists(Venda, "data_venda"):
+            grouped = list(qs.annotate(dia=TruncDate("data_venda")).values("dia").annotate(quantidade=Count("pk"), faturamento=Sum("total")).order_by("dia"))
+            ctx["tabelas"].append(_dict_table(grouped, [("Dia", "dia"), ("Vendas", "quantidade"), ("Faturamento", "faturamento")], "Evolução diária do mês", 40))
+        return ctx
+
+
+class RelatorioVendasAnualView(RelatoriosVendasView):
+    titulo = "Relatório Anual de Vendas"; template_name = "relatorios/vendas/anual.html"
+    show_date_filters = False
+    show_year_filter = True
+    def get_periodo(self):
+        try: year = int(self.request.GET.get("ano", timezone.localdate().year))
+        except (TypeError, ValueError): year = timezone.localdate().year
+        return date(year, 1, 1), date(year, 12, 31)
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        ctx["ano"] = self.get_periodo()[0].year
+        qs = self.get_queryset()
+        if _path_exists(Venda, "data_venda"):
+            grouped = list(qs.annotate(mes=TruncMonth("data_venda")).values("mes").annotate(quantidade=Count("pk"), faturamento=Sum("total")).order_by("mes"))
+            for row in grouped:
+                row["mes"] = row["mes"].date() if row.get("mes") else None
+            ctx["tabelas"].append(_dict_table(grouped, [("Mês", "mes"), ("Vendas", "quantidade"), ("Faturamento", "faturamento")], "Evolução mensal do ano", 12))
+        return ctx
+
+
+class RelatorioVendasProdutoView(ModeloRelatorioView):
+    model = ItemVenda; titulo = "Vendas por Produto"; table_title = "Produtos vendidos"
+    fields = ("produto__codigo_interno", "produto__nome_comercial", "produto__nome_produto", "quantidade", "preco_unitario", "subtotal")
+    date_fields = ("venda__data_venda",); amount_fields = ("subtotal",)
+    template_name = "relatorios/vendas/produto.html"
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        if _path_exists(ItemVenda, "venda__status"):
+            qs = qs.filter(venda__status="finalizada")
+        product_id = self.request.GET.get("produto_id")
+        category_id = self.request.GET.get("categoria_id")
+        if product_id and _path_exists(ItemVenda, "produto"):
+            qs = qs.filter(produto_id=product_id)
+        if category_id and _path_exists(ItemVenda, "produto__categoria"):
+            qs = qs.filter(produto__categoria_id=category_id)
+        return qs
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        start, end = self.get_periodo()
+        rows = _grouped_items(start, end, [("Código", "produto__codigo_interno"), ("Produto", "produto__nome_comercial"), ("Categoria", "produto__categoria__nome")], 100, base_qs=self.get_queryset())
+        columns = [("Código", "display_Código"), ("Produto", "display_Produto"), ("Categoria", "display_Categoria"), ("Quantidade vendida", "quantidade_vendida"), ("Faturamento", "faturamento"), ("Documentos", "documentos")]
+        ctx["tabelas"] = [_dict_table(rows, columns, "Ranking de produtos", 100)]
+        ctx["kpis"] = [{"rotulo": "Produtos com vendas", "valor": len(rows)}, {"rotulo": "Unidades vendidas", "valor": sum((r.get("quantidade_vendida") or 0) for r in rows)}, {"rotulo": "Faturamento", "valor": _display(sum((r.get("faturamento") or 0) for r in rows))}]
+        if _path_exists(Categoria, "nome"): ctx["categorias_disponiveis"] = Categoria.objects.all().order_by("nome")
+        if _path_exists(Produto, "nome_comercial"): ctx["produtos_disponiveis"] = Produto.objects.all().order_by("nome_comercial")[:1000]
+        return ctx
+
+
+class RelatorioVendasCategoriaView(RelatorioVendasProdutoView):
+    titulo = "Vendas por Categoria"; template_name = "relatorios/vendas/categoria.html"
+    fields = ("produto__categoria__nome", "produto__nome_comercial", "quantidade", "preco_unitario", "subtotal")
+    table_title = "Vendas por categoria"
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        start, end = self.get_periodo()
+        rows = _grouped_items(start, end, [("Categoria", "produto__categoria__nome")], 100, base_qs=self.get_queryset())
+        columns = [("Categoria", "display_Categoria"), ("Quantidade vendida", "quantidade_vendida"), ("Faturamento", "faturamento"), ("Documentos", "documentos")]
+        total = sum((r.get("faturamento") or 0) for r in rows)
+        for row in rows: row["participacao"] = round(float(row.get("faturamento") or 0) / float(total) * 100, 1) if total else 0
+        columns.append(("Participação (%)", "participacao"))
+        ctx["tabelas"] = [_dict_table(rows, columns, "Vendas por categoria", 100)]
+        ctx["kpis"] = [{"rotulo": "Categorias com vendas", "valor": len(rows)}, {"rotulo": "Faturamento", "valor": _display(total)}]
+        return ctx
+
+
+class RelatorioVendasVendedorView(RelatoriosVendasView):
+    titulo = "Vendas por Vendedor"; template_name = "relatorios/vendas/vendedor.html"
+    fields = ("funcionario__id", "data_venda", "numero_documento", "total", "status")
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        qs = self.get_queryset()
+        name_field = _first_existing_path(Venda, ("funcionario__nome_completo", "funcionario__usuario__username", "funcionario__user__username"))
+        groups = ["funcionario_id"] if _path_exists(Venda, "funcionario") else []
+        if name_field: groups.append(name_field)
+        if groups:
+            rows = list(qs.values(*groups).annotate(quantidade=Count("pk"), faturamento=Sum("total"), ticket_medio=Avg("total")).order_by("-faturamento")[:100])
+            cols = [("Vendedor", name_field)] if name_field else [("ID do funcionário", "funcionario_id")]
+            if name_field and "funcionario_id" in groups: cols.append(("ID", "funcionario_id"))
+            cols += [("Vendas", "quantidade"), ("Faturamento", "faturamento"), ("Ticket médio", "ticket_medio")]
+            ctx["tabelas"] = [_dict_table(rows, cols, "Desempenho por vendedor", 100)]
+        return ctx
+
+
+class RelatorioVendasClienteView(RelatoriosVendasView):
+    titulo = "Vendas por Cliente"; template_name = "relatorios/vendas/cliente.html"
+    fields = ("cliente__codigo_cliente", "cliente__nome_completo", "cliente__nome_social", "data_venda", "total")
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        qs = self.get_queryset()
+        name_field = _first_existing_path(Venda, ("cliente__nome_completo", "cliente__nome_social", "cliente__razao_social"))
+        groups = ["cliente_id"] if _path_exists(Venda, "cliente") else []
+        if name_field: groups.append(name_field)
+        if groups:
+            rows = list(qs.filter(cliente__isnull=False).values(*groups).annotate(compras=Count("pk"), total=Sum("total"), ticket_medio=Avg("total"), ultima_compra=Max("data_venda") if _path_exists(Venda, "data_venda") else Max("pk")).order_by("-total")[:100])
+            cols = [("Cliente", name_field)] if name_field else [("ID do cliente", "cliente_id")]
+            if "cliente_id" in groups: cols.append(("ID", "cliente_id"))
+            cols += [("Compras", "compras"), ("Total gasto", "total"), ("Ticket médio", "ticket_medio"), ("Última compra", "ultima_compra")]
+            ctx["tabelas"] = [_dict_table(rows, cols, "Vendas por cliente", 100)]
+        return ctx
+
+
+class RelatorioVendasFormaPagamentoView(RelatoriosVendasView):
+    titulo = "Vendas por Forma de Pagamento"; template_name = "relatorios/vendas/forma_pagamento.html"
+    fields = ("forma_pagamento__nome", "data_venda", "numero_documento", "total")
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        qs = self.get_queryset()
+        label_field = _first_existing_path(Venda, ("forma_pagamento__nome", "forma_pagamento__tipo", "forma_pagamento__descricao"))
+        group = label_field or ("forma_pagamento" if _path_exists(Venda, "forma_pagamento") else None)
+        if group:
+            rows = list(qs.values(group).annotate(quantidade=Count("pk"), total=Sum("total"), ticket_medio=Avg("total")).order_by("-total")[:50])
+            ctx["tabelas"] = [_dict_table(rows, [("Forma de pagamento", group), ("Vendas", "quantidade"), ("Total", "total"), ("Ticket médio", "ticket_medio")], "Vendas por forma de pagamento", 50)]
+        return ctx
+
+
+class RelatoriosEstoqueView(ModeloRelatorioView):
+    model = Produto; titulo = "Painel de Estoque"; table_title = "Produtos e stock"
+    fields = ("codigo_interno", "codigo_barras", "nome_comercial", "categoria__nome", "estoque_atual", "estoque_minimo", "preco_custo", "preco_venda")
+    template_name = "relatorios/estoque/dashboard.html"
+
+    def get_queryset(self):
+        qs = Produto.objects.all()
+        if _path_exists(Produto, "ativo"): qs = qs.filter(ativo=True)
+        return _safe_order(qs, Produto, ("nome_comercial", "nome_produto", "pk"))
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        qs = self.get_queryset()
+        total = qs.count()
+        low = qs.filter(estoque_atual__lte=F("estoque_minimo")).count() if _path_exists(Produto, "estoque_atual") and _path_exists(Produto, "estoque_minimo") else 0
+        zero = qs.filter(estoque_atual__lte=0).count() if _path_exists(Produto, "estoque_atual") else 0
+        value = 0
+        if _path_exists(Produto, "estoque_atual") and _path_exists(Produto, "preco_custo"):
+            value = qs.aggregate(total=Sum(F("estoque_atual") * F("preco_custo")))["total"] or 0
+        ctx["kpis"] = [
+            {"rotulo": "Produtos activos", "valor": total},
+            {"rotulo": "Stock baixo", "valor": low},
+            {"rotulo": "Sem stock", "valor": zero},
+            {"rotulo": "Valor estimado do stock", "valor": _display(value)},
+        ]
+        ctx["tabelas"] = [_build_table(qs, Produto, self.fields, "Posição actual do stock", 100)]
+        return ctx
+
+
+class RelatorioPosicaoEstoqueView(RelatoriosEstoqueView):
+    titulo = "Posição de Estoque"; template_name = "relatorios/estoque/posicao.html"
+    def get_queryset(self):
+        qs = super().get_queryset()
+        categoria_id = self.request.GET.get("categoria_id")
+        situacao = self.request.GET.get("situacao", "")
+        busca = self.request.GET.get("busca", "").strip()
+        if categoria_id and _path_exists(Produto, "categoria"):
+            qs = qs.filter(categoria_id=categoria_id)
         if busca:
-            produtos = produtos.filter(
-                Q(nome_comercial__icontains=busca) |
-                Q(codigo__icontains=busca)
-            )
-        
-        # Filtrar por situação do estoque
-        if situacao == 'baixo':
-            produtos = produtos.filter(estoque_atual__lte=F('estoque_minimo'))
-        elif situacao == 'zerado':
-            produtos = produtos.filter(estoque_atual=0)
-        elif situacao == 'acima_maximo':
-            produtos = produtos.filter(estoque_atual__gte=F('estoque_maximo'))
-        elif situacao == 'normal':
-            produtos = produtos.filter(
-                estoque_atual__gt=F('estoque_minimo'),
-                estoque_atual__lt=F('estoque_maximo')
-            )
-        
-        # Calcular informações adicionais
-        posicao_estoque = []
-        
-        for produto in produtos:
-            # Vendas últimos 30 dias
-            vendas_30_dias = ItemVenda.objects.filter(
-                produto=produto,
-                venda__data_venda__gte=timezone.now().date() - timedelta(days=30),
-                venda__status='finalizada'
-            ).aggregate(Sum('quantidade'))['quantidade__sum'] or 0
-            
-            # Média de vendas diárias
-            media_vendas_diaria = vendas_30_dias / 30
-            
-            # Dias de estoque (baseado na média de vendas)
-            dias_estoque = produto.estoque_atual / media_vendas_diaria if media_vendas_diaria > 0 else float('inf')
-            
-            # Valor do estoque
-            valor_estoque = produto.estoque_atual * (produto.preco_custo or 0)
-            
-            # Classificação da situação
-            if produto.estoque_atual == 0:
-                situacao_estoque = 'Zerado'
-                cor_situacao = 'danger'
-            elif produto.estoque_atual <= produto.estoque_minimo:
-                situacao_estoque = 'Baixo'
-                cor_situacao = 'warning'
-            elif produto.estoque_maximo and produto.estoque_atual >= produto.estoque_maximo:
-                situacao_estoque = 'Excesso'
-                cor_situacao = 'info'
-            else:
-                situacao_estoque = 'Normal'
-                cor_situacao = 'success'
-            
-            # Última movimentação
-            ultima_movimentacao = MovimentacaoEstoque.objects.filter(
-                produto=produto
-            ).order_by('-updated_at').first()
-            
-            posicao_estoque.append({
-                'produto': produto,
-                'vendas_30_dias': vendas_30_dias,
-                'media_vendas_diaria': round(media_vendas_diaria, 2),
-                'dias_estoque': round(dias_estoque, 1) if dias_estoque != float('inf') else 'Infinito',
-                'valor_estoque': valor_estoque,
-                'situacao_estoque': situacao_estoque,
-                'cor_situacao': cor_situacao,
-                'ultima_movimentacao': ultima_movimentacao
-            })
-        
-        # Ordenar por situação crítica primeiro
-        posicao_estoque.sort(key=lambda x: (
-            0 if x['situacao_estoque'] == 'Zerado' else
-            1 if x['situacao_estoque'] == 'Baixo' else
-            2 if x['situacao_estoque'] == 'Excesso' else 3
-        ))
-        
-        # Paginação
-        paginator = Paginator(posicao_estoque, 50)
-        page_number = self.request.GET.get('page')
-        page_obj = paginator.get_page(page_number)
-        
-        # Resumo por situação
-        resumo_situacao = {
-            'zerado': len([p for p in posicao_estoque if p['situacao_estoque'] == 'Zerado']),
-            'baixo': len([p for p in posicao_estoque if p['situacao_estoque'] == 'Baixo']),
-            'normal': len([p for p in posicao_estoque if p['situacao_estoque'] == 'Normal']),
-            'excesso': len([p for p in posicao_estoque if p['situacao_estoque'] == 'Excesso'])
-        }
-        
-        # Valor total por situação
-        valor_por_situacao = {}
-        for situacao_nome in ['Zerado', 'Baixo', 'Normal', 'Excesso']:
-            valor_por_situacao[situacao_nome.lower()] = sum(
-                p['valor_estoque'] for p in posicao_estoque 
-                if p['situacao_estoque'] == situacao_nome
-            )
-        
-        # Filtros disponíveis
-        categorias = Categoria.objects.filter(ativa=True).order_by('nome')
-        
-        context.update({
-            'page_obj': page_obj,
-            'resumo_situacao': resumo_situacao,
-            'valor_por_situacao': valor_por_situacao,
-            'categorias': categorias,
-            'filtros': {
-                'categoria_id': categoria_id,
-                'marca_id': marca_id,
-                'situacao': situacao,
-                'busca': busca
-            },
-            'title': 'Posição de Estoque'
-        })
-        
-        return context
-
-
-class RelatorioMovimentacaoEstoqueView(BaseViewMixin, TemplateView):
-    def get_empresa(self):
-        return getattr(self.request.user, "empresa", None)
-    
-    template_name = 'relatorios/estoque/movimentacao.html'
-    
+            conditions = []
+            for field in ("nome_comercial", "nome_produto", "codigo_interno", "codigo_barras"):
+                if _path_exists(Produto, field): conditions.append(Q(**{f"{field}__icontains": busca}))
+            if conditions:
+                query = conditions[0]
+                for condition in conditions[1:]: query |= condition
+                qs = qs.filter(query)
+        if situacao == "zerado" and _path_exists(Produto, "estoque_atual"):
+            qs = qs.filter(estoque_atual__lte=0)
+        elif situacao == "baixo" and _path_exists(Produto, "estoque_atual") and _path_exists(Produto, "estoque_minimo"):
+            qs = qs.filter(estoque_atual__gt=0, estoque_atual__lte=F("estoque_minimo"))
+        elif situacao == "normal" and _path_exists(Produto, "estoque_atual") and _path_exists(Produto, "estoque_minimo"):
+            qs = qs.filter(estoque_atual__gt=F("estoque_minimo"))
+        ctx_fields = ["id", "codigo_interno", "codigo_barras", "nome_comercial", "categoria__nome", "estoque_atual", "estoque_minimo", "preco_custo", "preco_venda"]
+        self.fields = tuple(ctx_fields)
+        return qs
     def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        empresa = self.get_empresa()
-        
-        # Filtros
-        data_inicio = self.request.GET.get('data_inicio')
-        data_fim = self.request.GET.get('data_fim')
-        tipo_movimentacao = self.request.GET.get('tipo_movimentacao')
-        produto_id = self.request.GET.get('produto_id')
-        
-        # Definir período padrão (últimos 30 dias)
-        if not data_inicio:
-            data_inicio = timezone.now().date() - timedelta(days=30)
+        ctx = super().get_context_data(**kwargs)
+        ctx["tabelas"] = [_build_table(self.get_queryset(), Produto, self.fields, "Posição actual do stock", 200)]
+        if _path_exists(Categoria, "nome"):
+            ctx["categorias_disponiveis"] = Categoria.objects.all().order_by("nome")
+        ctx["filtros"] = {"categoria_id": self.request.GET.get("categoria_id", ""), "situacao": self.request.GET.get("situacao", ""), "busca": self.request.GET.get("busca", "")}
+        return ctx
+
+
+class RelatorioMovimentacaoEstoqueView(ModeloRelatorioView):
+    model = MovimentacaoEstoque; titulo = "Movimentação de Estoque"; table_title = "Movimentações"
+    fields = ("produto__nome_comercial", "tipo", "quantidade", "motivo", "usuario", "created_at", "updated_at")
+    date_fields = ("created_at", "updated_at", "data_movimentacao"); template_name = "relatorios/estoque/movimentacao.html"
+    def get_queryset(self):
+        qs = super().get_queryset()
+        tipo = self.request.GET.get("tipo_movimentacao") or self.request.GET.get("tipo")
+        product_id = self.request.GET.get("produto_id")
+        if tipo and _path_exists(MovimentacaoEstoque, "tipo"):
+            qs = qs.filter(tipo=tipo)
+        if product_id and _path_exists(MovimentacaoEstoque, "produto"):
+            qs = qs.filter(produto_id=product_id)
+        return qs
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        qs = self.get_queryset()
+        total_qty = qs.aggregate(total=Sum("quantidade"))["total"] or 0 if _path_exists(MovimentacaoEstoque, "quantidade") else 0
+        ctx["kpis"] = [{"rotulo": "Movimentações", "valor": qs.count()}, {"rotulo": "Quantidade movimentada", "valor": _display(total_qty)}]
+        ctx["tabelas"] = [_build_table(qs, MovimentacaoEstoque, self.fields, "Movimentações no período", 200)]
+        ctx["filtros"] = {"tipo_movimentacao": self.request.GET.get("tipo_movimentacao", ""), "produto_id": self.request.GET.get("produto_id", "")}
+        return ctx
+
+
+class RelatorioVencimentosView(ModeloRelatorioView):
+    model = ControleVencimento; titulo = "Vencimentos"; table_title = "Produtos por validade"
+    show_date_filters = False
+    fields = ("produto__nome_comercial", "data_vencimento", "quantidade"); date_fields = ("data_vencimento",)
+    template_name = "relatorios/estoque/vencimentos.html"
+    def get_queryset(self):
+        qs = ControleVencimento.objects.all()
+        if _path_exists(ControleVencimento, "produto__ativo"):
+            qs = qs.filter(produto__ativo=True)
+        situacao = self.request.GET.get("situacao", "todos")
+        hoje = timezone.localdate()
+        try: dias = max(0, min(3650, int(self.request.GET.get("dias_vencimento", 30))))
+        except (TypeError, ValueError): dias = 30
+        if _path_exists(ControleVencimento, "data_vencimento"):
+            if situacao == "vencidos": qs = qs.filter(data_vencimento__lt=hoje)
+            elif situacao == "vencendo": qs = qs.filter(data_vencimento__gte=hoje, data_vencimento__lte=hoje + timedelta(days=dias))
+            elif situacao == "validos": qs = qs.filter(data_vencimento__gt=hoje + timedelta(days=dias))
+        return _safe_order(qs, ControleVencimento, ("data_vencimento", "pk"))
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        hoje = timezone.localdate(); qs = self.get_queryset(); rows = []
+        for item in qs[:1000]:
+            expiry = getattr(item, "data_vencimento", None)
+            if isinstance(expiry, datetime): expiry = timezone.localtime(expiry).date() if timezone.is_aware(expiry) else expiry.date()
+            days = (expiry - hoje).days if expiry else None
+            product = getattr(item, "produto", None)
+            qty = getattr(item, "quantidade", 0) or 0
+            cost = getattr(product, "preco_custo", 0) or 0 if product else 0
+            rows.append({"produto": str(getattr(product, "nome_comercial", None) or product or "—"), "validade": expiry, "dias": days, "quantidade": qty, "valor_estimado": qty * cost, "situacao": "Vencido" if days is not None and days < 0 else "A vencer" if days is not None and days <= 30 else "Válido"})
+        ctx["tabelas"] = [_dict_table(rows, [("Produto", "produto"), ("Validade", "validade"), ("Dias até à validade", "dias"), ("Quantidade", "quantidade"), ("Valor estimado", "valor_estimado"), ("Situação", "situacao")], "Controlo de validade", 1000)]
+        ctx["kpis"] = [{"rotulo": "Lotes/registos", "valor": len(rows)}, {"rotulo": "Vencidos", "valor": sum(1 for r in rows if r["situacao"] == "Vencido")}, {"rotulo": "A vencer em 30 dias", "valor": sum(1 for r in rows if r["situacao"] == "A vencer")}]
+        ctx["filtros"] = {"situacao": self.request.GET.get("situacao", "todos"), "dias_vencimento": self.request.GET.get("dias_vencimento", "30")}
+        return ctx
+
+
+class RelatorioRupturaEstoqueView(RelatoriosEstoqueView):
+    titulo = "Ruptura de Estoque"; template_name = "relatorios/estoque/ruptura.html"
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        if _path_exists(Produto, "estoque_atual"):
+            qs = qs.filter(estoque_atual__lte=0)
+        return qs
+
+
+class RelatorioGiroEstoqueView(RelatoriosEstoqueView):
+    titulo = "Giro de Estoque"; template_name = "relatorios/estoque/giro.html"
+    show_date_filters = False
+    show_period_filter = True
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        try: days = max(1, min(3650, int(self.request.GET.get("periodo", 90))))
+        except (TypeError, ValueError): days = 90
+        end = timezone.localdate(); start = end - timedelta(days=days - 1)
+        sales = _grouped_items(start, end, [("ID", "produto__id"), ("Código", "produto__codigo_interno"), ("Produto", "produto__nome_comercial")], 1000)
+        by_id = {row.get("produto__id"): row for row in sales}
+        results = []
+        qs = Produto.objects.all()
+        if _path_exists(Produto, "ativo"): qs = qs.filter(ativo=True)
+        category_id = self.request.GET.get("categoria_id")
+        if category_id and _path_exists(Produto, "categoria"): qs = qs.filter(categoria_id=category_id)
+        for product in qs[:1000]:
+            sold = by_id.get(product.pk, {})
+            qty = sold.get("quantidade_vendida", 0) or 0
+            stock = getattr(product, "estoque_atual", 0) or 0
+            daily = float(qty) / days
+            turnover = float(qty) / float(stock) if stock else 0
+            results.append({"codigo": getattr(product, "codigo_interno", "—"), "produto": getattr(product, "nome_comercial", str(product)), "stock": stock, "vendido": qty, "giro_periodo": round(turnover, 2), "giro_anualizado": round(turnover * 365 / days, 2), "dias_stock": round(float(stock) / daily, 1) if daily else "Sem vendas", "faturamento": sold.get("faturamento", 0)})
+        results.sort(key=lambda row: row["giro_anualizado"], reverse=True)
+        ctx["tabelas"] = [_dict_table(results, [("Código", "codigo"), ("Produto", "produto"), ("Stock", "stock"), ("Unidades vendidas", "vendido"), ("Giro no período", "giro_periodo"), ("Giro anualizado", "giro_anualizado"), ("Dias de stock estimados", "dias_stock"), ("Faturamento", "faturamento")], "Giro por produto", 1000)]
+        ctx["kpis"] = [{"rotulo": "Produtos analisados", "valor": len(results)}, {"rotulo": "Produtos sem vendas", "valor": sum(1 for r in results if not r["vendido"])}, {"rotulo": "Período (dias)", "valor": days}]
+        ctx["periodo"] = days
+        return ctx
+
+
+class RelatorioABCView(RelatoriosEstoqueView):
+    titulo = "Análise ABC de Estoque"; template_name = "relatorios/estoque/abc.html"
+    show_date_filters = False
+    show_period_filter = True
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        criterio = self.request.GET.get("criterio", "faturamento")
+        if criterio not in {"faturamento", "quantidade", "margem"}: criterio = "faturamento"
+        try: days = max(1, min(3650, int(self.request.GET.get("periodo", 90))))
+        except (TypeError, ValueError): days = 90
+        end = timezone.localdate(); start = end - timedelta(days=days - 1)
+        items = _items_sales_queryset(start, end)
+        category_id = self.request.GET.get("categoria_id")
+        if category_id and _path_exists(ItemVenda, "produto__categoria"): items = items.filter(produto__categoria_id=category_id)
+        group_paths = [path for path in ("produto_id", "produto__codigo_interno", "produto__nome_comercial") if path != "produto_id" and _path_exists(ItemVenda, path)]
+        if _path_exists(ItemVenda, "produto"): group_paths.insert(0, "produto")
+        if not group_paths:
+            rows = []
         else:
-            data_inicio = datetime.strptime(data_inicio, '%Y-%m-%d').date()
-        
-        if not data_fim:
-            data_fim = timezone.now().date()
-        else:
-            data_fim = datetime.strptime(data_fim, '%Y-%m-%d').date()
-        
-        # Movimentações do período
-        movimentacoes = MovimentacaoEstoque.objects.filter(
-            updated_at__gte=data_inicio,
-            updated_at__lte=data_fim
-        ).select_related('produto', 'usuario')
-        
-        if tipo_movimentacao:
-            movimentacoes = movimentacoes.filter(tipo_movimentacao=tipo_movimentacao)
-        
-        if produto_id:
-            movimentacoes = movimentacoes.filter(produto_id=produto_id)
-        
-        movimentacoes = movimentacoes.order_by('-updated_at')
-        
-        # Estatísticas das movimentações
-        stats_movimentacao = movimentacoes.aggregate(
-            total_movimentacoes=Count('id'),
-            total_entradas=Count(Case(When(tipo_movimentacao='entrada', then=1))),
-            total_saidas=Count(Case(When(tipo_movimentacao='saida', then=1))),
-            total_ajustes=Count(Case(When(tipo_movimentacao='ajuste', then=1))),
-            quantidade_entrada=Sum(
-                Case(When(tipo_movimentacao='entrada', then='quantidade'), default=0)
-            ),
-            quantidade_saida=Sum(
-                Case(When(tipo_movimentacao='saida', then='quantidade'), default=0)
-            )
-        )
-        
-        # Movimentações por dia
-        movimentacoes_por_dia = movimentacoes.values('updated_at').annotate(
-            total=Count('id'),
-            entradas=Count(Case(When(tipo_movimentacao='entrada', then=1))),
-            saidas=Count(Case(When(tipo_movimentacao='saida', then=1)))
-        ).order_by('updated_at')
-        
-        # Produtos com mais movimentações
-        produtos_movimento = movimentacoes.values(
-            'produto__nome_comercial',
-            'produto__codigo',
-            'produto__id'
-        ).annotate(
-            total_movimentacoes=Count('id'),
-            total_entradas=Count(Case(When(tipo_movimentacao='entrada', then=1))),
-            total_saidas=Count(Case(When(tipo_movimentacao='saida', then=1))),
-            saldo_movimentacao=Sum(
-                Case(
-                    When(tipo_movimentacao='entrada', then='quantidade'),
-                    When(tipo_movimentacao='saida', then=-F('quantidade')),
-                    default=0
-                )
-            )
-        ).order_by('-total_movimentacoes')[:20]
-        
-        # Movimentações por usuário
-        movimentacoes_usuario = movimentacoes.values(
-            'usuario__first_name',
-            'usuario__last_name'
-        ).annotate(
-            total_movimentacoes=Count('id'),
-            entradas=Count(Case(When(tipo_movimentacao='entrada', then=1))),
-            saidas=Count(Case(When(tipo_movimentacao='saida', then=1)))
-        ).order_by('-total_movimentacoes')
-        
-        # Análise de motivos de movimentação
-        motivos_movimentacao = movimentacoes.values('motivo').annotate(
-            total=Count('id'),
-            quantidade_total=Sum('quantidade')
-        ).order_by('-total')
-        
-        # Movimentações por categoria
-        movimentacoes_categoria = movimentacoes.values(
-            'produto__categoria__nome'
-        ).annotate(
-            total_movimentacoes=Count('id'),
-            quantidade_total=Sum('quantidade')
-        ).order_by('-total_movimentacoes')
-        
-        # Paginação
-        paginator = Paginator(movimentacoes, 50)
-        page_number = self.request.GET.get('page')
-        page_obj = paginator.get_page(page_number)
-        
-        # Produtos para filtro
-        produtos_com_movimento = Produto.objects.filter(
-            id__in=movimentacoes.values('produto_id').distinct()
-        ).order_by('nome_comercial')
-        
-        context.update({
-            'data_inicio': data_inicio,
-            'data_fim': data_fim,
-            'page_obj': page_obj,
-            'stats_movimentacao': stats_movimentacao,
-            'movimentacoes_por_dia': list(movimentacoes_por_dia),
-            'produtos_movimento': produtos_movimento,
-            'movimentacoes_usuario': movimentacoes_usuario,
-            'motivos_movimentacao': motivos_movimentacao,
-            'movimentacoes_categoria': movimentacoes_categoria,
-            'produtos_com_movimento': produtos_com_movimento,
-            'filtros': {
-                'tipo_movimentacao': tipo_movimentacao,
-                'produto_id': produto_id
-            },
-            'title': 'Relatório de Movimentação de Estoque'
-        })
-        
-        return context
+            rows = list(items.values(*group_paths).annotate(quantidade=Sum("quantidade"), faturamento=_item_revenue_expression()).order_by("-faturamento")[:5000])
+        products = {p.pk: p for p in Produto.objects.filter(pk__in=[row.get("produto") for row in rows])} if rows and _path_exists(ItemVenda, "produto") else {}
+        for row in rows:
+            product = products.get(row.get("produto"))
+            row["produto_nome"] = getattr(product, "nome_comercial", None) or row.get("produto__nome_comercial") or "—"
+            row["codigo"] = getattr(product, "codigo_interno", None) or row.get("produto__codigo_interno") or "—"
+            row["faturamento"] = row.get("faturamento") or 0
+            row["quantidade"] = row.get("quantidade") or 0
+            row["custo_estimado"] = (row["quantidade"] * (getattr(product, "preco_custo", 0) or 0)) if product else 0
+            row["margem_estimada"] = row["faturamento"] - row["custo_estimado"]
+            row["valor_classificacao"] = row["quantidade"] if criterio == "quantidade" else row["margem_estimada"] if criterio == "margem" else row["faturamento"]
+        rows.sort(key=lambda row: row["valor_classificacao"], reverse=True)
+        total = sum((row["valor_classificacao"] or 0) for row in rows)
+        accumulated = 0
+        for row in rows:
+            accumulated += row["valor_classificacao"] or 0
+            perc = float(accumulated / total * 100) if total else 0
+            row["percentual_acumulado"] = round(perc, 2)
+            row["participacao"] = round(float(row["valor_classificacao"] or 0) / float(total) * 100, 2) if total else 0
+            row["classe"] = "A" if perc <= 80 else "B" if perc <= 95 else "C"
+        ctx["tabelas"] = [_dict_table(rows, [("Código", "codigo"), ("Produto", "produto_nome"), ("Unidades", "quantidade"), ("Faturamento", "faturamento"), ("Custo estimado actual", "custo_estimado"), ("Margem estimada", "margem_estimada"), ("Valor de classificação", "valor_classificacao"), ("Participação (%)", "participacao"), ("Acumulado (%)", "percentual_acumulado"), ("Classe", "classe")], "Classificação ABC", 1000)]
+        ctx["kpis"] = [{"rotulo": "Produtos classificados", "valor": len(rows)}, {"rotulo": "Classe A", "valor": sum(1 for r in rows if r["classe"] == "A")}, {"rotulo": "Classe B", "valor": sum(1 for r in rows if r["classe"] == "B")}, {"rotulo": "Classe C", "valor": sum(1 for r in rows if r["classe"] == "C")}]
+        ctx["criterio"] = criterio; ctx["periodo"] = days; ctx["data_inicio"] = start; ctx["data_fim"] = end
+        if criterio == "margem": ctx["aviso"] = "A margem é estimada com o preço de custo actual do produto, não com o custo histórico gravado na venda."
+        return ctx
 
 
-class RelatorioVencimentosView(BaseViewMixin, TemplateView):
-    def get_empresa(self):
-        return getattr(self.request.user, "empresa", None)
-    
-    template_name = 'relatorios/estoque/vencimentos.html'
-    
+class RelatorioInventarioView(ModeloRelatorioView):
+    model = Inventario; titulo = "Inventário de Estoque"; table_title = "Inventários"
+    fields = ("numero", "titulo", "data_inicio", "data_fim", "status"); date_fields = ("data_inicio", "created_at")
+    template_name = "relatorios/estoque/inventario.html"
+
+
+class RelatoriosFinanceiroView(RelatorioBaseView):
+    template_name = "relatorios/financeiro/dashboard.html"
+    titulo = "Dashboard Financeiro"
+
     def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        empresa = self.get_empresa()
-        
-        # Filtros
-        situacao = self.request.GET.get('situacao', 'todos')
-        categoria_id = self.request.GET.get('categoria_id')
-        dias_vencimento = int(self.request.GET.get('dias_vencimento', 30))
-        
-        hoje = timezone.now().date()
-        data_limite = hoje + timedelta(days=dias_vencimento)
-        
-        # Query base
-        controles_vencimento = ControleVencimento.objects.filter(
-            produto__ativo=True
-        ).select_related('produto')
-        
-        if categoria_id:
-            controles_vencimento = controles_vencimento.filter(
-                produto__categoria_id=categoria_id
-            )
-        
-        # Filtrar por situação
-        if situacao == 'vencidos':
-            controles_vencimento = controles_vencimento.filter(data_vencimento__lt=hoje)
-        elif situacao == 'vencendo':
-            controles_vencimento = controles_vencimento.filter(
-                data_vencimento__gte=hoje,
-                data_vencimento__lte=data_limite
-            )
-        elif situacao == 'validos':
-            controles_vencimento = controles_vencimento.filter(data_vencimento__gt=data_limite)
-        
-        controles_vencimento = controles_vencimento.order_by('data_vencimento')
-        
-        # Classificar e calcular informações
-        produtos_vencimento = []
-        
-        for controle in controles_vencimento:
-            dias_para_vencer = (controle.data_vencimento - hoje).days
-            
-            # Determinar situação
-            if dias_para_vencer < 0:
-                situacao_item = 'Vencido'
-                cor_situacao = 'danger'
-                prioridade = 1
-            elif dias_para_vencer <= 7:
-                situacao_item = 'Vence em 7 dias'
-                cor_situacao = 'danger'
-                prioridade = 2
-            elif dias_para_vencer <= 30:
-                situacao_item = 'Vence em 30 dias'
-                cor_situacao = 'warning'
-                prioridade = 3
-            elif dias_para_vencer <= 90:
-                situacao_item = 'Vence em 90 dias'
-                cor_situacao = 'info'
-                prioridade = 4
-            else:
-                situacao_item = 'Válido'
-                cor_situacao = 'success'
-                prioridade = 5
-            
-            # Valor do lote
-            valor_lote = controle.quantidade * (controle.produto.preco_custo or 0)
-            
-            produtos_vencimento.append({
-                'controle': controle,
-                'dias_para_vencer': dias_para_vencer,
-                'situacao_item': situacao_item,
-                'cor_situacao': cor_situacao,
-                'prioridade': prioridade,
-                'valor_lote': valor_lote
-            })
-        
-        # Ordenar por prioridade
-        produtos_vencimento.sort(key=lambda x: (x['prioridade'], x['dias_para_vencer']))
-        
-        # Estatísticas de vencimento
-        stats_vencimento = {
-            'total_lotes': len(produtos_vencimento),
-            'lotes_vencidos': len([p for p in produtos_vencimento if p['situacao_item'] == 'Vencido']),
-            'lotes_vencendo_7_dias': len([p for p in produtos_vencimento if p['situacao_item'] == 'Vence em 7 dias']),
-            'lotes_vencendo_30_dias': len([p for p in produtos_vencimento if p['situacao_item'] == 'Vence em 30 dias']),
-            'total_vencidos': sum(p['valor_lote'] for p in produtos_vencimento if p['situacao_item'] == 'Vencido'),
-            'total_vencendo': sum(p['valor_lote'] for p in produtos_vencimento if 'Vence em' in p['situacao_item'])
-        }
-        
-        # Produtos com mais lotes próximos ao vencimento
-        produtos_criticos = {}
-        for item in produtos_vencimento:
-            if item['prioridade'] <= 3:  # Vencidos ou vencendo em até 30 dias
-                produto_id = item['controle'].produto.id
-                if produto_id not in produtos_criticos:
-                    produtos_criticos[produto_id] = {
-                        'produto': item['controle'].produto,
-                        'lotes_criticos': 0,
-                        'quantidade_critica': 0,
-                        'valor_critico': 0
-                    }
-                
-                produtos_criticos[produto_id]['lotes_criticos'] += 1
-                produtos_criticos[produto_id]['quantidade_critica'] += item['controle'].quantidade
-                produtos_criticos[produto_id]['valor_critico'] += item['valor_lote']
-        
-        produtos_criticos = sorted(
-            produtos_criticos.values(),
-            key=lambda x: x['valor_critico'],
-            reverse=True
-        )[:20]
-        
-        # Vencimentos por categoria
-        vencimentos_categoria = {}
-        for item in produtos_vencimento:
-            categoria = item['controle'].produto.categoria
-            categoria_nome = categoria.nome if categoria else 'Sem Categoria'
-            
-            if categoria_nome not in vencimentos_categoria:
-                vencimentos_categoria[categoria_nome] = {
-                    'total_lotes': 0,
-                    'lotes_vencidos': 0,
-                    'lotes_vencendo': 0,
-                    'total': 0
-                }
-            
-            vencimentos_categoria[categoria_nome]['total_lotes'] += 1
-            vencimentos_categoria[categoria_nome]['total'] += item['valor_lote']
-            
-            if item['situacao_item'] == 'Vencido':
-                vencimentos_categoria[categoria_nome]['lotes_vencidos'] += 1
-            elif 'Vence em' in item['situacao_item']:
-                vencimentos_categoria[categoria_nome]['lotes_vencendo'] += 1
-        
-        # Evolução dos vencimentos (próximos 90 dias)
-        evolucao_vencimentos = []
-        for i in range(90):
-            data_check = hoje + timedelta(days=i)
-            lotes_dia = len([
-                p for p in produtos_vencimento 
-                if p['controle'].data_vencimento == data_check
-            ])
-            
-            if lotes_dia > 0:
-                evolucao_vencimentos.append({
-                    'data': data_check,
-                    'lotes': lotes_dia
-                })
-        
-        # Paginação
-        paginator = Paginator(produtos_vencimento, 50)
-        page_number = self.request.GET.get('page')
-        page_obj = paginator.get_page(page_number)
-        
-        # Categorias para filtro
-        categorias = Categoria.objects.filter(ativa=True).order_by('nome')
-        
-        context.update({
-            'page_obj': page_obj,
-            'stats_vencimento': stats_vencimento,
-            'produtos_criticos': produtos_criticos,
-            'vencimentos_categoria': vencimentos_categoria,
-            'evolucao_vencimentos': evolucao_vencimentos,
-            'categorias': categorias,
-            'filtros': {
-                'situacao': situacao,
-                'categoria_id': categoria_id,
-                'dias_vencimento': dias_vencimento
-            },
-            'title': 'Relatório de Vencimentos'
-        })
-        
-        return context
-
-
-class RelatorioRupturaEstoqueView(BaseViewMixin, TemplateView):
-    def get_empresa(self):
-        return getattr(self.request.user, "empresa", None)
-    
-    template_name = 'relatorios/estoque/ruptura.html'
-    
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        empresa = self.get_empresa()
-        
-        # Produtos em ruptura (estoque zerado)
-        produtos_ruptura = Produto.objects.filter(
-            ativo=True,
-            estoque_atual=0
-        ).select_related('categoria', 'marca')
-        
-        # Análise detalhada de cada produto em ruptura
-        analise_ruptura = []
-        
-        for produto in produtos_ruptura:
-            # Última venda
-            ultima_venda = ItemVenda.objects.filter(
-                produto=produto,
-                venda__status='finalizada'
-            ).order_by('-venda__data_venda').first()
-            
-            # Vendas últimos 30 dias antes da ruptura
-            vendas_30_dias = ItemVenda.objects.filter(
-                produto=produto,
-                venda__data_venda__gte=timezone.now().date() - timedelta(days=30),
-                venda__status='finalizada'
-            ).aggregate(Sum('quantidade'))['quantidade__sum'] or 0
-            
-            # Última entrada no estoque
-            ultima_entrada = MovimentacaoEstoque.objects.filter(
-                produto=produto,
-                tipo_movimentacao='entrada'
-            ).order_by('-updated_at').first()
-            
-            # Tempo em ruptura
-            if ultima_venda:
-                dias_ruptura = (timezone.now().date() - ultima_venda.venda.data_venda).days
-            else:
-                dias_ruptura = None
-            
-            # Perda estimada de vendas
-            if vendas_30_dias > 0:
-                media_vendas_diaria = vendas_30_dias / 30
-                perda_estimada = media_vendas_diaria * dias_ruptura if dias_ruptura else 0
-                valor_perda = perda_estimada * (produto.preco_venda or 0)
-            else:
-                perda_estimada = 0
-                valor_perda = 0
-            
-            # Classificar criticidade
-            if vendas_30_dias >= 30:  # Mais de 1 venda por dia
-                criticidade = 'Alta'
-                cor_criticidade = 'danger'
-            elif vendas_30_dias >= 10:  # Mais de 1 venda a cada 3 dias
-                criticidade = 'Média'
-                cor_criticidade = 'warning'
-            elif vendas_30_dias > 0:
-                criticidade = 'Baixa'
-                cor_criticidade = 'info'
-            else:
-                criticidade = 'Sem Vendas'
-                cor_criticidade = 'secondary'
-            
-            analise_ruptura.append({
-                'produto': produto,
-                'ultima_venda': ultima_venda,
-                'vendas_30_dias': vendas_30_dias,
-                'ultima_entrada': ultima_entrada,
-                'dias_ruptura': dias_ruptura,
-                'perda_estimada': round(perda_estimada, 2),
-                'valor_perda': valor_perda,
-                'criticidade': criticidade,
-                'cor_criticidade': cor_criticidade
-            })
-        
-        # Ordenar por criticidade e valor de perda
-        analise_ruptura.sort(key=lambda x: (
-            0 if x['criticidade'] == 'Alta' else
-            1 if x['criticidade'] == 'Média' else
-            2 if x['criticidade'] == 'Baixa' else 3,
-            -x['valor_perda']
-        ))
-        
-        # Estatísticas de ruptura
-        stats_ruptura = {
-            'total_produtos_ruptura': len(analise_ruptura),
-            'ruptura_alta_criticidade': len([a for a in analise_ruptura if a['criticidade'] == 'Alta']),
-            'ruptura_media_criticidade': len([a for a in analise_ruptura if a['criticidade'] == 'Média']),
-            'total_perda': sum(a['valor_perda'] for a in analise_ruptura),
-            'produtos_sem_vendas': len([a for a in analise_ruptura if a['criticidade'] == 'Sem Vendas'])
-        }
-        
-        # Ruptura por categoria
-        ruptura_por_categoria = {}
-        for item in analise_ruptura:
-            categoria = item['produto'].categoria
-            categoria_nome = categoria.nome if categoria else 'Sem Categoria'
-            
-            if categoria_nome not in ruptura_por_categoria:
-                ruptura_por_categoria[categoria_nome] = {
-                    'produtos': 0,
-                    'alta_criticidade': 0,
-                    'valor_perda': 0
-                }
-            
-            ruptura_por_categoria[categoria_nome]['produtos'] += 1
-            ruptura_por_categoria[categoria_nome]['valor_perda'] += item['valor_perda']
-            
-            if item['criticidade'] == 'Alta':
-                ruptura_por_categoria[categoria_nome]['alta_criticidade'] += 1
-        
-        # Produtos que podem substituir os em ruptura
-        sugestoes_reposicao = []
-        
-        for item in analise_ruptura[:10]:  # Top 10 produtos críticos
-            produto_ruptura = item['produto']
-            
-            # Buscar produtos similares (mesma categoria)
-            produtos_similares = Produto.objects.filter(
-                ativo=True,
-                categoria=produto_ruptura.categoria,
-                estoque_atual__gt=0
-            ).exclude(id=produto_ruptura.id)[:3]
-            
-            if produtos_similares.exists():
-                sugestoes_reposicao.append({
-                    'produto_ruptura': produto_ruptura,
-                    'criticidade': item['criticidade'],
-                    'produtos_similares': produtos_similares
-                })
-        
-        # Histórico de rupturas (produtos que voltaram ao estoque)
-        produtos_repostos = Produto.objects.filter(
-            ativo=True,
-            estoque_atual__gt=0
-        ).annotate(
-            ruptura_recente=Case(
-                When(
-                    movimentacaoestoque__tipo_movimentacao='entrada',
-                    movimentacaoestoque__updated_at__gte=timezone.now().date() - timedelta(days=7),
-                    then=Value(True)
-                ),
-                default=Value(False),
-                output_field=models.BooleanField()
-            )
-        ).filter(ruptura_recente=True)
-        
-        # Produtos com risco de ruptura
-        risco_ruptura = Produto.objects.filter(
-            ativo=True,
-            estoque_atual__gt=0,
-            estoque_atual__lte=F('estoque_minimo')
-        ).select_related('categoria')
-        
-        # Calcular dias para ruptura baseado na média de vendas
-        produtos_risco = []
-        
-        for produto in risco_ruptura[:20]:
-            vendas_30_dias = ItemVenda.objects.filter(
-                produto=produto,
-                venda__data_venda__gte=timezone.now().date() - timedelta(days=30),
-                venda__status='finalizada'
-            ).aggregate(Sum('quantidade'))['quantidade__sum'] or 0
-            
-            if vendas_30_dias > 0:
-                media_vendas_diaria = vendas_30_dias / 30
-                dias_para_ruptura = produto.estoque_atual / media_vendas_diaria
-                
-                produtos_risco.append({
-                    'produto': produto,
-                    'dias_para_ruptura': round(dias_para_ruptura, 1),
-                    'vendas_30_dias': vendas_30_dias
-                })
-        
-        produtos_risco.sort(key=lambda x: x['dias_para_ruptura'])
-        
-        context.update({
-            'analise_ruptura': analise_ruptura,
-            'stats_ruptura': stats_ruptura,
-            'ruptura_por_categoria': ruptura_por_categoria,
-            'sugestoes_reposicao': sugestoes_reposicao,
-            'produtos_repostos': produtos_repostos,
-            'produtos_risco': produtos_risco,
-            'title': 'Relatório de Ruptura de Estoque'
-        })
-        
-        return context
-
-
-class RelatorioGiroEstoqueView(BaseViewMixin, TemplateView):
-    def get_empresa(self):
-        return getattr(self.request.user, "empresa", None)
-    
-    template_name = 'relatorios/estoque/giro.html'
-    
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        empresa = self.get_empresa()
-        
-        # Filtros
-        periodo = int(self.request.GET.get('periodo', 90))  # Dias
-        categoria_id = self.request.GET.get('categoria_id')
-        
-        data_inicio = timezone.now().date() - timedelta(days=periodo)
-        data_fim = timezone.now().date()
-        
-        # Produtos para análise
-        produtos = Produto.objects.filter(
-            ativo=True,
-            estoque_atual__gt=0
-        ).select_related('categoria', 'marca')
-        
-        if categoria_id:
-            produtos = produtos.filter(categoria_id=categoria_id)
-        
-        # Análise de giro por produto
-        analise_giro = []
-        
-        for produto in produtos:
-            # Vendas no período
-            vendas_periodo = ItemVenda.objects.filter(
-                produto=produto,
-                venda__data_venda__gte=data_inicio,
-                venda__data_venda__lte=data_fim,
-                venda__status='finalizada'
-            ).aggregate(
-                quantidade_vendida=Sum('quantidade'),
-                valor_vendido=Sum(F('quantidade') * F('preco_unitario'))
-            )
-            
-            quantidade_vendida = vendas_periodo['quantidade_vendida'] or 0
-            valor_vendido = vendas_periodo['valor_vendido'] or 0
-            
-            # Estoque médio (simplificado - usando estoque atual)
-            estoque_medio = produto.estoque_atual
-            
-            # Calcular giro
-            if estoque_medio > 0:
-                giro_periodo = quantidade_vendida / estoque_medio
-                giro_anual = (giro_periodo * 365) / periodo
-            else:
-                giro_periodo = 0
-                giro_anual = 0
-            
-            # Dias de estoque
-            if quantidade_vendida > 0:
-                media_vendas_diaria = quantidade_vendida / periodo
-                dias_estoque = estoque_medio / media_vendas_diaria
-            else:
-                dias_estoque = float('inf')
-            
-            # Classificação do giro
-            if giro_anual >= 12:  # Mais de 1 giro por mês
-                classificacao_giro = 'Alto'
-                cor_giro = 'success'
-            elif giro_anual >= 6:  # Giro a cada 2 meses
-                classificacao_giro = 'Médio'
-                cor_giro = 'warning'
-            elif giro_anual >= 2:  # Giro a cada 6 meses
-                classificacao_giro = 'Baixo'
-                cor_giro = 'info'
-            else:
-                classificacao_giro = 'Muito Baixo'
-                cor_giro = 'danger'
-            
-            # Valor investido no estoque
-            valor_estoque = produto.estoque_atual * (produto.preco_custo or 0)
-            
-            analise_giro.append({
-                'produto': produto,
-                'quantidade_vendida': quantidade_vendida,
-                'valor_vendido': valor_vendido,
-                'estoque_atual': produto.estoque_atual,
-                'giro_periodo': round(giro_periodo, 2),
-                'giro_anual': round(giro_anual, 2),
-                'dias_estoque': round(dias_estoque, 1) if dias_estoque != float('inf') else 'Sem Vendas',
-                'classificacao_giro': classificacao_giro,
-                'cor_giro': cor_giro,
-                'valor_estoque': valor_estoque
-            })
-        
-        # Ordenar por giro anual (maiores primeiro)
-        analise_giro.sort(key=lambda x: x['giro_anual'], reverse=True)
-        
-        # Estatísticas de giro
-        giros_validos = [a['giro_anual'] for a in analise_giro if a['giro_anual'] > 0]
-        
-        stats_giro = {
-            'total_produtos': len(analise_giro),
-            'giro_alto': len([a for a in analise_giro if a['classificacao_giro'] == 'Alto']),
-            'giro_medio': len([a for a in analise_giro if a['classificacao_giro'] == 'Médio']),
-            'giro_baixo': len([a for a in analise_giro if a['classificacao_giro'] == 'Baixo']),
-            'giro_muito_baixo': len([a for a in analise_giro if a['classificacao_giro'] == 'Muito Baixo']),
-            'giro_medio_empresa': statistics.mean(giros_validos) if giros_validos else 0,
-            'total_estoque': sum(a['valor_estoque'] for a in analise_giro)
-        }
-        
-        # Giro por categoria
-        giro_por_categoria = {}
-        
-        for item in analise_giro:
-            categoria = item['produto'].categoria
-            categoria_nome = categoria.nome if categoria else 'Sem Categoria'
-            
-            if categoria_nome not in giro_por_categoria:
-                giro_por_categoria[categoria_nome] = {
-                    'produtos': 0,
-                    'giro_total': 0,
-                    'valor_estoque': 0,
-                    'valor_vendido': 0
-                }
-            
-            giro_por_categoria[categoria_nome]['produtos'] += 1
-            giro_por_categoria[categoria_nome]['giro_total'] += item['giro_anual']
-            giro_por_categoria[categoria_nome]['valor_estoque'] += item['valor_estoque']
-            giro_por_categoria[categoria_nome]['valor_vendido'] += item['valor_vendido']
-        
-        # Calcular giro médio por categoria
-        for categoria in giro_por_categoria:
-            if giro_por_categoria[categoria]['produtos'] > 0:
-                giro_por_categoria[categoria]['giro_medio'] = (
-                    giro_por_categoria[categoria]['giro_total'] /
-                    giro_por_categoria[categoria]['produtos']
-                )
-            else:
-                giro_por_categoria[categoria]['giro_medio'] = 0
-        
-        # Top produtos por giro
-        top_giro = analise_giro[:20]
-        
-        # Produtos com giro muito baixo (candidatos à promoção/liquidação)
-        baixo_giro = [a for a in analise_giro if a['classificacao_giro'] == 'Muito Baixo'][:20]
-        
-        # Produtos parados (sem vendas no período)
-        produtos_parados = [a for a in analise_giro if a['giro_anual'] == 0]
-        
-        # Análise ABC baseada no giro
-        produtos_abc_giro = []
-        total_valor_vendido = sum(a['valor_vendido'] for a in analise_giro)
-        
-        if total_valor_vendido > 0:
-            valor_acumulado = 0
-            for item in analise_giro:
-                valor_acumulado += item['valor_vendido']
-                percentual_acumulado = (valor_acumulado / total_valor_vendido) * 100
-                
-                if percentual_acumulado <= 80:
-                    classificacao_abc = 'A'
-                elif percentual_acumulado <= 95:
-                    classificacao_abc = 'B'
-                else:
-                    classificacao_abc = 'C'
-                
-                item['classificacao_abc'] = classificacao_abc
-                produtos_abc_giro.append(item)
-        
-        # Distribuição ABC
-        distribuicao_abc = {
-            'A': len([p for p in produtos_abc_giro if p['classificacao_abc'] == 'A']),
-            'B': len([p for p in produtos_abc_giro if p['classificacao_abc'] == 'B']),
-            'C': len([p for p in produtos_abc_giro if p['classificacao_abc'] == 'C'])
-        }
-        
-        # Paginação
-        paginator = Paginator(analise_giro, 50)
-        page_number = self.request.GET.get('page')
-        page_obj = paginator.get_page(page_number)
-        
-        # Categorias para filtro
-        categorias = Categoria.objects.filter(ativa=True).order_by('nome')
-        
-        context.update({
-            'periodo': periodo,
-            'data_inicio': data_inicio,
-            'data_fim': data_fim,
-            'page_obj': page_obj,
-            'stats_giro': stats_giro,
-            'giro_por_categoria': giro_por_categoria,
-            'top_giro': top_giro,
-            'baixo_giro': baixo_giro,
-            'produtos_parados': produtos_parados,
-            'distribuicao_abc': distribuicao_abc,
-            'categorias': categorias,
-            'categoria_selecionada': categoria_id,
-            'title': 'Relatório de Giro de Estoque'
-        })
-        
-        return context
-
-
-class RelatorioABCView(BaseViewMixin, TemplateView):
-    def get_empresa(self):
-        return getattr(self.request.user, "empresa", None)
-    
-    template_name = 'relatorios/estoque/abc.html'
-    
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        empresa = self.get_empresa()
-        
-        # Filtros
-        criterio = self.request.GET.get('criterio', 'faturamento')  # faturamento, quantidade, margem
-        periodo = int(self.request.GET.get('periodo', 90))
-        categoria_id = self.request.GET.get('categoria_id')
-        
-        data_inicio = timezone.now().date() - timedelta(days=periodo)
-        data_fim = timezone.now().date()
-        
-        # Base query para produtos
-        produtos = Produto.objects.filter(
-            ativo=True
-        ).select_related('categoria', 'marca')
-        
-        if categoria_id:
-            produtos = produtos.filter(categoria_id=categoria_id)
-        
-        # Análise ABC
-        analise_abc = []
-        
-        for produto in produtos:
-            # Vendas no período
-            vendas_produto = ItemVenda.objects.filter(
-                produto=produto,
-                venda__data_venda__gte=data_inicio,
-                venda__data_venda__lte=data_fim,
-                venda__status='finalizada'
-            )
-            
-            quantidade_vendida = vendas_produto.aggregate(
-                Sum('quantidade')
-            )['quantidade__sum'] or 0
-            
-            faturamento = vendas_produto.aggregate(
-                valor=Sum(F('quantidade') * F('preco_unitario'))
-            )['valor'] or 0
-            
-            # Calcular margem
-            custo_total = quantidade_vendida * (produto.preco_custo or 0)
-            margem = faturamento - custo_total
-            
-            # Determinar valor para classificação baseado no critério
-            if criterio == 'faturamento':
-                valor_classificacao = faturamento
-            elif criterio == 'quantidade':
-                valor_classificacao = quantidade_vendida
-            elif criterio == 'margem':
-                valor_classificacao = margem
-            else:
-                valor_classificacao = faturamento
-            
-            analise_abc.append({
-                'produto': produto,
-                'quantidade_vendida': quantidade_vendida,
-                'faturamento': faturamento,
-                'margem': margem,
-                'valor_classificacao': valor_classificacao,
-                'custo_total': custo_total,
-                'percentual_margem': (margem / faturamento * 100) if faturamento > 0 else 0
-            })
-        
-        # Ordenar por valor de classificação
-        analise_abc.sort(key=lambda x: x['valor_classificacao'], reverse=True)
-        
-        # Calcular classificação ABC
-        total_valor = sum(item['valor_classificacao'] for item in analise_abc)
-        valor_acumulado = 0
-        
-        for item in analise_abc:
-            valor_acumulado += item['valor_classificacao']
-            percentual_acumulado = (valor_acumulado / total_valor * 100) if total_valor > 0 else 0
-            
-            if percentual_acumulado <= 80:
-                item['classificacao'] = 'A'
-                item['cor_classificacao'] = 'success'
-            elif percentual_acumulado <= 95:
-                item['classificacao'] = 'B'
-                item['cor_classificacao'] = 'warning'
-            else:
-                item['classificacao'] = 'C'
-                item['cor_classificacao'] = 'info'
-            
-            item['percentual_acumulado'] = round(percentual_acumulado, 2)
-            item['participacao'] = round(
-                (item['valor_classificacao'] / total_valor * 100) if total_valor > 0 else 0, 2
-            )
-        
-        # Estatísticas ABC
-        stats_abc = {
-            'total_produtos': len(analise_abc),
-            'produtos_a': len([p for p in analise_abc if p['classificacao'] == 'A']),
-            'produtos_b': len([p for p in analise_abc if p['classificacao'] == 'B']),
-            'produtos_c': len([p for p in analise_abc if p['classificacao'] == 'C']),
-            'total': total_valor
-        }
-        
-        # Valor por classificação
-        valor_por_classe = {
-            'A': sum(p['valor_classificacao'] for p in analise_abc if p['classificacao'] == 'A'),
-            'B': sum(p['valor_classificacao'] for p in analise_abc if p['classificacao'] == 'B'),
-            'C': sum(p['valor_classificacao'] for p in analise_abc if p['classificacao'] == 'C')
-        }
-        
-        # Percentuais por classe
-        percentual_por_classe = {}
-        for classe in ['A', 'B', 'C']:
-            percentual_por_classe[classe] = {
-                'produtos': round((stats_abc[f'produtos_{classe.lower()}'] / stats_abc['total_produtos'] * 100), 1) if stats_abc['total_produtos'] > 0 else 0,
-                'valor': round((valor_por_classe[classe] / total_valor * 100), 1) if total_valor > 0 else 0
-            }
-        
-        # ABC por categoria
-        abc_por_categoria = {}
-        
-        for item in analise_abc:
-            categoria = item['produto'].categoria
-            categoria_nome = categoria.nome if categoria else 'Sem Categoria'
-            
-            if categoria_nome not in abc_por_categoria:
-                abc_por_categoria[categoria_nome] = {'A': 0, 'B': 0, 'C': 0, 'total': 0}
-            
-            abc_por_categoria[categoria_nome][item['classificacao']] += 1
-            abc_por_categoria[categoria_nome]['total'] += item['valor_classificacao']
-        
-        # Comparação entre critérios
-        comparacao_criterios = {}
-        
-        for criterio_comp in ['faturamento', 'quantidade', 'margem']:
-            if criterio_comp != criterio:
-                # Recalcular classificação para o critério de comparação
-                analise_temp = []
-                for produto in produtos[:50]:  # Limitar para performance
-                    vendas_produto = ItemVenda.objects.filter(
-                        produto=produto,
-                        venda__data_venda__gte=data_inicio,
-                        venda__data_venda__lte=data_fim,
-                        venda__status='finalizada'
-                    )
-                    
-                    if criterio_comp == 'faturamento':
-                        valor = vendas_produto.aggregate(
-                            valor=Sum(F('quantidade') * F('preco_unitario'))
-                        )['valor'] or 0
-                    elif criterio_comp == 'quantidade':
-                        valor = vendas_produto.aggregate(Sum('quantidade'))['quantidade__sum'] or 0
-                    elif criterio_comp == 'margem':
-                        faturamento = vendas_produto.aggregate(
-                            valor=Sum(F('quantidade') * F('preco_unitario'))
-                        )['valor'] or 0
-                        quantidade = vendas_produto.aggregate(Sum('quantidade'))['quantidade__sum'] or 0
-                        valor = faturamento - (quantidade * (produto.preco_custo or 0))
-                    
-                    analise_temp.append({'produto': produto, 'valor': valor})
-                
-                analise_temp.sort(key=lambda x: x['valor'], reverse=True)
-                total_temp = sum(item['valor'] for item in analise_temp)
-                
-                # Classificar
-                valor_acum_temp = 0
-                for item in analise_temp:
-                    valor_acum_temp += item['valor']
-                    perc_acum = (valor_acum_temp / total_temp * 100) if total_temp > 0 else 0
-                    
-                    if perc_acum <= 80:
-                        item['classe'] = 'A'
-                    elif perc_acum <= 95:
-                        item['classe'] = 'B'
-                    else:
-                        item['classe'] = 'C'
-                
-                comparacao_criterios[criterio_comp] = {
-                    'A': len([p for p in analise_temp if p['classe'] == 'A']),
-                    'B': len([p for p in analise_temp if p['classe'] == 'B']),
-                    'C': len([p for p in analise_temp if p['classe'] == 'C'])
-                }
-        
-        # Produtos que mudaram de classe (comparando faturamento vs quantidade)
-        mudancas_classe = []
-        if criterio == 'faturamento' and 'quantidade' in comparacao_criterios:
-            # Implementar lógica de comparação detalhada se necessário
-            pass
-        
-        # Recomendações baseadas na análise ABC
-        recomendacoes = {
-            'A': [
-                'Manter sempre em estoque',
-                'Negociar melhores condições com fornecedores',
-                'Monitorar de perto a demanda',
-                'Avaliar aumento de margem'
-            ],
-            'B': [
-                'Controle de estoque moderado',
-                'Revisar política de reposição',
-                'Avaliar sazonalidade',
-                'Considerar promoções pontuais'
-            ],
-            'C': [
-                'Reduzir estoque',
-                'Avaliar descontinuação',
-                'Fazer liquidação',
-                'Revisar fornecedores'
-            ]
-        }
-        
-        # Paginação
-        paginator = Paginator(analise_abc, 50)
-        page_number = self.request.GET.get('page')
-        page_obj = paginator.get_page(page_number)
-        
-        # Categorias para filtro
-        categorias = Categoria.objects.filter(ativa=True).order_by('nome')
-        
-        context.update({
-            'criterio': criterio,
-            'periodo': periodo,
-            'data_inicio': data_inicio,
-            'data_fim': data_fim,
-            'page_obj': page_obj,
-            'stats_abc': stats_abc,
-            'valor_por_classe': valor_por_classe,
-            'percentual_por_classe': percentual_por_classe,
-            'abc_por_categoria': abc_por_categoria,
-            'comparacao_criterios': comparacao_criterios,
-            'recomendacoes': recomendacoes,
-            'categorias': categorias,
-            'categoria_selecionada': categoria_id,
-            'title': f'Análise ABC - {criterio.title()}'
-        })
-        
-        return context
-
-
-class RelatorioInventarioView(BaseViewMixin, TemplateView):
-    def get_empresa(self):
-        return getattr(self.request.user, "empresa", None)
-    
-    template_name = 'relatorios/estoque/inventario.html'
-    
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        empresa = self.get_empresa()
-        
-        # Filtros
-        inventario_id = self.request.GET.get('inventario_id')
-        situacao = self.request.GET.get('situacao')  # divergencia, ok, nao_contado
-        
-        # Inventários disponíveis
-        inventarios = Inventario.objects.filter(
-            empresa=empresa
-        ).order_by('-data_inicio')
-        
-        if not inventario_id and inventarios.exists():
-            inventario_id = inventarios.first().id
-        
-        inventario_selecionado = None
-        if inventario_id:
-            inventario_selecionado = get_object_or_404(
-                Inventario, id=inventario_id, empresa=empresa
-            )
-        
-        if not inventario_selecionado:
-            context.update({
-                'inventarios': inventarios,
-                'error': 'Nenhum inventário encontrado',
-                'title': 'Relatório de Inventário'
-            })
-            return context
-        
-        # Itens do inventário
-        itens_inventario = inventario_selecionado.itens.select_related(
-            'produto', 'produto__categoria'
-        ).order_by('produto__nome_comercial')
-        
-        # Aplicar filtro de situação
-        if situacao == 'divergencia':
-            itens_inventario = itens_inventario.exclude(
-                quantidade_contada=F('quantidade_sistema')
-            )
-        elif situacao == 'ok':
-            itens_inventario = itens_inventario.filter(
-                quantidade_contada=F('quantidade_sistema')
-            )
-        elif situacao == 'nao_contado':
-            itens_inventario = itens_inventario.filter(quantidade_contada__isnull=True)
-        
-        # Análise dos itens
-        analise_inventario = []
-        
-        for item in itens_inventario:
-            quantidade_sistema = item.quantidade_sistema or 0
-            quantidade_contada = item.quantidade_contada or 0
-            
-            # Calcular divergência
-            divergencia_quantidade = quantidade_contada - quantidade_sistema
-            divergencia_percentual = 0
-            
-            if quantidade_sistema > 0:
-                divergencia_percentual = (divergencia_quantidade / quantidade_sistema) * 100
-            elif quantidade_contada > 0:
-                divergencia_percentual = 100  # 100% de divergência se sistema zerado mas tem estoque físico
-            
-            # Valor da divergência
-            preco_custo = item.produto.preco_custo or 0
-            valor_divergencia = divergencia_quantidade * preco_custo
-            
-            # Classificar tipo de divergência
-            if divergencia_quantidade == 0:
-                tipo_divergencia = 'OK'
-                cor_divergencia = 'success'
-            elif divergencia_quantidade > 0:
-                tipo_divergencia = 'Sobra'
-                cor_divergencia = 'info'
-            else:
-                tipo_divergencia = 'Falta'
-                cor_divergencia = 'danger'
-            
-            # Classificar criticidade baseada no percentual
-            if abs(divergencia_percentual) >= 50:
-                criticidade = 'Alta'
-            elif abs(divergencia_percentual) >= 20:
-                criticidade = 'Média'
-            elif abs(divergencia_percentual) > 0:
-                criticidade = 'Baixa'
-            else:
-                criticidade = 'Nenhuma'
-            
-            analise_inventario.append({
-                'item': item,
-                'divergencia_quantidade': divergencia_quantidade,
-                'divergencia_percentual': round(divergencia_percentual, 2),
-                'valor_divergencia': valor_divergencia,
-                'tipo_divergencia': tipo_divergencia,
-                'cor_divergencia': cor_divergencia,
-                'criticidade': criticidade
-            })
-        
-        # Estatísticas do inventário
-        total_itens = len(analise_inventario)
-        itens_ok = len([a for a in analise_inventario if a['tipo_divergencia'] == 'OK'])
-        itens_sobra = len([a for a in analise_inventario if a['tipo_divergencia'] == 'Sobra'])
-        itens_falta = len([a for a in analise_inventario if a['tipo_divergencia'] == 'Falta'])
-        
-        total_divergencia = sum(a['valor_divergencia'] for a in analise_inventario)
-        valor_sobras = sum(a['valor_divergencia'] for a in analise_inventario if a['valor_divergencia'] > 0)
-        valor_faltas = sum(abs(a['valor_divergencia']) for a in analise_inventario if a['valor_divergencia'] < 0)
-        
-        stats_inventario = {
-            'total_itens': total_itens,
-            'itens_ok': itens_ok,
-            'itens_sobra': itens_sobra,
-            'itens_falta': itens_falta,
-            'percentual_ok': round((itens_ok / total_itens * 100), 2) if total_itens > 0 else 0,
-            'total_divergencia': total_divergencia,
-            'valor_sobras': valor_sobras,
-            'valor_faltas': valor_faltas,
-            'acuracidade': round((itens_ok / total_itens * 100), 2) if total_itens > 0 else 0
-        }
-        
-        # Divergências por categoria
-        divergencias_categoria = {}
-        
-        for item in analise_inventario:
-            categoria = item['item'].produto.categoria
-            categoria_nome = categoria.nome if categoria else 'Sem Categoria'
-            
-            if categoria_nome not in divergencias_categoria:
-                divergencias_categoria[categoria_nome] = {
-                    'total': 0,
-                    'ok': 0,
-                    'sobra': 0,
-                    'falta': 0,
-                    'valor_divergencia': 0
-                }
-            
-            divergencias_categoria[categoria_nome]['total'] += 1
-            divergencias_categoria[categoria_nome]['valor_divergencia'] += item['valor_divergencia']
-            
-            if item['tipo_divergencia'] == 'OK':
-                divergencias_categoria[categoria_nome]['ok'] += 1
-            elif item['tipo_divergencia'] == 'Sobra':
-                divergencias_categoria[categoria_nome]['sobra'] += 1
-            elif item['tipo_divergencia'] == 'Falta':
-                divergencias_categoria[categoria_nome]['falta'] += 1
-        
-        # Top divergências (maiores valores)
-        top_divergencias = sorted(
-            [a for a in analise_inventario if a['valor_divergencia'] != 0],
-            key=lambda x: abs(x['valor_divergencia']),
-            reverse=True
-        )[:20]
-        
-        # Produtos com maior variação percentual
-        maior_variacao = sorted(
-            [a for a in analise_inventario if a['divergencia_percentual'] != 0],
-            key=lambda x: abs(x['divergencia_percentual']),
-            reverse=True
-        )[:20]
-        
-        # Produtos não contados
-        nao_contados = [a for a in analise_inventario if a['item'].quantidade_contada is None]
-        
-        # Recomendações baseadas na análise
-        recomendacoes = []
-        
-        if stats_inventario['percentual_ok'] < 80:
-            recomendacoes.append('Revisar processos de controle de estoque')
-        
-        if valor_faltas > valor_sobras * 2:
-            recomendacoes.append('Investigar possíveis perdas ou furtos')
-        
-        if len(nao_contados) > total_itens * 0.1:
-            recomendacoes.append('Melhorar organização física do estoque')
-        
-        if stats_inventario['acuracidade'] < 95:
-            recomendacoes.append('Implementar contagem cíclica')
-        
-        # Paginação
-        paginator = Paginator(analise_inventario, 50)
-        page_number = self.request.GET.get('page')
-        page_obj = paginator.get_page(page_number)
-        
-        context.update({
-            'inventarios': inventarios,
-            'inventario_selecionado': inventario_selecionado,
-            'page_obj': page_obj,
-            'stats_inventario': stats_inventario,
-            'divergencias_categoria': divergencias_categoria,
-            'top_divergencias': top_divergencias,
-            'maior_variacao': maior_variacao,
-            'nao_contados': nao_contados,
-            'recomendacoes': recomendacoes,
-            'filtros': {
-                'inventario_id': inventario_id,
-                'situacao': situacao
-            },
-            'title': f'Relatório de Inventário - {inventario_selecionado.nome if inventario_selecionado else ""}'
-        })
-        
-        return context
-
-
-# =====================================
-# RELATÓRIOS FINANCEIROS
-# =====================================
-
-class RelatoriosFinanceiroView(BaseViewMixin, TemplateView):
-    def get_empresa(self):
-        return getattr(self.request.user, "empresa", None)
-    
-    template_name = 'relatorios/financeiro/dashboard.html'
-    
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        empresa = self.get_empresa()
-        
-        # Data atual e períodos
-        hoje = timezone.now().date()
-        inicio_mes = hoje.replace(day=1)
-        inicio_ano = hoje.replace(month=1, day=1)
-        
-        # Contas a Receber
-        contas_receber = ContaReceber.objects.filter(empresa=empresa)
-        
-        contas_receber_stats = {
-            'total_aberto': contas_receber.filter(status='aberto').aggregate(
-                Sum('valor'))['valor__sum'] or 0,
-            'vencidas': contas_receber.filter(
-                status='aberto', data_vencimento__lt=hoje
-            ).aggregate(Sum('valor'))['valor__sum'] or 0,
-            'vencendo_30_dias': contas_receber.filter(
-                status='aberto',
-                data_vencimento__gte=hoje,
-                data_vencimento__lte=hoje + timedelta(days=30)
-            ).aggregate(Sum('valor'))['valor__sum'] or 0,
-            'recebido_mes': contas_receber.filter(
-                status='pago',
-                data_pagamento__gte=inicio_mes
-            ).aggregate(Sum('valor'))['valor__sum'] or 0
-        }
-        
-        # Contas a Pagar
-        contas_pagar = ContaPagar.objects.filter(empresa=empresa)
-        
-        contas_pagar_stats = {
-            'total_aberto': contas_pagar.filter(status='aberto').aggregate(
-                Sum('valor'))['valor__sum'] or 0,
-            'vencidas': contas_pagar.filter(
-                status='aberto', data_vencimento__lt=hoje
-            ).aggregate(Sum('valor'))['valor__sum'] or 0,
-            'vencendo_30_dias': contas_pagar.filter(
-                status='aberto',
-                data_vencimento__gte=hoje,
-                data_vencimento__lte=hoje + timedelta(days=30)
-            ).aggregate(Sum('valor'))['valor__sum'] or 0,
-            'pago_mes': contas_pagar.filter(
-                status='pago',
-                data_pagamento__gte=inicio_mes
-            ).aggregate(Sum('valor'))['valor__sum'] or 0
-        }
-        
-        # Fluxo de Caixa
-        movimentacoes_mes = MovimentacaoFinanceira.objects.filter(
-            data_movimentacao__gte=inicio_mes
-        )
-        
-        fluxo_caixa = {
-            'entradas_mes': movimentacoes_mes.filter(tipo='entrada').aggregate(
-                Sum('valor'))['valor__sum'] or 0,
-            'saidas_mes': movimentacoes_mes.filter(tipo='saida').aggregate(
-                Sum('valor'))['valor__sum'] or 0
-        }
-        
-        fluxo_caixa['saldo_mes'] = fluxo_caixa['entradas_mes'] - fluxo_caixa['saidas_mes']
-        
-        # Vendas vs Recebimentos
-        vendas_mes = Venda.objects.filter(
-            data_venda__gte=inicio_mes,
-            status='finalizada'
-        ).aggregate(Sum('total'))['total__sum'] or 0
-        
-        # Indicadores financeiros
-        if vendas_mes > 0:
-            taxa_conversao_recebimento = (contas_receber_stats['recebido_mes'] / vendas_mes) * 100
-        else:
-            taxa_conversao_recebimento = 0
-        
-        # Contas vencendo nos próximos 7 dias
-        contas_receber_7_dias = contas_receber.filter(
-            status='aberto',
-            data_vencimento__gte=hoje,
-            data_vencimento__lte=hoje + timedelta(days=7)
-        ).order_by('data_vencimento')[:10]
-        
-        contas_pagar_7_dias = contas_pagar.filter(
-            status='aberto',
-            data_vencimento__gte=hoje,
-            data_vencimento__lte=hoje + timedelta(days=7)
-        ).order_by('data_vencimento')[:10]
-        
-        # Centros de custo com maior gasto
-        gastos_centro_custo = MovimentacaoFinanceira.objects.filter(
-            tipo='saida',
-            data_movimentacao__gte=inicio_mes,
-            centro_custo__isnull=False
-        ).values(
-            'centro_custo__nome'
-        ).annotate(
-            total_gasto=Sum('valor')
-        ).order_by('-total_gasto')[:10]
-        
-        # Evolução do saldo (últimos 30 dias)
-        evolucao_saldo = []
-        saldo_acumulado = 0
-        
-        for i in range(30):
-            data_dia = hoje - timedelta(days=29-i)
-            
-            entradas_dia = MovimentacaoFinanceira.objects.filter(
-                tipo='entrada',
-                data_movimentacao=data_dia
-            ).aggregate(Sum('valor'))['valor__sum'] or 0
-            
-            saidas_dia = MovimentacaoFinanceira.objects.filter(
-                tipo='saida',
-                data_movimentacao=data_dia
-            ).aggregate(Sum('valor'))['valor__sum'] or 0
-            
-            saldo_dia = entradas_dia - saidas_dia
-            saldo_acumulado += saldo_dia
-            
-            evolucao_saldo.append({
-                'data': data_dia,
-                'entradas': entradas_dia,
-                'saidas': saidas_dia,
-                'saldo_dia': saldo_dia,
-                'saldo_acumulado': saldo_acumulado
-            })
-        
-        # Top clientes inadimplentes
-        clientes_inadimplentes = contas_receber.filter(
-            status='aberto',
-            data_vencimento__lt=hoje
-        ).values(
-            'cliente__nome'
-        ).annotate(
-            total=Sum('valor'),
-            quantidade_contas=Count('id')
-        ).order_by('-total')[:10]
-        
-        # Resumo mensal
-        resumo_financeiro = {
-            'receitas': vendas_mes,
-            'recebimentos': contas_receber_stats['recebido_mes'],
-            'pagamentos': contas_pagar_stats['pago_mes'],
-            'saldo_periodo': fluxo_caixa['saldo_mes'],
-            'contas_vencidas_receber': contas_receber_stats['vencidas'],
-            'contas_vencidas_pagar': contas_pagar_stats['vencidas']
-        }
-        
-        context.update({
-            'contas_receber_stats': contas_receber_stats,
-            'contas_pagar_stats': contas_pagar_stats,
-            'fluxo_caixa': fluxo_caixa,
-            'vendas_mes': vendas_mes,
-            'taxa_conversao_recebimento': round(taxa_conversao_recebimento, 2),
-            'contas_receber_7_dias': contas_receber_7_dias,
-            'contas_pagar_7_dias': contas_pagar_7_dias,
-            'gastos_centro_custo': gastos_centro_custo,
-            'evolucao_saldo': evolucao_saldo,
-            'clientes_inadimplentes': clientes_inadimplentes,
-            'resumo_financeiro': resumo_financeiro,
-            'title': 'Dashboard Financeiro'
-        })
-        
-        return context
-
-
-class RelatorioFluxoCaixaView(BaseViewMixin, TemplateView):
-    def get_empresa(self):
-        return getattr(self.request.user, "empresa", None)
-    
-    template_name = 'relatorios/financeiro/fluxo_caixa.html'
-    
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        empresa = self.get_empresa()
-        
-        # Filtros
-        data_inicio = self.request.GET.get('data_inicio')
-        data_fim = self.request.GET.get('data_fim')
-        centro_custo_id = self.request.GET.get('centro_custo_id')
-        tipo_fluxo = self.request.GET.get('tipo_fluxo', 'realizado')  # realizado ou projetado
-        
-        # Definir período padrão (mês atual)
-        if not data_inicio:
-            data_inicio = timezone.now().date().replace(day=1)
-        else:
-            data_inicio = datetime.strptime(data_inicio, '%Y-%m-%d').date()
-        
-        if not data_fim:
-            # Último dia do mês
-            if data_inicio.month == 12:
-                data_fim = data_inicio.replace(year=data_inicio.year + 1, month=1, day=1) - timedelta(days=1)
-            else:
-                data_fim = data_inicio.replace(month=data_inicio.month + 1, day=1) - timedelta(days=1)
-        else:
-            data_fim = datetime.strptime(data_fim, '%Y-%m-%d').date()
-        
-        if tipo_fluxo == 'realizado':
-            # Fluxo de caixa realizado
-            movimentacoes = MovimentacaoFinanceira.objects.filter(
-                data_movimentacao__gte=data_inicio,
-                data_movimentacao__lte=data_fim
-            )
-            
-            if centro_custo_id:
-                movimentacoes = movimentacoes.filter(centro_custo_id=centro_custo_id)
-            
-            # Fluxo diário
-            fluxo_diario = {}
-            
-            # Inicializar todos os dias do período
-            current_date = data_inicio
-            while current_date <= data_fim:
-                fluxo_diario[current_date] = {
-                    'data': current_date,
-                    'entradas': 0,
-                    'saidas': 0,
-                    'saldo': 0,
-                    'saldo_acumulado': 0
-                }
-                current_date += timedelta(days=1)
-            
-            # Preencher com dados reais
-            movimentacoes_por_dia = movimentacoes.values('data_movimentacao', 'tipo').annotate(
-                total=Sum('valor')
-            ).order_by('data_movimentacao')
-            
-            for mov in movimentacoes_por_dia:
-                data = mov['data_movimentacao']
-                if data in fluxo_diario:
-                    if mov['tipo'] == 'entrada':
-                        fluxo_diario[data]['entradas'] = mov['total']
-                    else:
-                        fluxo_diario[data]['saidas'] = mov['total']
-            
-            # Calcular saldos
-            saldo_acumulado = 0
-            for data in sorted(fluxo_diario.keys()):
-                fluxo_diario[data]['saldo'] = fluxo_diario[data]['entradas'] - fluxo_diario[data]['saidas']
-                saldo_acumulado += fluxo_diario[data]['saldo']
-                fluxo_diario[data]['saldo_acumulado'] = saldo_acumulado
-            
-            fluxo_diario_lista = [fluxo_diario[data] for data in sorted(fluxo_diario.keys())]
-            
-        else:
-            # Fluxo de caixa projetado
-            fluxo_diario_lista = []
-            saldo_inicial = 0  # Implementar saldo inicial real
-            
-            # Projeção baseada em contas a receber e pagar
-            current_date = data_inicio
-            saldo_acumulado = saldo_inicial
-            
-            while current_date <= data_fim:
-                # Recebimentos previstos
-                recebimentos = ContaReceber.objects.filter(
-                    status='aberto',
-                    data_vencimento=current_date
-                ).aggregate(Sum('valor'))['valor__sum'] or 0
-                
-                # Pagamentos previstos
-                pagamentos = ContaPagar.objects.filter(
-                    status='aberto',
-                    data_vencimento=current_date
-                ).aggregate(Sum('valor'))['valor__sum'] or 0
-                
-                # Vendas médias (para projeção)
-                vendas_medias = Venda.objects.filter(
-                    data_venda__gte=current_date - timedelta(days=30),
-                    data_venda__lt=current_date,
-                    status='finalizada'
-                ).aggregate(Avg('total'))['total__avg'] or 0
-                
-                saldo_dia = recebimentos - pagamentos + vendas_medias
-                saldo_acumulado += saldo_dia
-                
-                fluxo_diario_lista.append({
-                    'data': current_date,
-                    'entradas': recebimentos + vendas_medias,
-                    'saidas': pagamentos,
-                    'saldo': saldo_dia,
-                    'saldo_acumulado': saldo_acumulado
-                })
-                
-                current_date += timedelta(days=1)
-        
-        # Resumo do período
-        total_entradas = sum(dia['entradas'] for dia in fluxo_diario_lista)
-        total_saidas = sum(dia['saidas'] for dia in fluxo_diario_lista)
-        saldo_periodo = total_entradas - total_saidas
-        
-        # Análise por centro de custo
-        if tipo_fluxo == 'realizado':
-            fluxo_centro_custo = MovimentacaoFinanceira.objects.filter(
-                data_movimentacao__gte=data_inicio,
-                data_movimentacao__lte=data_fim,
-                centro_custo__isnull=False
-            ).values(
-                'centro_custo__nome',
-                'tipo'
-            ).annotate(
-                total=Sum('valor')
-            ).order_by('centro_custo__nome', 'tipo')
-            
-            # Reorganizar por centro de custo
-            centros_custo_resumo = {}
-            for item in fluxo_centro_custo:
-                centro = item['centro_custo__nome']
-                if centro not in centros_custo_resumo:
-                    centros_custo_resumo[centro] = {'entradas': 0, 'saidas': 0, 'saldo': 0}
-                
-                if item['tipo'] == 'entrada':
-                    centros_custo_resumo[centro]['entradas'] = item['total']
-                else:
-                    centros_custo_resumo[centro]['saidas'] = item['total']
-                
-                centros_custo_resumo[centro]['saldo'] = (
-                    centros_custo_resumo[centro]['entradas'] - 
-                    centros_custo_resumo[centro]['saidas']
-                )
-        else:
-            centros_custo_resumo = {}
-        
-        # Análise semanal
-        fluxo_semanal = []
-        semana_atual = []
-        
-        for dia in fluxo_diario_lista:
-            semana_atual.append(dia)
-            
-            # Se for domingo ou último dia, fechar a semana
-            if dia['data'].weekday() == 6 or dia['data'] == data_fim:
-                entradas_semana = sum(d['entradas'] for d in semana_atual)
-                saidas_semana = sum(d['saidas'] for d in semana_atual)
-                
-                fluxo_semanal.append({
-                    'semana_inicio': semana_atual[0]['data'],
-                    'semana_fim': semana_atual[-1]['data'],
-                    'entradas': entradas_semana,
-                    'saidas': saidas_semana,
-                    'saldo': entradas_semana - saidas_semana
-                })
-                
-                semana_atual = []
-        
-        # Indicadores
-        dias_periodo = (data_fim - data_inicio).days + 1
-        media_entradas_dia = total_entradas / dias_periodo if dias_periodo > 0 else 0
-        media_saidas_dia = total_saidas / dias_periodo if dias_periodo > 0 else 0
-        
-        # Projeção para próximos 30 dias (se estiver vendo realizado)
-        projecao_30_dias = None
-        if tipo_fluxo == 'realizado':
-            # Calcular projeção baseada na média dos últimos 30 dias
-            data_projecao_inicio = data_fim + timedelta(days=1)
-            data_projecao_fim = data_projecao_inicio + timedelta(days=30)
-            
-            projecao_30_dias = {
-                'periodo': f"{data_projecao_inicio.strftime('%d/%m')} a {data_projecao_fim.strftime('%d/%m')}",
-                'entradas_previstas': media_entradas_dia * 30,
-                'saidas_previstas': media_saidas_dia * 30,
-                'saldo_previsto': (media_entradas_dia - media_saidas_dia) * 30
-            }
-        
-        # Centros de custo para filtro
-        centros_custo = CentroCusto.objects.filter(
-            ativo=True
-        ).order_by('nome')
-        
-        context.update({
-            'data_inicio': data_inicio,
-            'data_fim': data_fim,
-            'tipo_fluxo': tipo_fluxo,
-            'fluxo_diario': fluxo_diario_lista,
-            'fluxo_semanal': fluxo_semanal,
-            'total_entradas': total_entradas,
-            'total_saidas': total_saidas,
-            'saldo_periodo': saldo_periodo,
-            'centros_custo_resumo': centros_custo_resumo,
-            'media_entradas_dia': round(media_entradas_dia, 2),
-            'media_saidas_dia': round(media_saidas_dia, 2),
-            'projecao_30_dias': projecao_30_dias,
-            'centros_custo': centros_custo,
-            'centro_custo_selecionado': centro_custo_id,
-            'title': f'Fluxo de Caixa {tipo_fluxo.title()}'
-        })
-        
-        return context
-
-
-class RelatorioContasReceberView(BaseViewMixin, TemplateView):
-    def get_empresa(self):
-        return getattr(self.request.user, "empresa", None)
-    
-    template_name = 'relatorios/financeiro/contas_receber.html'
-    
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        empresa = self.get_empresa()
-        
-        # Filtros
-        situacao = self.request.GET.get('situacao', 'todas')  # todas, aberto, vencidas, pagas
-        cliente_id = self.request.GET.get('cliente_id')
-        data_inicio = self.request.GET.get('data_inicio')
-        data_fim = self.request.GET.get('data_fim')
-        
-        hoje = timezone.now().date()
-        
-        # Query base
-        contas = ContaReceber.objects.filter(empresa=empresa)
-        
-        if cliente_id:
-            contas = contas.filter(cliente_id=cliente_id)
-        
-        if data_inicio:
-            data_inicio = datetime.strptime(data_inicio, '%Y-%m-%d').date()
-            contas = contas.filter(data_vencimento__gte=data_inicio)
-        
-        if data_fim:
-            data_fim = datetime.strptime(data_fim, '%Y-%m-%d').date()
-            contas = contas.filter(data_vencimento__lte=data_fim)
-        
-        # Aplicar filtro de situação
-        if situacao == 'aberto':
-            contas = contas.filter(status='aberto')
-        elif situacao == 'vencidas':
-            contas = contas.filter(status='aberto', data_vencimento__lt=hoje)
-        elif situacao == 'pagas':
-            contas = contas.filter(status='pago')
-        
-        contas = contas.select_related('cliente').order_by('data_vencimento')
-        
-        # Análise das contas
-        analise_contas = []
-        
-        for conta in contas:
-            dias_vencimento = (conta.data_vencimento - hoje).days
-            
-            # Classificar situação
-            if conta.status == 'pago':
-                situacao_conta = 'Paga'
-                cor_situacao = 'success'
-                prioridade = 5
-            elif dias_vencimento < 0:
-                situacao_conta = f'Vencida há {abs(dias_vencimento)} dias'
-                cor_situacao = 'danger'
-                prioridade = 1
-            elif dias_vencimento == 0:
-                situacao_conta = 'Vence hoje'
-                cor_situacao = 'warning'
-                prioridade = 2
-            elif dias_vencimento <= 7:
-                situacao_conta = f'Vence em {dias_vencimento} dias'
-                cor_situacao = 'warning'
-                prioridade = 3
-            else:
-                situacao_conta = f'Vence em {dias_vencimento} dias'
-                cor_situacao = 'info'
-                prioridade = 4
-            
-            # Histórico de pagamentos do cliente
-            pagamentos_cliente = ContaReceber.objects.filter(
-                cliente=conta.cliente,
-                status='pago'
-            ).count()
-            
-            total_devedor_cliente = ContaReceber.objects.filter(
-                cliente=conta.cliente,
-                status='aberto'
-            ).aggregate(Sum('valor'))['valor__sum'] or 0
-            
-            analise_contas.append({
-                'conta': conta,
-                'dias_vencimento': dias_vencimento,
-                'situacao_conta': situacao_conta,
-                'cor_situacao': cor_situacao,
-                'prioridade': prioridade,
-                'pagamentos_cliente': pagamentos_cliente,
-                'total_devedor_cliente': total_devedor_cliente
-            })
-        
-        # Ordenar por prioridade
-        analise_contas.sort(key=lambda x: (x['prioridade'], x['dias_vencimento']))
-        
-        # Estatísticas
-        stats_contas = {
-            'total_contas': contas.count(),
-            'total': contas.aggregate(Sum('valor'))['valor__sum'] or 0,
-            'contas_abertas': contas.filter(status='aberto').count(),
-            'valor_aberto': contas.filter(status='aberto').aggregate(Sum('valor'))['valor__sum'] or 0,
-            'contas_vencidas': contas.filter(status='aberto', data_vencimento__lt=hoje).count(),
-            'valor_vencido': contas.filter(status='aberto', data_vencimento__lt=hoje).aggregate(Sum('valor'))['valor__sum'] or 0,
-            'contas_pagas': contas.filter(status='pago').count(),
-            'valor_pago': contas.filter(status='pago').aggregate(Sum('valor'))['valor__sum'] or 0
-        }
-        
-        # Aging (análise por faixa de vencimento)
-        aging_faixas = [
-            ('current', 'A vencer', 0, float('inf')),
-            ('1_30', '1-30 dias', 1, 30),
-            ('31_60', '31-60 dias', 31, 60),
-            ('61_90', '61-90 dias', 61, 90),
-            ('over_90', 'Mais de 90 dias', 91, float('inf'))
+        ctx = super().get_context_data(**kwargs)
+        hoje = timezone.localdate()
+        contas_receber = ContaReceber.objects.all()
+        contas_pagar = ContaPagar.objects.all()
+        movimentos = MovimentacaoFinanceira.objects.all()
+        campos = []
+        if _path_exists(ContaReceber, "valor_saldo"):
+            recebivel = contas_receber.aggregate(v=Sum("valor_saldo"))["v"] or 0
+        elif _path_exists(ContaReceber, "valor_original"):
+            recebivel = contas_receber.aggregate(v=Sum("valor_original"))["v"] or 0
+        else: recebivel = 0
+        if _path_exists(ContaPagar, "valor_saldo"):
+            pagavel = contas_pagar.aggregate(v=Sum("valor_saldo"))["v"] or 0
+        elif _path_exists(ContaPagar, "valor_original"):
+            pagavel = contas_pagar.aggregate(v=Sum("valor_original"))["v"] or 0
+        else: pagavel = 0
+        ctx["kpis"] = [
+            {"rotulo": "Contas a receber", "valor": _display(recebivel)},
+            {"rotulo": "Contas a pagar", "valor": _display(pagavel)},
+            {"rotulo": "Movimentos financeiros", "valor": movimentos.count()},
+            {"rotulo": "Data de referência", "valor": _display(hoje)},
         ]
-        
-        aging_analysis = []
-        
-        for codigo, descricao, min_dias, max_dias in aging_faixas:
-            if codigo == 'current':
-                # Contas a vencer
-                contas_faixa = contas.filter(status='aberto', data_vencimento__gte=hoje)
-            else:
-                # Contas vencidas
-                if max_dias == float('inf'):
-                    contas_faixa = contas.filter(
-                        status='aberto',
-                        data_vencimento__lt=hoje - timedelta(days=min_dias-1)
-                    )
-                else:
-                    contas_faixa = contas.filter(
-                        status='aberto',
-                        data_vencimento__gte=hoje - timedelta(days=max_dias),
-                        data_vencimento__lt=hoje - timedelta(days=min_dias-1)
-                    )
-            
-            valor_faixa = contas_faixa.aggregate(Sum('valor'))['valor__sum'] or 0
-            
-            aging_analysis.append({
-                'codigo': codigo,
-                'descricao': descricao,
-                'quantidade': contas_faixa.count(),
-                'valor': valor_faixa,
-                'percentual': (valor_faixa / stats_contas['valor_aberto'] * 100) if stats_contas['valor_aberto'] > 0 else 0
-            })
-        
-        # Top clientes devedores
-        clientes_devedores = contas.filter(status='aberto').values(
-            'cliente__nome',
-            'cliente__id'
-        ).annotate(
-            total_devido=Sum('valor'),
-            quantidade_contas=Count('id'),
-            maior_atraso=Min('data_vencimento')
-        ).order_by('-total_devido')[:15]
-        
-        # Calcular dias de atraso para cada cliente
-        for cliente in clientes_devedores:
-            if cliente['maior_atraso']:
-                cliente['dias_atraso'] = max(0, (hoje - cliente['maior_atraso']).days)
-            else:
-                cliente['dias_atraso'] = 0
-        
-        # Evolução dos recebimentos (últimos 12 meses)
-        evolucao_recebimentos = []
-        
-        for i in range(12):
-            data_mes = hoje.replace(day=1) - timedelta(days=30 * i)
-            primeiro_dia = data_mes.replace(day=1)
-            
-            if data_mes.month == 12:
-                ultimo_dia = data_mes.replace(year=data_mes.year + 1, month=1, day=1) - timedelta(days=1)
-            else:
-                ultimo_dia = data_mes.replace(month=data_mes.month + 1, day=1) - timedelta(days=1)
-            
-            recebimentos_mes = ContaReceber.objects.filter(
-                status='pago',
-                data_pagamento__gte=primeiro_dia,
-                data_pagamento__lte=ultimo_dia
-            ).aggregate(Sum('valor'))['valor__sum'] or 0
-            
-            evolucao_recebimentos.append({
-                'mes': primeiro_dia,
-                'valor': recebimentos_mes,
-                'mes_nome': primeiro_dia.strftime('%m/%Y')
-            })
-        
-        evolucao_recebimentos.reverse()
-        
-        # Previsão de recebimentos (próximos 30 dias)
-        previsao_recebimentos = []
-        
-        for i in range(30):
-            data_dia = hoje + timedelta(days=i)
-            
-            recebimentos_previstos = ContaReceber.objects.filter(
-                status='aberto',
-                data_vencimento=data_dia
-            ).aggregate(Sum('valor'))['valor__sum'] or 0
-            
-            if recebimentos_previstos > 0:
-                previsao_recebimentos.append({
-                    'data': data_dia,
-                    'valor': recebimentos_previstos
-                })
-        
-        # Clientes para filtro
-        clientes_com_contas = Cliente.objects.filter(
-            id__in=contas.values('cliente_id').distinct()
-        ).order_by('nome')
-        
-        # Paginação
-        paginator = Paginator(analise_contas, 50)
-        page_number = self.request.GET.get('page')
-        page_obj = paginator.get_page(page_number)
-        
-        context.update({
-            'page_obj': page_obj,
-            'stats_contas': stats_contas,
-            'aging_analysis': aging_analysis,
-            'clientes_devedores': clientes_devedores,
-            'evolucao_recebimentos': evolucao_recebimentos,
-            'previsao_recebimentos': previsao_recebimentos,
-            'clientes_com_contas': clientes_com_contas,
-            'filtros': {
-                'situacao': situacao,
-                'cliente_id': cliente_id,
-                'data_inicio': data_inicio,
-                'data_fim': data_fim
-            },
-            'title': 'Relatório de Contas a Receber'
-        })
-        
-        return context
+        return ctx
 
 
-class RelatorioContasPagarView(BaseViewMixin, TemplateView):
-    def get_empresa(self):
-        return getattr(self.request.user, "empresa", None)
-    
-    template_name = 'relatorios/financeiro/contas_pagar.html'
-    
+class RelatorioFluxoCaixaView(ModeloRelatorioView):
+    model = MovimentacaoFinanceira; titulo = "Fluxo de Caixa"; table_title = "Movimentações financeiras"
+    fields = ("data_movimentacao", "tipo", "valor", "descricao", "centro_custo__nome", "confirmada")
+    date_fields = ("data_movimentacao",); amount_fields = ("valor",); template_name = "relatorios/financeiro/fluxo_caixa.html"
+
+
+class RelatorioContasReceberView(ModeloRelatorioView):
+    model = ContaReceber; titulo = "Contas a Receber"; table_title = "Contas a receber"
+    fields = ("cliente__nome_completo", "cliente__nome_social", "valor_original", "valor_saldo", "valor", "data_vencimento", "data_pagamento", "status")
+    date_fields = ("data_vencimento", "created_at"); amount_fields = ("valor_saldo", "valor_original", "valor")
+    template_name = "relatorios/financeiro/contas_receber.html"
+
+
+class RelatorioContasPagarView(ModeloRelatorioView):
+    model = ContaPagar; titulo = "Contas a Pagar"; table_title = "Contas a pagar"
+    fields = ("fornecedor__nome", "valor_original", "valor_saldo", "valor", "data_vencimento", "data_pagamento", "status")
+    date_fields = ("data_vencimento", "created_at"); amount_fields = ("valor_saldo", "valor_original", "valor")
+    template_name = "relatorios/financeiro/contas_pagar.html"
+
+
+class BaseRelatorioView(RelatorioBaseView):
+    pass
+
+
+class RelatorioDREView(RelatorioBaseView):
+    titulo = "Demonstração de Resultados (DRE)"; template_name = "relatorios/financeiro/dre.html"
+    show_date_filters = True
     def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        empresa = self.get_empresa()
-        
-        # Filtros
-        situacao = self.request.GET.get('situacao', 'todas')
-        fornecedor_id = self.request.GET.get('fornecedor_id')
-        centro_custo_id = self.request.GET.get('centro_custo_id')
-        data_inicio = self.request.GET.get('data_inicio')
-        data_fim = self.request.GET.get('data_fim')
-        
-        hoje = timezone.now().date()
-        
-        # Query base
-        contas = ContaPagar.objects.filter(empresa=empresa)
-        
-        if fornecedor_id:
-            contas = contas.filter(fornecedor_id=fornecedor_id)
-        
-        if centro_custo_id:
-            contas = contas.filter(centro_custo_id=centro_custo_id)
-        
-        if data_inicio:
-            data_inicio = datetime.strptime(data_inicio, '%Y-%m-%d').date()
-            contas = contas.filter(data_vencimento__gte=data_inicio)
-        
-        if data_fim:
-            data_fim = datetime.strptime(data_fim, '%Y-%m-%d').date()
-            contas = contas.filter(data_vencimento__lte=data_fim)
-        
-        # Aplicar filtro de situação
-        if situacao == 'aberto':
-            contas = contas.filter(status='aberto')
-        elif situacao == 'vencidas':
-            contas = contas.filter(status='aberto', data_vencimento__lt=hoje)
-        elif situacao == 'pagas':
-            contas = contas.filter(status='pago')
-        
-        contas = contas.select_related('fornecedor', 'centro_custo').order_by('data_vencimento')
-        
-        # Análise das contas
-        analise_contas = []
-        
-        for conta in contas:
-            dias_vencimento = (conta.data_vencimento - hoje).days
-            
-            # Classificar situação e urgência
-            if conta.status == 'pago':
-                situacao_conta = 'Paga'
-                cor_situacao = 'success'
-                urgencia = 5
-            elif dias_vencimento < 0:
-                situacao_conta = f'Vencida há {abs(dias_vencimento)} dias'
-                cor_situacao = 'danger'
-                urgencia = 1
-            elif dias_vencimento == 0:
-                situacao_conta = 'Vence hoje'
-                cor_situacao = 'danger'
-                urgencia = 1
-            elif dias_vencimento <= 3:
-                situacao_conta = f'Vence em {dias_vencimento} dias'
-                cor_situacao = 'warning'
-                urgencia = 2
-            elif dias_vencimento <= 7:
-                situacao_conta = f'Vence em {dias_vencimento} dias'
-                cor_situacao = 'warning'
-                urgencia = 3
-            else:
-                situacao_conta = f'Vence em {dias_vencimento} dias'
-                cor_situacao = 'info'
-                urgencia = 4
-            
-            # Calcular multa e juros se vencida
-            multa_juros = 0
-            if dias_vencimento < 0 and conta.status == 'aberto':
-                # Assumir 2% de multa + 1% ao mês de juros
-                dias_atraso = abs(dias_vencimento)
-                multa = conta.valor * Decimal('0.02')  # 2% multa
-                juros = conta.valor * Decimal('0.01') * (dias_atraso / 30)  # 1% ao mês
-                multa_juros = multa + juros
-            
-            total_com_encargos = conta.valor + multa_juros
-            
-            analise_contas.append({
-                'conta': conta,
-                'dias_vencimento': dias_vencimento,
-                'situacao_conta': situacao_conta,
-                'cor_situacao': cor_situacao,
-                'urgencia': urgencia,
-                'multa_juros': multa_juros,
-                'total_com_encargos': total_com_encargos
-            })
-        
-        # Ordenar por urgência
-        analise_contas.sort(key=lambda x: (x['urgencia'], x['dias_vencimento']))
-        
-        # Estatísticas
-        stats_contas = {
-            'total_contas': contas.count(),
-            'total': contas.aggregate(Sum('valor'))['valor__sum'] or 0,
-            'contas_abertas': contas.filter(status='aberto').count(),
-            'valor_aberto': contas.filter(status='aberto').aggregate(Sum('valor'))['valor__sum'] or 0,
-            'contas_vencidas': contas.filter(status='aberto', data_vencimento__lt=hoje).count(),
-            'valor_vencido': contas.filter(status='aberto', data_vencimento__lt=hoje).aggregate(Sum('valor'))['valor__sum'] or 0,
-            'contas_pagas': contas.filter(status='pago').count(),
-            'valor_pago': contas.filter(status='pago').aggregate(Sum('valor'))['valor__sum'] or 0,
-            'total_multas_juros': sum(c['multa_juros'] for c in analise_contas)
-        }
-        
-        # Contas por centro de custo
-        contas_por_centro = contas.filter(
-            centro_custo__isnull=False
-        ).values(
-            'centro_custo__nome'
-        ).annotate(
-            total_valor=Sum('valor'),
-            quantidade=Count('id')
-        ).order_by('-total_valor')
-        
-        # Top fornecedores (maior valor em aberto)
-        fornecedores_maior_valor = contas.filter(
-            status='aberto'
-        ).values(
-            'fornecedor__nome',
-            'fornecedor__id'
-        ).annotate(
-            total_devido=Sum('valor'),
-            quantidade_contas=Count('id'),
-            maior_atraso=Min('data_vencimento')
-        ).order_by('-total_devido')[:15]
-        
-        # Calcular dias de atraso
-        for fornecedor in fornecedores_maior_valor:
-            if fornecedor['maior_atraso']:
-                fornecedor['dias_atraso'] = max(0, (hoje - fornecedor['maior_atraso']).days)
-            else:
-                fornecedor['dias_atraso'] = 0
-        
-        # Fluxo de pagamentos (próximos 30 dias)
-        fluxo_pagamentos = []
-        
-        for i in range(30):
-            data_dia = hoje + timedelta(days=i)
-            
-            pagamentos_dia = ContaPagar.objects.filter(
-                status='aberto',
-                data_vencimento=data_dia
-            ).aggregate(Sum('valor'))['valor__sum'] or 0
-            
-            if pagamentos_dia > 0:
-                fluxo_pagamentos.append({
-                    'data': data_dia,
-                    'valor': pagamentos_dia,
-                    'dia_semana': data_dia.strftime('%A')[:3]
-                })
-        
-        # Contas vencendo por categoria de urgência
-        urgencia_categorias = {
-            'hoje': contas.filter(status='aberto', data_vencimento=hoje),
-            'amanha': contas.filter(status='aberto', data_vencimento=hoje + timedelta(days=1)),
-            '3_dias': contas.filter(
-                status='aberto',
-                data_vencimento__gt=hoje + timedelta(days=1),
-                data_vencimento__lte=hoje + timedelta(days=3)
-            ),
-            '7_dias': contas.filter(
-                status='aberto',
-                data_vencimento__gt=hoje + timedelta(days=3),
-                data_vencimento__lte=hoje + timedelta(days=7)
-            )
-        }
-        
-        resumo_urgencia = {}
-        for categoria, queryset in urgencia_categorias.items():
-            resumo_urgencia[categoria] = {
-                'quantidade': queryset.count(),
-                'valor': queryset.aggregate(Sum('valor'))['valor__sum'] or 0
-            }
-        
-        # Histórico de pagamentos (últimos 12 meses)
-        historico_pagamentos = []
-        
-        for i in range(12):
-            data_mes = hoje.replace(day=1) - timedelta(days=30 * i)
-            primeiro_dia = data_mes.replace(day=1)
-            
-            if data_mes.month == 12:
-                ultimo_dia = data_mes.replace(year=data_mes.year + 1, month=1, day=1) - timedelta(days=1)
-            else:
-                ultimo_dia = data_mes.replace(month=data_mes.month + 1, day=1) - timedelta(days=1)
-            
-            pagamentos_mes = ContaPagar.objects.filter(
-                status='pago',
-                data_pagamento__gte=primeiro_dia,
-                data_pagamento__lte=ultimo_dia
-            ).aggregate(Sum('valor'))['valor__sum'] or 0
-            
-            historico_pagamentos.append({
-                'mes': primeiro_dia,
-                'valor': pagamentos_mes,
-                'mes_nome': primeiro_dia.strftime('%m/%Y')
-            })
-        
-        historico_pagamentos.reverse()
-        
-        # Análise de atraso médio por fornecedor
-        analise_atraso_fornecedor = []
-        
-        for fornecedor_data in fornecedores_maior_valor[:10]:
-            contas_fornecedor = ContaPagar.objects.filter(
-                fornecedor_id=fornecedor_data['fornecedor__id'],
-                status='pago',
-                data_pagamento__isnull=False
-            )
-            
-            atrasos = []
-            for conta in contas_fornecedor:
-                if conta.data_pagamento > conta.data_vencimento:
-                    atraso_dias = (conta.data_pagamento - conta.data_vencimento).days
-                    atrasos.append(atraso_dias)
-            
-            if atrasos:
-                atraso_medio = sum(atrasos) / len(atrasos)
-                percentual_atraso = (len(atrasos) / contas_fornecedor.count()) * 100
-            else:
-                atraso_medio = 0
-                percentual_atraso = 0
-            
-            analise_atraso_fornecedor.append({
-                'fornecedor': fornecedor_data['fornecedor__nome'],
-                'atraso_medio': round(atraso_medio, 1),
-                'percentual_atraso': round(percentual_atraso, 1),
-                'total_contas': contas_fornecedor.count()
-            })
-        
-        # Filtros disponíveis
-        fornecedores_com_contas = Fornecedor.objects.filter(
-            id__in=contas.values('fornecedor_id').distinct()
-        ).order_by('nome')
-        
-        centros_custo = CentroCusto.objects.filter(
-            ativo=True
-        ).order_by('nome')
-        
-        # Paginação
-        paginator = Paginator(analise_contas, 50)
-        page_number = self.request.GET.get('page')
-        page_obj = paginator.get_page(page_number)
-        
-        context.update({
-            'page_obj': page_obj,
-            'stats_contas': stats_contas,
-            'contas_por_centro': contas_por_centro,
-            'fornecedores_maior_valor': fornecedores_maior_valor,
-            'fluxo_pagamentos': fluxo_pagamentos,
-            'resumo_urgencia': resumo_urgencia,
-            'historico_pagamentos': historico_pagamentos,
-            'analise_atraso_fornecedor': analise_atraso_fornecedor,
-            'fornecedores_com_contas': fornecedores_com_contas,
-            'centros_custo': centros_custo,
-            'filtros': {
-                'situacao': situacao,
-                'fornecedor_id': fornecedor_id,
-                'centro_custo_id': centro_custo_id,
-                'data_inicio': data_inicio,
-                'data_fim': data_fim
-            },
-            'title': 'Relatório de Contas a Pagar'
-        })
-        
-        return context
+        ctx = super().get_context_data(**kwargs)
+        ctx["aviso"] = "A DRE contabilística requer um plano de contas e lançamentos contabilísticos completos. Este relatório não inventa receitas, custos ou lucro a partir de movimentos incompletos."
+        ctx["kpis"] = []
+        return ctx
 
 
+class RelatorioInadimplenciaView(RelatorioContasReceberView):
+    titulo = "Relatório de Inadimplência"; template_name = "relatorios/financeiro/inadimplencia.html"
+    def get_queryset(self):
+        qs = super().get_queryset()
+        if _path_exists(ContaReceber, "status"):
+            qs = qs.filter(status="aberto")
+        if _path_exists(ContaReceber, "data_vencimento"):
+            qs = qs.filter(data_vencimento__lt=timezone.localdate())
+        return qs
 
 
-class BaseRelatorioView(LoginRequiredMixin, TemplateView):
-    """
-    View base para todos os relatórios do sistema.
-    Gere a autenticação e a lógica de filtragem por período (data de início e fim).
-    Esta abordagem centraliza o código comum, seguindo o princípio DRY (Don't Repeat Yourself).
-    """
-    login_url = '/contas/login/' # Redireciona para a página de login se o utilizador não estiver autenticado.
-    redirect_field_name = 'next'
+class RelatoriosClientesView(ModeloRelatorioView):
+    model = Cliente; titulo = "Relatórios de Clientes"; table_title = "Clientes"
+    fields = ("codigo_cliente", "nome_completo", "nome_social", "razao_social", "nif", "bi", "telefone", "email", "ativo")
+    template_name = "relatorios/clientes/dashboard_clientes.html"
 
+
+class RelatorioCadastrosClientesView(RelatoriosClientesView):
+    titulo = "Novos Cadastros de Clientes"; template_name = "relatorios/clientes/cadastros.html"
+    date_fields = ("created_at", "data_cadastro")
+
+
+class RelatorioAniversariantesView(RelatoriosClientesView):
+    titulo = "Aniversariantes"; template_name = "relatorios/clientes/aniversariantes.html"
+    def get_queryset(self):
+        qs = Cliente.objects.all()
+        month = self.request.GET.get("mes")
+        try: month = int(month) if month else timezone.localdate().month
+        except (ValueError, TypeError): month = timezone.localdate().month
+        if _path_exists(Cliente, "data_nascimento"):
+            qs = qs.filter(data_nascimento__month=month)
+        return _safe_order(qs, Cliente, ("data_nascimento", "nome_completo", "pk"))
+
+
+class RelatorioComprasClientesView(RelatorioVendasClienteView):
+    titulo = "Compras por Cliente"; template_name = "relatorios/clientes/compras.html"
+
+
+class RelatorioFidelidadeView(RelatoriosClientesView):
+    titulo = "Fidelidade de Clientes"; template_name = "relatorios/clientes/fidelidade.html"
     def get_context_data(self, **kwargs):
-        """
-        Adiciona as datas de filtro ao contexto para serem usadas no template e nas queries.
-        """
-        context = super().get_context_data(**kwargs)
-        
-        # Obtém as datas do GET request ou define um padrão (ex: último mês)
-        hoje = date.today()
-        primeiro_dia_mes = hoje.replace(day=1)
-        
-        context['data_inicio'] = self.request.GET.get('data_inicio', primeiro_dia_mes.strftime('%Y-%m-%d'))
-        context['data_fim'] = self.request.GET.get('data_fim', hoje.strftime('%Y-%m-%d'))
-        return context
+        ctx = super().get_context_data(**kwargs)
+        ctx["aviso"] = "A análise de fidelidade será exacta quando as vendas estiverem ligadas pelo related_name configurado no model Venda. Consulte a lista de clientes e os seus registos de vendas no período."
+        return ctx
 
-    def get_datas_filtro(self):
-        """
-        Retorna as datas de início e fim convertidas para objetos datetime.
-        """
-        data_inicio_str = self.request.GET.get('data_inicio')
-        data_fim_str = self.request.GET.get('data_fim')
-        
-        try:
-            data_inicio = datetime.strptime(data_inicio_str, '%Y-%m-%d').date() if data_inicio_str else None
-            data_fim = datetime.strptime(data_fim_str, '%Y-%m-%d').date() if data_fim_str else None
-        except ValueError:
-            data_inicio, data_fim = None, None
-            
-        return data_inicio, data_fim
 
-# =====================================
-# RELATÓRIOS FINANCEIROS
-# =====================================
+class RelatorioSegmentacaoView(RelatoriosClientesView):
+    titulo = "Segmentação de Clientes"; template_name = "relatorios/clientes/segmentacao.html"
 
-class RelatorioDREView(BaseRelatorioView):
-    """
-    Demonstração de Resultados do Exercício (DRE).
-    Calcula receitas, custos, despesas e o lucro líquido num determinado período.
-    Essencial para a tomada de decisão estratégica.
-    """
-    def get_empresa(self):
-        return getattr(self.request.user, "empresa", None)
-    
-    template_name = 'relatorios/financeiro/dre.html'
 
+class RelatoriosFuncionariosView(ModeloRelatorioView):
+    model = Funcionario; titulo = "Relatórios de Funcionários"; table_title = "Funcionários"
+    fields = ("id", "nome_completo", "usuario__username", "cargo__nome", "departamento__nome", "ativo")
+    template_name = "relatorios/funcionarios/dashboard_funcionarios.html"
+
+
+class RelatorioPontoView(ModeloRelatorioView):
+    model = RegistroPonto; titulo = "Relatório de Ponto"; table_title = "Registos de ponto"
+    fields = ("funcionario__id", "data", "entrada", "saida", "horas_trabalhadas", "estado")
+    date_fields = ("data", "data_registo", "created_at"); template_name = "relatorios/funcionarios/ponto.html"
+
+
+class RelatorioFolhaView(ModeloRelatorioView):
+    model = FolhaPagamento; titulo = "Folha de Pagamento"; table_title = "Folhas de pagamento"
+    fields = ("funcionario__id", "mes_referencia", "salario_base", "salario_liquido", "status")
+    date_fields = ("mes_referencia", "created_at"); amount_fields = ("salario_liquido", "valor_liquido", "total")
+    template_name = "relatorios/funcionarios/folha.html"
+
+
+class RelatorioFeriasView(ModeloRelatorioView):
+    model = Ferias; titulo = "Controlo de Férias"; table_title = "Férias"
+    fields = ("funcionario__id", "data_inicio", "data_fim", "status"); date_fields = ("data_inicio",)
+    template_name = "relatorios/funcionarios/ferias.html"
+
+
+class RelatorioTreinamentosView(ModeloRelatorioView):
+    model = Capacitacao; titulo = "Treinamentos"; table_title = "Capacitações"
+    fields = ("nome", "titulo", "data_realizacao", "data_inicio", "data_fim", "carga_horaria")
+    date_fields = ("data_realizacao", "data_inicio"); template_name = "relatorios/funcionarios/treinamentos.html"
+
+
+class RelatorioPerformanceView(ModeloRelatorioView):
+    model = AvaliacaoDesempenho; titulo = "Performance dos Funcionários"; table_title = "Avaliações"
+    fields = ("funcionario__id", "data_avaliacao", "nota", "pontuacao", "avaliador__id")
+    date_fields = ("data_avaliacao",); template_name = "relatorios/funcionarios/performance.html"
+
+
+class RelatoriosFornecedoresView(ModeloRelatorioView):
+    model = Fornecedor; titulo = "Relatórios de Fornecedores"; table_title = "Fornecedores"
+    fields = ("codigo", "nome", "razao_social", "nif", "telefone", "email", "ativo")
+    template_name = "relatorios/fornecedores/dashboard_fornecedores.html"
+
+
+class RelatorioComprasView(ModeloRelatorioView):
+    model = Compra; titulo = "Compras por Fornecedor"; table_title = "Compras"
+    fields = ("id", "fornecedor__nome", "data", "total"); date_fields = ("data", "data_compra", "created_at")
+    amount_fields = ("total",); template_name = "relatorios/fornecedores/compras.html"
+
+
+class RelatorioPerformanceFornecedorView(ModeloRelatorioView):
+    model = Fornecedor; titulo = "Performance de Fornecedores"; table_title = "Fornecedores"
+    fields = ("codigo", "nome", "razao_social", "nif", "telefone", "email"); template_name = "relatorios/fornecedores/performance.html"
     def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        data_inicio, data_fim = self.get_datas_filtro()
-        
-        # Lógica para DRE (exemplo com um modelo 'LancamentoContabil')
-        # Esta é uma simplificação. Um DRE real depende de um plano de contas estruturado.
-       
-       
-       
-        
-        context['dre_data'] = {
-            'receita_bruta': receita_bruta,
-            'custos': custos,
-            
-          
-            'lucro_liquido': lucro_liquido
-        }
-        context['titulo'] = 'Relatório DRE'
-        return context
+        ctx = super().get_context_data(**kwargs)
+        ctx["aviso"] = "Os models Compra/ItemCompra recebidos ainda não definem datas de entrega nem quantidades recebidas/defeituosas; esses indicadores não podem ser calculados sem adicionar esses campos ao domínio."
+        return ctx
 
 
-class RelatorioInadimplenciaView(BaseRelatorioView):
-    """
-    Relatório de Inadimplência.
-    Lista clientes com faturas vencidas e não pagas.
-    """
-    def get_empresa(self):
-        return getattr(self.request.user, "empresa", None)
-    
-    template_name = 'relatorios/financeiro/inadimplencia.html'
+class RelatorioPrazosEntregaView(RelatorioPerformanceFornecedorView):
+    titulo = "Prazos de Entrega"; template_name = "relatorios/fornecedores/prazos.html"
 
+
+class RelatorioQualidadeFornecedorView(RelatorioPerformanceFornecedorView):
+    titulo = "Qualidade de Fornecedores"; template_name = "relatorios/fornecedores/qualidade.html"
+
+
+class AnalisesDashboardView(RelatorioBaseView):
+    template_name = "relatorios/analises/dashboard_analises.html"; titulo = "Dashboard de Análises"
+
+
+class AnaliseVendasView(RelatoriosVendasView):
+    template_name = "relatorios/analises/vendas.html"; titulo = "Análise de Vendas"
+
+
+class AnaliseLucratividadeView(RelatorioVendasProdutoView):
+    template_name = "relatorios/analises/lucratividade.html"; titulo = "Análise de Lucratividade"
     def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        hoje = date.today()
-        
-        contas_vencidas = ContaReceber.objects.filter(
-            data_vencimento__lt=hoje, data_pagamento__isnull=True
-        ).select_related('cliente').order_by('data_vencimento')
+        ctx = super().get_context_data(**kwargs)
+        ctx["aviso"] = "A margem exacta deve usar o custo histórico de cada linha de venda. O model ItemVenda recebido não expõe um campo custo_unitario validado em todos os casos."
+        return ctx
 
-        total_inadimplencia = contas_vencidas.aggregate(total=Sum('valor'))['total'] or 0
 
-        context['contas_vencidas'] = contas_vencidas
-        context['total_inadimplencia'] = total_inadimplencia
-        context['total_clientes_inadimplentes'] = contas_vencidas.values('cliente').distinct().count()
-        context['titulo'] = 'Relatório de Inadimplência'
-        return context
-
-# =====================================
-# RELATÓRIOS DE CLIENTES
-# =====================================
-
-class RelatoriosClientesView(BaseRelatorioView):
-    """
-    Página central (dashboard) para os relatórios de clientes.
-    """
-    def get_empresa(self):
-        return getattr(self.request.user, "empresa", None)
-    
-    template_name = 'relatorios/clientes/dashboard_clientes.html'
-
+class KPIsDashboardView(RelatorioBaseView):
+    template_name = "relatorios/kpis/dashboard_kpis.html"; titulo = "Dashboard de KPIs"
     def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        context['titulo'] = 'Relatórios de Clientes'
-        return context
-
-class RelatorioCadastrosClientesView(BaseRelatorioView):
-    """
-    Relatório de novos cadastros de clientes por período.
-    """
-    def get_empresa(self):
-        return getattr(self.request.user, "empresa", None)
-    
-    template_name = 'relatorios/clientes/cadastros.html'
-
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        data_inicio, data_fim = self.get_datas_filtro()
-        
-        clientes = Cliente.objects.filter(data_cadastro__range=(data_inicio, data_fim)).order_by('-data_cadastro')
-        
-        context['clientes'] = clientes
-        context['total_cadastros'] = clientes.count()
-        context['titulo'] = 'Novos Cadastros de Clientes'
-        return context
-
-class RelatorioAniversariantesView(BaseRelatorioView):
-    """
-    Relatório de clientes aniversariantes do mês ou de um período específico.
-    Útil para ações de marketing e relacionamento.
-    """
-    def get_empresa(self):
-        return getattr(self.request.user, "empresa", None)
-    
-    template_name = 'relatorios/clientes/aniversariantes.html'
-
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        mes_atual = self.request.GET.get('mes', date.today().month)
-        
-        aniversariantes = Cliente.objects.filter(data_nascimento__month=mes_atual).order_by('data_nascimento__day')
-        
-        context['aniversariantes'] = aniversariantes
-        context['mes_selecionado'] = mes_atual
-        context['titulo'] = f'Aniversariantes do Mês {mes_atual}'
-        return context
-
-class RelatorioComprasClientesView(BaseRelatorioView):
-    """
-    Relatório de compras por cliente, mostrando o valor total gasto e a quantidade de compras.
-    """
-    def get_empresa(self):
-        return getattr(self.request.user, "empresa", None)
-    
-    template_name = 'relatorios/clientes/compras.html'
-
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        data_inicio, data_fim = self.get_datas_filtro()
-        
-        compras_por_cliente = Venda.objects.filter(
-            data__range=(data_inicio, data_fim)
-        ).values(
-            'cliente__nome'
-        ).annotate(
-            total_gasto=Sum('total'),
-            quantidade_compras=Count('id')
-        ).order_by('-total_gasto')
-        
-        context['compras_por_cliente'] = compras_por_cliente
-        context['titulo'] = 'Relatório de Compras por Cliente'
-        return context
-
-class RelatorioFidelidadeView(BaseRelatorioView):
-    """
-    Relatório de Fidelidade (RFV - Recência, Frequência, Valor).
-    Identifica os clientes mais leais com base na frequência de compras.
-    """
-    def get_empresa(self):
-        return getattr(self.request.user, "empresa", None)
-    
-    template_name = 'relatorios/clientes/fidelidade.html'
-
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        data_inicio, data_fim = self.get_datas_filtro()
-        
-        clientes_fieis = Cliente.objects.filter(
-            venda__data__range=(data_inicio, data_fim)
-        ).annotate(
-            num_compras=Count('venda')
-        ).filter(
-            num_compras__gt=1  # Considera fiéis clientes com mais de 1 compra no período
-        ).order_by('-num_compras')
-        
-        context['clientes_fieis'] = clientes_fieis
-        context['titulo'] = 'Relatório de Fidelidade de Clientes'
-        return context
-
-class RelatorioSegmentacaoView(BaseRelatorioView):
-    """
-    Relatório de Segmentação de Clientes.
-    Agrupa clientes em categorias (ex: Alto Valor, Recentes, Inativos).
-    """
-    def get_empresa(self):
-        return getattr(self.request.user, "empresa", None)
-    
-    template_name = 'relatorios/clientes/segmentacao.html'
-
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        data_inicio, data_fim = self.get_datas_filtro()
-        
-        # Exemplo de segmentação
-        clientes = Cliente.objects.annotate(
-            total_gasto=Sum('venda__total', filter=Q(venda__data__range=(data_inicio, data_fim))),
-            ultima_compra=Max('venda__data', filter=Q(venda__data__range=(data_inicio, data_fim)))
-        ).annotate(
-            segmento=Case(
-                When(total_gasto__gte=1000, then=Value('Alto Valor')),
-                When(ultima_compra__gte=date.today() - timedelta(days=30), then=Value('Recente')),
-                When(ultima_compra__lt=date.today() - timedelta(days=90), then=Value('Inativo')),
-                default=Value('Regular'),
-                output_field=CharField()
-            )
-        ).order_by('-total_gasto')
-        
-        context['clientes_segmentados'] = clientes
-        context['titulo'] = 'Segmentação de Clientes'
-        return context
-
-# =====================================
-# RELATÓRIOS DE FUNCIONÁRIOS
-# =====================================
-
-class RelatoriosFuncionariosView(BaseRelatorioView):
-    """
-    Página central (dashboard) para os relatórios de funcionários.
-    """
-    def get_empresa(self):
-        return getattr(self.request.user, "empresa", None)
-    
-    template_name = 'relatorios/funcionarios/dashboard_funcionarios.html'
-
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        context['titulo'] = 'Relatórios de Funcionários'
-        return context
-
-class RelatorioPontoView(BaseRelatorioView):
-    """
-    Relatório de Ponto Eletrónico.
-    Exibe os registos de entrada e saída dos funcionários.
-    """
-    def get_empresa(self):
-        return getattr(self.request.user, "empresa", None)
-    
-    template_name = 'relatorios/funcionarios/ponto.html'
-
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        data_inicio, data_fim = self.get_datas_filtro()
-        
-        registos = RegistroPonto.objects.filter(
-            data__range=(data_inicio, data_fim)
-        ).select_related('funcionario').order_by('funcionario', 'data')
-        
-        context['registos_ponto'] = registos
-        context['titulo'] = 'Relatório de Ponto'
-        return context
-
-class RelatorioFolhaView(BaseRelatorioView):
-    def get_empresa(self):
-        return getattr(self.request.user, "empresa", None)
-    
-    template_name = 'relatorios/funcionarios/folha.html'
-
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        mes_referencia = self.request.GET.get('mes_referencia') # Formato: YYYY-MM
-        
-        if mes_referencia:
-            ano, mes = map(int, mes_referencia.split('-'))
-            holerites = FolhaPagamento.objects.filter(
-                mes_referencia__year=ano, mes_referencia__month=mes
-            ).select_related('funcionario')
-        else:
-            holerites = FolhaPagamento.objects.none()
-
-        context['holerites'] = holerites
-        context['titulo'] = 'Relatório da Folha de Pagamento'
-        return context
-
-class RelatorioFeriasView(BaseRelatorioView):
-    def get_empresa(self):
-        return getattr(self.request.user, "empresa", None)
-    
-    template_name = 'relatorios/funcionarios/ferias.html'
-
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        ferias = Ferias.objects.all().select_related('funcionario').order_by('data_inicio')
-        
-        context['ferias'] = ferias
-        context['titulo'] = 'Controlo de Férias'
-        return context
-
-class RelatorioTreinamentosView(BaseRelatorioView):
-    """
-    Relatório de Treinamentos e Desenvolvimento.
-    Lista os treinamentos realizados e os funcionários participantes.
-    """
-    def get_empresa(self):
-        return getattr(self.request.user, "empresa", None)
-    
-    template_name = 'relatorios/funcionarios/treinamentos.html'
-
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        data_inicio, data_fim = self.get_datas_filtro()
-        
-        treinamentos = Capacitacao.objects.filter(
-            data_realizacao__range=(data_inicio, data_fim)
-        ).prefetch_related('participantes') # prefetch_related para otimizar a query
-        
-        context['treinamentos'] = treinamentos
-        context['titulo'] = 'Relatório de Treinamentos'
-        return context
-
-class RelatorioPerformanceView(BaseRelatorioView):
-    """
-    Relatório de Avaliação de Performance.
-    Apresenta os resultados das avaliações de desempenho dos funcionários.
-    """
-    def get_empresa(self):
-        return getattr(self.request.user, "empresa", None)
-    
-    template_name = 'relatorios/funcionarios/performance.html'
-
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        data_inicio, data_fim = self.get_datas_filtro()
-        
-        avaliacoes = AvaliacaoDesempenho.objects.filter(
-            data_avaliacao__range=(data_inicio, data_fim)
-        ).select_related('funcionario', 'avaliador').order_by('-data_avaliacao')
-        
-        context['avaliacoes'] = avaliacoes
-        context['titulo'] = 'Avaliações de Performance'
-        return context
-
-from django.db.models import Avg, StdDev, Min, Max, ExpressionWrapper, DurationField
-from django.utils import timezone
+        ctx = super().get_context_data(**kwargs)
+        qs = MetricaKPI.objects.all().order_by("-data_referencia")
+        ctx["tabelas"] = [_build_table(qs, MetricaKPI, ("codigo", "nome", "data_referencia", "valor_atual", "valor_meta", "variacao_percentual"), "Indicadores recentes", 30)]
+        return ctx
 
 
-class RelatoriosFornecedoresView(BaseRelatorioView):
-    """
-    Página central (dashboard) para os relatórios de fornecedores.
-    """
-    def get_empresa(self):
-        return getattr(self.request.user, "empresa", None)
-    
-    template_name = 'relatorios/fornecedores/dashboard_fornecedores.html'
-
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        context['titulo'] = 'Relatórios de Fornecedores'
-        return context
-
-class RelatorioComprasView(BaseRelatorioView):
-    """
-    Relatório de compras por fornecedor, detalhando o volume e o valor financeiro.
-    """
-    def get_empresa(self):
-        return getattr(self.request.user, "empresa", None)
-    
-    template_name = 'relatorios/fornecedores/compras.html'
-
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        data_inicio, data_fim = self.get_datas_filtro()
-        
-        compras = Compra.objects.filter(
-            data_pedido__range=(data_inicio, data_fim)
-        ).values(
-            'fornecedor__nome'
-        ).annotate(
-            total_comprado=Sum('total'),
-            quantidade_pedidos=Count('id')
-        ).order_by('-total_comprado')
-        
-        context['compras_por_fornecedor'] = compras
-        context['titulo'] = 'Relatório de Compras por Fornecedor'
-        return context
-
-class RelatorioPerformanceFornecedorView(BaseRelatorioView):
-    """
-    Análise da performance geral dos fornecedores, combinando múltiplos indicadores.
-    """
-    def get_empresa(self):
-        return getattr(self.request.user, "empresa", None)
-    
-    template_name = 'relatorios/fornecedores/performance.html'
-
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        data_inicio, data_fim = self.get_datas_filtro()
-
-        # Calcula o tempo de entrega médio
-        delivery_times = Compra.objects.filter(
-            data_pedido__range=(data_inicio, data_fim),
-            data_entrega_real__isnull=False
-        ).annotate(
-            tempo_entrega=ExpressionWrapper(F('data_entrega_real') - F('data_pedido'), output_field=DurationField())
-        ).values('fornecedor__nome').annotate(
-            tempo_medio=Avg('tempo_entrega')
-        )
-        
-        # Calcula a taxa de defeitos
-        quality_rates = ItemCompra.objects.filter(
-            compra__data_pedido__range=(data_inicio, data_fim)
-        ).values('compra__fornecedor__nome').annotate(
-            total_recebido=Sum('quantidade_recebida'),
-            total_defeituoso=Sum('quantidade_defeituosa')
-        ).annotate(
-            taxa_defeito=Case(
-                When(total_recebido__gt=0, then=(F('total_defeituoso') * 100.0 / F('total_recebido'))),
-                default=Value(0),
-                output_field=DecimalField()
-            )
-        )
-        
-        # Pode-se combinar estes dados num único objeto no Python para exibir no template.
-        context['performance_data'] = {
-            'prazos': list(delivery_times),
-            'qualidade': list(quality_rates)
-        }
-        context['titulo'] = 'Performance de Fornecedores'
-        return context
-
-class RelatorioPrazosEntregaView(BaseRelatorioView):
-    """
-    Relatório focado nos prazos de entrega, comparando o previsto com o real.
-    """
-    def get_empresa(self):
-        return getattr(self.request.user, "empresa", None)
-    
-    template_name = 'relatorios/fornecedores/prazos.html'
-
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        data_inicio, data_fim = self.get_datas_filtro()
-        
-        prazos = Compra.objects.filter(
-            data_pedido__range=(data_inicio, data_fim),
-            data_entrega_real__isnull=False
-        ).annotate(
-            dias_atraso=ExpressionWrapper(F('data_entrega_real') - F('data_entrega_prevista'), output_field=DurationField())
-        ).values(
-            'fornecedor__nome'
-        ).annotate(
-            atraso_medio=Avg('dias_atraso')
-        ).order_by('atraso_medio')
-        
-        context['prazos_entrega'] = prazos
-        context['titulo'] = 'Análise de Prazos de Entrega'
-        return context
-
-class RelatorioQualidadeFornecedorView(BaseRelatorioView):
-    """
-    Relatório de qualidade, medindo a percentagem de produtos defeituosos por fornecedor.
-    """
-    def get_empresa(self):
-        return getattr(self.request.user, "empresa", None)
-    
-    template_name = 'relatorios/fornecedores/qualidade.html'
-
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        data_inicio, data_fim = self.get_datas_filtro()
-        
-        qualidade = ItemCompra.objects.filter(
-            compra__data_pedido__range=(data_inicio, data_fim)
-        ).values('compra__fornecedor__nome').annotate(
-            total_recebido=Sum('quantidade_recebida'),
-            total_defeituoso=Sum('quantidade_defeituosa')
-        ).annotate(
-            taxa_defeito_percentual=Case(
-                When(total_recebido__gt=0, then=(F('total_defeituoso') * 100.0 / F('total_recebido'))),
-                default=Value(0),
-                output_field=DecimalField()
-            )
-        ).order_by('taxa_defeito_percentual')
-        
-        context['relatorio_qualidade'] = qualidade
-        context['titulo'] = 'Qualidade de Produtos por Fornecedor'
-        return context
-
-# =====================================
-# ANÁLISES E DASHBOARDS
-# =====================================
-
-class AnalisesDashboardView(BaseRelatorioView):
-    """
-    Dashboard central para visualizações analíticas de negócio.
-    """
-    def get_empresa(self):
-        return getattr(self.request.user, "empresa", None)
-    
-    template_name = 'relatorios/analises/dashboard_analises.html'
-    
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        context['titulo'] = 'Dashboard de Análises'
-        return context
-
-class AnaliseVendasView(BaseRelatorioView):
-    """
-    Análise de vendas ao longo do tempo, ideal para gráficos.
-    """
-    template_name = 'relatorios/analises/vendas.html'
-
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        data_inicio, data_fim = self.get_datas_filtro()
-        
-        vendas_por_dia = Venda.objects.filter(
-            data__range=(data_inicio, data_fim)
-        ).annotate(
-            dia=TruncDay('data')
-        ).values('dia').annotate(
-            total_vendido=Sum('total')
-        ).order_by('dia')
-        
-        # Estes dados são perfeitos para serem consumidos por uma biblioteca como Chart.js no frontend.
-        context['vendas_por_dia'] = list(vendas_por_dia)
-        context['titulo'] = 'Análise de Vendas por Período'
-        return context
-
-class AnaliseLucratividadeView(BaseRelatorioView):
-    """
-    Análise da lucratividade por produto ou categoria.
-    """
-    template_name = 'relatorios/analises/lucratividade.html'
-
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        data_inicio, data_fim = self.get_datas_filtro()
-        
-        lucratividade_por_produto = ItemVenda.objects.filter(
-            venda__data__range=(data_inicio, data_fim)
-        ).values(
-            'produto__nome'
-        ).annotate(
-            lucro_bruto=Sum(F('preco_unitario') - F('custo_unitario')) * F('quantidade')
-        ).order_by('-lucro_bruto')
-        
-        context['lucratividade'] = lucratividade_por_produto
-        context['titulo'] = 'Análise de Lucratividade por Produto'
-        return context
+class KPIsVendasView(RelatoriosVendasView):
+    template_name = "relatorios/kpis/vendas.html"; titulo = "KPIs de Vendas"
 
 
-# =====================================
-# KPIs E INDICADORES
-# =====================================
-
-class KPIsDashboardView(BaseRelatorioView):
-    """
-    Dashboard principal que exibe os KPIs mais importantes para o negócio.
-    """
-    template_name = 'relatorios/kpis/dashboard_kpis.html'
-
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        context['titulo'] = 'Dashboard de KPIs'
-        return context
-
-class KPIsVendasView(BaseRelatorioView):
-    """
-    Calcula e exibe os principais Indicadores-Chave de Performance para a área de Vendas.
-    """
-    template_name = 'relatorios/kpis/vendas.html'
-
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        data_inicio, data_fim = self.get_datas_filtro()
-        
-        vendas_periodo = Venda.objects.filter(data__range=(data_inicio, data_fim))
-        total_vendas = vendas_periodo.aggregate(Sum('total'))['total__sum'] or 0
-        num_vendas = vendas_periodo.count()
-        
-        ticket_medio = total_vendas / num_vendas if num_vendas > 0 else 0
-        
-        context['kpis'] = {
-            'total_vendas': total_vendas,
-            'numero_de_vendas': num_vendas,
-            'ticket_medio': ticket_medio,
-            # Outros KPIs como LTV e CAC requerem queries mais complexas.
-        }
-        context['titulo'] = 'KPIs de Vendas'
-        return context
-
-class KPIsFinanceirosView(BaseRelatorioView):
-    """
-    Calcula e exibe os principais Indicadores-Chave de Performance Financeiros.
-    """
-    template_name = 'relatorios/kpis/financeiros.html'
-
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        # Lógica para DRE (simplificada)
-        receita = ... 
-        custos = ...
-        margem_bruta = (receita - custos) / receita if receita > 0 else 0
-        
-        context['kpis'] = {
-            'margem_lucro_bruta': margem_bruta,
-            'ponto_equilibrio': "Cálculo depende de custos fixos e variáveis",
-            'liquidez_corrente': "Ativo Circulante / Passivo Circulante"
-        }
-        context['titulo'] = 'KPIs Financeiros'
-        return context
-
-class KPIsOperacionaisView(BaseRelatorioView):
-    """
-    Calcula e exibe os principais Indicadores-Chave de Performance Operacionais.
-    """
-    template_name = 'relatorios/kpis/operacionais.html'
-
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        # Giro de Estoque = Custo das Mercadorias Vendidas / Valor Médio do Estoque
-        # Tempo Médio de Entrega (já calculado em RelatorioPrazosEntregaView)
-        
-        context['kpis'] = {
-            'giro_de_estoque': "Cálculo complexo, requer dados de CMV e estoque médio.",
-            'taxa_retencao_clientes': "Cálculo requer análise de coortes."
-        }
-        context['titulo'] = 'KPIs Operacionais'
-        return context
-
-class KPIsPersonalizadosView(BaseRelatorioView):
-    """
-    Exibe KPIs que foram definidos pelo próprio utilizador no sistema.
-    """
-    template_name = 'relatorios/kpis/personalizados.html'
-
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        # Assume um modelo 'KPI' onde utilizadores podem definir nome, meta e fórmula.
-        # A execução da 'fórmula' é um desafio avançado. Esta view irá apenas listá-los.
-        kpis_personalizados = KPI.objects.filter(ativo=True)
-        
-        context['kpis_personalizados'] = kpis_personalizados
-        context['titulo'] = 'KPIs Personalizados'
-        return context
+class KPIsFinanceirosView(RelatoriosFinanceiroView):
+    template_name = "relatorios/kpis/financeiros.html"; titulo = "KPIs Financeiros"
 
 
+class KPIsOperacionaisView(RelatoriosEstoqueView):
+    template_name = "relatorios/kpis/operacionais.html"; titulo = "KPIs Operacionais"
 
 
-class AgendamentoListView(LoginRequiredMixin, ListView):
-    """
-    Lista todos os agendamentos de relatórios.
-    """
-    model = AgendamentoRelatorio
-    template_name = 'agendamentos/lista.html'
-    context_object_name = 'agendamentos'
+class KPIsPersonalizadosView(KPIsDashboardView):
+    template_name = "relatorios/kpis/personalizados.html"; titulo = "KPIs Personalizados"
 
-class AgendamentoCreateView(LoginRequiredMixin, CreateView):
-    """
-    Cria um novo agendamento para a geração e envio de um relatório.
-    """
-    model = AgendamentoRelatorio
-    template_name = 'agendamentos/form.html'
-    fields = ['nome_relatorio', 'tipo_relatorio', 'frequencia', 'destinatarios', 'ativo']
-    success_url = reverse_lazy('agendamento_lista')
 
+# ---------------------------------------------------------------------------
+# Agendamentos, distribuição, histórico e auditoria
+# ---------------------------------------------------------------------------
+class AgendamentoListView(TenantLoginRequiredMixin, ListView):
+    model = AgendamentoRelatorio; template_name = "agendamentos/lista.html"; context_object_name = "agendamentos"; paginate_by = 25
+    def get_queryset(self): return AgendamentoRelatorio.objects.all().order_by("horario")
+
+
+class AgendamentoCreateView(TenantLoginRequiredMixin, CreateView):
+    model = AgendamentoRelatorio; template_name = "agendamentos/form.html"
+    fields = tuple(field for field in ("template", "frequencia", "horario", "destinatarios", "ativo") if _path_exists(AgendamentoRelatorio, field))
+    success_url = reverse_lazy("relatorios:agendamentos")
     def form_valid(self, form):
         messages.success(self.request, "Agendamento criado com sucesso.")
         return super().form_valid(form)
 
-class AgendamentoDetailView(LoginRequiredMixin, DetailView):
-    """
-    Exibe os detalhes de um agendamento específico.
-    """
-    model = AgendamentoRelatorio
-    template_name = 'agendamentos/detalhe.html'
-    context_object_name = 'agendamento'
 
-class ExecutarAgendamentoView(LoginRequiredMixin, View):
-    """
-    Dispara a execução imediata de um relatório agendado como uma tarefa em background.
-    """
+class AgendamentoDetailView(TenantLoginRequiredMixin, DetailView):
+    model = AgendamentoRelatorio; template_name = "agendamentos/detalhe.html"; context_object_name = "agendamento"
+
+
+class ExecutarAgendamentoView(TenantLoginRequiredMixin, View):
     def post(self, request, *args, **kwargs):
-        agendamento = get_object_or_404(AgendamentoRelatorio, pk=kwargs['pk'])
-        
-        # Dispara a tarefa Celery em background
-        # executar_relatorio_agendado_task.delay(agendamento.id)
-        
-        messages.info(request, f"A execução do relatório '{agendamento.nome_relatorio}' foi iniciada em segundo plano.")
-        return redirect('agendamento_lista')
+        agendamento = get_object_or_404(AgendamentoRelatorio, pk=kwargs["pk"])
+        try:
+            from .tasks import executar_agendamento_individual_task
+            executar_agendamento_individual_task.delay(agendamento.pk, connection.schema_name)
+            messages.success(request, "A execução do agendamento foi colocada na fila.")
+        except Exception:
+            logger.exception("Não foi possível colocar o agendamento na fila Celery")
+            messages.error(request, "Não foi possível iniciar a tarefa em segundo plano.")
+        return redirect("relatorios:agendamento_detail", pk=agendamento.pk)
 
-class AtivarAgendamentoView(LoginRequiredMixin, View):
-    """
-    Ativa um agendamento para que ele seja executado conforme a frequência.
-    """
+
+class AtivarAgendamentoView(TenantLoginRequiredMixin, View):
     def post(self, request, *args, **kwargs):
-        agendamento = get_object_or_404(AgendamentoRelatorio, pk=kwargs['pk'])
-        agendamento.ativo = True
-        agendamento.save()
-        messages.success(request, f"O agendamento '{agendamento.nome_relatorio}' foi ativado.")
-        return redirect('agendamento_lista')
+        obj = get_object_or_404(AgendamentoRelatorio, pk=kwargs["pk"]); obj.ativo = True; obj.save(update_fields=["ativo"])
+        messages.success(request, "Agendamento activado."); return redirect("relatorios:agendamentos")
 
-class DesativarAgendamentoView(LoginRequiredMixin, View):
-    """
-    Desativa um agendamento para pausar sua execução.
-    """
+
+class DesativarAgendamentoView(TenantLoginRequiredMixin, View):
     def post(self, request, *args, **kwargs):
-        agendamento = get_object_or_404(AgendamentoRelatorio, pk=kwargs['pk'])
-        agendamento.ativo = False
-        agendamento.save()
-        messages.warning(request, f"O agendamento '{agendamento.nome_relatorio}' foi desativado.")
-        return redirect('agendamento_lista')
-
-# =====================================
-# DISTRIBUIÇÃO DE RELATÓRIOS
-# =====================================
-
-class DistribuicaoRelatoriosView(LoginRequiredMixin, TemplateView):
-    """
-    Página central para opções de distribuição de relatórios.
-    """
-    template_name = 'distribuicao/dashboard.html'
-
-class EnvioEmailView(LoginRequiredMixin, FormView):
-    """
-    View para envio manual de um relatório por e-mail.
-    """
-    template_name = 'distribuicao/envio_email.html'
-    # form_class = SeuFormularioDeEmail # Crie um forms.py com este formulário
-    success_url = reverse_lazy('distribuicao')
-
-    def form_valid(self, form):
-        # Lógica de envio de e-mail aqui
-        # send_mail(...)
-        messages.success(self.request, "E-mail enviado com sucesso.")
-        return super().form_valid(form)
-
-class ImpressaoRelatoriosView(LoginRequiredMixin, DetailView):
-    """
-    Gera uma versão de um relatório otimizada para impressão.
-    """
-    model = RelatorioGerado # Um modelo que armazena um relatório já processado
-    template_name = 'distribuicao/impressao.html' # Um template com CSS @media print
-    context_object_name = 'relatorio'
-
-class CompartilhamentoView(LoginRequiredMixin, DetailView):
-    """
-    Gera um link seguro e temporário para compartilhamento de um relatório.
-    """
-    model = RelatorioGerado
-    template_name = 'distribuicao/compartilhamento.html'
-
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        # Lógica para gerar um link assinado (usando django.core.signing)
-        # context['link_compartilhamento'] = ...
-        return context
+        obj = get_object_or_404(AgendamentoRelatorio, pk=kwargs["pk"]); obj.ativo = False; obj.save(update_fields=["ativo"])
+        messages.warning(request, "Agendamento desactivado."); return redirect("relatorios:agendamentos")
 
 
+class DistribuicaoRelatoriosView(RelatorioBaseView):
+    template_name = "distribuicao/dashboard.html"; titulo = "Distribuição de Relatórios"
 
-class HistoricoRelatoriosView(LoginRequiredMixin, ListView):
-    model = LogAtividade  # Usar o modelo correto
-    template_name = 'historico/lista.html'
-    queryset = LogAtividade.objects.filter(tipo='HISTORICO') # Usar o modelo correto
-    context_object_name = 'logs'
-    paginate_by = 25
 
-class AuditoriaRelatoriosView(LoginRequiredMixin, ListView):
-    model = LogAtividade  # Usar o modelo correto
-    template_name = 'historico/lista.html'
-    queryset = LogAtividade.objects.filter(tipo='AUDITORIA') # Usar o modelo correto
-    context_object_name = 'logs'
-    paginate_by = 25
+class EnvioEmailView(RelatorioBaseView):
+    template_name = "distribuicao/envio_email.html"; titulo = "Enviar Relatório por E-mail"
 
-class LogsRelatoriosView(LoginRequiredMixin, ListView):
-    model = LogAtividade  # Usar o modelo correto
-    template_name = 'historico/lista_completa.html'
-    context_object_name = 'logs'
-    paginate_by = 50
+    def post(self, request, *args, **kwargs):
+        report_id = request.POST.get("relatorio_id")
+        recipient = request.POST.get("email", "").strip()
+        report = get_object_or_404(RelatorioGerado, pk=report_id, solicitante=request.user)
+        if not recipient or "@" not in recipient:
+            messages.error(request, "Indique um endereço de e-mail válido.")
+            return redirect("relatorios:envio_email")
+        if not report.arquivo_resultado:
+            messages.error(request, "O relatório ainda não tem um ficheiro para anexar.")
+            return redirect("relatorios:envio_email")
+        try:
+            report.arquivo_resultado.open("rb")
+            try:
+                payload = report.arquivo_resultado.read()
+            finally:
+                report.arquivo_resultado.close()
+            filename = os.path.basename(str(report.arquivo_resultado.name)) or f"{report.codigo_relatorio}.bin"
+            content_type = mimetypes.guess_type(filename)[0] or "application/octet-stream"
+            email = EmailMessage(
+                subject=f"Relatório {report.codigo_relatorio}",
+                body="Segue em anexo o relatório solicitado.",
+                to=[recipient],
+            )
+            email.attach(filename, payload, content_type)
+            email.send(fail_silently=False)
+            _create_log(request.user, "ENVIO", f"Envio do relatório {report.pk} para {recipient}")
+            messages.success(request, "Relatório enviado por e-mail com o ficheiro anexado.")
+        except Exception:
+            logger.exception("Erro no envio de relatório por e-mail"); messages.error(request, "Falha ao enviar o e-mail.")
+        return redirect("relatorios:envio_email")
 
-class LogAcessoRelatoriosView(LoginRequiredMixin, ListView):
-    model = LogAtividade  # Usar o modelo correto
-    template_name = 'historico/lista.html'
-    queryset = LogAtividade.objects.filter(tipo='HISTORICO', acao__icontains='Acesso') # Usar o modelo correto
-    context_object_name = 'logs'
-    paginate_by = 25
-# =====================================
-# EXPORTAÇÃO EM DIVERSOS FORMATOS
-# =====================================
 
-class BaseExportView(LoginRequiredMixin, View):
-    """
-    View base para exportação. Obtém os dados do relatório.
-    """
+class ImpressaoRelatoriosView(TenantLoginRequiredMixin, DetailView):
+    model = RelatorioGerado; template_name = "distribuicao/impressao.html"; context_object_name = "relatorio"
+    def get_queryset(self): return RelatorioGerado.objects.filter(solicitante=self.request.user)
+
+
+class CompartilhamentoView(TenantLoginRequiredMixin, DetailView):
+    model = RelatorioGerado; template_name = "distribuicao/compartilhamento.html"
+    def get_queryset(self): return RelatorioGerado.objects.filter(solicitante=self.request.user)
+
+
+class HistoricoRelatoriosView(TenantLoginRequiredMixin, ListView):
+    model = LogAtividade; template_name = "historico/lista.html"; context_object_name = "logs"; paginate_by = 25
+    def get_queryset(self): return LogAtividade.objects.all().order_by("-pk")
+
+
+class AuditoriaRelatoriosView(HistoricoRelatoriosView):
+    template_name = "historico/lista.html"
+    def get_queryset(self):
+        qs = LogAtividade.objects.all()
+        if _path_exists(LogAtividade, "tipo"): qs = qs.filter(tipo__icontains="AUDITORIA")
+        return _safe_order(qs, LogAtividade, ("timestamp", "created_at", "pk"))
+
+
+class LogsRelatoriosView(HistoricoRelatoriosView):
+    template_name = "historico/lista_completa.html"; paginate_by = 50
+
+
+class LogAcessoRelatoriosView(HistoricoRelatoriosView):
+    template_name = "historico/lista.html"
+    def get_queryset(self):
+        qs = LogAtividade.objects.all()
+        if _path_exists(LogAtividade, "acao"): qs = qs.filter(acao__icontains="acesso")
+        return _safe_order(qs, LogAtividade, ("timestamp", "created_at", "pk"))
+
+
+# ---------------------------------------------------------------------------
+# Exportações reais: sem dados fictícios e sempre limitadas ao utilizador.
+# ---------------------------------------------------------------------------
+class BaseExportView(TenantLoginRequiredMixin, View):
+    def get_relatorio(self, pk):
+        return get_object_or_404(RelatorioGerado, pk=pk, solicitante=self.request.user)
+
     def get_dados(self, pk):
-        # Lógica para obter os dados do relatório com base no PK.
-        # Isto é um placeholder. Substitua pela sua lógica real.
-        # relatorio = get_object_or_404(RelatorioGerado, pk=pk)
-        # return relatorio.get_dados_como_lista_de_dicionarios()
-        return [
-            {'ID': 1, 'Produto': 'Laptop', 'Vendas': 150, 'Região': 'Norte'},
-            {'ID': 2, 'Produto': 'Monitor', 'Vendas': 300, 'Região': 'Sul'},
-            {'ID': 3, 'Produto': 'Teclado', 'Vendas': 500, 'Região': 'Norte'},
-        ]
+        report = self.get_relatorio(pk)
+        return _normalise_rows(_report_payload(report))
+
 
 class ExportarPDFView(BaseExportView):
     def get(self, request, *args, **kwargs):
-        pk = kwargs['pk']
-        dados = self.get_dados(pk)
-        
-        html_string = render_to_string('export/template.html', {'dados': dados})
-        html = WeasyHTML(string=html_string)
-        pdf = html.write_pdf()
-
-        response = HttpResponse(pdf, content_type='application/pdf')
-        response['Content-Disposition'] = f'attachment; filename="relatorio_{pk}.pdf"'
+        rows = self.get_dados(kwargs["pk"])
+        try:
+            from reportlab.lib import colors
+            from reportlab.lib.pagesizes import A4, landscape
+            from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+            from reportlab.lib.styles import getSampleStyleSheet
+            stream = BytesIO(); doc = SimpleDocTemplate(stream, pagesize=landscape(A4))
+            styles = getSampleStyleSheet(); story = [Paragraph("Relatório VistoGEST", styles["Title"]), Spacer(1, 12)]
+            if rows:
+                headers = list(rows[0].keys()); data = [headers] + [[row.get(h, "") for h in headers] for row in rows]
+                table = Table(data, repeatRows=1)
+                table.setStyle(TableStyle([("BACKGROUND", (0,0), (-1,0), colors.HexColor("#16345f")), ("TEXTCOLOR", (0,0), (-1,0), colors.white), ("GRID", (0,0), (-1,-1), .4, colors.grey), ("VALIGN", (0,0), (-1,-1), "TOP")])); story.append(table)
+            else: story.append(Paragraph("Este relatório não contém linhas de dados.", styles["BodyText"]))
+            doc.build(story); response = HttpResponse(stream.getvalue(), content_type="application/pdf")
+        except ImportError:
+            return HttpResponse("A biblioteca reportlab é necessária para exportar PDF.", status=501, content_type="text/plain; charset=utf-8")
+        response["Content-Disposition"] = f'attachment; filename="relatorio_{kwargs["pk"]}.pdf"'
         return response
+
 
 class ExportarExcelView(BaseExportView):
     def get(self, request, *args, **kwargs):
-        pk = kwargs['pk']
-        dados = self.get_dados(pk)
-        
-        response = HttpResponse(content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-        response['Content-Disposition'] = f'attachment; filename="relatorio_{pk}.xlsx"'
-        
-        workbook = Workbook()
-        sheet = workbook.active
-        sheet.title = 'Relatório'
-
-        headers = list(dados[0].keys())
+        from openpyxl import Workbook
+        rows = self.get_dados(kwargs["pk"]); book = Workbook(); sheet = book.active; sheet.title = "Relatório"
+        headers = list(rows[0].keys()) if rows else ["Informação"]
         sheet.append(headers)
+        for row in rows: sheet.append([row.get(h, "") for h in headers])
+        output = BytesIO(); book.save(output)
+        response = HttpResponse(output.getvalue(), content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+        response["Content-Disposition"] = f'attachment; filename="relatorio_{kwargs["pk"]}.xlsx"'; return response
 
-        for item in dados:
-            sheet.append(list(item.values()))
-
-        workbook.save(response)
-        return response
 
 class ExportarCSVView(BaseExportView):
     def get(self, request, *args, **kwargs):
-        pk = kwargs['pk']
-        dados = self.get_dados(pk)
+        rows = self.get_dados(kwargs["pk"]); output = StringIO(); headers = list(rows[0].keys()) if rows else ["Informação"]
+        writer = csv.DictWriter(output, fieldnames=headers, extrasaction="ignore"); writer.writeheader()
+        for row in rows: writer.writerow(row)
+        response = HttpResponse("\ufeff" + output.getvalue(), content_type="text/csv; charset=utf-8")
+        response["Content-Disposition"] = f'attachment; filename="relatorio_{kwargs["pk"]}.csv"'; return response
 
-        response = HttpResponse(content_type='text/csv')
-        response['Content-Disposition'] = f'attachment; filename="relatorio_{pk}.csv"'
-
-        writer = csv.writer(response)
-        if dados:
-            headers = dados[0].keys()
-            writer.writerow(headers)
-            for item in dados:
-                writer.writerow(item.values())
-        
-        return response
 
 class ExportarXMLView(BaseExportView):
     def get(self, request, *args, **kwargs):
-        pk = kwargs['pk']
-        dados = self.get_dados(pk)
-        
-        # A geração de XML pode ser feita com ElementTree para maior robustez
-        xml_string = render_to_string('export/template.xml', {'dados': dados})
-        
-        response = HttpResponse(xml_string, content_type='application/xml')
-        response['Content-Disposition'] = f'attachment; filename="relatorio_{pk}.xml"'
-        return response
+        rows = self.get_dados(kwargs["pk"]); root = ET.Element("relatorio")
+        for row in rows:
+            row_node = ET.SubElement(root, "registo")
+            for key, value in row.items():
+                node = ET.SubElement(row_node, "campo", nome=str(key)); node.text = str(value)
+        payload = ET.tostring(root, encoding="utf-8", xml_declaration=True)
+        response = HttpResponse(payload, content_type="application/xml; charset=utf-8")
+        response["Content-Disposition"] = f'attachment; filename="relatorio_{kwargs["pk"]}.xml"'; return response
+
 
 class ExportarJSONView(BaseExportView):
     def get(self, request, *args, **kwargs):
-        pk = kwargs['pk']
-        dados = self.get_dados(pk)
-        
-        return JsonResponse(dados, safe=False, json_dumps_params={'indent': 2})
+        response = JsonResponse(self.get_dados(kwargs["pk"]), safe=False, json_dumps_params={"indent": 2, "ensure_ascii": False})
+        response["Content-Disposition"] = f'attachment; filename="relatorio_{kwargs["pk"]}.json"'; return response
 
 
-class BusinessIntelligenceView(LoginRequiredMixin, TemplateView):
-    """
-    Dashboard principal de Business Intelligence.
-    """
-    template_name = 'bi/dashboard.html'
+# ---------------------------------------------------------------------------
+# BI / data mining. Use only existing relations and display safe fallbacks.
+# ---------------------------------------------------------------------------
+class BusinessIntelligenceView(RelatorioBaseView):
+    template_name = "bi/dashboard.html"; titulo = "Business Intelligence"
 
-class CubosOLAPView(LoginRequiredMixin, TemplateView):
-    """
-    Simula a criação de um Cubo OLAP para análise multidimensional de vendas.
-    """
-    template_name = 'bi/cubos_olap.html'
 
+class CubosOLAPView(RelatoriosVendasView):
+    template_name = "bi/cubos_olap.html"; titulo = "Cubo OLAP de Vendas"
+
+
+class DataMiningView(RelatorioBaseView):
+    template_name = "bi/data_mining.html"; titulo = "Segmentação de Clientes"
     def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        # Usando pandas para criar uma tabela dinâmica (pivot table) que simula um cubo
-        queryset = Venda.objects.all().values('data', 'produto__categoria', 'cliente__regiao', 'total')
-        df = pd.DataFrame(list(queryset))
-        
-        if not df.empty:
-            df['data'] = pd.to_datetime(df['data'])
-            df['mes'] = df['data'].dt.month
-            
-            # Cruzamento de Categoria de Produto vs. Região do Cliente
-            cubo = pd.pivot_table(df, values='total', index='produto__categoria', columns='cliente__regiao', aggfunc='sum', fill_value=0)
-            context['cubo_html'] = cubo.to_html(classes='table table-bordered')
-        else:
-            context['cubo_html'] = "<p>Não há dados suficientes para gerar o cubo.</p>"
-            
-        context['titulo'] = 'Análise com Cubo OLAP'
-        return context
+        ctx = super().get_context_data(**kwargs)
+        ctx["aviso"] = "A segmentação estatística exige uma fonte de features com vendas relacionadas pelo related_name correcto. Esta página evita calcular clusters com campos inexistentes."
+        ctx["tabelas"] = [_build_table(Cliente.objects.all().order_by("pk"), Cliente, ("codigo_cliente", "nome_completo", "nome_social", "created_at"), "Clientes disponíveis", 50)]
+        return ctx
 
-class DataMiningView(LoginRequiredMixin, TemplateView):
-    """
-    Aplica um algoritmo de clusterização (K-Means) para segmentar clientes.
-    """
-    template_name = 'bi/data_mining.html'
 
+class PrevisoesView(RelatoriosVendasView):
+    template_name = "bi/previsoes.html"; titulo = "Previsões de Vendas"
     def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        # Exemplo: Segmentação de clientes com base no valor gasto e frequência
-        dados_clientes = Cliente.objects.annotate(
-            total=Sum('venda__total'),
-            frequencia=Count('venda')
-        ).values('id', 'nome', 'total', 'frequencia')
-        
-        df = pd.DataFrame(list(dados_clientes)).dropna()
+        ctx = super().get_context_data(**kwargs)
+        ctx["aviso"] = "A previsão temporal será activada quando existirem séries mensais completas e validadas. Uma previsão não é calculada com datas/campos de venda não confirmados."
+        return ctx
 
-        if len(df) > 3: # K-Means precisa de um número mínimo de amostras
-            kmeans = KMeans(n_clusters=3, random_state=0, n_init=10)
-            df['cluster'] = kmeans.fit_predict(df[['total', 'frequencia']])
-            context['clientes_clusterizados'] = df.to_dict('records')
-        else:
-            context['clientes_clusterizados'] = None
 
-        context['titulo'] = 'Data Mining: Segmentação de Clientes'
-        return context
-
-class PrevisoesView(LoginRequiredMixin, TemplateView):
-    """
-    Utiliza modelos estatísticos para prever vendas futuras.
-    """
-    template_name = 'bi/previsoes.html'
-
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        # Previsão de vendas mensais
-        vendas_mensais = Venda.objects.annotate(mes=TruncMonth('data')).values('mes').annotate(total=Sum('total')).order_by('mes')
-        
-        df = pd.DataFrame(list(vendas_mensais), columns=['mes', 'total']).set_index('mes')
-        
-        if len(df) > 2:
-            # Modelo de Suavização Exponencial Simples
-            model = SimpleExpSmoothing(df['total'], initialization_method="estimated").fit()
-            previsao = model.forecast(3) # Prever os próximos 3 meses
-            context['dados_historicos'] = df.reset_index().to_dict('records')
-            context['previsao'] = previsao.to_dict()
-        else:
-            context['dados_historicos'] = None
-            context['previsao'] = None
-
-        context['titulo'] = 'Previsão de Vendas'
-        return context
-
-# =====================================
-# AJAX E UTILITÁRIOS
-# =====================================
-
-class GerarRelatorioAjaxView(LoginRequiredMixin, View):
-    """
-    Inicia a geração de um relatório via AJAX e retorna um ID de tarefa.
-    """
+# ---------------------------------------------------------------------------
+# AJAX, API e configurações
+# ---------------------------------------------------------------------------
+class GerarRelatorioAjaxView(TenantLoginRequiredMixin, View):
     def post(self, request, *args, **kwargs):
-        # ...lógica para obter parâmetros do request.POST...
-        # task = gerar_relatorio_task.delay(parametros)
-        # return JsonResponse({'status': 'iniciado', 'task_id': task.id})
-        return JsonResponse({'status': 'simulado', 'task_id': 'xyz-123'})
+        tipo_id = request.POST.get("tipo_relatorio_id") or request.POST.get("tipo")
+        tipo = get_object_or_404(TipoRelatorio, pk=tipo_id, ativo=True) if str(tipo_id).isdigit() else None
+        if tipo is None:
+            return JsonResponse({"status": "erro", "mensagem": "Seleccione um tipo de relatório válido."}, status=400)
+        start = parse_date(request.POST.get("data_inicio", "")); end = parse_date(request.POST.get("data_fim", ""))
+        if start and end and start > end:
+            return JsonResponse({"status": "erro", "mensagem": "A data inicial não pode ser posterior à data final."}, status=400)
+        report = RelatorioGerado.objects.create(tipo_relatorio=tipo, solicitante=request.user, data_inicio=start, data_fim=end,
+            formato=request.POST.get("formato", "html"), parametros={k: v for k, v in request.POST.items() if k not in {"csrfmiddlewaretoken"}})
+        try:
+            from .tasks import processar_relatorio_task
+            task = processar_relatorio_task.delay(report.pk, connection.schema_name)
+            return JsonResponse({"status": "iniciado", "relatorio_id": report.pk, "task_id": task.id, "codigo": report.codigo_relatorio}, status=202)
+        except Exception:
+            logger.exception("Celery indisponível ao gerar relatório")
+            return JsonResponse({"status": "criado", "relatorio_id": report.pk, "codigo": report.codigo_relatorio, "mensagem": "Relatório criado; a fila Celery não confirmou o processamento."}, status=202)
 
-class PreviewRelatorioView(LoginRequiredMixin, View):
-    """
-    Retorna uma amostra de dados de um relatório para pré-visualização.
-    """
+
+class PreviewRelatorioView(TenantLoginRequiredMixin, View):
     def get(self, request, *args, **kwargs):
-        tipo_relatorio = request.GET.get('tipo')
-        # ...lógica para buscar os 10 primeiros registos do relatório...
-        dados_preview = list(Venda.objects.all()[:5].values())
-        return JsonResponse(dados_preview, safe=False)
+        model_key = request.GET.get("modelo", "vendas.venda")
+        available = {f"{m._meta.app_label}.{m._meta.model_name}": m for m in (Venda, ItemVenda, Produto, Cliente, Compra, Fornecedor)}
+        model = available.get(model_key)
+        if model is None: return JsonResponse({"erro": "Modelo não permitido."}, status=400)
+        rows = []
+        for obj in model.objects.all().order_by("-pk")[:5]:
+            rows.append({field.name: _display(getattr(obj, field.name, None)) for field in _model_fields(model)[:12]})
+        return JsonResponse({"modelo": model_key, "total_preview": len(rows), "dados": rows})
 
-class ValidarCamposView(LoginRequiredMixin, View):
-    """
-    Valida um campo de formulário em tempo real (ex: se um email já existe).
-    """
+
+class ValidarCamposView(TenantLoginRequiredMixin, View):
     def get(self, request, *args, **kwargs):
-        email = request.GET.get('email')
-        existe = Cliente.objects.filter(email=email).exists()
-        return JsonResponse({'is_valid': not existe, 'message': 'Este email já está em uso.' if existe else ''})
+        email = request.GET.get("email", "").strip()
+        valid = True; message = ""
+        if email and _path_exists(Cliente, "email"):
+            exists = Cliente.objects.filter(email__iexact=email).exists()
+            valid = not exists; message = "Este e-mail já está associado a um cliente." if exists else ""
+        return JsonResponse({"is_valid": valid, "message": message})
 
-class BuscarDadosView(LoginRequiredMixin, View):
-    """
-    Endpoint AJAX para autocompletar ou popular selects dinamicamente.
-    """
+
+class BuscarDadosView(TenantLoginRequiredMixin, View):
     def get(self, request, *args, **kwargs):
-        query = request.GET.get('q', '')
-        clientes = list(Cliente.objects.filter(nome__icontains=query)[:10].values('id', 'nome'))
-        return JsonResponse(clientes, safe=False)
-        
-# =====================================
-# CONFIGURAÇÕES
-# =====================================
+        query = request.GET.get("q", "").strip()
+        qs = Cliente.objects.all()
+        conditions = []
+        for field in ("nome_completo", "nome_social", "razao_social", "nif", "bi", "telefone", "email"):
+            if _path_exists(Cliente, field): conditions.append(Q(**{f"{field}__icontains": query}))
+        if query and conditions:
+            combined = conditions[0]
+            for cond in conditions[1:]: combined |= cond
+            qs = qs.filter(combined)
+        results = []
+        for obj in qs.order_by("pk")[:10]:
+            results.append({"id": obj.pk, "label": str(getattr(obj, "nome_exibicao", None) or getattr(obj, "nome_completo", None) or getattr(obj, "razao_social", None) or obj)})
+        return JsonResponse(results, safe=False)
 
-class ConfiguracoesRelatoriosView(LoginRequiredMixin, TemplateView):
-    """
-    Página central de configurações do sistema de relatórios.
-    """
-    template_name = 'configuracoes/dashboard.html'
 
-class ConfiguracoesFormatosView(LoginRequiredMixin, FormView):
-    """
-    Permite ao administrador ativar/desativar formatos de exportação.
-    """
-    template_name = 'configuracoes/formatos.html'
-    # form_class = FormatoConfigForm
-    success_url = reverse_lazy('configuracoes')
+class ConfiguracoesRelatoriosView(RelatorioBaseView):
+    template_name = "templates/configuracoes/dashboard.html"; titulo = "Configurações de Relatórios"
 
-    def form_valid(self, form):
-        # ...lógica para salvar as configurações no modelo ConfiguracaoSistema...
-        messages.success(self.request, "Configurações de formatos salvas.")
-        return super().form_valid(form)
 
-class ConfiguracoesPermissoesView(LoginRequiredMixin, FormView):
-    """
-    Permite atribuir permissões de acesso a relatórios por grupo de utilizadores.
-    """
-    template_name = 'configuracoes/permissoes.html'
-    # form_class = PermissoesRelatorioForm
-    success_url = reverse_lazy('configuracoes')
+class ConfiguracoesFormatosView(RelatorioBaseView):
+    template_name = "templates/configuracoes/formatos.html"; titulo = "Formatos de Exportação"
 
-    def form_valid(self, form):
-        # ...lógica para associar Grupos do Django a relatórios específicos...
-        messages.success(self.request, "Permissões atualizadas com sucesso.")
-        return super().form_valid(form)
-        
+
+class ConfiguracoesPermissoesView(RelatorioBaseView):
+    template_name = "templates/configuracoes/permissoes.html"; titulo = "Permissões de Relatórios"
 
 
 class GerarRelatorioAPIView(APIView):
-    """
-    Endpoint para disparar a geração de um relatório via API.
-    """
-    permission_classes = [IsAuthenticated] # Usar TokenAuthentication na configuração do DRF
-
+    permission_classes = [IsAuthenticated]
     def post(self, request, format=None):
-        parametros = request.data
-        
-        return Response({'status': 'simulado', 'task_id': 'xyz-123'}, status=status.HTTP_202_ACCEPTED)
+        if connection.schema_name == "public": return Response({"detail": "Endpoint disponível apenas no schema tenant."}, status=status.HTTP_403_FORBIDDEN)
+        tipo_id = request.data.get("tipo_relatorio_id") or request.data.get("tipo")
+        try: tipo = TipoRelatorio.objects.get(pk=tipo_id, ativo=True)
+        except (TipoRelatorio.DoesNotExist, TypeError, ValueError): return Response({"detail": "Tipo de relatório inválido."}, status=status.HTTP_400_BAD_REQUEST)
+        report = RelatorioGerado.objects.create(tipo_relatorio=tipo, solicitante=request.user,
+            data_inicio=parse_date(str(request.data.get("data_inicio", ""))), data_fim=parse_date(str(request.data.get("data_fim", ""))),
+            formato=request.data.get("formato", "json"), parametros=dict(request.data))
+        try:
+            from .tasks import processar_relatorio_task
+            task = processar_relatorio_task.delay(report.pk, connection.schema_name); task_id = task.id
+        except Exception:
+            logger.exception("Celery indisponível ao gerar relatório via API"); task_id = None
+        return Response({"status": "criado", "relatorio_id": report.pk, "codigo": report.codigo_relatorio, "task_id": task_id}, status=status.HTTP_202_ACCEPTED)
+
 
 class DadosGraficoAPIView(APIView):
-    """
-    Fornece dados agregados prontos para serem consumidos por bibliotecas de gráficos.
-    """
     permission_classes = [IsAuthenticated]
-    
     def get(self, request, format=None):
-        vendas_por_mes = Venda.objects.annotate(
-            mes=TruncMonth('data')
-        ).values('mes').annotate(
-            total=Sum('total')
-        ).order_by('mes')
-        
-        # Formata para o formato { labels: [], data: [] }
-        labels = [item['mes'].strftime('%Y-%m') for item in vendas_por_mes]
-        data = [item['total'] for item in vendas_por_mes]
-        
-        return Response({'labels': labels, 'data': data})
+        if connection.schema_name == "public": return Response({"detail": "Endpoint disponível apenas no schema tenant."}, status=status.HTTP_403_FORBIDDEN)
+        if not _path_exists(Venda, "data_venda") or not _path_exists(Venda, "total"):
+            return Response({"labels": [], "data": []})
+        from django.db.models.functions import TruncMonth
+        qs = Venda.objects.annotate(mes=TruncMonth("data_venda")).values("mes").annotate(total=Sum("total")).order_by("mes")
+        return Response({"labels": [item["mes"].strftime("%Y-%m") for item in qs if item["mes"]], "data": [float(item["total"] or 0) for item in qs]})
+
 
 class EstatisticasAPIView(APIView):
-    """
-    Retorna estatísticas-chave do negócio em tempo real.
-    """
     permission_classes = [IsAuthenticated]
-
     def get(self, request, format=None):
-        total_vendas = Venda.objects.aggregate(Sum('total'))['total__sum'] or 0
-        novos_clientes_mes = Cliente.objects.filter(data_cadastro__month=timezone.now().month).count()
-        ticket_medio = Venda.objects.aggregate(Avg('total'))['total__avg'] or 0
-
-        data = {
-            'total_vendas_geral': total_vendas,
-            'novos_clientes_este_mes': novos_clientes_mes,
-            'ticket_medio': round(ticket_medio, 2)
-        }
-        return Response(data)
+        if connection.schema_name == "public": return Response({"detail": "Endpoint disponível apenas no schema tenant."}, status=status.HTTP_403_FORBIDDEN)
+        total_vendas = Venda.objects.aggregate(total=Sum("total"))["total"] or 0 if _path_exists(Venda, "total") else 0
+        venda_count = Venda.objects.count()
+        novos_clientes = Cliente.objects.filter(created_at__month=timezone.localdate().month).count() if _path_exists(Cliente, "created_at") else Cliente.objects.count()
+        return Response({"total_vendas_geral": float(total_vendas), "numero_vendas": venda_count, "novos_clientes_este_mes": novos_clientes, "ticket_medio": round(float(total_vendas) / venda_count, 2) if venda_count else 0})
 
 
+# Compatibilidade com nomes de endpoints antigos que podem existir em urls.py.
+TemplateRelatorioUpdateView = EditarRelatorioView
+
+
+def gerar_relatorio_corporativo(request):
+    """Gera um PDF simples a partir de vendas reais do tenant, nunca dados de exemplo."""
+    if not request.user.is_authenticated:
+        return redirect("/contas/login/")
+    if connection.schema_name == "public":
+        return HttpResponseForbidden("Relatórios indisponíveis no schema public.")
+    try:
+        from reportlab.lib import colors
+        from reportlab.lib.pagesizes import A4, landscape
+        from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+        from reportlab.lib.styles import getSampleStyleSheet
+        rows = list(Venda.objects.order_by("-data_venda").values_list("numero_documento", "data_venda", "total", "status")[:100]) if _path_exists(Venda, "data_venda") else []
+        stream = BytesIO(); doc = SimpleDocTemplate(stream, pagesize=landscape(A4)); styles = getSampleStyleSheet()
+        story = [Paragraph("Relatório Corporativo — VistoGEST", styles["Title"]), Spacer(1, 12)]
+        data = [["Documento", "Data", "Total", "Estado"]]
+        for number, dt, total, state in rows: data.append([str(number or "—"), _display(dt), _display(total), str(state or "—")])
+        table = Table(data, repeatRows=1)
+        table.setStyle(TableStyle([("BACKGROUND", (0,0), (-1,0), colors.HexColor("#16345f")), ("TEXTCOLOR", (0,0), (-1,0), colors.white), ("GRID", (0,0), (-1,-1), .4, colors.grey)]))
+        story.append(table); doc.build(story)
+        response = HttpResponse(stream.getvalue(), content_type="application/pdf"); response["Content-Disposition"] = "attachment; filename=relatorio_corporativo.pdf"; return response
+    except ImportError:
+        return HttpResponse("A biblioteca reportlab é necessária para gerar PDF.", status=501)
+
+
+# Aliases de compatibilidade para rotas existentes em projectos que usavam nomes
+# ligeiramente diferentes.
+RelatoriosVendasDashboardView = RelatoriosVendasView
+RelatoriosEstoqueDashboardView = RelatoriosEstoqueView
+RelatoriosFinanceiroDashboardView = RelatoriosFinanceiroView
+RelatoriosClientesDashboardView = RelatoriosClientesView
+RelatoriosFuncionariosDashboardView = RelatoriosFuncionariosView
+RelatoriosFornecedoresDashboardView = RelatoriosFornecedoresView

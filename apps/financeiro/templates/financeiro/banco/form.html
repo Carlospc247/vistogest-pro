@@ -1,18 +1,2 @@
-<!-- templates/financeiro/banco/form.html -->
-{% extends 'base.html' %}
-{% load static %}
-
-{% block title %}Nova Conta Bancária{% endblock %}
-{% block page_title %}Criar Conta{% endblock %}
-
-{% block content %}
-<div class="container mx-auto p-4">
-    <h1 class="text-2xl font-bold mb-4">Criar Nova Conta Bancária</h1>
-    <form method="post">
-        {% csrf_token %}
-        {{ form.as_p }}
-        <button type="submit" class="btn btn-primary">Salvar</button>
-        <a href="{% url 'financeiro:banco_lista' %}" class="btn btn-secondary">Cancelar</a>
-    </form>
-</div>
-{% endblock %}
+{% extends "financeiro/base_financeiro.html" %}{% block title %}Conta bancária{% endblock %}{% block breadcrumb %}Conta bancária{% endblock %}{% block content %}
+<header class="page-head"><div><h1>Conta bancária</h1><p>Configure a identificação da conta e os parâmetros de controlo.</p></div>{% block page_actions %}{% endblock %}</header><section class="panel"><form method="post">{% csrf_token %}{% include "financeiro/includes/form_errors.html" %}{{ form.as_p }}<div class="form-actions"><button class="btn" type="submit">Guardar conta</button><a class="btn secondary" href="{% url 'financeiro:banco_lista' %}">Cancelar</a></div></form></section>{% endblock %}

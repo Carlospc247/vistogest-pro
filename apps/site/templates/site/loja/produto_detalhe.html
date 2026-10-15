@@ -1,0 +1,74 @@
+{% extends "site/loja/base_loja.html" %}
+
+{% block titulo %}{{ produto.nome_produto|default:"Produto" }}{% endblock %}
+
+{% block conteudo %}
+<section class="pagina">
+    <div class="migalhas">
+        <a href="{% url 'site:pagina_home' %}">Início</a>
+        <span> / </span>
+        <a href="{% url 'site:loja' %}">Loja</a>
+        <span> / </span>
+        <span>{{ produto.nome_produto }}</span>
+    </div>
+
+    <div class="duas">
+        <div class="painel">
+            <div class="card-img" style="aspect-ratio: 4 / 3; border-radius: var(--raio);">
+                {% if produto.imagem %}
+                    <img src="{{ produto.imagem.url }}" alt="{{ produto.nome_produto }}">
+                {% else %}
+                    <div class="sem-foto" aria-hidden="true">{{ produto.nome_produto|first|upper }}</div>
+                {% endif %}
+            </div>
+        </div>
+
+        <div class="painel">
+            <p class="cat">Produto</p>
+            <h1>{{ produto.nome_produto }}</h1>
+
+            {% if produto.descricao %}
+                <div class="suave" style="margin-top: 14px;">
+                    {{ produto.descricao|linebreaksbr }}
+                </div>
+            {% endif %}
+
+            <div class="preco" style="margin-top: 24px;">
+                {{ preco|floatformat:2 }}
+                <small>{{ config.moeda|default:"AOA" }}</small>
+            </div>
+
+            {% if config.aceita_pedidos %}
+                <div class="campo" style="margin-top: 18px;">
+                    <label for="quantidade-produto">Quantidade</label>
+                    <input
+                        id="quantidade-produto"
+                        type="number"
+                        min="1"
+                        value="1"
+                        inputmode="numeric"
+                    >
+                </div>
+
+                <button
+                    type="button"
+                    class="btn js-add"
+                    data-tipo="produto"
+                    data-id="{{ produto.pk }}"
+                    data-qtd-input="#quantidade-produto"
+                >
+                    Adicionar ao carrinho
+                </button>
+            {% else %}
+                <p class="suave" style="margin-top: 18px;">
+                    Os pedidos online encontram-se temporariamente indisponíveis.
+                </p>
+            {% endif %}
+
+            <a class="btn btn-sec" href="{% url 'site:loja' %}">
+                Voltar à loja
+            </a>
+        </div>
+    </div>
+</section>
+{% endblock %}

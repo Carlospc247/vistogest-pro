@@ -8,7 +8,45 @@ from apps.produtos.models import Produto
 from apps.servicos.models import Servico
 from cloudinary.models import CloudinaryField
 from django.urls import reverse
+from django.conf import settings
 
+
+
+
+
+def formatar_duracao(td):
+    s = max(int(td.total_seconds()), 0)
+    d, r = divmod(s, 86400)
+    h, r = divmod(r, 3600)
+    m = r // 60
+    if d: return f"{d}d {h}h"
+    if h: return f"{h}h {m}min"
+    if m: return f"{m}min"
+    return "menos de 1 min"
+
+
+class RastreioAtendimento(models.Model):
+    """Quem atendeu, quando, e o feedback para o cliente."""
+    atendido_em     = models.DateTimeField(null=True, blank=True)
+    atendido_por    = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True,
+        on_delete=models.SET_NULL, related_name='+',
+    )
+    feedback_gestor = models.TextField(blank=True)
+
+    class Meta:
+        abstract = True
+
+    @property
+    def tempo_resposta(self):
+        if self.atendido_em and getattr(self, 'created_at', None):
+            return self.atendido_em - self.created_at
+        return None
+
+    @property
+    def tempo_resposta_fmt(self):
+        t = self.tempo_resposta
+        return formatar_duracao(t) if t is not None else ''
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -355,14 +393,9 @@ class ProdutoSite(TimeStampedModel):
     Regra de negócio: se não existir entrada aqui para um produto,
     o produto está visível com o preço original.
     """
-    produto           = models.OneToOneField(
-        Produto, on_delete=models.CASCADE, related_name='configuracao_site'
-    )
+    produto           = models.OneToOneField(Produto, on_delete=models.CASCADE, related_name='configuracao_site')
     visivel_na_loja   = models.BooleanField(default=True)
-    preco_customizado = models.DecimalField(
-        max_digits=10, decimal_places=2, null=True, blank=True,
-        help_text='Deixar em branco para usar o preço original do produto.'
-    )
+    preco_customizado = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True, help_text='Deixar em branco para usar o preço original do produto.')
     destaque          = models.BooleanField(default=False,
                         help_text='Mostrar em destaque na página inicial da loja.')
     ordem_exibicao    = models.IntegerField(default=0)
@@ -446,30 +479,57 @@ class ClienteSite(TimeStampedModel):
 
     def sincronizar_com_sistema(self):
         """
-        Cria (ou actualiza) o registo correspondente em apps.clientes.Cliente.
-        Bug 2 corrigido: sem 'empresa=' — TENANT_APP já está no schema correcto.
+        Cria ou actualiza o Cliente interno correspondente.
+
+        O isolamento por empresa já é garantido pelo django-tenants,
+        portanto não existe campo empresa aqui.
         """
         if self.registrado_no_sistema:
             return
+
         try:
             from apps.clientes.models import Cliente
-            cliente, _ = Cliente.objects.get_or_create(
-                email=self.email,
-                defaults={
-                    'nome_completo': self.nome,
-                    'telefone': self.telefone,
-                    'pessoa_juridica': self.pessoa_juridica,
-                }
-            )
-            self.registrado_no_sistema = True
-            self.save(update_fields=['registrado_no_sistema'])
-        except Exception as exc:
-            import logging
-            logging.getLogger('site').warning(
-                "Não foi possível sincronizar ClienteSite %s com sistema: %s",
-                self.email, exc
+
+            tipo_cliente = (
+                'pessoa_juridica'
+                if self.pessoa_juridica
+                else 'pessoa_fisica'
             )
 
+            cliente = Cliente.objects.filter(
+                email=self.email
+            ).order_by('pk').first()
+
+            if cliente is None:
+                cliente = Cliente.objects.create(
+                    nome_completo=self.nome,
+                    email=self.email,
+                    telefone=self.telefone,
+                    tipo_cliente=tipo_cliente,
+                )
+            else:
+                cliente.nome_completo = self.nome
+                cliente.telefone = self.telefone
+                cliente.tipo_cliente = tipo_cliente
+                cliente.save(
+                    update_fields=[
+                        'nome_completo',
+                        'telefone',
+                        'tipo_cliente',
+                        'updated_at',
+                    ]
+                )
+            self.registrado_no_sistema = True
+            self.save(update_fields=['registrado_no_sistema'])
+
+        except Exception as exc:
+            import logging
+
+            logging.getLogger('site').exception(
+                "Não foi possível sincronizar ClienteSite %s com Cliente.",
+                self.email,
+            )
+    
     def save(self, *args, **kwargs):
         super().save(*args, **kwargs)
         if not self.registrado_no_sistema:
@@ -506,18 +566,23 @@ class Carrinho(TimeStampedModel):
     def total_itens(self):
         return sum(item.quantidade for item in self.itens.all())
 
+    @staticmethod
     def obter_ou_criar(session_key, cliente_site=None):
-        """Factory — obtém o carrinho activo ou cria um novo."""
+        """Obtém o carrinho activo ou cria um novo."""
         if cliente_site:
             cart, _ = Carrinho.objects.get_or_create(
-                cliente_site=cliente_site, ativo=True,
-                defaults={'session_key': session_key or ''}
+                cliente_site=cliente_site,
+                ativo=True,
+                defaults={
+                    'session_key': session_key or ''
+                }
             )
         else:
             cart, _ = Carrinho.objects.get_or_create(
-                session_key=session_key, ativo=True,
-                defaults={}
+                session_key=session_key,
+                ativo=True
             )
+
         return cart
 
 
@@ -719,7 +784,7 @@ class Candidatura(TimeStampedModel):
 # Contacto / Reclamações
 # ──────────────────────────────────────────────────────────────────────────────
 
-class SolicitacaoContato(TimeStampedModel):
+class SolicitacaoContato(TimeStampedModel, RastreioAtendimento):
     TIPO_CHOICES = [
         ('contato', 'Contacto Geral'),
         ('compra_produto', 'Compra de Produto'),
@@ -742,7 +807,7 @@ class SolicitacaoContato(TimeStampedModel):
         return f"{self.nome} — {self.get_tipo_display()}"
 
 
-class Reclamacao(TimeStampedModel):
+class Reclamacao(TimeStampedModel, RastreioAtendimento):
     STATUS_CHOICES = [
         ('pendente', 'Pendente'),
         ('em_analise', 'Em Análise'),
@@ -791,3 +856,6 @@ class ComprovativoCompra(TimeStampedModel):
     def __str__(self):
         ref = self.pedido.referencia if self.pedido else 'sem pedido'
         return f"Comprovativo {ref} — {self.created_at.strftime('%d/%m/%Y')}"
+
+
+

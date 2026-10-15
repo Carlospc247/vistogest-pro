@@ -1,20 +1,2 @@
-<!-- templates/financeiro/conta_pagar/form.html -->
-{% extends 'base.html' %}
-{% load static %}
-
-{% block title %}{{ form.instance.pk|yesno:"Editar Conta a Pagar,Nova Conta a Pagar" }}{% endblock %}
-{% block page_title %}{{ form.instance.pk|yesno:"Editar Conta a Pagar,Nova Conta a Pagar" }}{% endblock %}
-
-{% block content %}
-<div class="bg-white dark:bg-gray-800 shadow rounded-lg p-6">
-    <h1 class="text-2xl font-bold text-gray-900 dark:text-white mb-4">
-        {{ form.instance.pk|yesno:"Editar Conta a Pagar,Nova Conta a Pagar" }}
-    </h1>
-
-    <form method="POST">
-        {% csrf_token %}
-        {{ form.as_p }}
-        <button type="submit" class="bg-blue-500 text-white px-4 py-2 rounded-lg">Salvar</button>
-    </form>
-</div>
-{% endblock %}
+{% extends "financeiro/base_financeiro.html" %}{% block title %}Conta a pagar{% endblock %}{% block breadcrumb %}Conta a pagar{% endblock %}{% block content %}
+<header class="page-head"><div><h1>Conta a pagar</h1><p>Registe o compromisso, fornecedor, vencimento e condições de pagamento.</p></div>{% block page_actions %}{% endblock %}</header><section class="panel"><form method="post">{% csrf_token %}{% include "financeiro/includes/form_errors.html" %}{{ form.as_p }}<div class="form-actions"><button class="btn" type="submit">Guardar conta</button><a class="btn secondary" href="{% url 'financeiro:conta_pagar_lista' %}">Cancelar</a></div></form></section>{% endblock %}

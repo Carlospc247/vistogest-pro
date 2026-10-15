@@ -1,21 +1,2 @@
-<!-- templates/financeiro/banco/conciliacao.html -->
-{% extends 'base.html' %}
-{% load static %}
-
-{% block title %}Conciliação Bancária{% endblock %}
-{% block page_title %}Conciliação da Conta Bancária{% endblock %}
-
-{% block content %}
-<div class="bg-white dark:bg-gray-800 shadow rounded-lg p-6">
-    <h1 class="text-2xl font-bold text-gray-900 dark:text-white mb-4">
-        Conciliação da Conta Bancária: {{ conta.nome }}
-    </h1>
-
-    <p>Detalhes da conciliação e movimentações associadas.</p>
-    <!-- Adicione detalhes sobre a conciliação aqui -->
-
-    <div class="mt-6">
-        <a href="{% url 'financeiro:banco_update' conta.id %}" class="bg-yellow-500 text-white px-4 py-2 rounded-lg">Editar</a>
-    </div>
-</div>
-{% endblock %}
+{% extends "financeiro/base_financeiro.html" %}{% block title %}Conciliação da conta bancária{% endblock %}{% block breadcrumb %}Conciliação da conta bancária{% endblock %}{% block content %}
+<header class="page-head"><div><h1>Conciliação da conta bancária</h1><p>Resumo de conciliação da conta seleccionada.</p></div>{% block page_actions %}{% endblock %}</header><section class="panel"><h2>{{ conta.nome }} — {{ conta.banco }}</h2><p>Saldo actual no sistema: <strong>{{ conta.saldo_atual|floatformat:2 }} AOA</strong></p><p>Última conciliação registada: <strong>{{ conta.ultima_conciliacao|date:'d/m/Y'|default:'Sem conciliação' }}</strong></p><div class="form-actions"><a class="btn" href="{% url 'financeiro:conciliacao_lista' %}">Todas as conciliações</a><a class="btn secondary" href="{% url 'financeiro:conciliacao' %}">Abrir módulo de conciliação</a></div><div class="notice">A view fornecida é um DetailView da conta e não envia um extrato bancário ou lista de conciliações para este template. Para uma conciliação operacional, usa a página geral ou acrescenta esse contexto à view.</div></section>{% endblock %}

@@ -1,0 +1,11 @@
+{# jornadas/lista.html #}
+{% extends "funcionarios/_rh_base.html" %}
+{% block title %}Jornadas{% endblock %}
+{% block rh_content %}
+<div class="flex justify-between items-center mb-4"><h1 class="text-2xl font-bold">Jornadas de trabalho</h1>
+  <a class="rh-btn rh-btn-p" href="{% url 'funcionarios:jornada_create' %}"><i class="fas fa-plus mr-1"></i> Nova jornada</a></div>
+<div class="rh-card p-0 overflow-x-auto"><table class="rh-table"><thead><tr><th>Nome</th><th>Turno</th><th>Entrada</th><th>Saída</th><th>Almoço</th><th>Departamento</th></tr></thead><tbody>
+  {% for j in jornadas %}<tr><td>{{ j.nome }}</td><td>{{ j.get_turno_display }}</td><td>{{ j.horario_entrada|time:"H:i" }}</td><td>{{ j.horario_saida|time:"H:i" }}</td>
+    <td>{{ j.horario_almoco_inicio|time:"H:i"|default:"—" }}–{{ j.horario_almoco_fim|time:"H:i"|default:"—" }}</td><td>{{ j.departamento.nome|default:"Todos" }}</td></tr>
+  {% empty %}<tr><td colspan="6" class="text-center py-6 rh-muted">Nenhuma jornada.</td></tr>{% endfor %}</tbody></table></div>
+{% endblock %}

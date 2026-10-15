@@ -104,6 +104,7 @@ class AlertaInteligente(models.Model):
         ('performance', 'Performance'),
         ('seguranca', 'Segurança'),
         ('financeiro', 'Financeiro'),
+        ("sistema", "Sistema"),
     ]
     
     PRIORIDADE_CHOICES = [

@@ -1,8 +1,9 @@
 # apps/funcionarios/urls.py
 from django.urls import path, include
-
+from .views_recrutamento import AdmitirCandidatoView
 from apps.funcionarios import views_recrutamento
 from . import views
+
 
 
 
@@ -194,4 +195,8 @@ urlpatterns = [
     path('recrutamento/rejeitar/<int:candidato_id>/', 
      views_recrutamento.RejeitarCandidatoView.as_view(), 
      name='rejeitar_candidato'),
+
+    path('candidaturas/<int:candidato_id>/admitir/', views_recrutamento.AdmitirCandidatoView.as_view(), name='admitir_candidato'),
 ]
+from . import urls_recibo
+urlpatterns += urls_recibo.urlpatterns

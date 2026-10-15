@@ -1,7 +1,7 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from apps.fiscal import views_erro_agt
-from . import views, views_integracoes
+from . import views, views_integracoes, web_views
 
 app_name = 'fiscal'
 
@@ -151,6 +151,26 @@ download_urlpatterns = [
 
     # Download de chave pública
     path('download/chave-publica/', views.DownloadChavePublicaView.as_view(), name='download-chave-publica'),
+
+    #
+    path("", web_views.FiscalDashboardView.as_view(), name="dashboard"),
+    path("documentos/", web_views.DocumentoFiscalListView.as_view(), name="documentos"),
+    path("documentos/novo/", web_views.DocumentoFiscalCreateView.as_view(), name="documento_novo"),
+    path("documentos/<int:pk>/", web_views.DocumentoFiscalDetailView.as_view(), name="documento_detalhe"),
+    path("documentos/<int:pk>/editar/", web_views.DocumentoFiscalUpdateView.as_view(), name="documento_editar"),
+    path("taxas-iva/", web_views.TaxaIVAListView.as_view(), name="taxas_iva"),
+    path("taxas-iva/nova/", web_views.TaxaIVACreateView.as_view(), name="taxa_iva_nova"),
+    path("taxas-iva/<int:pk>/editar/", web_views.TaxaIVAUpdateView.as_view(), name="taxa_iva_editar"),
+    path("assinatura-digital/", web_views.AssinaturaDigitalConfigView.as_view(), name="assinatura_digital"),
+    path("retencoes/", web_views.RetencaoFonteListView.as_view(), name="retencoes"),
+    path("retencoes/nova/", web_views.RetencaoFonteCreateView.as_view(), name="retencao_nova"),
+    path("retencoes/<int:pk>/editar/", web_views.RetencaoFonteUpdateView.as_view(), name="retencao_editar"),
+    path("relatorios/", web_views.RelatoriosFiscaisView.as_view(), name="relatorios"),
+    path("saft/exportar/", web_views.SAFTExportWebView.as_view(), name="saft_exportar"),
+    path("validacao/", web_views.ValidacaoFiscalView.as_view(), name="validacao"),
+    path("integridade/", web_views.VerificarIntegridadeView.as_view(), name="integridade"),
+    path("configuracoes/", web_views.ConfiguracoesFiscalView.as_view(), name="configuracoes"),
+    path("homologacao/", web_views.HomologacaoDashboardView.as_view(), name="homologacao"),
 ]
 
 # =====================================

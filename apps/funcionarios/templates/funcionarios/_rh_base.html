@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block extra_css %}{{ block.super }}
+<style>
+  .rh-card{background:#fff;border:1px solid #f3f4f6;border-radius:.75rem;box-shadow:0 1px 2px rgba(0,0,0,.05);padding:1.25rem}
+  .rh-btn{display:inline-block;padding:.45rem .9rem;border:1px solid #d1d5db;border-radius:.375rem;background:#fff;font-size:.875rem;color:#374151;cursor:pointer}
+  .rh-btn:hover{background:#f9fafb}
+  .rh-btn-p{background:#4f46e5;color:#fff;border-color:#4f46e5}.rh-btn-p:hover{background:#4338ca}
+  .rh-btn-d{background:#dc2626;color:#fff;border-color:#dc2626}.rh-btn-d:hover{background:#b91c1c}
+  .rh-btn-ok{background:#16a34a;color:#fff;border-color:#16a34a}.rh-btn-ok:hover{background:#15803d}
+  .rh-table{width:100%;font-size:.875rem}
+  .rh-table th{background:#f9fafb;color:#6b7280;text-align:left;padding:.65rem .75rem;font-weight:500}
+  .rh-table td{padding:.65rem .75rem;border-top:1px solid #f3f4f6}
+  .rh-badge{display:inline-block;padding:.1rem .6rem;border-radius:9999px;font-size:.75rem;background:#f3f4f6;color:#374151}
+  .rh-ok{background:#dcfce7;color:#166534}.rh-warn{background:#fef3c7;color:#92400e}.rh-bad{background:#fee2e2;color:#991b1b}
+  .rh-input,.rh-campo input:not([type=checkbox]):not([type=file]),.rh-campo select,.rh-campo textarea{width:100%;border:1px solid #d1d5db;border-radius:.375rem;padding:.5rem .75rem;background:#fff}
+  .rh-input:focus,.rh-campo input:focus,.rh-campo select:focus,.rh-campo textarea:focus{outline:none;border-color:#6366f1;box-shadow:0 0 0 3px rgba(99,102,241,.15)}
+  .rh-muted{color:#6b7280}
+</style>
+{% endblock %}
+{% block content %}
+<div class="container mx-auto px-4 py-6 max-w-7xl">
+  <nav class="flex flex-wrap gap-2 mb-6">
+    <a class="rh-btn" href="{% url 'funcionarios:dashboard' %}"><i class="fas fa-chart-pie mr-1"></i> RH</a>
+    <a class="rh-btn" href="{% url 'funcionarios:funcionarios' %}"><i class="fas fa-users mr-1"></i> Funcionários</a>
+    <a class="rh-btn" href="{% url 'funcionarios:cargo_lista' %}">Cargos</a>
+    <a class="rh-btn" href="{% url 'funcionarios:departamento_lista' %}">Departamentos</a>
+    <a class="rh-btn" href="{% url 'funcionarios:ponto' %}">Ponto</a>
+    <a class="rh-btn" href="{% url 'funcionarios:folha_pagamento' %}">Folha</a>
+    <a class="rh-btn" href="{% url 'funcionarios:recibo_lista' %}">Recibos de Salário</a>
+    <a class="rh-btn" href="{% url 'funcionarios:ferias_lista' %}">Férias</a>
+    <a class="rh-btn" href="{% url 'funcionarios:treinamento_lista' %}">Formação</a>
+    <a class="rh-btn" href="{% url 'funcionarios:avaliacao_lista' %}">Avaliações</a>
+    <a class="rh-btn" href="{% url 'funcionarios:recrutamento' %}">Recrutamento</a>
+    <a class="rh-btn" href="{% url 'funcionarios:comunicado_lista' %}">Comunicados</a>
+    <a class="rh-btn" href="{% url 'funcionarios:relatorios' %}">Relatórios</a>
+  </nav>
+  {% block rh_content %}{% endblock %}
+</div>
+{% endblock %}

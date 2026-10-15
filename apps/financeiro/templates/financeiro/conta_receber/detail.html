@@ -1,27 +1,5 @@
-<!-- templates/financeiro/conta_receber/detail.html -->
-{% extends 'base.html' %}
-{% load static %}
-
-{% block title %}{{ conta.numero }} - Detalhes{% endblock %}
-{% block page_title %}Detalhes da Conta a Receber{% endblock %}
-
-{% block content %}
-<div class="bg-white dark:bg-gray-800 shadow rounded-lg p-6">
-    <h1 class="text-2xl font-bold text-gray-900 dark:text-white mb-4">
-        Detalhes da Conta a Receber: {{ conta.numero }}
-    </h1>
-
-    <p><strong>Cliente:</strong> {{ conta.cliente.nome_exibicao }}</p>
-    <p><strong>Data Vencimento:</strong> {{ conta.data_vencimento|date:"d/m/Y" }}</p>
-    <p><strong>Valor:</strong> {{ conta.valor|floatformat:2 }} Kz</p>
-    <p><strong>Status:</strong> {{ conta.get_status_display }}</p>
-
-    <div class="mt-6">
-        <a href="{% url 'financeiro:conta_receber_update' conta.id %}" class="bg-yellow-500 text-white px-4 py-2 rounded-lg">Editar</a>
-        <form method="POST" action="{% url 'financeiro:receber_conta' conta.id %}" class="inline">
-            {% csrf_token %}
-            <button type="submit" class="bg-green-500 text-white px-4 py-2 rounded-lg">Receber</button>
-        </form>
-    </div>
-</div>
+{% extends "financeiro/base_financeiro.html" %}{% block title %}Detalhe da conta a receber{% endblock %}{% block breadcrumb %}Detalhe da conta a receber{% endblock %}{% block content %}
+<header class="page-head"><div><h1>Detalhe da conta a receber</h1><p>Informação do documento, saldo pendente e acções de cobrança.</p></div>{% block page_actions %}{% endblock %}</header>
+<section class="panel"><div class="page-head"><div><h2>{{ conta.numero_documento }} · {{ conta.descricao }}</h2><p>{{ conta.get_tipo_conta_display }} · {{ conta.cliente|default:'Cliente não indicado' }}</p></div><div class="actions"><a class="btn secondary" href="{% url 'financeiro:conta_receber_lista' %}">Voltar</a><a class="btn secondary" href="{% url 'financeiro:conta_receber_update' conta.pk %}">Editar</a></div></div><div class="grid"><div class="metric"><div class="label">Valor original</div><div class="value">{{ conta.valor_original|floatformat:2 }}</div></div><div class="metric"><div class="label">Saldo em aberto</div><div class="value">{{ conta.valor_saldo|floatformat:2 }}</div></div><div class="metric"><div class="label">Juros + multa</div><div class="value">{{ conta.valor_juros|add:conta.valor_multa|floatformat:2 }}</div></div><div class="metric"><div class="label">Desconto</div><div class="value">{{ conta.valor_desconto|floatformat:2 }}</div></div></div><div class="detail-list"><div class="detail-item"><div class="k">Emissão</div><div class="v">{{ conta.data_emissao|date:'d/m/Y' }}</div></div><div class="detail-item"><div class="k">Vencimento</div><div class="v">{{ conta.data_vencimento|date:'d/m/Y' }}</div></div><div class="detail-item"><div class="k">Estado</div><div class="v">{{ conta.get_status_display }}</div></div><div class="detail-item"><div class="k">Parcela</div><div class="v">{{ conta.numero_parcela }} / {{ conta.total_parcelas }}</div></div><div class="detail-item"><div class="k">Venda relacionada</div><div class="v">{{ conta.venda|default:'—' }}</div></div><div class="detail-item"><div class="k">Centro de custo</div><div class="v">{{ conta.centro_custo|default:'—' }}</div></div></div>{% if conta.observacoes %}<h2 style="margin-top:18px">Observações</h2><p>{{ conta.observacoes|linebreaksbr }}</p>{% endif %}<div class="form-actions"><a class="btn secondary" href="{% url 'financeiro:parcelar_conta' conta.pk %}">Parcelar</a><a class="btn secondary" href="{% url 'financeiro:negociar_conta' conta.pk %}">Negociar</a><form method="post" action="{% url 'financeiro:protestar_conta' conta.pk %}">{% csrf_token %}<button class="btn danger" type="submit">Enviar para protesto</button></form></div>
+<form method="post" action="{% url 'financeiro:receber_conta' conta.pk %}" class="two-col" style="margin-top:20px">{% csrf_token %}<div><label for="valor_recebido">Valor a receber (AOA)</label><input id="valor_recebido" name="valor_recebido" type="number" step="0.01" min="0.01" max="{{ conta.valor_saldo }}" value="{{ conta.valor_saldo }}" required></div><div><label for="data_recebimento">Data do recebimento</label><input id="data_recebimento" name="data_recebimento" type="date" required></div><div><label for="conta_bancaria">Conta bancária</label><select name="conta_bancaria" id="conta_bancaria" required>{% for c in contas_bancarias %}<option value="{{ c.pk }}">{{ c.nome }} — {{ c.banco }}</option>{% endfor %}</select></div><div><label for="tipo_documento">Forma de recebimento</label><select name="tipo_documento" id="tipo_documento"><option value="transferencia">Transferência</option><option value="dinheiro">Dinheiro</option><option value="cheque">Cheque</option><option value="cartao">Cartão</option><option value="outros">Outros</option></select></div><div class="form-actions"><button class="btn success" type="submit">Registar recebimento</button></div></form></section>
 {% endblock %}

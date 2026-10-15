@@ -1,67 +1,14 @@
-<!-- funcionarios/departamentos/lista.html -->
-{% extends "base.html" %}
-
-{% block title %}Lista de Departamentos{% endblock %}
-
-{% block content %}
-<div class="container-fluid">
-    <div class="d-sm-flex align-items-center justify-content-between mb-4">
-        <h1 class="h3 mb-0 text-gray-800">Departamentos</h1>
-        <a href="{% url 'funcionarios:departamento_create' %}" class="btn btn-primary btn-sm">
-            <i class="fas fa-plus fa-sm text-white-50"></i> Novo Departamento
-        </a>
-    </div>
-    
-    <div class="card shadow mb-4">
-        <div class="card-body">
-            <div class="table-responsive">
-                <table class="table table-bordered">
-                    <thead>
-                        <tr>
-                            <th>Código</th>
-                            <th>Nome</th>
-                            <th>Responsável</th>
-                            <th>Centro de Custo</th>
-                            <th>Status</th>
-                            <th>Ações</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for departamento in departamentos %}
-                        <tr>
-                            <td>{{ departamento.codigo }}</td>
-                            <td>{{ departamento.nome }}</td>
-                            <td>{{ departamento.responsavel.nome_completo|default:"—" }}</td>
-                            <td>{{ departamento.nome }}</td>
-                            <td>{{ departamento.centro_custo|default:"—" }}</td>
-                            <td>
-                                {% if departamento.ativo %}
-                                    <span class="badge badge-success">Ativo</span>
-                                {% else %}
-                                    <span class="badge badge-danger">Inativo</span>
-                                {% endif %}
-                            </td>
-                            <td>
-                                <a href="{% url 'funcionarios:departamento_detail' departamento.pk %}" class="btn btn-sm btn-info">
-                                    <i class="fas fa-eye"></i>
-                                </a>
-                                <a href="{% url 'funcionarios:departamento_update' departamento.pk %}" class="btn btn-sm btn-warning">
-                                    <i class="fas fa-edit"></i>
-                                </a>
-                                <a href="{% url 'funcionarios:departamento_funcionarios' departamento.pk %}" class="btn btn-sm btn-success">
-                                    <i class="fas fa-users"></i>
-                                </a>
-                            </td>
-                        </tr>
-                        {% empty %}
-                        <tr>
-                            <td colspan="7" class="text-center">Nenhum departamento encontrado</td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-            </div>
-        </div>
-    </div>
-</div>
+{% extends "funcionarios/_rh_base.html" %}
+{% block title %}Departamentos{% endblock %}
+{% block rh_content %}
+<div class="flex justify-between items-center mb-4"><h1 class="text-2xl font-bold">Departamentos</h1>
+  <a class="rh-btn rh-btn-p" href="{% url 'funcionarios:departamento_create' %}"><i class="fas fa-plus mr-1"></i> Novo</a></div>
+<div class="rh-card p-0 overflow-x-auto"><table class="rh-table">
+  <thead><tr><th>Nome</th><th>Código</th><th>Responsável</th><th>Centro de custo</th><th>Estado</th><th></th></tr></thead><tbody>
+  {% for d in departamentos %}<tr>
+    <td><a class="text-indigo-600 hover:underline" href="{% url 'funcionarios:departamento_detail' pk=d.pk %}">{{ d.nome }}</a></td><td>{{ d.codigo }}</td>
+    <td>{{ d.responsavel.nome_completo|default:"—" }}</td><td>{{ d.centro_custo|default:"—" }}</td>
+    <td>{% if d.ativo %}<span class="rh-badge rh-ok">Activo</span>{% else %}<span class="rh-badge">Inactivo</span>{% endif %}</td>
+    <td class="text-right"><a class="text-indigo-600 mr-3" href="{% url 'funcionarios:departamento_update' pk=d.pk %}">Editar</a><a href="{% url 'funcionarios:departamento_funcionarios' pk=d.pk %}">Equipa</a></td></tr>
+  {% empty %}<tr><td colspan="6" class="text-center py-6 rh-muted">Nenhum departamento.</td></tr>{% endfor %}</tbody></table></div>
 {% endblock %}

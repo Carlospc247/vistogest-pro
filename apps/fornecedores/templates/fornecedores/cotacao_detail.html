@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}{{ cotacao.titulo }}{% endblock %}
+{% block content %}
+<div class="container mx-auto px-4 py-8 max-w-3xl space-y-4">
+  <a href="{% url 'fornecedores:cotacao_lista' %}" class="text-sm text-indigo-600 hover:underline">&larr; Cotações</a>
+  <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-6 space-y-2 text-sm">
+    <h1 class="text-2xl font-bold text-gray-800">{{ cotacao.titulo }}</h1>
+    <p><span class="text-gray-500">Fornecedor:</span> {{ cotacao.fornecedor.razao_social }}</p>
+    <p><span class="text-gray-500">Criada em:</span> {{ cotacao.data_criacao|date:"d/m/Y H:i" }} • <span class="text-gray-500">Validade:</span> {{ cotacao.data_validade|date:"d/m/Y" }}</p>
+    <p><span class="text-gray-500">Total:</span> <strong>{{ cotacao.total|floatformat:2 }} Kz</strong></p>
+    {% if cotacao.descricao %}<p class="pt-2">{{ cotacao.descricao|linebreaksbr }}</p>{% endif %}
+  </div>
+  <a href="{% url 'fornecedores:cotacao_comparar' pk=cotacao.pk %}" class="inline-block px-4 py-2 rounded-md bg-indigo-600 text-white text-sm"><i class="fas fa-balance-scale mr-1"></i> Comparar com outras cotações</a>
+</div>
+{% endblock %}

@@ -1,513 +1,200 @@
 <!-- templates/vendas/nota_credito_form.html -->
 {% extends 'base.html' %}
 
-{% block extra_head %}
-<script src="https://cdn.tailwindcss.com"></script>
-<link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-<script>
-    tailwind.config = {
-        theme: {
-            extend: {
-                colors: {
-                    primary: '#5D5CDE',
-                    'primary-dark': '#4c4bc9',
-                    secondary: '#10B981',
-                    danger: '#EF4444',
-                    warning: '#F59E0B',
-                    info: '#3B82F6',
-                    success: '#10B981',
-                    'gray-50': '#F9FAFB',
-                    'gray-900': '#111827'
-                }
-            }
-        },
-        darkMode: 'class'
-    }
-</script>
+{% block title %}{{ title|default:"Nota de Crédito" }}{% endblock %}
+
+{# O base.html já renderiza um page_header ("Dashboard"); aqui usamos o nosso próprio cabeçalho. #}
+{% block page_header %}{% endblock %}
+
+{# ATENÇÃO: o base.html declara "extra_css" (não "extra_head"). #}
+{% block extra_css %}
+{% include "partials/ui_kit.html" %}
 <style>
-    .transition-all { transition: all 0.3s ease; }
-    .card-hover:hover { transform: translateY(-2px); box-shadow: 0 10px 25px rgba(0,0,0,0.1); }
-    
-    @keyframes fadeIn {
-        from { opacity: 0; transform: translateY(20px); }
-        to { opacity: 1; transform: translateY(0); }
-    }
-    .animate-fade-in { animation: fadeIn 0.5s ease-out; }
-    
-    /* Custom form styles */
-    .form-field {
-        @apply mb-6;
-    }
-    
-    .form-label {
-        @apply block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2;
-    }
-    
-    .form-input {
-        @apply w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent dark:bg-gray-700 dark:text-white transition-all text-base;
-    }
-    
-    .form-select {
-        @apply w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent dark:bg-gray-700 dark:text-white transition-all text-base;
-    }
-    
-    .form-textarea {
-        @apply w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-primary focus:border-transparent dark:bg-gray-700 dark:text-white transition-all resize-none text-base;
-        min-height: 100px;
-    }
-    
-    .form-error {
-        @apply text-sm text-danger mt-1;
-    }
-    
-    .form-help {
-        @apply text-sm text-gray-500 dark:text-gray-400 mt-1;
-    }
-    
-    .required-field::after {
-        content: ' *';
-        @apply text-danger;
-    }
+  /* Pequenos acertos locais ao kit (usam as variáveis --ui-* do kit) */
+  .ui .nc-sec{ padding:1.1rem; }
+  .ui .nc-sec + .nc-sec{ border-top:1px solid var(--ui-border); }
+  .ui .nc-sec-h{ display:flex; align-items:center; gap:.6rem; margin:0 0 1rem; font-size:.95rem; font-weight:700; }
+  .ui .nc-sec-h i{
+    width:1.9rem; height:1.9rem; display:inline-flex; align-items:center; justify-content:center;
+    border-radius:.55rem; background:var(--ui-primary-soft); color:var(--ui-primary); font-size:.8rem;
+  }
+  .ui .nc-lista{ margin:0; padding-left:1.1rem; display:flex; flex-direction:column; gap:.55rem; font-size:.85rem; color:var(--ui-muted); }
+  .ui .tem-erro input, .ui .tem-erro select, .ui .tem-erro textarea{ border-color:var(--ui-danger); }
+  .ui .nc-erros{ margin:.4rem 0 0; padding-left:1.1rem; }
+  @media (min-width:1024px){
+    .ui .nc-aside{ position:sticky; top:1rem; align-self:start; }
+  }
 </style>
 {% endblock %}
 
 {% block content %}
-<div class="min-h-screen bg-gray-50 dark:bg-gray-900 transition-all">
-    <div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <!-- Header Section -->
-        <div class="mb-8 animate-fade-in">
-            <div class="flex items-center gap-4 mb-4">
-                <a href="{% url 'vendas:nota_credito_lista' %}" 
-                   class="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 transition-colors">
-                    <i class="fas fa-arrow-left text-xl"></i>
-                </a>
-                <div>
-                    <h1 class="text-3xl font-bold text-gray-900 dark:text-white">{{ title|default:"Nota de Crédito" }}</h1>
-                    <p class="text-gray-600 dark:text-gray-400 mt-1">{{ subtitle|default:"Preencha os dados para criar ou editar a nota de crédito" }}</p>
-                </div>
-            </div>
-            
-            <!-- Progress Indicator -->
-            <div class="flex items-center space-x-2 text-sm">
-                <span class="text-gray-500 dark:text-gray-400">Vendas</span>
-                <i class="fas fa-chevron-right text-gray-400"></i>
-                <span class="text-gray-500 dark:text-gray-400">Notas de Crédito</span>
-                <i class="fas fa-chevron-right text-gray-400"></i>
-                <span class="text-primary font-medium">{{ title|default:"Formulário" }}</span>
-            </div>
-        </div>
+<div class="ui">
+  <div class="ui-page">
 
-        <!-- Form Section -->
-        <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm overflow-hidden animate-fade-in">
-            <div class="p-6 border-b border-gray-200 dark:border-gray-700">
-                <div class="flex items-center">
-                    <div class="w-12 h-12 bg-primary/10 rounded-lg flex items-center justify-center mr-4">
-                        <i class="fas fa-file-invoice text-primary text-xl"></i>
-                    </div>
-                    <div>
-                        <h2 class="text-xl font-semibold text-gray-900 dark:text-white">Dados da Nota de Crédito</h2>
-                        <p class="text-gray-600 dark:text-gray-400 text-sm">Todas as informações necessárias para a nota</p>
-                    </div>
-                </div>
-            </div>
-            
-            <form method="post" class="p-6" id="creditNoteForm">
-                {% csrf_token %}
-                
-                <!-- Error Messages -->
-                {% if form.non_field_errors %}
-                <div class="mb-6 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
-                    <div class="flex items-center">
-                        <i class="fas fa-exclamation-circle text-red-500 mr-2"></i>
-                        <div class="text-red-700 dark:text-red-300">
-                            {% for error in form.non_field_errors %}
-                                <p>{{ error }}</p>
-                            {% endfor %}
-                        </div>
-                    </div>
-                </div>
+    <!-- ░░ Cabeçalho ░░ -->
+    <div class="ui-head">
+      <div>
+        <nav class="ui-crumb" aria-label="Navegação">
+          <span>Vendas</span><span>/</span>
+          <a href="{% url 'vendas:nota_credito_lista' %}">Notas de Crédito</a><span>/</span>
+          <span>{{ title|default:"Formulário" }}</span>
+        </nav>
+        <h1 class="ui-h1">{{ title|default:"Nota de Crédito" }}</h1>
+        <p class="ui-sub">{{ subtitle|default:"Preencha os dados para criar ou editar a nota de crédito" }}</p>
+      </div>
+      <div class="ui-acoes">
+        <a class="ui-btn" href="{% url 'vendas:nota_credito_lista' %}">
+          <i class="fas fa-arrow-left"></i> Voltar à lista
+        </a>
+      </div>
+    </div>
+
+    <!-- ░░ Erros gerais ░░ -->
+    {% if form.errors %}
+    <div class="ui-aviso ui-aviso-danger" role="alert">
+      <strong><i class="fas fa-circle-exclamation"></i> Não foi possível guardar a nota.</strong>
+      {% if form.non_field_errors %}
+        <ul class="nc-erros">
+          {% for error in form.non_field_errors %}<li>{{ error }}</li>{% endfor %}
+        </ul>
+      {% else %}
+        <div style="margin-top:.25rem">Verifique os campos assinalados abaixo.</div>
+      {% endif %}
+    </div>
+    {% endif %}
+
+    <div class="ui-split">
+
+      <!-- ░░ Formulário ░░ -->
+      <form method="post" class="ui-card" id="creditNoteForm">
+        {% csrf_token %}
+        {% for hidden in form.hidden_fields %}{{ hidden }}{% endfor %}
+
+        <!-- Informações básicas -->
+        <section class="nc-sec">
+          <h2 class="nc-sec-h"><i class="fas fa-circle-info"></i> Informações básicas</h2>
+          <div class="ui-form-grid">
+            {% include "partials/ui_field.html" with field=form.numero_nota %}
+            {% include "partials/ui_field.html" with field=form.data_emissao as_date=True %}
+            {% include "partials/ui_field.html" with field=form.cliente span2=True %}
+          </div>
+        </section>
+
+        <!-- Informações financeiras -->
+        <section class="nc-sec">
+          <h2 class="nc-sec-h"><i class="fas fa-coins"></i> Informações financeiras</h2>
+          <div class="ui-form-grid">
+            {% include "partials/ui_field.html" with field=form.total_credito label="Valor total do crédito (AOA)" %}
+            {% include "partials/ui_field.html" with field=form.taxa_imposto label="Taxa de imposto (%)" %}
+            {% include "partials/ui_field.html" with field=form.venda_original label="Venda original (referência)" hint="Selecione a venda que originou esta nota de crédito." span2=True %}
+
+            {# Qualquer outro campo financeiro do formulário (valor, total, taxa, imposto, desconto, base, retenção, moeda, câmbio, saldo, montante, iva) #}
+            {% for field in form %}
+              {% if not field.is_hidden and field.name != 'numero_nota' and field.name != 'data_emissao' and field.name != 'cliente' and field.name != 'total_credito' and field.name != 'taxa_imposto' and field.name != 'venda_original' and field.name != 'motivo' and field.name != 'observacoes' and field.name != 'status' %}
+                {% if 'valor' in field.name or 'total' in field.name or 'taxa' in field.name or 'imposto' in field.name or 'desconto' in field.name or 'base' in field.name or 'retenc' in field.name or 'moeda' in field.name or 'cambio' in field.name or 'saldo' in field.name or 'montante' in field.name or field.name == 'iva' %}
+                  {% include "partials/ui_field.html" with field=field %}
                 {% endif %}
+              {% endif %}
+            {% endfor %}
+          </div>
+        </section>
 
-                <!-- Basic Information Section -->
-                <div class="mb-8">
-                    <h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center">
-                        <i class="fas fa-info-circle text-primary mr-2"></i>
-                        Informações Básicas
-                    </h3>
-                    
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <!-- Form fields will be rendered here -->
-                        {% for field in form %}
-                            {% if field.name in 'numero_nota,data_emissao,cliente' %}
-                            <div class="form-field {% if field.name == 'cliente' %}md:col-span-2{% endif %}">
-                                <label for="{{ field.id_for_label }}" class="form-label {% if field.field.required %}required-field{% endif %}">
-                                    {{ field.label }}
-                                </label>
-                                
-                                {% if field.field.widget.input_type == 'select' %}
-                                    <select name="{{ field.name }}" 
-                                            id="{{ field.id_for_label }}"
-                                            class="form-select"
-                                            {% if field.field.required %}required{% endif %}>
-                                        {% if not field.field.required %}
-                                        <option value="">Selecione uma opção...</option>
-                                        {% endif %}
-                                        {% for choice in field.field.choices %}
-                                            {% if choice.0 != '' %}
-                                            <option value="{{ choice.0 }}" {% if choice.0 == field.value %}selected{% endif %}>
-                                                {{ choice.1 }}
-                                            </option>
-                                            {% endif %}
-                                        {% endfor %}
-                                    </select>
-                                {% elif field.field.widget.input_type == 'textarea' %}
-                                    <textarea name="{{ field.name }}" 
-                                              id="{{ field.id_for_label }}"
-                                              class="form-textarea"
-                                              {% if field.field.required %}required{% endif %}
-                                              placeholder="{{ field.field.help_text|default:'' }}">{{ field.value|default:'' }}</textarea>
-                                {% elif field.name == 'data_emissao' %}
-                                    <input type="date" 
-                                           name="{{ field.name }}" 
-                                           id="{{ field.id_for_label }}"
-                                           value="{% if field.value %}{{ field.value|date:'Y-m-d' }}{% endif %}"
-                                           class="form-input"
-                                           {% if field.field.required %}required{% endif %}>
-                                {% else %}
-                                    <input type="{{ field.field.widget.input_type|default:'text' }}" 
-                                           name="{{ field.name }}" 
-                                           id="{{ field.id_for_label }}"
-                                           value="{{ field.value|default:'' }}"
-                                           class="form-input"
-                                           {% if field.field.required %}required{% endif %}
-                                           {% if field.field.widget.attrs.placeholder %}placeholder="{{ field.field.widget.attrs.placeholder }}"{% endif %}>
-                                {% endif %}
-                                
-                                {% if field.errors %}
-                                    {% for error in field.errors %}
-                                        <p class="form-error">{{ error }}</p>
-                                    {% endfor %}
-                                {% endif %}
-                                {% if field.help_text %}
-                                    <p class="form-help">{{ field.help_text }}</p>
-                                {% endif %}
-                            </div>
-                            {% endif %}
-                        {% endfor %}
-                    </div>
-                </div>
+        <!-- Detalhes -->
+        <section class="nc-sec">
+          <h2 class="nc-sec-h"><i class="fas fa-clipboard-list"></i> Detalhes</h2>
+          <div class="ui-form-grid">
+            {% include "partials/ui_field.html" with field=form.motivo label="Motivo da nota de crédito" hint="Descreva o motivo da emissão desta nota de crédito." as_textarea=True span2=True %}
+            {% include "partials/ui_field.html" with field=form.observacoes label="Observações adicionais" hint="Informações complementares (opcional)." as_textarea=True span2=True %}
+            {% include "partials/ui_field.html" with field=form.status label="Estado da nota" %}
 
-                <!-- Financial Information Section -->
-                <div class="mb-8">
-                    <h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center">
-                        <i class="fas fa-dollar-sign text-primary mr-2"></i>
-                        Informações Financeiras
-                    </h3>
-                    
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        {% for field in form %}
-                            {% if field.name in 'total_credito,taxa_imposto,venda_original' %}
-                            <div class="form-field {% if field.name == 'venda_original' %}md:col-span-2{% endif %}">
-                                <label for="{{ field.id_for_label }}" class="form-label {% if field.field.required %}required-field{% endif %}">
-                                    {% if field.name == 'total_credito' %}
-                                        Valor Total do Crédito (AOA)
-                                    {% elif field.name == 'taxa_imposto' %}
-                                        Taxa de Imposto (%)
-                                    {% elif field.name == 'venda_original' %}
-                                        Venda Original (Referência)
-                                    {% else %}
-                                        {{ field.label }}
-                                    {% endif %}
-                                </label>
-                                
-                                {% if field.name == 'total_credito' %}
-                                    <div class="relative">
-                                        <span class="absolute left-3 top-3 text-gray-500 dark:text-gray-400">AOA</span>
-                                        <input type="number" 
-                                               name="{{ field.name }}" 
-                                               id="{{ field.id_for_label }}"
-                                               value="{{ field.value|default:'' }}"
-                                               class="form-input pl-16"
-                                               step="0.01"
-                                               min="0"
-                                               {% if field.field.required %}required{% endif %}>
-                                    </div>
-                                {% elif field.name == 'taxa_imposto' %}
-                                    <div class="relative">
-                                        <input type="number" 
-                                               name="{{ field.name }}" 
-                                               id="{{ field.id_for_label }}"
-                                               value="{{ field.value|default:'' }}"
-                                               class="form-input pr-12"
-                                               step="0.01"
-                                               min="0"
-                                               max="100"
-                                               {% if field.field.required %}required{% endif %}>
-                                        <span class="absolute right-3 top-3 text-gray-500 dark:text-gray-400">%</span>
-                                    </div>
-                                {% elif field.field.widget.input_type == 'select' %}
-                                    <select name="{{ field.name }}" 
-                                            id="{{ field.id_for_label }}"
-                                            class="form-select"
-                                            {% if field.field.required %}required{% endif %}>
-                                        <option value="">Selecione uma venda...</option>
-                                        {% for choice in field.field.choices %}
-                                            {% if choice.0 != '' %}
-                                            <option value="{{ choice.0 }}" {% if choice.0 == field.value %}selected{% endif %}>
-                                                {{ choice.1 }}
-                                            </option>
-                                            {% endif %}
-                                        {% endfor %}
-                                    </select>
-                                {% else %}
-                                    <input type="{{ field.field.widget.input_type|default:'text' }}" 
-                                           name="{{ field.name }}" 
-                                           id="{{ field.id_for_label }}"
-                                           value="{{ field.value|default:'' }}"
-                                           class="form-input"
-                                           {% if field.field.required %}required{% endif %}>
-                                {% endif %}
-                                
-                                {% if field.errors %}
-                                    {% for error in field.errors %}
-                                        <p class="form-error">{{ error }}</p>
-                                    {% endfor %}
-                                {% endif %}
-                                {% if field.help_text %}
-                                    <p class="form-help">{{ field.help_text }}</p>
-                                {% elif field.name == 'venda_original' %}
-                                    <p class="form-help">Selecione a venda que originou esta nota de crédito</p>
-                                {% endif %}
-                            </div>
-                            {% endif %}
-                        {% endfor %}
-                    </div>
-                </div>
+            {# Qualquer outro campo do formulário que não esteja acima continua a aparecer aqui #}
+            {% for field in form %}
+              {% if not field.is_hidden and field.name != 'numero_nota' and field.name != 'data_emissao' and field.name != 'cliente' and field.name != 'total_credito' and field.name != 'taxa_imposto' and field.name != 'venda_original' and field.name != 'motivo' and field.name != 'observacoes' and field.name != 'status' %}
+                {# Campos financeiros já aparecem em "Informações financeiras"; aqui ficam só os restantes #}
+                {% if 'valor' in field.name or 'total' in field.name or 'taxa' in field.name or 'imposto' in field.name or 'desconto' in field.name or 'base' in field.name or 'retenc' in field.name or 'moeda' in field.name or 'cambio' in field.name or 'saldo' in field.name or 'montante' in field.name or field.name == 'iva' %}
+                {% else %}
+                  {% include "partials/ui_field.html" with field=field %}
+                {% endif %}
+              {% endif %}
+            {% endfor %}
+          </div>
+        </section>
 
-                <!-- Additional Information Section -->
-                <div class="mb-8">
-                    <h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center">
-                        <i class="fas fa-clipboard-list text-primary mr-2"></i>
-                        Informações Adicionais
-                    </h3>
-                    
-                    <div class="grid grid-cols-1 gap-6">
-                        {% for field in form %}
-                            {% if field.name not in 'numero_nota,data_emissao,cliente,total_credito,taxa_imposto,venda_original' %}
-                            <div class="form-field">
-                                <label for="{{ field.id_for_label }}" class="form-label {% if field.field.required %}required-field{% endif %}">
-                                    {% if field.name == 'motivo' %}
-                                        Motivo da Nota de Crédito
-                                    {% elif field.name == 'observacoes' %}
-                                        Observações Adicionais
-                                    {% elif field.name == 'status' %}
-                                        Status da Nota
-                                    {% else %}
-                                        {{ field.label }}
-                                    {% endif %}
-                                </label>
-                                
-                                {% if field.field.widget.input_type == 'textarea' or 'motivo' in field.name or 'observacoes' in field.name %}
-                                    <textarea name="{{ field.name }}" 
-                                              id="{{ field.id_for_label }}"
-                                              class="form-textarea"
-                                              {% if field.field.required %}required{% endif %}
-                                              placeholder="{% if field.name == 'motivo' %}Descreva detalhadamente o motivo da emissão desta nota de crédito{% endif %}">{{ field.value|default:'' }}</textarea>
-                                {% elif field.field.widget.input_type == 'select' %}
-                                    <select name="{{ field.name }}" 
-                                            id="{{ field.id_for_label }}"
-                                            class="form-select"
-                                            {% if field.field.required %}required{% endif %}>
-                                        {% for choice in field.field.choices %}
-                                        <option value="{{ choice.0 }}" {% if choice.0 == field.value %}selected{% endif %}>
-                                            {{ choice.1 }}
-                                        </option>
-                                        {% endfor %}
-                                    </select>
-                                {% else %}
-                                    <input type="{{ field.field.widget.input_type|default:'text' }}" 
-                                           name="{{ field.name }}" 
-                                           id="{{ field.id_for_label }}"
-                                           value="{{ field.value|default:'' }}"
-                                           class="form-input"
-                                           {% if field.field.required %}required{% endif %}>
-                                {% endif %}
-                                
-                                {% if field.errors %}
-                                    {% for error in field.errors %}
-                                        <p class="form-error">{{ error }}</p>
-                                    {% endfor %}
-                                {% endif %}
-                                {% if field.help_text %}
-                                    <p class="form-help">{{ field.help_text }}</p>
-                                {% elif field.name == 'motivo' %}
-                                    <p class="form-help">Descreva detalhadamente o motivo da emissão desta nota de crédito</p>
-                                {% elif field.name == 'observacoes' %}
-                                    <p class="form-help">Informações complementares (opcional)</p>
-                                {% endif %}
-                            </div>
-                            {% endif %}
-                        {% endfor %}
-                    </div>
-                </div>
-
-                <!-- Form Actions -->
-                <div class="flex flex-col sm:flex-row justify-end items-center gap-4 pt-6 border-t border-gray-200 dark:border-gray-700">
-                    <a href="{% url 'vendas:nota_credito_lista' %}" 
-                       class="w-full sm:w-auto px-6 py-3 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-all text-center text-base">
-                        <i class="fas fa-times mr-2"></i>Cancelar
-                    </a>
-                    
-                    {% if object %}
-                    <!-- Save Draft Button for Editing -->
-                    <button type="submit" name="action" value="draft" 
-                            class="w-full sm:w-auto px-6 py-3 bg-gray-600 hover:bg-gray-700 text-white rounded-lg transition-all flex items-center justify-center gap-2 text-base">
-                        <i class="fas fa-save"></i>
-                        Salvar Rascunho
-                    </button>
-                    {% endif %}
-                    
-                    <!-- Main Save Button -->
-                    <button type="submit" 
-                            class="w-full sm:w-auto px-6 py-3 bg-primary hover:bg-primary-dark text-white rounded-lg transition-all flex items-center justify-center gap-2 font-medium shadow-sm text-base">
-                        <i class="fas fa-check"></i>
-                        {% if object %}Atualizar Nota{% else %}Criar Nota de Crédito{% endif %}
-                    </button>
-                </div>
-            </form>
+        <!-- Acções -->
+        <div class="ui-barra-acoes">
+          <a class="ui-btn" href="{% url 'vendas:nota_credito_lista' %}">
+            <i class="fas fa-xmark"></i> Cancelar
+          </a>
+          {% if object %}
+          <button type="submit" name="action" value="draft" class="ui-btn">
+            <i class="fas fa-floppy-disk"></i> Guardar rascunho
+          </button>
+          {% endif %}
+          <button type="submit" class="ui-btn ui-btn-primary">
+            <i class="fas fa-check"></i>
+            {% if object %}Atualizar nota{% else %}Criar nota de crédito{% endif %}
+          </button>
         </div>
+      </form>
 
-        <!-- Help Section -->
-        <div class="mt-8 bg-blue-50 dark:bg-blue-900/20 rounded-xl p-6 animate-fade-in">
-            <div class="flex items-start">
-                <div class="flex-shrink-0">
-                    <i class="fas fa-info-circle text-blue-600 dark:text-blue-400 text-xl"></i>
-                </div>
-                <div class="ml-3">
-                    <h3 class="text-sm font-medium text-blue-800 dark:text-blue-200">Informações Importantes</h3>
-                    <div class="mt-2 text-sm text-blue-700 dark:text-blue-300">
-                        <ul class="list-disc pl-5 space-y-1">
-                            <li>As notas de crédito são utilizadas para reverter ou ajustar vendas já realizadas</li>
-                            <li>O valor da nota não pode exceder o valor da venda original</li>
-                            <li>Após a criação, a nota pode ser aplicada em futuras compras do cliente</li>
-                            <li>Todas as notas de crédito são rastreadas para fins contábeis e fiscais</li>
-                        </ul>
-                    </div>
-                </div>
-            </div>
+      <!-- ░░ Ajuda ░░ -->
+      <aside class="ui-card nc-aside">
+        <div class="ui-card-h">
+          <h2><i class="fas fa-circle-info" style="color:var(--ui-primary);margin-right:.4rem"></i>Informações importantes</h2>
         </div>
-    </div>
-</div>
+        <div class="ui-pad">
+          <ul class="nc-lista">
+            <li>As notas de crédito servem para reverter ou ajustar vendas já realizadas.</li>
+            <li>O valor da nota não pode exceder o valor da venda original.</li>
+            <li>Depois de criada, a nota pode ser aplicada em compras futuras do cliente.</li>
+            <li>Todas as notas de crédito ficam registadas para efeitos contabilísticos e fiscais.</li>
+          </ul>
+        </div>
+      </aside>
 
-<!-- Loading Overlay -->
-<div id="loadingOverlay" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-    <div class="bg-white dark:bg-gray-800 rounded-lg p-6 flex items-center space-x-3">
-        <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-        <span class="text-gray-900 dark:text-white">Processando...</span>
     </div>
+  </div>
 </div>
+{% endblock %}
 
+{% block extra_js %}
 <script>
-    // Dark mode detection
-    if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
-        document.documentElement.classList.add('dark');
-    }
-    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', event => {
-        if (event.matches) {
-            document.documentElement.classList.add('dark');
-        } else {
-            document.documentElement.classList.remove('dark');
-        }
-    });
+(() => {
+  const form = document.getElementById('creditNoteForm');
+  if (!form) return;
 
-    // Form submission with loading
-    document.getElementById('creditNoteForm').addEventListener('submit', function(e) {
-        const submitButton = e.submitter || document.querySelector('button[type="submit"]');
-        const loadingOverlay = document.getElementById('loadingOverlay');
-        
-        // Show loading
-        loadingOverlay.classList.remove('hidden');
-        
-        // Disable form elements
-        const formElements = this.querySelectorAll('input, select, textarea, button');
-        formElements.forEach(element => element.disabled = true);
-        
-        // Change button text
-        if (submitButton) {
-            const originalText = submitButton.innerHTML;
-            submitButton.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Processando...';
-            
-            // Restore on error (simplified)
-            setTimeout(() => {
-                if (loadingOverlay && !loadingOverlay.classList.contains('hidden')) {
-                    loadingOverlay.classList.add('hidden');
-                    formElements.forEach(element => element.disabled = false);
-                    submitButton.innerHTML = originalText;
-                }
-            }, 10000); // 10 second timeout
-        }
-    });
+  let enviado = false;
 
-    // Auto-resize textareas
-    document.addEventListener('DOMContentLoaded', function() {
-        const textareas = document.querySelectorAll('textarea');
-        textareas.forEach(textarea => {
-            textarea.addEventListener('input', function() {
-                this.style.height = 'auto';
-                this.style.height = (this.scrollHeight) + 'px';
-            });
-            // Initial resize
-            textarea.style.height = 'auto';
-            textarea.style.height = (textarea.scrollHeight) + 'px';
-        });
-    });
+  form.addEventListener('submit', e => {
+    // Evita duplo clique / duplo envio
+    if (enviado) { e.preventDefault(); return; }
+    enviado = true;
 
-    // Currency formatting for monetary fields
-    document.addEventListener('DOMContentLoaded', function() {
-        const monetaryFields = document.querySelectorAll('input[name*="total_credito"], input[name*="valor"]');
-        monetaryFields.forEach(field => {
-            field.addEventListener('input', function() {
-                // Remove non-numeric characters except decimal point
-                let value = this.value.replace(/[^\d.,]/g, '');
-                
-                // Replace comma with dot for decimal separator
-                value = value.replace(',', '.');
-                
-                // Ensure only one decimal point
-                const parts = value.split('.');
-                if (parts.length > 2) {
-                    value = parts[0] + '.' + parts.slice(1).join('');
-                }
-                
-                // Limit decimal places to 2
-                if (parts[1] && parts[1].length > 2) {
-                    value = parts[0] + '.' + parts[1].substring(0, 2);
-                }
-                
-                this.value = value;
-            });
-        });
-    });
+    const btn = e.submitter;
 
-    // Field validation visual feedback
-    document.addEventListener('DOMContentLoaded', function() {
-        const inputs = document.querySelectorAll('input, select, textarea');
-        inputs.forEach(input => {
-            input.addEventListener('blur', function() {
-                if (this.value.trim() !== '') {
-                    this.classList.add('border-green-500');
-                    this.classList.remove('border-gray-300', 'border-red-500');
-                } else if (this.hasAttribute('required')) {
-                    this.classList.add('border-red-500');
-                    this.classList.remove('border-gray-300', 'border-green-500');
-                }
-            });
-            
-            input.addEventListener('focus', function() {
-                this.classList.remove('border-green-500', 'border-red-500');
-                this.classList.add('border-primary');
-            });
-        });
+    // IMPORTANTE: só desativamos os botões DEPOIS de o envio arrancar.
+    // Campos desativados dentro do evento "submit" não seguem no POST
+    // (o formulário chegaria vazio e sem o token CSRF).
+    setTimeout(() => {
+      form.setAttribute('aria-busy', 'true');
+      form.querySelectorAll('button[type="submit"]').forEach(b => { b.disabled = true; });
+      if (btn) {
+        btn.dataset.original = btn.innerHTML;
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> A processar…';
+      }
+    }, 0);
+  });
+
+  // Voltar com o botão "atrás" do browser: repõe o formulário
+  window.addEventListener('pageshow', ev => {
+    if (!ev.persisted) return;
+    enviado = false;
+    form.removeAttribute('aria-busy');
+    form.querySelectorAll('button[type="submit"]').forEach(b => {
+      b.disabled = false;
+      if (b.dataset.original) b.innerHTML = b.dataset.original;
     });
+  });
+})();
 </script>
 {% endblock %}

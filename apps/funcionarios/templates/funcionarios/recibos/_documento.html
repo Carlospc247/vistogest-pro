@@ -1,0 +1,63 @@
+{# recibos/_documento.html #}
+<div class="rv-doc" style="position:relative">
+  {% if r.estado == 'ANULADO' %}<div class="rv-marca">ANULADO</div>{% elif r.estado == 'RETIFICADO' %}<div class="rv-marca">RETIFICADO</div>{% elif previa or r.estado == 'RASCUNHO' or r.estado == 'CALCULADO' %}<div class="rv-marca" style="font-size:70px">{% if previa %}PRÉ-VISUALIZAÇÃO{% else %}NÃO EMITIDO{% endif %}</div>{% endif %}
+
+  <div class="rv-cab">
+    <div class="rv-emp">
+      {% if logo_url %}<img class="rv-logo" src="{{ logo_url }}" alt="">{% endif %}
+      <div><strong style="font-size:15px">{{ r.empresa_nome }}</strong><br>NIF: {{ r.empresa_nif }}{% if r.empresa_inss %} &nbsp;|&nbsp; INSS n.º {{ r.empresa_inss }}{% endif %}<br>{{ r.empresa_endereco }}<br>{{ r.empresa_contactos }}</div>
+    </div>
+    <div class="rv-tit"><h1>RECIBO DE VENCIMENTO</h1><p class="rv-num">{{ r.numero }}</p><p>Período: {{ r.mes|stringformat:"02d" }}/{{ r.ano }}</p></div>
+  </div>
+  <div class="rv-meta">
+    <span>Emissão: <b>{{ r.data_emissao|date:"d/m/Y"|default:"—" }}</b></span>
+    <span>Pagamento: <b>{{ r.data_pagamento|date:"d/m/Y"|default:"—" }}</b></span>
+    <span>Moeda: <b>{{ r.moeda }}</b></span>
+    <span>Estado: <b>{{ r.get_estado_display }}</b>{% if r.processamento_id %} &nbsp;|&nbsp; Processamento: <b>{{ r.processamento.get_estado_display }}</b>{% endif %}</span>
+  </div>
+
+  <h2>Identificação do funcionário</h2>
+  <div class="rv-id">
+    <b>Nome</b><span>{{ r.func_nome }}</span><b>N.º interno</b><span>{{ r.func_matricula }}</span>
+    <b>NIF</b><span>{{ r.func_nif|default:"—" }}</span><b>N.º INSS</b><span>{{ r.func_inss|default:"—" }}</span>
+    <b>Cargo / função</b><span>{{ r.func_cargo|default:"—" }}</span><b>Categoria</b><span>{{ r.func_categoria|default:"—" }}</span>
+    <b>Departamento</b><span>{{ r.func_departamento }}</span><b>Unidade</b><span>{{ r.func_unidade|default:"—" }}</span>
+    <b>Tipo de contrato</b><span>{{ r.func_tipo_contrato }}</span><b>Admissão</b><span>{{ r.func_data_admissao|date:"d/m/Y"|default:"—" }}</span>
+    <b>IBAN / conta</b><span>{{ iban_txt|default:"—" }}</span><b>Período salarial</b><span>{{ r.mes|stringformat:"02d" }}/{{ r.ano }}</span>
+  </div>
+
+  <h2>Remunerações e abonos</h2>
+  <table class="rv-t"><thead><tr><th>Cód.</th><th>Designação</th><th class="rv-d">Qtd.</th><th class="rv-d">Base</th><th class="rv-d">%</th><th class="rv-d">V. calculado</th><th class="rv-d">V. final</th></tr></thead><tbody>
+    {% for l in linhas_remun %}<tr><td>{{ l.codigo }}</td><td>{{ l.designacao }}</td><td class="rv-d">{% if l.quantidade is not None %}{{ l.quantidade|floatformat:"2g" }}{% endif %}</td>
+      <td class="rv-d">{% if l.base_calculo %}{{ l.base_calculo|floatformat:"2g" }}{% endif %}</td><td class="rv-d">{% if l.taxa is not None %}{{ l.taxa|floatformat:"2g" }}{% endif %}</td>
+      <td class="rv-d">{{ l.valor_calculado|floatformat:"2g" }}</td><td class="rv-d"><b>{{ l.valor_final|floatformat:"2g" }}</b></td></tr>
+    {% empty %}<tr><td colspan="7" style="text-align:center">Sem rubricas.</td></tr>{% endfor %}
+  </tbody></table>
+
+  <h2>Descontos e deduções</h2>
+  <table class="rv-t"><thead><tr><th>Cód.</th><th>Designação</th><th class="rv-d">Base</th><th class="rv-d">%</th><th class="rv-d">V. calculado</th><th class="rv-d">V. final</th><th>Observação</th></tr></thead><tbody>
+    {% for l in linhas_desc %}<tr><td>{{ l.codigo }}</td><td>{{ l.designacao }}</td><td class="rv-d">{% if l.base_calculo %}{{ l.base_calculo|floatformat:"2g" }}{% endif %}</td>
+      <td class="rv-d">{% if l.taxa is not None %}{{ l.taxa|floatformat:"2g" }}{% endif %}</td><td class="rv-d">{{ l.valor_calculado|floatformat:"2g" }}</td>
+      <td class="rv-d"><b>{{ l.valor_final|floatformat:"2g" }}</b></td><td style="font-size:10px">{{ l.observacao }}</td></tr>
+    {% empty %}<tr><td colspan="7" style="text-align:center">Sem descontos.</td></tr>{% endfor %}
+  </tbody></table>
+
+  <table class="rv-sum">
+    <tr><td>Salário-base</td><td class="rv-d">{{ r.salario_base|floatformat:"2g" }}</td></tr>
+    <tr><td>Total de remunerações adicionais</td><td class="rv-d">{{ r.total_remuneracoes_adicionais|floatformat:"2g" }}</td></tr>
+    <tr class="rv-forte"><td>Salário ilíquido</td><td class="rv-d">{{ r.salario_iliquido|floatformat:"2g" }}</td></tr>
+    <tr><td>Total de descontos</td><td class="rv-d">{{ r.total_descontos|floatformat:"2g" }}</td></tr>
+    <tr class="rv-liq"><td>SALÁRIO LÍQUIDO A RECEBER ({{ r.moeda }})</td><td class="rv-d">{{ r.salario_liquido|floatformat:"2g" }}</td></tr>
+  </table>
+  {% if linhas_enc %}<p class="rv-enc">Encargos da entidade empregadora (não descontados ao trabalhador):
+    {% for l in linhas_enc %}{{ l.designacao }}: <b>{{ l.valor_final|floatformat:"2g" }}</b>{% if not forloop.last %} | {% endif %}{% endfor %}</p>{% endif %}
+
+  <div class="rv-ass">
+    <div>O trabalhador<br><small>{{ r.func_nome }}</small></div>
+    <div>O responsável pelo processamento<br><small>{{ r.nome_responsavel }}</small></div>
+    {% if r.contabilista_nome %}<div>O contabilista{% if r.contabilista_numero_ordem %} (inscrição n.º {{ r.contabilista_numero_ordem }}){% endif %}<br><small>{{ r.contabilista_nome }}</small></div>{% endif %}
+  </div>
+  <p style="font-size:10px;color:#6b7280;margin-top:14px">
+    {% if r.referencia_pagamento %}Ref. pagamento: {{ r.referencia_pagamento }} &nbsp;|&nbsp; {% endif %}Documento processado por computador
+    {% if r.hash_integridade %} &nbsp;|&nbsp; Cód. verificação: {{ r.hash_integridade|slice:":16"|upper }}{% endif %}</p>
+</div>

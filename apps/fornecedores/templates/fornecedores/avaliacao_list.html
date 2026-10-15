@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}{{ titulo }}{% endblock %}
+{% block content %}
+<div class="container mx-auto px-4 py-8 max-w-6xl">
+  <div class="flex justify-between items-center mb-4">
+    <h1 class="text-2xl font-bold text-gray-800">{{ titulo }}</h1>
+    {% if fornecedor %}
+      <a href="{% url 'fornecedores:avaliar' pk=fornecedor.pk %}" class="px-4 py-2 rounded-md bg-indigo-600 text-white">Nova avaliação</a>
+    {% endif %}
+  </div>
+  <div class="bg-white rounded-xl border border-gray-100 shadow-sm overflow-x-auto">
+    <table class="w-full text-sm">
+      <thead class="bg-gray-50 text-left text-gray-500"><tr>
+        {% if not fornecedor %}<th class="p-3">Fornecedor</th>{% endif %}<th class="p-3">Pedido</th><th>Pontual.</th><th>Qualid.</th><th>Atend.</th><th>Preço</th><th>Geral</th><th>Recomenda</th><th>Data</th></tr></thead>
+      <tbody>
+      {% for a in avaliacoes %}
+        <tr class="border-t">
+          {% if not fornecedor %}<td class="p-3">{{ a.fornecedor.nome_exibicao }}</td>{% endif %}
+          <td class="p-3">{{ a.pedido.numero_pedido }}</td><td>{{ a.nota_pontualidade }}</td><td>{{ a.nota_qualidade }}</td>
+          <td>{{ a.nota_atendimento }}</td><td>{{ a.nota_preco }}</td><td class="font-semibold">{{ a.nota_geral }}</td>
+          <td>{{ a.recomendaria|yesno:"Sim,Não" }}</td><td>{{ a.created_at|date:"d/m/Y" }}</td></tr>
+      {% empty %}<tr><td colspan="9" class="p-6 text-center text-gray-500">Sem avaliações.</td></tr>{% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

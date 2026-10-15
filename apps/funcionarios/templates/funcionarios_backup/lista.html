@@ -1,0 +1,146 @@
+<!-- funcionarios/lista.html -->
+{% extends "base.html" %}
+
+{% block title %}Lista de Funcionários{% endblock %}
+
+{% block content %}
+<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+
+    <!-- Cabeçalho -->
+    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-6">
+        <h1 class="text-2xl font-bold text-gray-800">👨‍💼 Funcionários</h1>
+        <a href="{% url 'funcionarios:create' %}" 
+           class="mt-4 sm:mt-0 inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-md shadow hover:bg-indigo-700">
+            <i class="fas fa-plus"></i> Novo Funcionário
+        </a>
+    </div>
+
+    <!-- Filtros -->
+    <div class="bg-white shadow rounded-lg p-6 mb-6">
+        <form method="get" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4">
+            <div>
+                <input type="text" name="search" placeholder="Buscar..." value="{{ request.GET.search }}"
+                       class="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm">
+            </div>
+
+            <div>
+                <select name="cargo"
+                        class="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm">
+                    <option value="">Todos os Cargos</option>
+                    {% for cargo in cargos %}
+                    <option value="{{ cargo.id }}" {% if request.GET.cargo == cargo.id|stringformat:"s" %}selected{% endif %}>
+                        {{ cargo.nome }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div>
+                <select name="departamento"
+                        class="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm">
+                    <option value="">Todos os Departamentos</option>
+                    {% for departamento in departamentos %}
+                    <option value="{{ departamento.id }}" {% if request.GET.departamento == departamento.id|stringformat:"s" %}selected{% endif %}>
+                        {{ departamento.nome }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div>
+                <select name="status"
+                        class="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm">
+                    <option value="">Todos</option>
+                    <option value="ativo" {% if request.GET.status == 'ativo' %}selected{% endif %}>Ativos</option>
+                    <option value="inativo" {% if request.GET.status == 'inativo' %}selected{% endif %}>Inativos</option>
+                </select>
+            </div>
+
+            <div class="sm:col-span-2 lg:col-span-1 flex">
+                <button type="submit"
+                        class="w-full inline-flex justify-center items-center px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-md shadow hover:bg-indigo-700">
+                    Filtrar
+                </button>
+            </div>
+        </form>
+    </div>
+
+    <!-- Tabela de Funcionários -->
+    <div class="bg-white shadow rounded-lg overflow-hidden">
+        <div class="overflow-x-auto">
+            <table class="min-w-full text-sm divide-y divide-gray-200">
+                <thead class="bg-gray-50">
+                    <tr>
+                        <th class="px-6 py-3 text-left font-semibold text-gray-600">Matrícula</th>
+                        <th class="px-6 py-3 text-left font-semibold text-gray-600">Nome</th>
+                        <th class="px-6 py-3 text-left font-semibold text-gray-600">Cargo</th>
+                        <th class="px-6 py-3 text-left font-semibold text-gray-600">Departamento</th>
+                        <th class="px-6 py-3 text-left font-semibold text-gray-600">Status</th>
+                        <th class="px-6 py-3 text-center font-semibold text-gray-600">Ações</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-200 bg-white">
+                    {% for funcionario in funcionarios %}
+                    <tr class="hover:bg-gray-50 transition">
+                        <td class="px-6 py-4 whitespace-nowrap">{{ funcionario.matricula }}</td>
+                        <td class="px-6 py-4 whitespace-nowrap font-medium text-gray-900">{{ funcionario.nome_completo }}</td>
+                        <td class="px-6 py-4 whitespace-nowrap">{{ funcionario.cargo.nome }}</td>
+                        <td class="px-6 py-4 whitespace-nowrap">{{ funcionario.departamento.nome }}</td>
+                        <td class="px-6 py-4 whitespace-nowrap">
+                            {% if funcionario.ativo %}
+                                <span class="px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-700">Ativo</span>
+                            {% else %}
+                                <span class="px-2 py-1 rounded-full text-xs font-medium bg-red-100 text-red-700">Inativo</span>
+                            {% endif %}
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap text-center">
+                            <div class="flex justify-center gap-2">
+                                <a href="{% url 'funcionarios:detail' funcionario.pk %}" 
+                                   class="p-2 text-blue-600 hover:bg-blue-50 rounded-full" title="Ver Detalhes">
+                                    <i class="fas fa-eye"></i>
+                                </a>
+                                <a href="{% url 'funcionarios:update' funcionario.pk %}" 
+                                   class="p-2 text-yellow-600 hover:bg-yellow-50 rounded-full" title="Editar">
+                                    <i class="fas fa-edit"></i>
+                                </a>
+                            </div>
+                        </td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="6" class="px-6 py-6 text-center text-gray-500">
+                            <i class="fas fa-info-circle"></i> Nenhum funcionário encontrado
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Paginação -->
+        {% if is_paginated %}
+        <div class="px-6 py-4 border-t border-gray-200 flex justify-center">
+            <nav class="inline-flex rounded-md shadow-sm" aria-label="Pagination">
+                {% if page_obj.has_previous %}
+                <a href="?page={{ page_obj.previous_page_number }}" 
+                   class="px-3 py-2 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-l-md">
+                    Anterior
+                </a>
+                {% endif %}
+
+                <span class="px-4 py-2 text-sm font-medium bg-indigo-600 text-white">
+                    Página {{ page_obj.number }} de {{ page_obj.paginator.num_pages }}
+                </span>
+
+                {% if page_obj.has_next %}
+                <a href="?page={{ page_obj.next_page_number }}" 
+                   class="px-3 py-2 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-r-md">
+                    Próximo
+                </a>
+                {% endif %}
+            </nav>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

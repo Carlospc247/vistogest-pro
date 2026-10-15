@@ -1,212 +1,23 @@
-{% extends "base.html" %}
-{% load i18n static %}
-
+{% extends "fiscal/base_fiscal.html" %}
+{% block title %}Visão geral{% endblock %}
+{% block topbar_title %}Painel fiscal{% endblock %}
 {% block content %}
-<div class="min-h-screen bg-gray-50 py-8 px-4 sm:px-6 lg:px-8">
-    <div class="max-w-7xl mx-auto mb-8">
-        <div class="md:flex md:items-center md:justify-between border-b border-gray-200 pb-6">
-            <div class="flex-1 min-w-0">
-                <h2 class="text-2xl font-bold leading-7 text-gray-900 sm:text-3xl sm:truncate">
-                    {% trans "Painel de Conformidade Fiscal" %}
-                </h2>
-                <p class="mt-1 text-sm text-gray-500">
-                    {{ empresa.nome }} | NIF: {{ empresa.nif }}
-                </p>
-            </div>
-            <div class="mt-4 flex md:mt-0 md:ml-4 space-x-3">
-                <button type="button" onclick="location.reload()" class="inline-flex items-center px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 transition">
-                    <i class="fas fa-sync-alt mr-2 text-gray-400"></i> {% trans "Actualizar Dados" %}
-                </button>
-                <a href="{% url 'fiscal:saft-export-web' %}" class="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 transition">
-                    <i class="fas fa-file-export mr-2"></i> {% trans "Gerar SAF-T AO" %}
-                </a>
-            </div>
-        </div>
-    </div>
-
-    <div class="max-w-7xl mx-auto grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4 mb-8">
-        <div class="bg-white overflow-hidden shadow-sm rounded-lg border border-gray-200">
-            <div class="p-5">
-                <div class="flex items-center">
-                    <div class="bg-blue-100 rounded-lg p-3 text-blue-600"><i class="fas fa-percent fa-lg"></i></div>
-                    <div class="ml-5">
-                        <dt class="text-xs font-semibold text-gray-500 uppercase tracking-wider">Taxas Ativas</dt>
-                        <dd class="text-2xl font-bold text-gray-900">{{ total_taxas_ativas }}</dd>
-                    </div>
-                </div>
-            </div>
-        </div>
-        <div class="bg-white overflow-hidden shadow-sm rounded-lg border border-gray-200">
-            <div class="p-5">
-                <div class="flex items-center">
-                    <div class="bg-yellow-100 rounded-lg p-3 text-yellow-600"><i class="fas fa-shield-alt fa-lg"></i></div>
-                    <div class="ml-5">
-                        <dt class="text-xs font-semibold text-gray-500 uppercase tracking-wider">Isenções (AGT)</dt>
-                        <dd class="text-2xl font-bold text-gray-900">{{ total_isencoes }}</dd>
-                    </div>
-                </div>
-            </div>
-        </div>
-        <div class="bg-white overflow-hidden shadow-sm rounded-lg border border-gray-200">
-            <div class="p-5">
-                <div class="flex items-center">
-                    <div class="{% if assinatura %}bg-green-100 text-green-600{% else %}bg-red-100 text-red-600{% endif %} rounded-lg p-3">
-                        <i class="fas fa-key fa-lg"></i>
-                    </div>
-                    <div class="ml-5">
-                        <dt class="text-xs font-semibold text-gray-500 uppercase tracking-wider">Certificado RSA</dt>
-                        <dd class="text-sm font-bold {% if assinatura %}text-green-700{% else %}text-red-700{% endif %}">
-                            {% if assinatura %}Válido e Activo{% else %}Não Configurado{% endif %}
-                        </dd>
-                    </div>
-                </div>
-            </div>
-        </div>
-        <div class="bg-white overflow-hidden shadow-sm rounded-lg border border-gray-200">
-            <div class="p-5">
-                <div class="flex items-center">
-                    <div class="bg-indigo-100 rounded-lg p-3 text-indigo-600"><i class="fas fa-link fa-lg"></i></div>
-                    <div class="ml-5">
-                        <dt class="text-xs font-semibold text-gray-500 uppercase tracking-wider">Cadeia de Hash</dt>
-                        <dd class="text-sm font-bold text-gray-900" id="hash-status">Processando...</dd>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <div class="max-w-7xl mx-auto">
-        <div class="bg-white shadow-sm border border-gray-200 rounded-lg overflow-hidden">
-            <div class="px-6 py-4 border-b border-gray-200 bg-gray-50 flex justify-between items-center">
-                <h3 class="text-lg font-bold text-gray-800">Monitor de Faturação Eletrónica (Últimas Submissões)</h3>
-                <span class="flex items-center text-xs font-semibold text-green-600 uppercase">
-                    <span class="h-2 w-2 bg-green-500 rounded-full mr-2 animate-pulse"></span>
-                    Polling em tempo real
-                </span>
-            </div>
-            <div class="overflow-x-auto">
-                <table class="min-w-full divide-y divide-gray-200">
-                    <thead class="bg-gray-50">
-                        <tr>
-                            <th class="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Nº Documento</th>
-                            <th class="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Data Submissão</th>
-                            <th class="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Status AGT</th>
-                            <th class="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider italic text-blue-600">Request ID (Oficial)</th>
-                            <th class="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider">Observações</th>
-                        </tr>
-                    </thead>
-                    <tbody class="bg-white divide-y divide-gray-200" id="docs-polling-body">
-                        <tr class="animate-pulse">
-                            <td colspan="5" class="px-6 py-8 text-center text-gray-400">
-                                <i class="fas fa-circle-notch fa-spin mr-2"></i> Sincronizando com a Administração Tributária...
-                            </td>
-                        </tr>
-                    </tbody>
-                </table>
-            </div>
-        </div>
-    </div>
+<div class="page-head"><div><p class="eyebrow">Centro de controlo</p><h1>Visão geral fiscal</h1><p>Acompanhe documentos, retenções, impostos e tarefas de conformidade num só lugar.</p></div><div class="actions"><a class="btn btn-primary" href="{% url 'fiscal:documento_novo' %}">＋ Novo documento</a><a class="btn btn-light" href="{% url 'fiscal:saft_exportar' %}">Exportar SAF-T</a></div></div>
+<div class="grid grid-4" style="margin-bottom:18px">
+  <article class="card stat"><div class="stat-top"><span>Documentos fiscais</span><span class="stat-icon">▤</span></div><strong>{{ total_documentos|default:0 }}</strong><small>Total no período/empresa</small></article>
+  <article class="card stat"><div class="stat-top"><span>Em rascunho</span><span class="stat-icon">✎</span></div><strong>{{ documentos_rascunho|default:0 }}</strong><small>Aguardam confirmação</small></article>
+  <article class="card stat"><div class="stat-top"><span>Retenções</span><span class="stat-icon">↘</span></div><strong>{{ total_retencoes|default:0 }}</strong><small>Registos na fonte</small></article>
+  <article class="card stat"><div class="stat-top"><span>Taxas activas</span><span class="stat-icon">%</span></div><strong>{{ taxas_ativas|default:0 }}</strong><small>Taxas disponíveis</small></article>
 </div>
-
-<script>
-    document.addEventListener('DOMContentLoaded', function() {
-        // 1. Verificação de Integridade da Cadeia de Hash
-        fetch("{% url 'fiscal:verificar-integridade' %}")
-            .then(res => res.json())
-            .then(data => {
-                const el = document.getElementById('hash-status');
-                if(data.integridade_geral) {
-                    el.innerText = "Série Verificada ✓";
-                    el.className = "text-sm font-bold text-green-600";
-                } else {
-                    el.innerText = "Falha Crítica!";
-                    el.className = "text-sm font-bold text-red-600";
-                }
-            });
-
-        // 2. Polling de Faturas (Usando dados da API de Faturação)
-        function loadPollingData() {
-            fetch("{% url 'fiscal:ajax-status-assinatura' %}") // Nota: Aqui você deve usar a view que retorna as vendas e seus requestIDs
-                .then(res => res.json())
-                .then(data => {
-                    const body = document.getElementById('docs-polling-body');
-                    if (!data.success || data.exports.length === 0) {
-                        body.innerHTML = '<tr><td colspan="5" class="px-6 py-4 text-center text-gray-500">Nenhuma submissão recente encontrada.</td></tr>';
-                        return;
-                    }
-                    
-                    body.innerHTML = '';
-                    data.exports.forEach(doc => {
-                        const statusColor = doc.sucesso ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800';
-                        const statusLabel = doc.sucesso ? 'Validado' : 'Erro Técnico';
-                        
-                        // DECISÃO TÉCNICA: Exibição do Request ID oficial da AGT
-                        const requestID = doc.request_id_agt || '<span class="text-gray-400 italic">Pendente...</span>';
-                        
-                        body.innerHTML += `
-                            <tr class="hover:bg-gray-50 transition">
-                                <td class="px-6 py-4 whitespace-nowrap text-sm font-bold text-gray-900">${doc.numero_documento}</td>
-                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${doc.data_submissao}</td>
-                                <td class="px-6 py-4 whitespace-nowrap">
-                                    <span class="px-3 py-1 inline-flex text-xs leading-5 font-bold rounded-full ${statusColor}">
-                                        ${statusLabel}
-                                    </span>
-                                </td>
-                                <td class="px-6 py-4 whitespace-nowrap text-sm font-mono text-blue-700 bg-blue-50">
-                                    ${requestID}
-                                </td>
-                                <td class="px-6 py-4 text-xs text-gray-600 max-w-xs truncate">
-                                    ${doc.erro_message || 'Documento processado com sucesso.'}
-                                </td>
-                            </tr>
-                        `;
-                    });
-                })
-                .catch(err => {
-                    console.error("Erro no Polling:", err);
-                });
-        }
-
-        loadPollingData();
-        // Atualiza a cada 30 segundos automaticamente (Polling dinâmico)
-        setInterval(loadPollingData, 30000);
-    });
-
-
-    // No seu dashboard.html
-function openErrorModal(vendaId) {
-    const container = document.getElementById('error-list-container');
-    container.innerHTML = '<div class="text-center py-4"><i class="fas fa-spinner fa-spin"></i></div>';
-    document.getElementById('error-modal').classList.remove('hidden');
-
-    fetch(`/fiscal/ajax/venda/${vendaId}/erros/`)
-        .then(res => res.json())
-        .then(data => {
-            if (!data.success) {
-                // Caso o backend retorne success: False (nossa proteção manual)
-                document.getElementById('modal-doc-no').innerText = "Erro de Acesso";
-                container.innerHTML = `<p class="text-sm text-red-600 font-bold">${data.error}</p>`;
-                return;
-            }
-
-            // Se for sucesso, renderiza os erros da AGT normalmente
-            document.getElementById('modal-doc-no').innerText = `Rejeição: ${data.numero_documento}`;
-            document.getElementById('modal-request-id').innerText = `Request ID: ${data.request_id}`;
-            
-            container.innerHTML = '';
-            data.erros.forEach(err => {
-                container.innerHTML += `
-                    <div class="bg-red-50 border-l-4 border-red-400 p-4 mb-2">
-                        <p class="text-sm text-red-700 font-bold">[${err.errorCode}]</p>
-                        <p class="text-sm text-red-600">${err.errorDescription}</p>
-                    </div>
-                `;
-            });
-        })
-        .catch(err => {
-            // Caso ocorra um erro de rede ou 500 real
-            container.innerHTML = '<p class="text-red-600 font-bold">Erro crítico na comunicação com o servidor.</p>';
-        });
-}
-</script>
+<div class="grid grid-2">
+  <section class="card"><div class="card-head"><h2>Documentos recentes</h2><a href="{% url 'fiscal:documentos' %}">Ver todos →</a></div>
+    {% if documentos_recentes %}<div class="table-wrap"><table><thead><tr><th>Documento</th><th>Data</th><th>Estado</th><th></th></tr></thead><tbody>{% for doc in documentos_recentes %}<tr><td><div class="primary-cell">{{ doc.numero|default:doc.numero_documento|default:doc.pk }}</div><div class="secondary">{{ doc.get_tipo_documento_display|default:doc.tipo_documento|default:"Documento fiscal" }}</div></td><td>{{ doc.data_emissao|date:"d/m/Y"|default:doc.created_at|date:"d/m/Y"|default:"—" }}</td><td>{% include "fiscal/partials/estado.html" with obj=doc %}</td><td><a class="btn btn-light btn-small" href="{% url 'fiscal:documento_detalhe' doc.pk %}">Abrir</a></td></tr>{% endfor %}</tbody></table></div>{% else %}{% include "fiscal/partials/vazio.html" with title="Ainda sem documentos" description="Os documentos criados para esta empresa aparecerão aqui." action_url=novo_documento_url action_label="Criar documento" %}{% endif %}
+  </section>
+  <section class="card"><div class="card-head"><h2>Acesso rápido</h2></div><div class="card-body"><div class="list">
+    <div class="list-item"><div><strong>Taxas de imposto</strong><div class="secondary">Gerir IVA e códigos fiscais configurados.</div></div><a class="btn btn-light btn-small" href="{% url 'fiscal:taxas_iva' %}">Abrir</a></div>
+    <div class="list-item"><div><strong>Assinatura digital</strong><div class="secondary">Ver estado da configuração criptográfica.</div></div><a class="btn btn-light btn-small" href="{% url 'fiscal:assinatura_digital' %}">Abrir</a></div>
+    <div class="list-item"><div><strong>Validação e integridade</strong><div class="secondary">Consultar alertas e cadeia de hashes.</div></div><a class="btn btn-light btn-small" href="{% url 'fiscal:integridade' %}">Verificar</a></div>
+    <div class="list-item"><div><strong>Homologação AGT</strong><div class="secondary">Acompanhar disponibilidade e testes.</div></div><a class="btn btn-light btn-small" href="{% url 'fiscal:homologacao' %}">Consultar</a></div>
+    </div></div></section>
+</div>
 {% endblock %}

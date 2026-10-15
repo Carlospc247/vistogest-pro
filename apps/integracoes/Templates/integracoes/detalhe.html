@@ -1,0 +1,63 @@
+{% extends "integracoes/_base.html" %}
+{% block title %}{{ config.tipo_integracao.nome }}{% endblock %}
+{% block ig_content %}
+{% with t=config.tipo_integracao %}
+<div class="flex flex-wrap justify-between items-start gap-3 mb-4">
+  <div class="flex items-center gap-3"><div class="ig-ico"><i class="{{ t.icone }}"></i></div>
+    <div><h1 class="text-2xl font-bold">{{ t.nome }} {% include "integracoes/_status.html" %}</h1>
+      <p class="text-sm ig-muted">Ambiente: {{ config.get_ambiente_display }}</p></div></div>
+  <div class="flex flex-wrap gap-2">
+    <form method="post" action="{% url 'integracoes:testar' pk=config.pk %}">{% csrf_token %}<button class="ig-btn"><i class="fas fa-vial mr-1"></i> Testar ligação</button></form>
+    {% if config.ativa %}<form method="post" action="{% url 'integracoes:desativar' pk=config.pk %}">{% csrf_token %}<button class="ig-btn">Desactivar</button></form>
+    {% else %}<form method="post" action="{% url 'integracoes:ativar' pk=config.pk %}">{% csrf_token %}<button class="ig-btn ig-btn-ok">Activar</button></form>{% endif %}
+    <a class="ig-btn ig-btn-p" href="{% url 'integracoes:configurar' codigo=t.codigo %}">Editar</a>
+  </div>
+</div>
+
+{% if erro_chave %}<div class="ig-alert ig-bad">{{ erro_chave }}</div>{% endif %}
+{% if config.erro_ultima_sincronizacao %}<div class="ig-alert ig-bad"><strong>Último erro:</strong> {{ config.erro_ultima_sincronizacao }}</div>{% endif %}
+
+<div class="grid lg:grid-cols-3 gap-4 mb-4 text-sm">
+  <div class="ig-card"><h2 class="font-semibold mb-2">Estado</h2>
+    <p>Último teste: {% if config.ultimo_teste_em %}{{ config.ultimo_teste_em|date:"d/m/Y H:i" }} — {% if config.ultimo_teste_ok %}<span class="text-green-700">OK</span>{% else %}<span class="text-red-600">falhou</span>{% endif %}{% else %}nunca{% endif %}</p>
+    <p>Última sincronização: {{ config.ultima_sincronizacao|date:"d/m/Y H:i"|default:"—" }}</p>
+    <p>Timeout: {{ config.timeout_segundos }} s • Tentativas: {{ config.tentativas_max }}</p>
+    <p class="mt-2">Pedidos hoje: {{ uso_hoje }} / {{ config.limite_requests_dia }}</p><div class="ig-bar mt-1"><div style="width:{{ uso_pct }}%"></div></div></div>
+  <div class="ig-card lg:col-span-2"><h2 class="font-semibold mb-2">Credenciais</h2>
+    <table class="ig-table"><tbody>{% for label, valor in credenciais %}<tr><td class="ig-muted w-1/3">{{ label }}</td><td class="font-mono text-xs">{{ valor }}</td></tr>
+      {% empty %}<tr><td class="ig-muted">Sem credenciais.</td></tr>{% endfor %}</tbody></table>
+    <form method="post" action="{% url 'integracoes:limpar_credenciais' pk=config.pk %}" class="mt-3" onsubmit="return confirm('Remover as credenciais e desactivar?')">{% csrf_token %}<button class="ig-btn text-red-600">Remover credenciais</button></form></div>
+</div>
+
+{% if t.suporta_webhook %}
+<div class="ig-card mb-4 text-sm"><h2 class="font-semibold mb-2"><i class="fas fa-satellite-dish mr-1"></i> Webhook de entrada</h2>
+  <p class="ig-muted mb-2">Registe este URL no serviço externo. Tem de ser acessível pela Internet em HTTPS.</p>
+  <div class="flex gap-2"><input id="whurl" class="ig-input font-mono text-xs" readonly value="{{ webhook_url }}"><button type="button" class="ig-btn" onclick="navigator.clipboard.writeText(document.getElementById('whurl').value)">Copiar</button></div>
+  {% if segredo_novo %}<div class="ig-alert ig-warn mt-3"><strong>Novo segredo (mostrado uma só vez):</strong><br><code class="break-all">{{ segredo_novo }}</code></div>{% endif %}
+  <form method="post" action="{% url 'integracoes:regenerar_segredo' pk=config.pk %}" class="mt-3" onsubmit="return confirm('Gerar novo segredo? O anterior deixa de funcionar.')">{% csrf_token %}<button class="ig-btn">Gerar novo segredo HMAC</button></form>
+  <p class="text-xs ig-muted mt-2">O que o remetente tem de enviar está no <a class="text-indigo-600" href="{% url 'integracoes:guia' %}#webhooks">guia de webhooks</a>.</p></div>
+{% endif %}
+
+{% if suporta_mensagens %}
+<div class="ig-card mb-4"><h2 class="font-semibold mb-2">Enviar mensagem de teste</h2>
+  <form method="post" action="{% url 'integracoes:enviar_teste' pk=config.pk %}" class="grid md:grid-cols-3 gap-3">{% csrf_token %}
+    <div class="ig-campo">{{ form_teste.destino.label_tag }}{{ form_teste.destino }}</div>
+    <div class="ig-campo">{{ form_teste.assunto.label_tag }}{{ form_teste.assunto }}</div>
+    <div class="ig-campo md:col-span-3">{{ form_teste.texto }}</div>
+    <div><button class="ig-btn ig-btn-p" {% if not config.ativa %}disabled title="Active a integração primeiro"{% endif %}>Enviar</button></div></form></div>
+{% endif %}
+
+<div class="grid lg:grid-cols-2 gap-4">
+  <div><div class="flex justify-between mb-1"><h2 class="font-semibold">Últimas chamadas</h2><a class="text-sm text-indigo-600" href="{% url 'integracoes:log_lista' %}?config={{ config.pk }}">Todas</a></div>
+    <div class="ig-card p-0 overflow-x-auto"><table class="ig-table"><tbody>
+      {% for l in logs %}<tr><td>{{ l.timestamp|date:"d/m H:i" }}</td><td>{{ l.metodo }}</td><td><span class="ig-badge {% if l.status == 'sucesso' %}ig-ok{% else %}ig-bad{% endif %}">{{ l.status_code|default:l.get_status_display }}</span></td><td><a class="text-indigo-600" href="{% url 'integracoes:log_detalhe' pk=l.pk %}">Ver</a></td></tr>
+      {% empty %}<tr><td class="text-center py-4 ig-muted">Sem chamadas.</td></tr>{% endfor %}</tbody></table></div></div>
+  <div><div class="flex justify-between mb-1"><h2 class="font-semibold">Últimos webhooks</h2><a class="text-sm text-indigo-600" href="{% url 'integracoes:webhook_lista' %}?config={{ config.pk }}">Todos</a></div>
+    <div class="ig-card p-0 overflow-x-auto"><table class="ig-table"><tbody>
+      {% for w in webhooks %}<tr><td>{{ w.recebido_em|date:"d/m H:i" }}</td><td>{{ w.evento|default:"—" }}</td><td><span class="ig-badge {% if w.processado %}ig-ok{% else %}ig-warn{% endif %}">{% if w.processado %}Processado{% else %}Pendente{% endif %}</span></td><td><a class="text-indigo-600" href="{% url 'integracoes:webhook_detalhe' pk=w.pk %}">Ver</a></td></tr>
+      {% empty %}<tr><td class="text-center py-4 ig-muted">Nenhum webhook.</td></tr>{% endfor %}</tbody></table></div></div>
+</div>
+
+<form method="post" action="{% url 'integracoes:remover' pk=config.pk %}" class="mt-6" onsubmit="return confirm('Remover esta configuração e todos os seus logs?')">{% csrf_token %}<button class="ig-btn ig-btn-d">Remover integração</button></form>
+{% endwith %}
+{% endblock %}

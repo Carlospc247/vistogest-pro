@@ -1,0 +1,21 @@
+{% extends "documentos/_documento_base.html" %}
+{% block doc_title %}Recibo de vencimento{% endblock %}
+{% block doc_corpo %}
+<h1>Recibo de vencimento — {{ item.folha.mes_nome }}/{{ item.folha.ano }}</h1>
+<p><strong>{{ item.funcionario.nome_completo }}</strong> • Matrícula {{ item.funcionario.matricula }} • {{ item.funcionario.cargo.nome|default:"—" }} • {{ item.funcionario.departamento.nome }}</p>
+<table><tr><th colspan="2">Proventos</th></tr>
+ <tr><td>Salário</td><td>{{ item.salario_bruto|floatformat:2 }}</td></tr>
+ <tr><td>Horas extra</td><td>{{ item.valor_horas_extras|floatformat:2 }}</td></tr>
+ <tr><td>Comissões</td><td>{{ item.comissoes|floatformat:2 }}</td></tr>
+ <tr><td>Bónus e outros</td><td>{{ item.bonus|add:item.outros_proventos|floatformat:2 }}</td></tr>
+ <tr><th>Total proventos</th><th>{{ item.total_proventos|floatformat:2 }}</th></tr></table>
+<table><tr><th colspan="2">Descontos</th></tr>
+ <tr><td>Segurança social / INSS</td><td>{{ item.inss_funcionario|floatformat:2 }}</td></tr>
+ <tr><td>Imposto sobre rendimento</td><td>{{ item.irrf|floatformat:2 }}</td></tr>
+ <tr><td>Transporte</td><td>{{ item.vale_transporte|floatformat:2 }}</td></tr>
+ <tr><td>Adiantamentos e faltas</td><td>{{ item.adiantamentos|add:item.faltas|floatformat:2 }}</td></tr>
+ <tr><td>Outros</td><td>{{ item.outros_descontos|floatformat:2 }}</td></tr>
+ <tr><th>Total descontos</th><th>{{ item.total_descontos|floatformat:2 }}</th></tr></table>
+<p style="font-size:1.1rem;text-align:right"><strong>Líquido a receber: {{ item.salario_liquido|floatformat:2 }} Kz</strong></p>
+<div class="assin"><div>A entidade empregadora</div><div>O trabalhador</div></div>
+{% endblock %}

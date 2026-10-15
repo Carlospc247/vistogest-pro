@@ -1,36 +1,49 @@
 # apps/fiscal/middleware.py
-from django.utils import timezone
-from django.shortcuts import HttpResponseForbidden
-from django.urls import resolve
-from .models import AssinaturaDigital
+"""Implementação corrigida do bloqueio de regeneração de chaves.
+
+A configuração AssinaturaDigital é singleton dentro do schema do tenant e não
+possui FK `empresa`; por isso não deve ser consultada por `empresa_id`.
+O bloqueio acontece em `process_view`, quando `resolver_match` já existe.
+"""
 from datetime import timedelta
 
-class ProtegeRegeneracaoChaveMiddleware:
-    """
-    Bloqueia regeneração de chaves via views se a ultima geração for
-    mais recente que X minutos e o user não for superuser.
-    Regra apenas aplica para URLs nomeadas 'fiscal:gerar_chaves' (exemplo).
-    """
-    window_minutes = 60  # ajustar conforme politica
+from django.contrib import messages
+from django.shortcuts import redirect
+from django.utils import timezone
 
-    def __init__(self, get_response):
+from .models import AssinaturaDigital
+
+
+class ProtegeRegeneracaoChaveMiddleware:
+    def __init__(self, get_response, cooldown_minutes=10):
         self.get_response = get_response
+        self.cooldown = timedelta(minutes=cooldown_minutes)
 
     def __call__(self, request):
-        resolver = resolve(request.path_info)
-        nome = getattr(resolver, 'url_name', '')
-        if nome in ('baixar_chave_publica', 'gerar_chaves_admin', 'assinar_documento_api'):
-            # permite downloads e assinaturas normais
-            return self.get_response(request)
-
-        if nome == 'gerar_chaves_rsa':  # adapta para o nome real que usares
-            if not request.user.is_superuser:
-                # encontram-se empresas específicas no POST (ou queryset) — aqui apenas um bloqueio simples
-                empresa_id = request.POST.get('empresa_id') or request.GET.get('empresa_id')
-                if empresa_id:
-                    assinatura = AssinaturaDigital.objects.filter(empresa_id=empresa_id).first()
-                    if assinatura and assinatura.data_geracao:
-                        delta = timezone.now() - assinatura.data_geracao
-                        if delta < timedelta(minutes=self.window_minutes):
-                            return HttpResponseForbidden("Regeneração de chave bloqueada: janela de segurança ativa.")
         return self.get_response(request)
+
+    def process_view(self, request, view_func, view_args, view_kwargs):
+        match = getattr(request, "resolver_match", None)
+        url_name = getattr(match, "url_name", "")
+        if url_name not in {"regenerar_chave", "regenerar_chaves_fiscais"} or request.method != "POST":
+            return None
+
+        user = getattr(request, "user", None)
+        if not user or not user.is_authenticated or user.is_superuser:
+            return None
+
+        # Uma linha por schema/tenant: não filtrar por empresa_id.
+        configuracao = AssinaturaDigital.objects.filter(pk=1).first()
+        momento = None
+        if configuracao:
+            for attr in ("configurada_em", "configured_at", "updated_at"):
+                momento = getattr(configuracao, attr, None)
+                if momento:
+                    break
+        if momento:
+            if timezone.is_naive(momento):
+                momento = timezone.make_aware(momento, timezone.get_current_timezone())
+            if timezone.now() - momento < self.cooldown:
+                messages.error(request, "A regeneração das chaves foi recentemente executada. Aguarde antes de repetir a operação.")
+                return redirect(request.META.get("HTTP_REFERER") or "/")
+        return None

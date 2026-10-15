@@ -1,579 +1,544 @@
-<!-- templates/fiscal/configuracoes_dashboard.html -->
-{% extends 'base.html' %}
-{% load static %}
+{% extends "base.html" %}
 
-{% block title %}Configurações Fiscais{% endblock %}
+{% block title %}Configurações fiscais{% endblock %}
+{% block page_title %}Configurações fiscais{% endblock %}
 
-{% block breadcrumbs %}
-<li><a href="{% url 'core_tenants:dashboard' %}" class="text-gray-400 hover:text-gray-500">
-    <i class="fas fa-home h-5 w-5"></i>
-</a></li>
-<li class="flex items-center">
-    <i class="fas fa-chevron-right h-5 w-5 text-gray-400 mx-2"></i>
-    <a href="{% url 'fiscal:dashboard' %}" class="text-gray-500 dark:text-gray-400 hover:text-gray-700">Fiscal</a>
-</li>
-<li class="flex items-center">
-    <i class="fas fa-chevron-right h-5 w-5 text-gray-400 mx-2"></i>
-    <span class="text-gray-700 dark:text-gray-300 font-medium">Configurações</span>
-</li>
-{% endblock %}
-
-{% block page_title %}
-<div class="flex items-center">
-    <div class="flex-shrink-0">
-        <div class="flex items-center justify-center w-12 h-12 bg-gray-100 dark:bg-gray-900 rounded-lg">
-            <i class="fas fa-cogs text-gray-600 dark:text-gray-400 text-xl"></i>
-        </div>
-    </div>
-    <div class="ml-4">
-        <h1 class="text-2xl font-bold text-gray-900 dark:text-gray-100">Configurações Fiscais</h1>
-        <p class="text-sm text-gray-500 dark:text-gray-400">Gestão de parâmetros e definições fiscais</p>
-    </div>
-</div>
+{% block page_subtitle %}
+<p class="mt-2 max-w-3xl text-sm text-gray-600 dark:text-gray-300">
+    Consulte os dados fiscais da empresa e aceda rapidamente à configuração de impostos,
+    assinatura digital, retenções e conformidade SAF-T (AO).
+</p>
 {% endblock %}
 
 {% block page_actions %}
-<div class="flex items-center space-x-3">
-    <a href="{% url 'fiscal:backup-fiscal' %}" 
-       class="inline-flex items-center px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700">
-        <i class="fas fa-download mr-2"></i>
-        Backup Fiscal
-    </a>
-    <button @click="showImportModal = true" 
-            class="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700">
-        <i class="fas fa-upload mr-2"></i>
-        Importar Configurações
-    </button>
-</div>
+{% url 'fiscal:dashboard' as fiscal_dashboard_url %}
+{% if fiscal_dashboard_url %}
+<a href="{{ fiscal_dashboard_url }}"
+   class="inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-semibold text-gray-700 shadow-sm transition hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 dark:hover:bg-gray-700">
+    <i class="fas fa-arrow-left" aria-hidden="true"></i>
+    Voltar ao painel fiscal
+</a>
+{% endif %}
 {% endblock %}
 
 {% block content %}
-<div x-data="configuracoesPanel()" class="space-y-6">
+{# Resolve as rotas de forma tolerante: nomes não registados ficam vazios. #}
+{% url 'fiscal:configuracao-empresa' as url_config_empresa %}
+{% url 'fiscal:taxas-iva-list' as url_taxas_iva %}
+{% url 'fiscal:taxas-iva-create' as url_taxa_nova %}
+{% url 'fiscal:assinatura-digital' as url_assinatura_digital %}
+{% url 'fiscal:assinatura-configurar' as url_assinatura_configurar %}
+{% url 'fiscal:retencoes-list' as url_retencoes %}
+{% url 'fiscal:retencoes-create' as url_retencao_nova %}
+{% url 'fiscal:relatorios' as url_relatorios %}
+{% url 'fiscal:relatorio-retencoes' as url_relatorio_retencoes %}
+{% url 'fiscal:relatorio-taxas-iva' as url_relatorio_taxas %}
+{% url 'fiscal:saft' as url_saft_export %}
+{% url 'fiscal:saft-historico' as url_saft_historico %}
+{% url 'fiscal:validacoes' as url_saft_validar %}
+{% url 'fiscal:homologacao-dashboard' as url_homologacao %}
+{% url 'fiscal:integridade' as url_integridade %}
+{% url 'fiscal:backup-fiscal' as url_backup_fiscal %}
+{% url 'fiscal:documentos' as url_documentos %}
+{% url 'fiscal:documento_novo' as url_documento_novo %}
+{% url 'fiscal:download-dashboard-pdf' as url_download_dashboard_pdf %}
+{% url 'fiscal:download-saft-backup' as url_download_saft_backup %}
+{% url 'fiscal:download-template-retencoes' as url_download_template_retencoes %}
+{% url 'fiscal:download-exemplo-saft' as url_download_exemplo_saft %}
+{% url 'fiscal:download-chave-publica' as url_download_chave_publica %}
+{% url 'fiscal:baixar_chave_publica' as url_baixar_chave_publica %}
+{% url 'fiscal:baixar_pdf_submissao' as url_baixar_pdf_submissao %}
+{% url 'fiscal:download_pdf_agt' as url_download_pdf_agt %}
 
-    <!-- Informações da Empresa -->
-    <div class="bg-white dark:bg-gray-800 shadow rounded-lg p-6">
-        <div class="flex items-center justify-between mb-6">
-            <h3 class="text-lg font-medium text-gray-900 dark:text-gray-100">
-                <i class="fas fa-building mr-2 text-blue-500"></i>
-                Informações Fiscais da Empresa
-            </h3>
-            <a href="{% url 'fiscal:configuracao-empresa' %}" 
-               class="text-sm text-indigo-600 dark:text-indigo-400 hover:text-indigo-900">
-                Editar
+<div class="space-y-6">
+    <!-- Resumo da configuração atual -->
+    <section class="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm dark:border-gray-700 dark:bg-gray-800">
+        <div class="flex flex-col gap-4 border-b border-gray-200 px-5 py-5 dark:border-gray-700 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+            <div class="flex min-w-0 items-center gap-4">
+                <div class="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-indigo-50 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300">
+                    <i class="fas fa-sliders-h text-xl" aria-hidden="true"></i>
+                </div>
+                <div class="min-w-0">
+                    <p class="text-xs font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">Área fiscal</p>
+                    <h2 class="mt-1 text-lg font-bold text-gray-900 dark:text-gray-100">Estado da configuração</h2>
+                    <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">Resumo dos dados disponíveis no esquema atual.</p>
+                </div>
+            </div>
+            {% if ultima_actualizacao %}
+            <div class="text-sm text-gray-500 dark:text-gray-400 sm:text-right">
+                <span class="block text-xs uppercase tracking-wide">Última atualização deste painel</span>
+                <span class="mt-1 inline-flex items-center gap-2 font-semibold text-gray-700 dark:text-gray-200">
+                    <i class="far fa-clock" aria-hidden="true"></i>{{ ultima_actualizacao }}
+                </span>
+            </div>
+            {% endif %}
+        </div>
+
+        <div class="grid grid-cols-1 divide-y divide-gray-200 dark:divide-gray-700 sm:grid-cols-2 sm:divide-x sm:divide-y-0">
+            <div class="p-5 sm:p-6">
+                <div class="flex items-start gap-3">
+                    <div class="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300">
+                        <i class="fas fa-building" aria-hidden="true"></i>
+                    </div>
+                    <div class="min-w-0 flex-1">
+                        <h3 class="font-semibold text-gray-900 dark:text-gray-100">Empresa ativa</h3>
+                        {% if empresa %}
+                        <p class="mt-1 break-words text-sm text-gray-600 dark:text-gray-300">{{ empresa.nome|default:"Empresa identificada" }}</p>
+                        <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">NIF: {{ empresa.nif|default:"Não indicado" }}</p>
+                        {% else %}
+                        <p class="mt-1 text-sm text-amber-700 dark:text-amber-300">Não foi possível identificar a empresa/tenant atual.</p>
+                        {% endif %}
+                        {% if url_config_empresa %}
+                        <a href="{{ url_config_empresa }}" class="mt-3 inline-flex items-center gap-2 text-sm font-semibold text-indigo-700 hover:text-indigo-900 dark:text-indigo-300 dark:hover:text-indigo-200">
+                            Configurar dados da empresa <i class="fas fa-arrow-right text-xs" aria-hidden="true"></i>
+                        </a>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+
+            <div class="p-5 sm:p-6">
+                <div class="flex items-start gap-3">
+                    <div class="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-lg {% if assinatura_digital and assinatura_digital.esta_configurada %}bg-green-50 text-green-700 dark:bg-green-900/40 dark:text-green-300{% else %}bg-amber-50 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300{% endif %}">
+                        <i class="fas fa-key" aria-hidden="true"></i>
+                    </div>
+                    <div class="min-w-0 flex-1">
+                        <h3 class="font-semibold text-gray-900 dark:text-gray-100">Assinatura digital</h3>
+                        {% if assinatura_digital and assinatura_digital.esta_configurada %}
+                        <p class="mt-1 text-sm text-gray-600 dark:text-gray-300">A configuração da assinatura digital está registada.</p>
+                        <span class="mt-2 inline-flex items-center gap-1 rounded-full bg-green-100 px-2.5 py-1 text-xs font-semibold text-green-800 dark:bg-green-900/50 dark:text-green-200">
+                            <i class="fas fa-check-circle" aria-hidden="true"></i> Configurada
+                        </span>
+                        {% else %}
+                        <p class="mt-1 text-sm text-gray-600 dark:text-gray-300">Não existe uma assinatura digital configurada ou não foi possível confirmar o seu estado.</p>
+                        <span class="mt-2 inline-flex items-center gap-1 rounded-full bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-800 dark:bg-amber-900/50 dark:text-amber-200">
+                            <i class="fas fa-exclamation-circle" aria-hidden="true"></i> Requer verificação
+                        </span>
+                        {% endif %}
+                        {% if assinatura_digital and assinatura_digital.nif_contribuinte %}
+                        <p class="mt-2 text-sm text-gray-500 dark:text-gray-400">NIF associado: {{ assinatura_digital.nif_contribuinte }}</p>
+                        {% endif %}
+                        {% if url_assinatura_digital %}
+                        <a href="{{ url_assinatura_digital }}" class="mt-3 inline-flex items-center gap-2 text-sm font-semibold text-indigo-700 hover:text-indigo-900 dark:text-indigo-300 dark:hover:text-indigo-200">
+                            Gerir assinatura <i class="fas fa-arrow-right text-xs" aria-hidden="true"></i>
+                        </a>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Indicadores -->
+    <section aria-label="Indicadores fiscais" class="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+        <div class="rounded-xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-700 dark:bg-gray-800">
+            <div class="flex items-center justify-between gap-3">
+                <div>
+                    <p class="text-sm font-medium text-gray-500 dark:text-gray-400">Taxas de IVA registadas</p>
+                    <p class="mt-2 text-3xl font-bold text-gray-900 dark:text-gray-100">{{ total_taxas|default:0 }}</p>
+                </div>
+                <div class="flex h-11 w-11 items-center justify-center rounded-xl bg-sky-50 text-sky-700 dark:bg-sky-900/40 dark:text-sky-300">
+                    <i class="fas fa-percent text-lg" aria-hidden="true"></i>
+                </div>
+            </div>
+            {% if url_taxas_iva %}
+            <a href="{{ url_taxas_iva }}" class="mt-4 inline-flex items-center gap-2 text-sm font-semibold text-indigo-700 hover:text-indigo-900 dark:text-indigo-300 dark:hover:text-indigo-200">
+                Consultar taxas <i class="fas fa-arrow-right text-xs" aria-hidden="true"></i>
             </a>
-        </div>
-        
-        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            <div>
-                <label class="block text-sm font-medium text-gray-500 dark:text-gray-400">Razão Social</label>
-                <p class="mt-1 text-sm text-gray-900 dark:text-gray-100">{{ empresa.nome }}</p>
-            </div>
-            
-            <div>
-                <label class="block text-sm font-medium text-gray-500 dark:text-gray-400">NIF</label>
-                <p class="mt-1 text-sm text-gray-900 dark:text-gray-100 font-mono">{{ empresa.nif }}</p>
-            </div>
-            
-            <div>
-                <label class="block text-sm font-medium text-gray-500 dark:text-gray-400">Última Atualização</label>
-                <p class="mt-1 text-sm text-gray-900 dark:text-gray-100">{{ ultima_actualizacao }}</p>
-            </div>
-            
-            <div>
-                <label class="block text-sm font-medium text-gray-500 dark:text-gray-400">Regime Fiscal</label>
-                <p class="mt-1 text-sm text-gray-900 dark:text-gray-100">Regime Geral de IVA</p>
-            </div>
-            
-            <div>
-                <label class="block text-sm font-medium text-gray-500 dark:text-gray-400">Actividade Principal</label>
-                <p class="mt-1 text-sm text-gray-900 dark:text-gray-100">{{ empresa.atividade_principal|default:"Não definida" }}</p>
-            </div>
-            
-            <div>
-                <label class="block text-sm font-medium text-gray-500 dark:text-gray-400">Status Fiscal</label>
-                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200">
-                    <i class="fas fa-check mr-1"></i>
-                    Ativo
-                </span>
-            </div>
-        </div>
-    </div>
-
-    <!-- Configurações por Categoria -->
-    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        
-        <!-- Configurações de Assinatura Digital -->
-        <div class="bg-white dark:bg-gray-800 shadow rounded-lg p-6">
-            <div class="flex items-center justify-between mb-4">
-                <h3 class="text-lg font-medium text-gray-900 dark:text-gray-100">
-                    <i class="fas fa-shield-alt mr-2 text-green-500"></i>
-                    Assinatura Digital
-                </h3>
-                {% if assinatura_digital %}
-                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200">
-                        <i class="fas fa-check mr-1"></i>
-                        Configurada
-                    </span>
-                {% else %}
-                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200">
-                        <i class="fas fa-times mr-1"></i>
-                        Não Configurada
-                    </span>
-                {% endif %}
-            </div>
-            
-            <div class="space-y-4">
-                {% if assinatura_digital %}
-                <div class="grid grid-cols-2 gap-4 text-sm">
-                    <div>
-                        <span class="text-gray-500 dark:text-gray-400">Certificado:</span>
-                        <span class="ml-2 text-gray-900 dark:text-gray-100">
-                            {% if assinatura_digital.certificado_digital %}Configurado{% else %}Pendente{% endif %}
-                        </span>
-                    </div>
-                    <div>
-                        <span class="text-gray-500 dark:text-gray-400">Chaves:</span>
-                        <span class="ml-2 text-gray-900 dark:text-gray-100">
-                            {% if assinatura_digital.chave_publica %}Geradas{% else %}Pendentes{% endif %}
-                        </span>
-                    </div>
-                    <div>
-                        <span class="text-gray-500 dark:text-gray-400">Validade:</span>
-                        <span class="ml-2 text-gray-900 dark:text-gray-100">
-                            {% if assinatura_digital.validade_certificado %}{{ assinatura_digital.validade_certificado|date:"d/m/Y" }}{% else %}N/A{% endif %}
-                        </span>
-                    </div>
-                    <div>
-                        <span class="text-gray-500 dark:text-gray-400">Último Hash:</span>
-                        <span class="ml-2 text-gray-900 dark:text-gray-100 font-mono text-xs">
-                            {% if assinatura_digital.ultimo_hash %}{{ assinatura_digital.ultimo_hash|truncatechars:12 }}...{% else %}N/A{% endif %}
-                        </span>
-                    </div>
-                </div>
-                {% endif %}
-                
-                <div class="flex space-x-3">
-                    <a href="{% url 'fiscal:assinatura-digital' %}" 
-                       class="flex-1 inline-flex justify-center items-center px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700">
-                        <i class="fas fa-cog mr-2"></i>
-                        {% if assinatura_digital %}Gerir{% else %}Configurar{% endif %}
-                    </a>
-                    {% if assinatura_digital %}
-                    <button @click="testarAssinatura()" 
-                            class="flex-1 inline-flex justify-center items-center px-3 py-2 border border-transparent rounded-md text-sm font-medium text-white bg-green-600 hover:bg-green-700">
-                        <i class="fas fa-vial mr-2"></i>
-                        Testar
-                    </button>
-                    {% endif %}
-                </div>
-            </div>
+            {% endif %}
         </div>
 
-        <!-- Configurações de Taxas -->
-        <div class="bg-white dark:bg-gray-800 shadow rounded-lg p-6">
-            <div class="flex items-center justify-between mb-4">
-                <h3 class="text-lg font-medium text-gray-900 dark:text-gray-100">
-                    <i class="fas fa-percentage mr-2 text-blue-500"></i>
-                    Taxas de IVA
-                </h3>
-                <span class="text-sm text-gray-500 dark:text-gray-400">{{ total_taxas }} configuradas</span>
-            </div>
-            
-            <div class="space-y-4">
-                <div class="grid grid-cols-2 gap-4 text-sm">
-                    <div>
-                        <span class="text-gray-500 dark:text-gray-400">Taxas Ativas:</span>
-                        <span class="ml-2 text-green-600 dark:text-green-400 font-medium" x-text="stats.taxasAtivas">{{ taxas_ativas|default:0 }}</span>
-                    </div>
-                    <div>
-                        <span class="text-gray-500 dark:text-gray-400">Isenções:</span>
-                        <span class="ml-2 text-yellow-600 dark:text-yellow-400 font-medium" x-text="stats.isencoes">{{ isencoes|default:0 }}</span>
-                    </div>
-                    <div>
-                        <span class="text-gray-500 dark:text-gray-400">Não Sujeitas:</span>
-                        <span class="ml-2 text-purple-600 dark:text-purple-400 font-medium" x-text="stats.naoSujeitas">{{ nao_sujeitas|default:0 }}</span>
-                    </div>
-                    <div>
-                        <span class="text-gray-500 dark:text-gray-400">Taxa Padrão:</span>
-                        <span class="ml-2 text-gray-900 dark:text-gray-100 font-medium">14%</span>
-                    </div>
-                </div>
-                
-                <div class="flex space-x-3">
-                    <a href="{% url 'fiscal:taxas-iva-list' %}" 
-                       class="flex-1 inline-flex justify-center items-center px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700">
-                        <i class="fas fa-list mr-2"></i>
-                        Ver Todas
-                    </a>
-                    <a href="{% url 'fiscal:taxas-iva-create' %}" 
-                       class="flex-1 inline-flex justify-center items-center px-3 py-2 border border-transparent rounded-md text-sm font-medium text-white bg-blue-600 hover:bg-blue-700">
-                        <i class="fas fa-plus mr-2"></i>
-                        Nova Taxa
-                    </a>
-                </div>
-            </div>
-        </div>
-
-        <!-- Configurações SAF-T -->
-        <div class="bg-white dark:bg-gray-800 shadow rounded-lg p-6">
-            <div class="flex items-center justify-between mb-4">
-                <h3 class="text-lg font-medium text-gray-900 dark:text-gray-100">
-                    <i class="fas fa-file-export mr-2 text-purple-500"></i>
-                    SAF-T Angola
-                </h3>
-                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200">
-                    <i class="fas fa-check mr-1"></i>
-                    Pronto
-                </span>
-            </div>
-            
-            <div class="space-y-4">
-                <div class="grid grid-cols-2 gap-4 text-sm">
-                    <div>
-                        <span class="text-gray-500 dark:text-gray-400">Versão:</span>
-                        <span class="ml-2 text-gray-900 dark:text-gray-100 font-medium">v1.01_01</span>
-                    </div>
-                    <div>
-                        <span class="text-gray-500 dark:text-gray-400">Última Exportação:</span>
-                        <span class="ml-2 text-gray-900 dark:text-gray-100 font-medium" x-text="stats.ultimoSAFT">Nunca</span>
-                    </div>
-                    <div>
-                        <span class="text-gray-500 dark:text-gray-400">Auto-Export:</span>
-                        <span class="ml-2 text-red-600 dark:text-red-400 font-medium">Desabilitado</span>
-                    </div>
-                    <div>
-                        <span class="text-gray-500 dark:text-gray-400">Validação:</span>
-                        <span class="ml-2 text-green-600 dark:text-green-400 font-medium">Automática</span>
-                    </div>
-                </div>
-                
-                <div class="flex space-x-3">
-                    <a href="{% url 'fiscal:saft' %}" 
-                       class="flex-1 inline-flex justify-center items-center px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700">
-                        <i class="fas fa-cog mr-2"></i>
-                        Configurar
-                    </a>
-                    <button @click="exportarSAFT()" 
-                            class="flex-1 inline-flex justify-center items-center px-3 py-2 border border-transparent rounded-md text-sm font-medium text-white bg-purple-600 hover:bg-purple-700">
-                        <i class="fas fa-download mr-2"></i>
-                        Exportar
-                    </button>
-                </div>
-            </div>
-        </div>
-
-        <!-- Configurações de Backup -->
-        <div class="bg-white dark:bg-gray-800 shadow rounded-lg p-6">
-            <div class="flex items-center justify-between mb-4">
-                <h3 class="text-lg font-medium text-gray-900 dark:text-gray-100">
-                    <i class="fas fa-shield-check mr-2 text-orange-500"></i>
-                    Backup e Segurança
-                </h3>
-                <span class="text-sm text-gray-500 dark:text-gray-400">Última verificação: hoje</span>
-            </div>
-            
-            <div class="space-y-4">
-                <div class="grid grid-cols-2 gap-4 text-sm">
-                    <div>
-                        <span class="text-gray-500 dark:text-gray-400">Backup Auto:</span>
-                        <span class="ml-2 text-green-600 dark:text-green-400 font-medium">Ativo</span>
-                    </div>
-                    <div>
-                        <span class="text-gray-500 dark:text-gray-400">Frequência:</span>
-                        <span class="ml-2 text-gray-900 dark:text-gray-100 font-medium">Semanal</span>
-                    </div>
-                    <div>
-                        <span class="text-gray-500 dark:text-gray-400">Último Backup:</span>
-                        <span class="ml-2 text-gray-900 dark:text-gray-100 font-medium">15/12/2024</span>
-                    </div>
-                    <div>
-                        <span class="text-gray-500 dark:text-gray-400">Tamanho:</span>
-                        <span class="ml-2 text-gray-900 dark:text-gray-100 font-medium">2.4 MB</span>
-                    </div>
-                </div>
-                
-                <div class="flex space-x-3">
-                    <button @click="criarBackup()" 
-                            class="flex-1 inline-flex justify-center items-center px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700">
-                        <i class="fas fa-save mr-2"></i>
-                        Backup Manual
-                    </button>
-                    <button @click="showImportModal = true" 
-                            class="flex-1 inline-flex justify-center items-center px-3 py-2 border border-transparent rounded-md text-sm font-medium text-white bg-orange-600 hover:bg-orange-700">
-                        <i class="fas fa-upload mr-2"></i>
-                        Restaurar
-                    </button>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Configurações Avançadas -->
-    <div class="bg-white dark:bg-gray-800 shadow rounded-lg p-6">
-        <h3 class="text-lg font-medium text-gray-900 dark:text-gray-100 mb-6">
-            <i class="fas fa-sliders-h mr-2 text-gray-500"></i>
-            Configurações Avançadas
-        </h3>
-        
-        <div class="space-y-6">
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <!-- Configurações de Validação -->
+        <div class="rounded-xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-700 dark:bg-gray-800">
+            <div class="flex items-center justify-between gap-3">
                 <div>
-                    <h4 class="text-sm font-medium text-gray-900 dark:text-gray-100 mb-3">Validação Automática</h4>
-                    <div class="space-y-3">
-                        <label class="flex items-center">
-                            <input type="checkbox" 
-                                   x-model="settings.validacaoAutomatica"
-                                   class="rounded border-gray-300 text-indigo-600 shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50">
-                            <span class="ml-2 text-sm text-gray-700 dark:text-gray-300">Validar documentos automaticamente</span>
-                        </label>
-                        
-                        <label class="flex items-center">
-                            <input type="checkbox" 
-                                   x-model="settings.verificacaoIntegridade"
-                                   class="rounded border-gray-300 text-indigo-600 shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50">
-                            <span class="ml-2 text-sm text-gray-700 dark:text-gray-300">Verificação de integridade diária</span>
-                        </label>
-                        
-                        <label class="flex items-center">
-                            <input type="checkbox" 
-                                   x-model="settings.alertasEmail"
-                                   class="rounded border-gray-300 text-indigo-600 shadow-sm focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50">
-                            <span class="ml-2 text-sm text-gray-700 dark:text-gray-300">Alertas por email</span>
-                        </label>
-                    </div>
+                    <p class="text-sm font-medium text-gray-500 dark:text-gray-400">Retenções na fonte</p>
+                    <p class="mt-2 text-base font-bold text-gray-900 dark:text-gray-100">Gestão de retenções</p>
+                    <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">Consulte e acompanhe os registos.</p>
                 </div>
+                <div class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-violet-50 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300">
+                    <i class="fas fa-file-invoice-dollar text-lg" aria-hidden="true"></i>
+                </div>
+            </div>
+            {% if url_retencoes %}
+            <a href="{{ url_retencoes }}" class="mt-4 inline-flex items-center gap-2 text-sm font-semibold text-indigo-700 hover:text-indigo-900 dark:text-indigo-300 dark:hover:text-indigo-200">
+                Abrir retenções <i class="fas fa-arrow-right text-xs" aria-hidden="true"></i>
+            </a>
+            {% endif %}
+        </div>
 
-                <!-- Configurações de Performance -->
+        <div class="rounded-xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-700 dark:bg-gray-800">
+            <div class="flex items-center justify-between gap-3">
                 <div>
-                    <h4 class="text-sm font-medium text-gray-900 dark:text-gray-100 mb-3">Performance</h4>
-                    <div class="space-y-3">
-                        <div>
-                            <label class="block text-sm text-gray-700 dark:text-gray-300 mb-1">Cache de Relatórios</label>
-                            <select x-model="settings.cacheRelatorios" class="w-full text-sm rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700">
-                                <option value="1">1 hora</option>
-                                <option value="6">6 horas</option>
-                                <option value="24">24 horas</option>
-                                <option value="0">Desabilitado</option>
-                            </select>
-                        </div>
-                        
-                        <div>
-                            <label class="block text-sm text-gray-700 dark:text-gray-300 mb-1">Retenção de Logs</label>
-                            <select x-model="settings.retencaoLogs" class="w-full text-sm rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700">
-                                <option value="30">30 dias</option>
-                                <option value="90">90 dias</option>
-                                <option value="365">1 ano</option>
-                                <option value="0">Indefinido</option>
-                            </select>
-                        </div>
-                    </div>
+                    <p class="text-sm font-medium text-gray-500 dark:text-gray-400">Conformidade fiscal</p>
+                    <p class="mt-2 text-base font-bold text-gray-900 dark:text-gray-100">SAF-T (AO) e relatórios</p>
+                    <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">Aceda às ferramentas fiscais disponíveis.</p>
+                </div>
+                <div class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">
+                    <i class="fas fa-shield-alt text-lg" aria-hidden="true"></i>
                 </div>
             </div>
-            
-            <div class="flex justify-end pt-4 border-t border-gray-200 dark:border-gray-700">
-                <button @click="salvarConfiguracoes()" 
-                        :disabled="saving"
-                        class="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50">
-                    <div x-show="!saving" class="flex items-center">
-                        <i class="fas fa-save mr-2"></i>
-                        Salvar Configurações
-                    </div>
-                    <div x-show="saving" class="flex items-center">
-                        <svg class="animate-spin h-4 w-4 mr-2" fill="none" viewBox="0 0 24 24">
-                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                        </svg>
-                        Salvando...
-                    </div>
-                </button>
+            {% if url_relatorios %}
+            <a href="{{ url_relatorios }}" class="mt-4 inline-flex items-center gap-2 text-sm font-semibold text-indigo-700 hover:text-indigo-900 dark:text-indigo-300 dark:hover:text-indigo-200">
+                Abrir relatórios <i class="fas fa-arrow-right text-xs" aria-hidden="true"></i>
+            </a>
+            {% endif %}
+        </div>
+    </section>
+
+    <!-- Atalhos de configuração -->
+    <section>
+        <div class="mb-4 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+                <h2 class="text-lg font-bold text-gray-900 dark:text-gray-100">Ações rápidas</h2>
+                <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">Aceda às páginas principais; o inventário abaixo documenta todas as rotas declaradas, incluindo APIs e operações técnicas.</p>
             </div>
         </div>
-    </div>
 
-    <!-- Modal de Importação -->
-    <div x-show="showImportModal" x-cloak class="fixed inset-0 z-50 overflow-y-auto">
-        <div class="flex items-center justify-center min-h-screen px-4 pt-4 pb-20 text-center sm:block sm:p-0">
-            <div class="fixed inset-0 transition-opacity bg-gray-500 bg-opacity-75" @click="showImportModal = false"></div>
-            
-            <div class="inline-block px-4 pt-5 pb-4 overflow-hidden text-left align-bottom transition-all transform bg-white dark:bg-gray-800 rounded-lg shadow-xl sm:my-8 sm:align-middle sm:max-w-lg sm:w-full sm:p-6">
-                <div class="sm:flex sm:items-start">
-                    <div class="flex items-center justify-center flex-shrink-0 w-12 h-12 mx-auto bg-blue-100 dark:bg-blue-900 rounded-full sm:mx-0 sm:h-10 sm:w-10">
-                        <i class="fas fa-upload text-blue-600 dark:text-blue-400"></i>
-                    </div>
-                    <div class="mt-3 text-center sm:mt-0 sm:ml-4 sm:text-left w-full">
-                        <h3 class="text-lg font-medium leading-6 text-gray-900 dark:text-gray-100">Importar Configurações</h3>
-                        <div class="mt-4">
-                            <div class="border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg p-6">
-                                <input type="file" 
-                                       @change="handleFileSelect"
-                                       accept=".json,.zip"
-                                       class="hidden"
-                                       x-ref="fileInput">
-                                <div class="text-center">
-                                    <i class="fas fa-cloud-upload-alt text-gray-400 text-3xl mb-2"></i>
-                                    <p class="text-sm text-gray-600 dark:text-gray-400">
-                                        Arraste um arquivo ou 
-                                        <button @click="$refs.fileInput.click()" class="text-indigo-600 dark:text-indigo-400 hover:text-indigo-500">
-                                            clique para selecionar
-                                        </button>
-                                    </p>
-                                    <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                                        Formatos suportados: JSON, ZIP
-                                    </p>
-                                </div>
-                            </div>
-                        </div>
+        <div class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+            {% if url_config_empresa %}
+            <a href="{{ url_config_empresa }}" class="group flex h-full items-start gap-4 rounded-xl border border-gray-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-indigo-300 hover:shadow-md dark:border-gray-700 dark:bg-gray-800 dark:hover:border-indigo-500">
+                <span class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300"><i class="fas fa-building" aria-hidden="true"></i></span>
+                <span><strong class="block text-sm font-bold text-gray-900 group-hover:text-indigo-700 dark:text-gray-100 dark:group-hover:text-indigo-300">Dados fiscais da empresa</strong><span class="mt-1 block text-sm text-gray-500 dark:text-gray-400">NIF e parâmetros fiscais da entidade.</span></span>
+            </a>
+            {% endif %}
+
+            {% if url_taxas_iva %}
+            <a href="{{ url_taxas_iva }}" class="group flex h-full items-start gap-4 rounded-xl border border-gray-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-indigo-300 hover:shadow-md dark:border-gray-700 dark:bg-gray-800 dark:hover:border-indigo-500">
+                <span class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-sky-50 text-sky-700 dark:bg-sky-900/40 dark:text-sky-300"><i class="fas fa-percent" aria-hidden="true"></i></span>
+                <span><strong class="block text-sm font-bold text-gray-900 group-hover:text-indigo-700 dark:text-gray-100 dark:group-hover:text-indigo-300">Taxas de IVA</strong><span class="mt-1 block text-sm text-gray-500 dark:text-gray-400">Consulte e mantenha as taxas fiscais.</span></span>
+            </a>
+            {% endif %}
+
+            {% if url_assinatura_digital %}
+            <a href="{{ url_assinatura_digital }}" class="group flex h-full items-start gap-4 rounded-xl border border-gray-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-indigo-300 hover:shadow-md dark:border-gray-700 dark:bg-gray-800 dark:hover:border-indigo-500">
+                <span class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-violet-50 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300"><i class="fas fa-key" aria-hidden="true"></i></span>
+                <span><strong class="block text-sm font-bold text-gray-900 group-hover:text-indigo-700 dark:text-gray-100 dark:group-hover:text-indigo-300">Assinatura digital</strong><span class="mt-1 block text-sm text-gray-500 dark:text-gray-400">Consulte o estado da assinatura fiscal.</span></span>
+            </a>
+            {% endif %}
+
+            {% if url_retencoes %}
+            <a href="{{ url_retencoes }}" class="group flex h-full items-start gap-4 rounded-xl border border-gray-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-indigo-300 hover:shadow-md dark:border-gray-700 dark:bg-gray-800 dark:hover:border-indigo-500">
+                <span class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-amber-50 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300"><i class="fas fa-file-invoice-dollar" aria-hidden="true"></i></span>
+                <span><strong class="block text-sm font-bold text-gray-900 group-hover:text-indigo-700 dark:text-gray-100 dark:group-hover:text-indigo-300">Retenções na fonte</strong><span class="mt-1 block text-sm text-gray-500 dark:text-gray-400">Consulte e gira retenções registadas.</span></span>
+            </a>
+            {% endif %}
+
+            {% if url_saft_export %}
+            <a href="{{ url_saft_export }}" class="group flex h-full items-start gap-4 rounded-xl border border-gray-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-indigo-300 hover:shadow-md dark:border-gray-700 dark:bg-gray-800 dark:hover:border-indigo-500">
+                <span class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300"><i class="fas fa-file-export" aria-hidden="true"></i></span>
+                <span><strong class="block text-sm font-bold text-gray-900 group-hover:text-indigo-700 dark:text-gray-100 dark:group-hover:text-indigo-300">Painel SAF-T (AO)</strong><span class="mt-1 block text-sm text-gray-500 dark:text-gray-400">Aceda à exportação e ao histórico SAF-T.</span></span>
+            </a>
+            {% elif url_saft_fiscal %}
+            <a href="{{ url_saft_fiscal }}" class="group flex h-full items-start gap-4 rounded-xl border border-gray-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-indigo-300 hover:shadow-md dark:border-gray-700 dark:bg-gray-800 dark:hover:border-indigo-500">
+                <span class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300"><i class="fas fa-file-export" aria-hidden="true"></i></span>
+                <span><strong class="block text-sm font-bold text-gray-900 group-hover:text-indigo-700 dark:text-gray-100 dark:group-hover:text-indigo-300">Painel SAF-T (AO)</strong><span class="mt-1 block text-sm text-gray-500 dark:text-gray-400">Aceda à exportação e ao histórico SAF-T.</span></span>
+            </a>
+            {% endif %}
+
+            {% if url_saft_historico %}
+            <a href="{{ url_saft_historico }}" class="group flex h-full items-start gap-4 rounded-xl border border-gray-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-indigo-300 hover:shadow-md dark:border-gray-700 dark:bg-gray-800 dark:hover:border-indigo-500">
+                <span class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-200"><i class="fas fa-history" aria-hidden="true"></i></span>
+                <span><strong class="block text-sm font-bold text-gray-900 group-hover:text-indigo-700 dark:text-gray-100 dark:group-hover:text-indigo-300">Histórico SAF-T</strong><span class="mt-1 block text-sm text-gray-500 dark:text-gray-400">Consulte exportações anteriores.</span></span>
+            </a>
+            {% endif %}
+
+            {% if url_saft_validar %}
+            <a href="{{ url_saft_validar }}" class="group flex h-full items-start gap-4 rounded-xl border border-gray-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-indigo-300 hover:shadow-md dark:border-gray-700 dark:bg-gray-800 dark:hover:border-indigo-500">
+                <span class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-teal-50 text-teal-700 dark:bg-teal-900/40 dark:text-teal-300"><i class="fas fa-check-circle" aria-hidden="true"></i></span>
+                <span><strong class="block text-sm font-bold text-gray-900 group-hover:text-indigo-700 dark:text-gray-100 dark:group-hover:text-indigo-300">Painel de validações</strong><span class="mt-1 block text-sm text-gray-500 dark:text-gray-400">Validações de documentos e integridade fiscal.</span></span>
+            </a>
+            {% endif %}
+
+            {% if url_homologacao %}
+            <a href="{{ url_homologacao }}" class="group flex h-full items-start gap-4 rounded-xl border border-gray-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-indigo-300 hover:shadow-md dark:border-gray-700 dark:bg-gray-800 dark:hover:border-indigo-500">
+                <span class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-indigo-50 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300"><i class="fas fa-landmark" aria-hidden="true"></i></span>
+                <span><strong class="block text-sm font-bold text-gray-900 group-hover:text-indigo-700 dark:text-gray-100 dark:group-hover:text-indigo-300">Homologação AGT</strong><span class="mt-1 block text-sm text-gray-500 dark:text-gray-400">Aceda às ferramentas de homologação.</span></span>
+            </a>
+            {% endif %}
+
+            {% if url_integridade %}
+            <a href="{{ url_integridade }}" class="group flex h-full items-start gap-4 rounded-xl border border-gray-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-indigo-300 hover:shadow-md dark:border-gray-700 dark:bg-gray-800 dark:hover:border-indigo-500">
+                <span class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-rose-50 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300"><i class="fas fa-fingerprint" aria-hidden="true"></i></span>
+                <span><strong class="block text-sm font-bold text-gray-900 group-hover:text-indigo-700 dark:text-gray-100 dark:group-hover:text-indigo-300">Integridade fiscal</strong><span class="mt-1 block text-sm text-gray-500 dark:text-gray-400">Verifique a integridade dos registos.</span></span>
+            </a>
+            {% endif %}
+
+            {% if url_relatorios %}
+            <a href="{{ url_relatorios }}" class="group flex h-full items-start gap-4 rounded-xl border border-gray-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-indigo-300 hover:shadow-md dark:border-gray-700 dark:bg-gray-800 dark:hover:border-indigo-500">
+                <span class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-orange-50 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300"><i class="fas fa-chart-bar" aria-hidden="true"></i></span>
+                <span><strong class="block text-sm font-bold text-gray-900 group-hover:text-indigo-700 dark:text-gray-100 dark:group-hover:text-indigo-300">Relatórios fiscais</strong><span class="mt-1 block text-sm text-gray-500 dark:text-gray-400">Consulte os relatórios da área fiscal.</span></span>
+            </a>
+            {% endif %}
+            {% if url_taxa_nova %}
+            <a href="{{ url_taxa_nova }}" class="group flex h-full items-start gap-4 rounded-xl border border-gray-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-indigo-300 hover:shadow-md dark:border-gray-700 dark:bg-gray-800 dark:hover:border-indigo-500">
+                <span class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-sky-50 text-sky-700 dark:bg-sky-900/40 dark:text-sky-300"><i class="fas fa-plus-circle" aria-hidden="true"></i></span>
+                <span><strong class="block text-sm font-bold text-gray-900 group-hover:text-indigo-700 dark:text-gray-100 dark:group-hover:text-indigo-300">Registar taxa de IVA</strong><span class="mt-1 block text-sm text-gray-500 dark:text-gray-400">Abrir o formulário de uma nova taxa.</span></span>
+            </a>
+            {% endif %}
+
+            {% if url_assinatura_configurar %}
+            <a href="{{ url_assinatura_configurar }}" class="group flex h-full items-start gap-4 rounded-xl border border-gray-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-indigo-300 hover:shadow-md dark:border-gray-700 dark:bg-gray-800 dark:hover:border-indigo-500">
+                <span class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-violet-50 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300"><i class="fas fa-key" aria-hidden="true"></i></span>
+                <span><strong class="block text-sm font-bold text-gray-900 group-hover:text-indigo-700 dark:text-gray-100 dark:group-hover:text-indigo-300">Configurar assinatura</strong><span class="mt-1 block text-sm text-gray-500 dark:text-gray-400">Registar ou atualizar a chave do contribuinte.</span></span>
+            </a>
+            {% endif %}
+
+            {% if url_retencao_nova %}
+            <a href="{{ url_retencao_nova }}" class="group flex h-full items-start gap-4 rounded-xl border border-gray-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-indigo-300 hover:shadow-md dark:border-gray-700 dark:bg-gray-800 dark:hover:border-indigo-500">
+                <span class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-amber-50 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300"><i class="fas fa-file-circle-plus" aria-hidden="true"></i></span>
+                <span><strong class="block text-sm font-bold text-gray-900 group-hover:text-indigo-700 dark:text-gray-100 dark:group-hover:text-indigo-300">Nova retenção</strong><span class="mt-1 block text-sm text-gray-500 dark:text-gray-400">Abrir o formulário de retenção na fonte.</span></span>
+            </a>
+            {% endif %}
+
+            {% if url_relatorio_retencoes %}
+            <a href="{{ url_relatorio_retencoes }}" class="group flex h-full items-start gap-4 rounded-xl border border-gray-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-indigo-300 hover:shadow-md dark:border-gray-700 dark:bg-gray-800 dark:hover:border-indigo-500">
+                <span class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-orange-50 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300"><i class="fas fa-chart-line" aria-hidden="true"></i></span>
+                <span><strong class="block text-sm font-bold text-gray-900 group-hover:text-indigo-700 dark:text-gray-100 dark:group-hover:text-indigo-300">Relatório de retenções</strong><span class="mt-1 block text-sm text-gray-500 dark:text-gray-400">Consultar retenções por período.</span></span>
+            </a>
+            {% endif %}
+
+            {% if url_relatorio_taxas %}
+            <a href="{{ url_relatorio_taxas }}" class="group flex h-full items-start gap-4 rounded-xl border border-gray-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-indigo-300 hover:shadow-md dark:border-gray-700 dark:bg-gray-800 dark:hover:border-indigo-500">
+                <span class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-orange-50 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300"><i class="fas fa-percent" aria-hidden="true"></i></span>
+                <span><strong class="block text-sm font-bold text-gray-900 group-hover:text-indigo-700 dark:text-gray-100 dark:group-hover:text-indigo-300">Relatório de taxas de IVA</strong><span class="mt-1 block text-sm text-gray-500 dark:text-gray-400">Consultar taxas ativas e histórico.</span></span>
+            </a>
+            {% endif %}
+
+            {% if url_documentos %}
+            <a href="{{ url_documentos }}" class="group flex h-full items-start gap-4 rounded-xl border border-gray-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-indigo-300 hover:shadow-md dark:border-gray-700 dark:bg-gray-800 dark:hover:border-indigo-500">
+                <span class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300"><i class="fas fa-file-invoice" aria-hidden="true"></i></span>
+                <span><strong class="block text-sm font-bold text-gray-900 group-hover:text-indigo-700 dark:text-gray-100 dark:group-hover:text-indigo-300">Documentos fiscais</strong><span class="mt-1 block text-sm text-gray-500 dark:text-gray-400">Consultar os documentos registados.</span></span>
+            </a>
+            {% endif %}
+
+            {% if url_documento_novo %}
+            <a href="{{ url_documento_novo }}" class="group flex h-full items-start gap-4 rounded-xl border border-gray-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-indigo-300 hover:shadow-md dark:border-gray-700 dark:bg-gray-800 dark:hover:border-indigo-500">
+                <span class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300"><i class="fas fa-file-circle-plus" aria-hidden="true"></i></span>
+                <span><strong class="block text-sm font-bold text-gray-900 group-hover:text-indigo-700 dark:text-gray-100 dark:group-hover:text-indigo-300">Novo documento fiscal</strong><span class="mt-1 block text-sm text-gray-500 dark:text-gray-400">Abrir o formulário de criação de documento.</span></span>
+            </a>
+            {% endif %}
+
+            {% if url_backup_fiscal %}
+            <a href="{{ url_backup_fiscal }}" class="group flex h-full items-start gap-4 rounded-xl border border-gray-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-indigo-300 hover:shadow-md dark:border-gray-700 dark:bg-gray-800 dark:hover:border-indigo-500">
+                <span class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-200"><i class="fas fa-database" aria-hidden="true"></i></span>
+                <span><strong class="block text-sm font-bold text-gray-900 group-hover:text-indigo-700 dark:text-gray-100 dark:group-hover:text-indigo-300">Backup fiscal</strong><span class="mt-1 block text-sm text-gray-500 dark:text-gray-400">Aceder à ferramenta de backup fiscal.</span></span>
+            </a>
+            {% endif %}
+
+            {% if url_download_dashboard_pdf %}
+            <a href="{{ url_download_dashboard_pdf }}" class="group flex h-full items-start gap-4 rounded-xl border border-gray-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-indigo-300 hover:shadow-md dark:border-gray-700 dark:bg-gray-800 dark:hover:border-indigo-500">
+                <span class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-rose-50 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300"><i class="fas fa-file-pdf" aria-hidden="true"></i></span>
+                <span><strong class="block text-sm font-bold text-gray-900 group-hover:text-indigo-700 dark:text-gray-100 dark:group-hover:text-indigo-300">Descarregar painel em PDF</strong><span class="mt-1 block text-sm text-gray-500 dark:text-gray-400">Gerar o PDF do dashboard fiscal.</span></span>
+            </a>
+            {% endif %}
+
+            {% if url_download_template_retencoes %}
+            <a href="{{ url_download_template_retencoes }}" class="group flex h-full items-start gap-4 rounded-xl border border-gray-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-indigo-300 hover:shadow-md dark:border-gray-700 dark:bg-gray-800 dark:hover:border-indigo-500">
+                <span class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-teal-50 text-teal-700 dark:bg-teal-900/40 dark:text-teal-300"><i class="fas fa-file-excel" aria-hidden="true"></i></span>
+                <span><strong class="block text-sm font-bold text-gray-900 group-hover:text-indigo-700 dark:text-gray-100 dark:group-hover:text-indigo-300">Modelo de retenções</strong><span class="mt-1 block text-sm text-gray-500 dark:text-gray-400">Descarregar o modelo de importação.</span></span>
+            </a>
+            {% endif %}
+
+            {% if url_download_exemplo_saft %}
+            <a href="{{ url_download_exemplo_saft }}" class="group flex h-full items-start gap-4 rounded-xl border border-gray-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-indigo-300 hover:shadow-md dark:border-gray-700 dark:bg-gray-800 dark:hover:border-indigo-500">
+                <span class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300"><i class="fas fa-file-code" aria-hidden="true"></i></span>
+                <span><strong class="block text-sm font-bold text-gray-900 group-hover:text-indigo-700 dark:text-gray-100 dark:group-hover:text-indigo-300">Exemplo SAF-T</strong><span class="mt-1 block text-sm text-gray-500 dark:text-gray-400">Descarregar um XML de exemplo.</span></span>
+            </a>
+            {% endif %}
+
+            {% if url_baixar_pdf_submissao %}
+            <a href="{{ url_baixar_pdf_submissao }}" class="group flex h-full items-start gap-4 rounded-xl border border-gray-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-indigo-300 hover:shadow-md dark:border-gray-700 dark:bg-gray-800 dark:hover:border-indigo-500">
+                <span class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-rose-50 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300"><i class="fas fa-file-pdf" aria-hidden="true"></i></span>
+                <span><strong class="block text-sm font-bold text-gray-900 group-hover:text-indigo-700 dark:text-gray-100 dark:group-hover:text-indigo-300">PDF para submissão AGT</strong><span class="mt-1 block text-sm text-gray-500 dark:text-gray-400">Obter o documento PDF de submissão.</span></span>
+            </a>
+            {% endif %}
+
+            {% if url_download_saft_backup %}
+            <a href="{{ url_download_saft_backup }}" class="group flex h-full items-start gap-4 rounded-xl border border-gray-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-indigo-300 hover:shadow-md dark:border-gray-700 dark:bg-gray-800 dark:hover:border-indigo-500">
+                <span class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-200"><i class="fas fa-box-archive" aria-hidden="true"></i></span>
+                <span><strong class="block text-sm font-bold text-gray-900 group-hover:text-indigo-700 dark:text-gray-100 dark:group-hover:text-indigo-300">Descarregar backup SAF-T</strong><span class="mt-1 block text-sm text-gray-500 dark:text-gray-400">Obter o ficheiro de backup, quando disponível.</span></span>
+            </a>
+            {% endif %}
+
+            {% if url_download_chave_publica %}
+            <a href="{{ url_download_chave_publica }}" class="group flex h-full items-start gap-4 rounded-xl border border-gray-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-indigo-300 hover:shadow-md dark:border-gray-700 dark:bg-gray-800 dark:hover:border-indigo-500">
+                <span class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-violet-50 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300"><i class="fas fa-key" aria-hidden="true"></i></span>
+                <span><strong class="block text-sm font-bold text-gray-900 group-hover:text-indigo-700 dark:text-gray-100 dark:group-hover:text-indigo-300">Descarregar chave pública</strong><span class="mt-1 block text-sm text-gray-500 dark:text-gray-400">Obter a chave pública fiscal.</span></span>
+            </a>
+            {% endif %}
+
+            {% if url_download_pdf_agt %}
+            <a href="{{ url_download_pdf_agt }}" class="group flex h-full items-start gap-4 rounded-xl border border-gray-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-indigo-300 hover:shadow-md dark:border-gray-700 dark:bg-gray-800 dark:hover:border-indigo-500">
+                <span class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-rose-50 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300"><i class="fas fa-file-pdf" aria-hidden="true"></i></span>
+                <span><strong class="block text-sm font-bold text-gray-900 group-hover:text-indigo-700 dark:text-gray-100 dark:group-hover:text-indigo-300">PDF AGT</strong><span class="mt-1 block text-sm text-gray-500 dark:text-gray-400">Abrir o download de PDF AGT.</span></span>
+            </a>
+            {% endif %}
+
+        </div>
+
+        <!-- Inventário completo: inclui páginas, APIs, AJAX, downloads e rotas técnicas. -->
+        <details class="mt-6 overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm dark:border-gray-700 dark:bg-gray-800">
+            <summary class="flex cursor-pointer list-none items-center justify-between gap-4 px-5 py-4 transition hover:bg-gray-50 dark:hover:bg-gray-700/50 sm:px-6">
+                <span class="min-w-0">
+                    <strong class="block text-base font-bold text-gray-900 dark:text-gray-100">Inventário completo de URLs fiscais</strong>
+                    <span class="mt-1 block text-sm text-gray-500 dark:text-gray-400">Inclui rotas web, API REST, AJAX, downloads, integrações e debug.</span>
+                </span>
+                <span class="shrink-0 rounded-full bg-indigo-50 px-3 py-1 text-xs font-bold text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-200">89 rotas declaradas</span>
+            </summary>
+            <div class="space-y-6 border-t border-gray-200 p-4 dark:border-gray-700 sm:p-6">
+                <div class="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
+                    <strong>Atenção:</strong> nem todas as rotas são páginas para abrir no navegador. As APIs/AJAX e operações POST precisam ser chamadas pelo formulário ou JavaScript apropriado. Rotas com <code>&lt;int:pk&gt;</code>, <code>&lt;str:formato&gt;</code>, <code>&lt;str:ponto&gt;</code>, <code>&lt;str:numero_documento&gt;</code>, <code>&lt;int:export_id&gt;</code> ou <code>&lt;int:venda_id&gt;</code> exigem o argumento indicado.
+                </div>
+
+                <div>
+                    <h3 class="mb-3 text-sm font-bold uppercase tracking-wide text-gray-700 dark:text-gray-200">Páginas web e operações fiscais (37)</h3>
+                    <div class="overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-700">
+                        <table class="min-w-full divide-y divide-gray-200 text-sm dark:divide-gray-700">
+                            <thead class="bg-gray-50 dark:bg-gray-900/50"><tr><th class="px-3 py-2 text-left font-semibold">Nome da rota</th><th class="px-3 py-2 text-left font-semibold">Caminho</th><th class="px-3 py-2 text-left font-semibold">Utilização</th></tr></thead>
+                            <tbody class="divide-y divide-gray-200 dark:divide-gray-700">
+                                <tr><td class="px-3 py-2 font-mono">dashboard</td><td class="px-3 py-2 font-mono">/fiscal/</td><td class="px-3 py-2">Painel fiscal; nome duplicado por outra view no mesmo urls.py.</td></tr>
+                                <tr><td class="px-3 py-2 font-mono">homologacao-dashboard</td><td class="px-3 py-2 font-mono">/fiscal/homologacao/</td><td class="px-3 py-2">Painel de homologação AGT.</td></tr>
+                                <tr><td class="px-3 py-2 font-mono">homologacao-gerar</td><td class="px-3 py-2 font-mono">/fiscal/homologacao/gerar/</td><td class="px-3 py-2">Geração de dados de homologação; confirmar método permitido na view.</td></tr>
+                                <tr><td class="px-3 py-2 font-mono">homologacao-gerar-ponto</td><td class="px-3 py-2 font-mono">/fiscal/homologacao/gerar/&lt;str:ponto&gt;/</td><td class="px-3 py-2">Requer o identificador do ponto.</td></tr>
+                                <tr><td class="px-3 py-2 font-mono">homologacao-saft</td><td class="px-3 py-2 font-mono">/fiscal/homologacao/saft/</td><td class="px-3 py-2">Operação SAF-T da homologação.</td></tr>
+                                <tr><td class="px-3 py-2 font-mono">homologacao-download-saft</td><td class="px-3 py-2 font-mono">/fiscal/homologacao/download-saft/</td><td class="px-3 py-2">Download do SAF-T de homologação.</td></tr>
+                                <tr><td class="px-3 py-2 font-mono">homologacao-pdf</td><td class="px-3 py-2 font-mono">/fiscal/homologacao/pdf/&lt;str:numero_documento&gt;/</td><td class="px-3 py-2">PDF por número de documento.</td></tr>
+                                <tr><td class="px-3 py-2 font-mono">taxas-iva-list</td><td class="px-3 py-2 font-mono">/fiscal/taxas-iva/</td><td class="px-3 py-2">Listagem de taxas de IVA.</td></tr>
+                                <tr><td class="px-3 py-2 font-mono">taxas-iva-create</td><td class="px-3 py-2 font-mono">/fiscal/taxas-iva/nova/</td><td class="px-3 py-2">Criar taxa de IVA.</td></tr>
+                                <tr><td class="px-3 py-2 font-mono">taxas-iva-detail</td><td class="px-3 py-2 font-mono">/fiscal/taxas-iva/&lt;int:pk&gt;/</td><td class="px-3 py-2">Detalhe de uma taxa; requer PK.</td></tr>
+                                <tr><td class="px-3 py-2 font-mono">taxas-iva-update</td><td class="px-3 py-2 font-mono">/fiscal/taxas-iva/&lt;int:pk&gt;/editar/</td><td class="px-3 py-2">Editar taxa; requer PK.</td></tr>
+                                <tr><td class="px-3 py-2 font-mono">taxas-iva-delete</td><td class="px-3 py-2 font-mono">/fiscal/taxas-iva/&lt;int:pk&gt;/deletar/</td><td class="px-3 py-2">Confirmação de exclusão; requer PK e confirmação POST.</td></tr>
+                                <tr><td class="px-3 py-2 font-mono">assinatura-digital</td><td class="px-3 py-2 font-mono">/fiscal/assinatura/</td><td class="px-3 py-2">Estado da assinatura digital.</td></tr>
+                                <tr><td class="px-3 py-2 font-mono">assinatura-configurar</td><td class="px-3 py-2 font-mono">/fiscal/assinatura/configurar/</td><td class="px-3 py-2">Configuração da chave do contribuinte.</td></tr>
+                                <tr><td class="px-3 py-2 font-mono">assinatura-gerar-chaves-web</td><td class="px-3 py-2 font-mono">/fiscal/assinatura/gerar-chaves/</td><td class="px-3 py-2">Compatibilidade; redireciona para configuração.</td></tr>
+                                <tr><td class="px-3 py-2 font-mono">retencoes-list</td><td class="px-3 py-2 font-mono">/fiscal/retencoes/</td><td class="px-3 py-2">Listagem de retenções.</td></tr>
+                                <tr><td class="px-3 py-2 font-mono">retencoes-create</td><td class="px-3 py-2 font-mono">/fiscal/retencoes/nova/</td><td class="px-3 py-2">Criar retenção.</td></tr>
+                                <tr><td class="px-3 py-2 font-mono">retencoes-detail</td><td class="px-3 py-2 font-mono">/fiscal/retencoes/&lt;int:pk&gt;/</td><td class="px-3 py-2">Detalhe de retenção; requer PK.</td></tr>
+                                <tr><td class="px-3 py-2 font-mono">retencoes-update</td><td class="px-3 py-2 font-mono">/fiscal/retencoes/&lt;int:pk&gt;/editar/</td><td class="px-3 py-2">Editar retenção; requer PK.</td></tr>
+                                <tr><td class="px-3 py-2 font-mono">retencoes-delete</td><td class="px-3 py-2 font-mono">/fiscal/retencoes/&lt;int:pk&gt;/deletar/</td><td class="px-3 py-2">Confirmação de exclusão; requer PK.</td></tr>
+                                <tr><td class="px-3 py-2 font-mono">retencoes-pagar</td><td class="px-3 py-2 font-mono">/fiscal/retencoes/&lt;int:pk&gt;/pagar/</td><td class="px-3 py-2">Marcar como paga; requer PK e POST.</td></tr>
+                                <tr><td class="px-3 py-2 font-mono">relatorios</td><td class="px-3 py-2 font-mono">/fiscal/relatorios/</td><td class="px-3 py-2">Painel de relatórios; nome duplicado mais abaixo.</td></tr>
+                                <tr><td class="px-3 py-2 font-mono">relatorio-retencoes</td><td class="px-3 py-2 font-mono">/fiscal/relatorios/retencoes/</td><td class="px-3 py-2">Relatório de retenções.</td></tr>
+                                <tr><td class="px-3 py-2 font-mono">relatorio-taxas-iva</td><td class="px-3 py-2 font-mono">/fiscal/relatorios/taxas-iva/</td><td class="px-3 py-2">Relatório de taxas de IVA.</td></tr>
+                                <tr><td class="px-3 py-2 font-mono">saft</td><td class="px-3 py-2 font-mono">/fiscal/saft/</td><td class="px-3 py-2">Painel SAF-T.</td></tr>
+                                <tr><td class="px-3 py-2 font-mono">saft-export-web</td><td class="px-3 py-2 font-mono">/fiscal/saft/exportar/</td><td class="px-3 py-2">Exportação web; endpoint POST, não abrir por link normal.</td></tr>
+                                <tr><td class="px-3 py-2 font-mono">saft-validar-xsd</td><td class="px-3 py-2 font-mono">/fiscal/saft/validar/</td><td class="px-3 py-2">Validação XSD via POST.</td></tr>
+                                <tr><td class="px-3 py-2 font-mono">saft-historico</td><td class="px-3 py-2 font-mono">/fiscal/saft/historico/</td><td class="px-3 py-2">Histórico de SAF-T.</td></tr>
+                                <tr><td class="px-3 py-2 font-mono">validacoes</td><td class="px-3 py-2 font-mono">/fiscal/validacoes/</td><td class="px-3 py-2">Painel de validações.</td></tr>
+                                <tr><td class="px-3 py-2 font-mono">validar-documentos-web</td><td class="px-3 py-2 font-mono">/fiscal/validacoes/documentos/</td><td class="px-3 py-2">Validação de documentos; confirmar comportamento/método da view.</td></tr>
+                                <tr><td class="px-3 py-2 font-mono">verificar-integridade-web</td><td class="px-3 py-2 font-mono">/fiscal/validacoes/integridade/</td><td class="px-3 py-2">Verificação de integridade.</td></tr>
+                                <tr><td class="px-3 py-2 font-mono">configuracoes</td><td class="px-3 py-2 font-mono">/fiscal/configuracoes/</td><td class="px-3 py-2">Configuração fiscal; nome duplicado mais abaixo.</td></tr>
+                                <tr><td class="px-3 py-2 font-mono">configuracao-empresa</td><td class="px-3 py-2 font-mono">/fiscal/configuracoes/empresa/</td><td class="px-3 py-2">Dados fiscais da empresa.</td></tr>
+                                <tr><td class="px-3 py-2 font-mono">backup-fiscal</td><td class="px-3 py-2 font-mono">/fiscal/configuracoes/backup/</td><td class="px-3 py-2">Ferramenta de backup fiscal.</td></tr>
+                                <tr><td class="px-3 py-2 font-mono">baixar_chave_publica</td><td class="px-3 py-2 font-mono">/fiscal/assinatura/baixar-publica/</td><td class="px-3 py-2">Download da chave pública.</td></tr>
+                                <tr><td class="px-3 py-2 font-mono">baixar_pdf_submissao</td><td class="px-3 py-2 font-mono">/fiscal/assinatura/pdf-submissao/</td><td class="px-3 py-2">PDF de submissão AGT.</td></tr>
+                                <tr><td class="px-3 py-2 font-mono">download_pdf_agt</td><td class="px-3 py-2 font-mono">/fiscal/assinatura/download-pdf-agt/</td><td class="px-3 py-2">Download do PDF AGT.</td></tr>
+                            </tbody>
+                        </table>
                     </div>
                 </div>
-                <div class="mt-5 sm:mt-4 sm:flex sm:flex-row-reverse">
-                    <button @click="importarConfiguracoes()" 
-                            :disabled="!selectedFile"
-                            class="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-blue-600 text-base font-medium text-white hover:bg-blue-700 disabled:opacity-50 sm:ml-3 sm:w-auto sm:text-sm">
-                        Importar
-                    </button>
-                    <button @click="showImportModal = false" 
-                            class="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 dark:border-gray-600 shadow-sm px-4 py-2 bg-white dark:bg-gray-800 text-base font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 sm:mt-0 sm:w-auto sm:text-sm">
-                        Cancelar
-                    </button>
+
+                <div>
+                    <h3 class="mb-3 text-sm font-bold uppercase tracking-wide text-gray-700 dark:text-gray-200">API REST explicitamente declarada (12)</h3>
+                    <div class="overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-700">
+                        <table class="min-w-full divide-y divide-gray-200 text-sm dark:divide-gray-700"><thead class="bg-gray-50 dark:bg-gray-900/50"><tr><th class="px-3 py-2 text-left font-semibold">Nome</th><th class="px-3 py-2 text-left font-semibold">Método</th><th class="px-3 py-2 text-left font-semibold">Caminho</th></tr></thead><tbody class="divide-y divide-gray-200 dark:divide-gray-700">
+                            <tr><td class="px-3 py-2 font-mono">saft-export</td><td class="px-3 py-2">POST</td><td class="px-3 py-2 font-mono">/fiscal/api/saft/export/</td></tr>
+                            <tr><td class="px-3 py-2 font-mono">fiscal-dashboard</td><td class="px-3 py-2">GET · JSON</td><td class="px-3 py-2 font-mono">/fiscal/api/dashboard/</td></tr>
+                            <tr><td class="px-3 py-2 font-mono">validar-documento</td><td class="px-3 py-2">POST</td><td class="px-3 py-2 font-mono">/fiscal/api/validar-documento/</td></tr>
+                            <tr><td class="px-3 py-2 font-mono">verificar-integridade</td><td class="px-3 py-2">GET · JSON</td><td class="px-3 py-2 font-mono">/fiscal/api/verificar-integridade/</td></tr>
+                            <tr><td class="px-3 py-2 font-mono">taxas-iva-ativas</td><td class="px-3 py-2">GET · JSON</td><td class="px-3 py-2 font-mono">/fiscal/api/taxas-iva/ativas/</td></tr>
+                            <tr><td class="px-3 py-2 font-mono">taxas-iva-calcular</td><td class="px-3 py-2">POST</td><td class="px-3 py-2 font-mono">/fiscal/api/taxas-iva/&lt;int:pk&gt;/calcular/</td></tr>
+                            <tr><td class="px-3 py-2 font-mono">taxas-iva-export-saft</td><td class="px-3 py-2">GET · JSON</td><td class="px-3 py-2 font-mono">/fiscal/api/taxas-iva/export-saft/</td></tr>
+                            <tr><td class="px-3 py-2 font-mono">assinatura-configurar-chave</td><td class="px-3 py-2">POST</td><td class="px-3 py-2 font-mono">/fiscal/api/assinatura/configurar-chave/</td></tr>
+                            <tr><td class="px-3 py-2 font-mono">assinatura-assinar</td><td class="px-3 py-2">POST</td><td class="px-3 py-2 font-mono">/fiscal/api/assinatura/assinar-documento/</td></tr>
+                            <tr><td class="px-3 py-2 font-mono">assinatura-status</td><td class="px-3 py-2">GET · JSON</td><td class="px-3 py-2 font-mono">/fiscal/api/assinatura/status-cadeia/</td></tr>
+                            <tr><td class="px-3 py-2 font-mono">retencoes-marcar-paga</td><td class="px-3 py-2">POST</td><td class="px-3 py-2 font-mono">/fiscal/api/retencoes/&lt;int:pk&gt;/marcar-paga/</td></tr>
+                            <tr><td class="px-3 py-2 font-mono">retencoes-relatorio-mensal</td><td class="px-3 py-2">GET · JSON</td><td class="px-3 py-2 font-mono">/fiscal/api/retencoes/relatorio-mensal/</td></tr>
+                        </tbody></table>
+                    </div>
+                </div>
+
+                <div>
+                    <h3 class="mb-3 text-sm font-bold uppercase tracking-wide text-gray-700 dark:text-gray-200">AJAX (11)</h3>
+                    <div class="overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-700"><table class="min-w-full divide-y divide-gray-200 text-sm dark:divide-gray-700"><thead class="bg-gray-50 dark:bg-gray-900/50"><tr><th class="px-3 py-2 text-left font-semibold">Nome</th><th class="px-3 py-2 text-left font-semibold">Caminho</th><th class="px-3 py-2 text-left font-semibold">Utilização</th></tr></thead><tbody class="divide-y divide-gray-200 dark:divide-gray-700">
+                        <tr><td class="px-3 py-2 font-mono">ajax-calcular-iva</td><td class="px-3 py-2 font-mono">/fiscal/ajax/calcular-iva/</td><td class="px-3 py-2">Chamado pelo formulário/JavaScript.</td></tr>
+                        <tr><td class="px-3 py-2 font-mono">ajax-buscar-fornecedores</td><td class="px-3 py-2 font-mono">/fiscal/ajax/buscar-fornecedores/</td><td class="px-3 py-2">Busca dinâmica de fornecedores.</td></tr>
+                        <tr><td class="px-3 py-2 font-mono">ajax-validar-nif</td><td class="px-3 py-2 font-mono">/fiscal/ajax/validar-nif/</td><td class="px-3 py-2">Validação assíncrona de NIF.</td></tr>
+                        <tr><td class="px-3 py-2 font-mono">ajax-gerar-hash</td><td class="px-3 py-2 font-mono">/fiscal/ajax/gerar-hash/</td><td class="px-3 py-2">Geração de hash via JavaScript.</td></tr>
+                        <tr><td class="px-3 py-2 font-mono">ajax-venda-erros</td><td class="px-3 py-2 font-mono">/fiscal/ajax/venda/&lt;int:venda_id&gt;/erros/</td><td class="px-3 py-2">Erros AGT de uma venda; requer ID.</td></tr>
+                        <tr><td class="px-3 py-2 font-mono">ajax-dados-dashboard</td><td class="px-3 py-2 font-mono">/fiscal/ajax/dados-dashboard/</td><td class="px-3 py-2">Dados dinâmicos do dashboard.</td></tr>
+                        <tr><td class="px-3 py-2 font-mono">ajax-metricas-periodo</td><td class="px-3 py-2 font-mono">/fiscal/ajax/metricas-periodo/</td><td class="px-3 py-2">Métricas por período.</td></tr>
+                        <tr><td class="px-3 py-2 font-mono">ajax-graf-retencoes</td><td class="px-3 py-2 font-mono">/fiscal/ajax/graf-retencoes/</td><td class="px-3 py-2">Dados do gráfico de retenções.</td></tr>
+                        <tr><td class="px-3 py-2 font-mono">ajax-verificar-documento</td><td class="px-3 py-2 font-mono">/fiscal/ajax/verificar-documento/</td><td class="px-3 py-2">Verificação dinâmica de documento.</td></tr>
+                        <tr><td class="px-3 py-2 font-mono">ajax-status-assinatura</td><td class="px-3 py-2 font-mono">/fiscal/ajax/status-assinatura/</td><td class="px-3 py-2">Estado da assinatura.</td></tr>
+                        <tr><td class="px-3 py-2 font-mono">ajax-testar-assinatura</td><td class="px-3 py-2 font-mono">/fiscal/ajax/testar-assinatura/</td><td class="px-3 py-2">Teste de assinatura via JavaScript.</td></tr>
+                    </tbody></table></div>
+                </div>
+
+                <div>
+                    <h3 class="mb-3 text-sm font-bold uppercase tracking-wide text-gray-700 dark:text-gray-200">Downloads e rotas de web_views (26)</h3>
+                    <div class="overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-700"><table class="min-w-full divide-y divide-gray-200 text-sm dark:divide-gray-700"><thead class="bg-gray-50 dark:bg-gray-900/50"><tr><th class="px-3 py-2 text-left font-semibold">Nome</th><th class="px-3 py-2 text-left font-semibold">Caminho</th><th class="px-3 py-2 text-left font-semibold">Utilização</th></tr></thead><tbody class="divide-y divide-gray-200 dark:divide-gray-700">
+                        <tr><td class="px-3 py-2 font-mono">download-relatorio-retencoes</td><td class="px-3 py-2 font-mono">/fiscal/download/relatorio-retencoes/&lt;str:formato&gt;/</td><td class="px-3 py-2">Download em formato indicado.</td></tr>
+                        <tr><td class="px-3 py-2 font-mono">download-relatorio-taxas</td><td class="px-3 py-2 font-mono">/fiscal/download/relatorio-taxas/&lt;str:formato&gt;/</td><td class="px-3 py-2">Download em formato indicado.</td></tr>
+                        <tr><td class="px-3 py-2 font-mono">download-dashboard-pdf</td><td class="px-3 py-2 font-mono">/fiscal/download/dashboard-pdf/</td><td class="px-3 py-2">PDF do dashboard.</td></tr>
+                        <tr><td class="px-3 py-2 font-mono">download-saft-file</td><td class="px-3 py-2 font-mono">/fiscal/download/saft/&lt;int:export_id&gt;/</td><td class="px-3 py-2">Download por ID de exportação.</td></tr>
+                        <tr><td class="px-3 py-2 font-mono">download-saft-backup</td><td class="px-3 py-2 font-mono">/fiscal/download/saft-backup/</td><td class="px-3 py-2">Download do backup SAF-T.</td></tr>
+                        <tr><td class="px-3 py-2 font-mono">download-template-retencoes</td><td class="px-3 py-2 font-mono">/fiscal/download/template-retencoes/</td><td class="px-3 py-2">Modelo de retenções.</td></tr>
+                        <tr><td class="px-3 py-2 font-mono">download-exemplo-saft</td><td class="px-3 py-2 font-mono">/fiscal/download/exemplo-saft/</td><td class="px-3 py-2">XML SAF-T de exemplo.</td></tr>
+                        <tr><td class="px-3 py-2 font-mono">download-chave-publica</td><td class="px-3 py-2 font-mono">/fiscal/download/chave-publica/</td><td class="px-3 py-2">Download da chave pública.</td></tr>
+                        <tr><td class="px-3 py-2 font-mono">dashboard</td><td class="px-3 py-2 font-mono">/fiscal/</td><td class="px-3 py-2">Segunda declaração de dashboard; mesma rota e nome.</td></tr>
+                        <tr><td class="px-3 py-2 font-mono">documentos</td><td class="px-3 py-2 font-mono">/fiscal/documentos/</td><td class="px-3 py-2">Listagem de documentos fiscais.</td></tr>
+                        <tr><td class="px-3 py-2 font-mono">documento_novo</td><td class="px-3 py-2 font-mono">/fiscal/documentos/novo/</td><td class="px-3 py-2">Criar documento fiscal.</td></tr>
+                        <tr><td class="px-3 py-2 font-mono">documento_detalhe</td><td class="px-3 py-2 font-mono">/fiscal/documentos/&lt;int:pk&gt;/</td><td class="px-3 py-2">Detalhe do documento; requer PK.</td></tr>
+                        <tr><td class="px-3 py-2 font-mono">documento_editar</td><td class="px-3 py-2 font-mono">/fiscal/documentos/&lt;int:pk&gt;/editar/</td><td class="px-3 py-2">Editar documento; requer PK.</td></tr>
+                        <tr><td class="px-3 py-2 font-mono">taxas_iva</td><td class="px-3 py-2 font-mono">/fiscal/taxas-iva/</td><td class="px-3 py-2">Segunda listagem de IVA; o caminho é duplicado.</td></tr>
+                        <tr><td class="px-3 py-2 font-mono">taxa_iva_nova</td><td class="px-3 py-2 font-mono">/fiscal/taxas-iva/nova/</td><td class="px-3 py-2">Segunda criação de taxa; o caminho é duplicado.</td></tr>
+                        <tr><td class="px-3 py-2 font-mono">taxa_iva_editar</td><td class="px-3 py-2 font-mono">/fiscal/taxas-iva/&lt;int:pk&gt;/editar/</td><td class="px-3 py-2">Segunda edição de taxa; caminho duplicado e requer PK.</td></tr>
+                        <tr><td class="px-3 py-2 font-mono">assinatura_digital</td><td class="px-3 py-2 font-mono">/fiscal/assinatura-digital/</td><td class="px-3 py-2">Configuração da assinatura pela web_views.</td></tr>
+                        <tr><td class="px-3 py-2 font-mono">retencoes</td><td class="px-3 py-2 font-mono">/fiscal/retencoes/</td><td class="px-3 py-2">Segunda listagem de retenções; caminho duplicado.</td></tr>
+                        <tr><td class="px-3 py-2 font-mono">retencao_nova</td><td class="px-3 py-2 font-mono">/fiscal/retencoes/nova/</td><td class="px-3 py-2">Segunda criação de retenção; caminho duplicado.</td></tr>
+                        <tr><td class="px-3 py-2 font-mono">retencao_editar</td><td class="px-3 py-2 font-mono">/fiscal/retencoes/&lt;int:pk&gt;/editar/</td><td class="px-3 py-2">Segunda edição de retenção; caminho duplicado.</td></tr>
+                        <tr><td class="px-3 py-2 font-mono">relatorios</td><td class="px-3 py-2 font-mono">/fiscal/relatorios/</td><td class="px-3 py-2">Segunda rota de relatórios e nome duplicado.</td></tr>
+                        <tr><td class="px-3 py-2 font-mono">saft_exportar</td><td class="px-3 py-2 font-mono">/fiscal/saft/exportar/</td><td class="px-3 py-2">Segunda rota de exportação, caminho duplicado.</td></tr>
+                        <tr><td class="px-3 py-2 font-mono">validacao</td><td class="px-3 py-2 font-mono">/fiscal/validacao/</td><td class="px-3 py-2">Painel/rota de validação da web_views.</td></tr>
+                        <tr><td class="px-3 py-2 font-mono">integridade</td><td class="px-3 py-2 font-mono">/fiscal/integridade/</td><td class="px-3 py-2">Verificação de integridade pela web_views.</td></tr>
+                        <tr><td class="px-3 py-2 font-mono">configuracoes</td><td class="px-3 py-2 font-mono">/fiscal/configuracoes/</td><td class="px-3 py-2">Segunda rota e nome duplicado de configurações.</td></tr>
+                        <tr><td class="px-3 py-2 font-mono">homologacao</td><td class="px-3 py-2 font-mono">/fiscal/homologacao/</td><td class="px-3 py-2">Segunda rota de homologação; caminho duplicado.</td></tr>
+                    </tbody></table></div>
+                </div>
+
+                <div>
+                    <h3 class="mb-3 text-sm font-bold uppercase tracking-wide text-gray-700 dark:text-gray-200">Webhooks e rotas de desenvolvimento</h3>
+                    <div class="overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-700"><table class="min-w-full divide-y divide-gray-200 text-sm dark:divide-gray-700"><thead class="bg-gray-50 dark:bg-gray-900/50"><tr><th class="px-3 py-2 text-left font-semibold">Nome</th><th class="px-3 py-2 text-left font-semibold">Caminho</th><th class="px-3 py-2 text-left font-semibold">Disponibilidade</th></tr></thead><tbody class="divide-y divide-gray-200 dark:divide-gray-700">
+                        <tr><td class="px-3 py-2 font-mono">webhook-agt</td><td class="px-3 py-2 font-mono">/fiscal/webhook/agt-notification/</td><td class="px-3 py-2">Webhook para chamada externa; não é um link para abrir manualmente.</td></tr>
+                        <tr><td class="px-3 py-2 font-mono">debug-limpar-cache</td><td class="px-3 py-2 font-mono">/fiscal/debug/limpar-cache/</td><td class="px-3 py-2">Só quando DEBUG=True; rota operacional, não expor como atalho normal.</td></tr>
+                        <tr><td class="px-3 py-2 font-mono">debug-info-sistema</td><td class="px-3 py-2 font-mono">/fiscal/debug/info-sistema/</td><td class="px-3 py-2">Só quando DEBUG=True; rota técnica.</td></tr>
+                    </tbody></table></div>
+                </div>
+
+                <div>
+                    <h3 class="mb-3 text-sm font-bold uppercase tracking-wide text-gray-700 dark:text-gray-200">DefaultRouter registado no ficheiro</h3>
+                    <p class="mb-3 text-sm text-gray-600 dark:text-gray-300">O ficheiro regista quatro ViewSets no DRF Router, mas não inclui <code>router.urls</code> em <code>urlpatterns</code>. Assim, estes endpoints não ficam disponíveis só por fazer <code>router.register()</code>. Se os ativarmos, devemos usar basenames únicos (por exemplo, <code>api-taxas-iva</code>) para não colidir com nomes web existentes.</p>
+                    <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
+                        <div class="rounded-lg border border-gray-200 p-3 dark:border-gray-700"><strong class="text-sm">TaxaIVAAGTViewSet</strong><p class="mt-1 text-xs text-gray-500 dark:text-gray-400">Prefixo registado: <code>taxas-iva</code> · CRUD REST + ações ativas/calcular/export-SAFT.</p></div>
+                        <div class="rounded-lg border border-gray-200 p-3 dark:border-gray-700"><strong class="text-sm">AssinaturaDigitalViewSet</strong><p class="mt-1 text-xs text-gray-500 dark:text-gray-400">Prefixo registado: <code>assinatura-digital</code> · listagem e ações de chave, assinatura e estado.</p></div>
+                        <div class="rounded-lg border border-gray-200 p-3 dark:border-gray-700"><strong class="text-sm">RetencaoFonteViewSet</strong><p class="mt-1 text-xs text-gray-500 dark:text-gray-400">Prefixo registado: <code>retencoes-fonte</code> · CRUD REST + pagamento e relatório mensal.</p></div>
+                        <div class="rounded-lg border border-gray-200 p-3 dark:border-gray-700"><strong class="text-sm">DocumentoFiscalViewSet</strong><p class="mt-1 text-xs text-gray-500 dark:text-gray-400">Prefixo registado: <code>documentos-fiscais</code> · CRUD REST padrão, caso os endpoints sejam montados.</p></div>
+                    </div>
+                </div>
+
+                <div class="rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-900 dark:border-rose-900 dark:bg-rose-950/30 dark:text-rose-200">
+                    <strong>Observação de manutenção do urls.py:</strong> há caminhos repetidos entre <code>web_urlpatterns</code> e as páginas de <code>web_views</code> colocadas em <code>download_urlpatterns</code>, além de nomes repetidos como <code>dashboard</code>, <code>relatorios</code> e <code>configuracoes</code>. O Django resolve o primeiro caminho correspondente na ordem do <code>urlpatterns</code>; a declaração posterior pode ficar inacessível pela URL, embora apareça no ficheiro. O inventário mantém todas as declarações para auditoria, mas recomenda-se limpar essas duplicações no próprio <code>urls.py</code> numa etapa separada.
                 </div>
             </div>
+        </details>
+    </section>
+
+    <div class="rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-200">
+        <div class="flex items-start gap-3">
+            <i class="fas fa-info-circle mt-0.5" aria-hidden="true"></i>
+            <p>Esta página apresenta o estado dos dados disponibilizados pela aplicação. A indicação de assinatura configurada não substitui os testes de assinatura e validação exigidos antes de submeter ficheiros à AGT.</p>
         </div>
     </div>
-
 </div>
-{% endblock %}
-
-{% block extra_js %}
-<script>
-function configuracoesPanel() {
-    return {
-        stats: {
-            taxasAtivas: {{ taxas_ativas|default:0 }},
-            isencoes: {{ isencoes|default:0 }},
-            naoSujeitas: {{ nao_sujeitas|default:0 }},
-            ultimoSAFT: 'Nunca'
-        },
-        settings: {
-            validacaoAutomatica: true,
-            verificacaoIntegridade: true,
-            alertasEmail: false,
-            cacheRelatorios: '6',
-            retencaoLogs: '90'
-        },
-        showImportModal: false,
-        selectedFile: null,
-        saving: false,
-
-        init() {
-            this.loadSettings();
-        },
-
-        async loadSettings() {
-            // Carregar configurações salvas
-            try {
-                const saved = localStorage.getItem('fiscal-settings');
-                if (saved) {
-                    this.settings = { ...this.settings, ...JSON.parse(saved) };
-                }
-            } catch (error) {
-                console.error('Erro ao carregar configurações:', error);
-            }
-        },
-
-        async salvarConfiguracoes() {
-            this.saving = true;
-            
-            try {
-                // Salvar no localStorage (em produção seria uma API)
-                localStorage.setItem('fiscal-settings', JSON.stringify(this.settings));
-                
-                // Simular delay da API
-                await new Promise(resolve => setTimeout(resolve, 1000));
-                
-                // Mostrar mensagem de sucesso
-                this.showSuccessMessage('Configurações salvas com sucesso!');
-                
-            } catch (error) {
-                console.error('Erro ao salvar configurações:', error);
-                this.showErrorMessage('Erro ao salvar configurações');
-            } finally {
-                this.saving = false;
-            }
-        },
-
-        async exportarSAFT() {
-            // Redirecionar para a página de exportação SAF-T
-            window.location.href = '{% url "fiscal:saft" %}';
-        },
-
-        async criarBackup() {
-            try {
-                const response = await fetch('{% url "fiscal:backup-fiscal" %}');
-                
-                if (response.ok) {
-                    const blob = await response.blob();
-                    const url = window.URL.createObjectURL(blob);
-                    const a = document.createElement('a');
-                    a.style.display = 'none';
-                    a.href = url;
-                    a.download = `backup_fiscal_{{ empresa.nif }}_${new Date().toISOString().split('T')[0]}.zip`;
-                    document.body.appendChild(a);
-                    a.click();
-                    window.URL.revokeObjectURL(url);
-                    
-                    this.showSuccessMessage('Backup criado e baixado com sucesso!');
-                } else {
-                    throw new Error('Erro ao criar backup');
-                }
-            } catch (error) {
-                console.error('Erro ao criar backup:', error);
-                this.showErrorMessage('Erro ao criar backup fiscal');
-            }
-        },
-
-        handleFileSelect(event) {
-            this.selectedFile = event.target.files[0];
-        },
-
-        async importarConfiguracoes() {
-            if (!this.selectedFile) return;
-
-            try {
-                // Aqui você implementaria o upload e processamento do arquivo
-                console.log('Importando arquivo:', this.selectedFile.name);
-                
-                this.showImportModal = false;
-                this.selectedFile = null;
-                this.showSuccessMessage('Configurações importadas com sucesso!');
-                
-                // Recarregar a página ou atualizar dados
-                setTimeout(() => window.location.reload(), 1500);
-                
-            } catch (error) {
-                console.error('Erro na importação:', error);
-                this.showErrorMessage('Erro ao importar configurações');
-            }
-        },
-
-        showSuccessMessage(message) {
-            // Implementar notificação de sucesso
-            const toast = document.createElement('div');
-            toast.className = 'fixed top-4 right-4 z-50 p-4 rounded-md bg-green-500 text-white shadow-lg';
-            toast.textContent = message;
-            document.body.appendChild(toast);
-            setTimeout(() => toast.remove(), 3000);
-        },
-
-        showErrorMessage(message) {
-            // Implementar notificação de erro
-            const toast = document.createElement('div');
-            toast.className = 'fixed top-4 right-4 z-50 p-4 rounded-md bg-red-500 text-white shadow-lg';
-            toast.textContent = message;
-            document.body.appendChild(toast);
-            setTimeout(() => toast.remove(), 3000);
-        }
-    }
-}
-</script>
 {% endblock %}

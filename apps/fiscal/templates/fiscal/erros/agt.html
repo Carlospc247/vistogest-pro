@@ -1,0 +1,7 @@
+{% extends "fiscal/base_fiscal.html" %}
+{% block title %}Erro de comunicação AGT{% endblock %}
+{% block topbar_title %}Detalhe de erro AGT{% endblock %}
+{% block content %}
+<div class="page-head"><div><p class="eyebrow">Diagnóstico</p><h1>Erro de comunicação AGT</h1><p>Informação disponível para apoiar a análise da resposta de integração.</p></div><a class="btn btn-light" href="{% url 'fiscal:homologacao' %}">← Homologação</a></div>
+<section class="card"><div class="card-head"><h2>Detalhes</h2>{% if estado %}<span class="badge danger">{{ estado }}</span>{% endif %}</div><div class="card-body"><div class="detail-grid"><div class="detail"><small>Documento/Venda</small><strong>{{ documento_id|default:venda_id|default:"—" }}</strong></div><div class="detail"><small>Pedido AGT</small><strong class="code">{{ request_id|default:"—" }}</strong></div><div class="detail"><small>Data</small><strong>{{ data|date:"d/m/Y H:i"|default:"—" }}</strong></div></div><h3 style="margin-top:22px">Mensagem</h3><pre style="white-space:pre-wrap;overflow-wrap:anywhere;background:#f6f8fb;padding:15px;border-radius:10px;border:1px solid var(--line)">{{ mensagem|default:erros|default:"Não existe detalhe de erro disponível." }}</pre>{% if documento_url %}<a class="btn btn-primary" href="{{ documento_url }}">Abrir documento</a>{% endif %}</div></section>
+{% endblock %}

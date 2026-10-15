@@ -1,0 +1,15 @@
+{# relatorios/aniversariantes.html #}
+{% extends "funcionarios/_rh_base.html" %}
+{% block title %}Aniversariantes{% endblock %}
+{% block rh_content %}
+<h1 class="text-2xl font-bold mb-4">Aniversariantes</h1>
+<form method="get" class="rh-card mb-4 flex gap-3 items-end"><div><label class="text-xs rh-muted block">Mês</label><select name="mes" class="rh-input" id="mes"></select></div><button class="rh-btn rh-btn-p">Ver</button></form>
+<div class="rh-card p-0 overflow-x-auto"><table class="rh-table"><thead><tr><th>Dia</th><th>Funcionário</th><th>Departamento</th></tr></thead><tbody>
+  {% for a in aniversariantes %}<tr><td>{{ a.data_nascimento|date:"d/m" }}</td><td>{{ a.nome_completo }}</td><td>{{ a.departamento.nome }}</td></tr>
+  {% empty %}<tr><td colspan="3" class="text-center py-6 rh-muted">Ninguém faz anos neste mês.</td></tr>{% endfor %}</tbody></table></div>
+<script>
+const n=['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+const atual=parseInt(new URLSearchParams(location.search).get('mes'))||(new Date().getMonth()+1);
+document.getElementById('mes').innerHTML=n.map((x,i)=>`<option value="${i+1}" ${i+1===atual?'selected':''}>${x}</option>`).join('');
+</script>
+{% endblock %}

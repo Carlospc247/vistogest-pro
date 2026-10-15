@@ -1,713 +1,220 @@
-<!-- funcionarios/dashboard.html -->
-{% extends "base.html" %}
+{% extends "funcionarios/_rh_base.html" %}
 
 {% block title %}Dashboard RH{% endblock %}
 
-{% block content %}
+{% block rh_content %}
+<style>
+  .rh-dashboard { --rh-border: #e5e7eb; --rh-muted: #64748b; }
+  .rh-dashboard * { box-sizing: border-box; }
+  .rh-dashboard .rh-page-head { display:flex; flex-wrap:wrap; align-items:flex-start; justify-content:space-between; gap:1rem; margin-bottom:1.5rem; }
+  .rh-dashboard .rh-page-head p { color:var(--rh-muted); margin-top:.35rem; }
+  .rh-dashboard .rh-stat-grid { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:1rem; margin-bottom:1.5rem; }
+  .rh-dashboard .rh-section-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:1rem; }
+  .rh-dashboard .rh-nav-section { min-width:0; background:var(--rh-card-bg,#fff); border:1px solid var(--rh-border); border-radius:1rem; padding:1.1rem; box-shadow:0 1px 2px rgb(15 23 42 / .04); }
+  .rh-dashboard .rh-nav-title { display:flex; gap:.75rem; align-items:center; padding-bottom:.85rem; margin-bottom:.85rem; border-bottom:1px solid var(--rh-border); }
+  .rh-dashboard .rh-nav-icon { display:inline-flex; flex:0 0 2.5rem; width:2.5rem; height:2.5rem; align-items:center; justify-content:center; border-radius:.8rem; background:#eff6ff; color:#1d4ed8; }
+  .rh-dashboard .rh-nav-title h2 { font-weight:700; color:var(--rh-heading,#111827); }
+  .rh-dashboard .rh-nav-title p { font-size:.8rem; color:var(--rh-muted); margin-top:.15rem; }
+  .rh-dashboard .rh-link-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:.55rem; }
+  .rh-dashboard .rh-link { display:flex; align-items:center; gap:.55rem; min-width:0; min-height:2.7rem; border:1px solid var(--rh-border); border-radius:.65rem; padding:.65rem .7rem; color:var(--rh-link,#334155); text-decoration:none; font-size:.875rem; line-height:1.25; transition:background .15s ease,border-color .15s ease,transform .15s ease; }
+  .rh-dashboard .rh-link i { width:1rem; text-align:center; flex:0 0 1rem; color:#64748b; }
+  .rh-dashboard .rh-link span { min-width:0; overflow-wrap:anywhere; }
+  .rh-dashboard .rh-link:hover { background:#f8fafc; border-color:#93c5fd; color:#1d4ed8; transform:translateY(-1px); }
+  .rh-dashboard .rh-link-primary { background:#eff6ff; border-color:#bfdbfe; color:#1d4ed8; font-weight:600; }
+  .rh-dashboard .rh-route-note { margin-top:.85rem; padding:.7rem .8rem; border-radius:.65rem; background:var(--rh-note-bg,#f8fafc); color:var(--rh-muted); font-size:.8rem; line-height:1.5; }
+  .rh-dashboard .rh-footer-tools { margin-top:1rem; display:flex; flex-wrap:wrap; gap:.55rem; }
+  @media (max-width: 1150px) { .rh-dashboard .rh-stat-grid { grid-template-columns:repeat(3,minmax(0,1fr)); } }
+  @media (max-width: 850px) { .rh-dashboard .rh-section-grid { grid-template-columns:minmax(0,1fr); } }
+  @media (max-width: 600px) { .rh-dashboard .rh-stat-grid { grid-template-columns:repeat(2,minmax(0,1fr)); gap:.65rem; } .rh-dashboard .rh-nav-section { padding:.9rem; } .rh-dashboard .rh-link-grid { grid-template-columns:minmax(0,1fr); } .rh-dashboard .rh-page-head h1 { font-size:1.5rem; } }
+  .dark .rh-dashboard .rh-nav-section { --rh-card-bg:#111827; --rh-heading:#f9fafb; --rh-link:#e2e8f0; --rh-note-bg:#1f2937; border-color:#374151; }
+  .dark .rh-dashboard .rh-link { border-color:#374151; }
+  .dark .rh-dashboard .rh-link:hover { background:#1f2937; border-color:#60a5fa; }
+  .dark .rh-dashboard .rh-link-primary { background:#172554; border-color:#1d4ed8; color:#bfdbfe; }
+  .dark .rh-dashboard .rh-nav-icon { background:#1e3a8a; color:#bfdbfe; }
+  @media (prefers-color-scheme: dark) {
+    .rh-dashboard .rh-nav-section { --rh-card-bg:#111827; --rh-heading:#f9fafb; --rh-link:#e2e8f0; --rh-note-bg:#1f2937; border-color:#374151; }
+    .rh-dashboard .rh-link { border-color:#374151; }
+    .rh-dashboard .rh-link:hover { background:#1f2937; border-color:#60a5fa; }
+    .rh-dashboard .rh-link-primary { background:#172554; border-color:#1d4ed8; color:#bfdbfe; }
+    .rh-dashboard .rh-nav-icon { background:#1e3a8a; color:#bfdbfe; }
+  }
+</style>
 
-
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Dashboard RH | HR Pulse</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://cdn.jsdelivr.net/npm/feather-icons/dist/feather.min.js"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <style>
-        body {
-            font-family: 'Inter', sans-serif;
-            background-color: #f8fafc;
-        }
-        .card-hover:hover {
-            transform: translateY(-5px);
-            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1);
-        }
-        .gradient-primary {
-            background: linear-gradient(135deg, #3b82f6 0%, #6366f1 100%);
-        }
-        .gradient-success {
-            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
-        }
-        .gradient-warning {
-            background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
-        }
-        .gradient-danger {
-            background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
-        }
-    </style>
-</head>
-<body class="bg-gray-50">
-    <div class="min-h-screen">
-        <!-- Header -->
-        <header class="bg-white shadow-sm">
-            <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-                <div class="flex justify-between items-center">
-                    <div class="flex items-center">
-                        <div class="flex-shrink-0">
-                            <i data-feather="users" class="h-8 w-8 text-indigo-600"></i>
-                        </div>
-                        <h1 class="ml-3 text-2xl font-bold text-gray-900">HR Pulse</h1>
-                    </div>
-                    <div class="flex items-center space-x-4">
-                        <button class="p-2 rounded-full bg-gray-100 text-gray-600 hover:bg-gray-200">
-                            <i data-feather="bell"></i>
-                        </button>
-                        <div class="flex items-center">
-                            <img class="h-8 w-8 rounded-full" src="https://randomuser.me/api/portraits/women/44.jpg" alt="User profile">
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </header>
-
-        <!-- Main Content -->
-        <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-            <!-- Page Title -->
-            <div class="flex justify-between items-center mb-8">
-                <h2 class="text-3xl font-bold text-gray-900">Dashboard de Recursos Humanos</h2>
-                <div class="flex space-x-3">
-                    <button class="px-4 py-2 bg-white border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 flex items-center">
-                        <i data-feather="download" class="mr-2"></i> Exportar
-                    </button>
-                    <button class="px-4 py-2 bg-indigo-600 rounded-lg text-white hover:bg-indigo-700 flex items-center">
-                        <i data-feather="plus" class="mr-2"></i> Novo Funcionário
-                    </button>
-                </div>
-            </div>
-
-            <!-- Stats Cards -->
-            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-                <!-- Total Employees -->
-                <div class="bg-white rounded-xl shadow-sm p-6 card-hover transition-all duration-300">
-                    <div class="flex items-center justify-between">
-                        <div>
-                            <p class="text-sm font-medium text-gray-500">Total de Funcionários</p>
-                            <p class="mt-1 text-3xl font-semibold text-gray-900">{{ total_funcionarios }}</p>
-                        </div>
-                        <div class="p-3 rounded-lg bg-indigo-50 text-indigo-600">
-                            <i data-feather="users"></i>
-                        </div>
-                    </div>
-                    <div class="mt-4">
-                        <div class="flex items-center text-sm text-gray-500">
-                            <i data-feather="trending-up" class="text-green-500 mr-1"></i>
-                            <span>12% vs último mês</span>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Probation Period -->
-                <div class="bg-white rounded-xl shadow-sm p-6 card-hover transition-all duration-300">
-                    <div class="flex items-center justify-between">
-                        <div>
-                            <p class="text-sm font-medium text-gray-500">Em Período de Experiência</p>
-                            <p class="mt-1 text-3xl font-semibold text-gray-900">{{ funcionarios_experiencia }}</p>
-                        </div>
-                        <div class="p-3 rounded-lg bg-blue-50 text-blue-600">
-                            <i data-feather="clock"></i>
-                        </div>
-                    </div>
-                    <div class="mt-4">
-                        <div class="flex items-center text-sm text-gray-500">
-                            <i data-feather="trending-down" class="text-red-500 mr-1"></i>
-                            <span>5% vs último mês</span>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Birthdays -->
-                <div class="bg-white rounded-xl shadow-sm p-6 card-hover transition-all duration-300">
-                    <div class="flex items-center justify-between">
-                        <div>
-                            <p class="text-sm font-medium text-gray-500">Aniversariantes do Mês</p>
-                            <p class="mt-1 text-3xl font-semibold text-gray-900">{{ aniversariantes_mes }}</p>
-                        </div>
-                        <div class="p-3 rounded-lg bg-pink-50 text-pink-600">
-                            <i data-feather="gift"></i>
-                        </div>
-                    </div>
-                    <div class="mt-4">
-                        <a href="#" class="text-sm font-medium text-indigo-600 hover:text-indigo-500">Ver lista completa</a>
-                    </div>
-                </div>
-
-                <!-- Pending Vacations -->
-                <div class="bg-white rounded-xl shadow-sm p-6 card-hover transition-all duration-300">
-                    <div class="flex items-center justify-between">
-                        <div>
-                            <p class="text-sm font-medium text-gray-500">Férias Pendentes</p>
-                            <p class="mt-1 text-3xl font-semibold text-gray-900">{{ ferias_pendentes }}</p>
-                        </div>
-                        <div class="p-3 rounded-lg bg-yellow-50 text-yellow-600">
-                            <i data-feather="calendar"></i>
-                        </div>
-                    </div>
-                    <div class="mt-4">
-                        <a href="#" class="text-sm font-medium text-indigo-600 hover:text-indigo-500">Aprovar agora</a>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Pending Evaluations -->
-            <div class="bg-white rounded-xl shadow-sm p-6 mb-8">
-                <div class="flex items-center justify-between mb-4">
-                    <h3 class="text-lg font-semibold text-gray-900">Avaliações Pendentes</h3>
-                    <a href="#" class="text-sm font-medium text-indigo-600 hover:text-indigo-500">Ver todas</a>
-                </div>
-                <div class="bg-indigo-50 rounded-lg p-4">
-                    <div class="flex items-center">
-                        <div class="flex-shrink-0">
-                            <i data-feather="alert-circle" class="h-5 w-5 text-indigo-600"></i>
-                        </div>
-                        <div class="ml-3">
-                            <p class="text-sm font-medium text-indigo-800">
-                                Você tem {{ avaliacoes_pendentes }} avaliações pendentes para concluir
-                            </p>
-                        </div>
-                        <div class="ml-auto">
-                            <button class="px-3 py-1 bg-indigo-600 rounded-md text-white text-sm hover:bg-indigo-700">
-                                Iniciar avaliações
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Quick Navigation -->
-            <h3 class="text-xl font-semibold text-gray-900 mb-6">Navegação Rápida</h3>
-
-            <!-- Employee Management -->
-            <div class="mb-8">
-                <div class="flex items-center justify-between mb-4">
-                    <h4 class="text-lg font-medium text-gray-900">Gestão de Funcionários</h4>
-                    <a href="#" class="text-sm font-medium text-indigo-600 hover:text-indigo-500">Ver tudo</a>
-                </div>
-                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                    <a href="{% url 'funcionarios:funcionarios' %}" class="bg-white rounded-lg shadow-sm p-5 card-hover transition-all duration-300 flex flex-col items-center text-center">
-                        <div class="p-3 rounded-lg bg-indigo-50 text-indigo-600 mb-3">
-                            <i data-feather="users" class="w-6 h-6"></i>
-                        </div>
-                        <h5 class="font-medium text-gray-900">Lista de Funcionários</h5>
-                        <p class="mt-1 text-sm text-gray-500">Gerencie todos os colaboradores</p>
-                    </a>
-                    <a href="{% url 'funcionarios:create' %}" class="bg-white rounded-lg shadow-sm p-5 card-hover transition-all duration-300 flex flex-col items-center text-center">
-                        <div class="p-3 rounded-lg bg-green-50 text-green-600 mb-3">
-                            <i data-feather="user-plus" class="w-6 h-6"></i>
-                        </div>
-                        <h5 class="font-medium text-gray-900">Novo Funcionário</h5>
-                        <p class="mt-1 text-sm text-gray-500">Adicione um novo colaborador</p>
-                    </a>
-                    <a href="{% url 'funcionarios:meuturno' %}" class="bg-white rounded-lg shadow-sm p-5 card-hover transition-all duration-300 flex flex-col items-center text-center">
-                        <div class="p-3 rounded-lg bg-blue-50 text-blue-600 mb-3">
-                            <i data-feather="clock" class="w-6 h-6"></i>
-                        </div>
-                        <h5 class="font-medium text-gray-900">Meu Turno</h5>
-                        <p class="mt-1 text-sm text-gray-500">Visualize turnos e escalas</p>
-                    </a>
-                    <a href="{% url 'funcionarios:importar' %}" class="bg-white rounded-lg shadow-sm p-5 card-hover transition-all duration-300 flex flex-col items-center text-center">
-                        <div class="p-3 rounded-lg bg-yellow-50 text-yellow-600 mb-3">
-                            <i data-feather="upload" class="w-6 h-6"></i>
-                        </div>
-                        <h5 class="font-medium text-gray-900">Importar Funcionários</h5>
-                        <p class="mt-1 text-sm text-gray-500">Importe dados em massa</p>
-                    </a>
-                </div>
-            </div>
-
-            <!-- Organizational Structure -->
-            <div class="mb-8">
-                <div class="flex items-center justify-between mb-4">
-                    <h4 class="text-lg font-medium text-gray-900">Estrutura Organizacional</h4>
-                    <a href="#" class="text-sm font-medium text-indigo-600 hover:text-indigo-500">Ver tudo</a>
-                </div>
-                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                    <a href="{% url 'funcionarios:cargo_lista' %}" class="bg-white rounded-lg shadow-sm p-5 card-hover transition-all duration-300 flex flex-col items-center text-center">
-                        <div class="p-3 rounded-lg bg-green-50 text-green-600 mb-3">
-                            <i data-feather="award" class="w-6 h-6"></i>
-                        </div>
-                        <h5 class="font-medium text-gray-900">Cargos</h5>
-                        <p class="mt-1 text-sm text-gray-500">Gerencie os cargos da empresa</p>
-                    </a>
-                    <a href="{% url 'funcionarios:cargo_create' %}" class="bg-white rounded-lg shadow-sm p-5 card-hover transition-all duration-300 flex flex-col items-center text-center">
-                        <div class="p-3 rounded-lg bg-green-100 text-green-600 mb-3">
-                            <i data-feather="plus" class="w-6 h-6"></i>
-                        </div>
-                        <h5 class="font-medium text-gray-900">Novo Cargo</h5>
-                        <p class="mt-1 text-sm text-gray-500">Crie um novo cargo</p>
-                    </a>
-                    <a href="{% url 'funcionarios:departamento_lista' %}" class="bg-white rounded-lg shadow-sm p-5 card-hover transition-all duration-300 flex flex-col items-center text-center">
-                        <div class="p-3 rounded-lg bg-green-50 text-green-600 mb-3">
-                            <i data-feather="layers" class="w-6 h-6"></i>
-                        </div>
-                        <h5 class="font-medium text-gray-900">Departamentos</h5>
-                        <p class="mt-1 text-sm text-gray-500">Visualize os departamentos</p>
-                    </a>
-                    <a href="{% url 'funcionarios:departamento_create' %}" class="bg-white rounded-lg shadow-sm p-5 card-hover transition-all duration-300 flex flex-col items-center text-center">
-                        <div class="p-3 rounded-lg bg-green-100 text-green-600 mb-3">
-                            <i data-feather="plus" class="w-6 h-6"></i>
-                        </div>
-                        <h5 class="font-medium text-gray-900">Novo Departamento</h5>
-                        <p class="mt-1 text-sm text-gray-500">Crie um novo departamento</p>
-                    </a>
-                </div>
-            </div>
-
-            <!-- Time and Attendance -->
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-                <!-- Time Clock -->
-                <div class="bg-white rounded-xl shadow-sm p-6">
-                    <div class="flex items-center justify-between mb-4">
-                        <h4 class="text-lg font-medium text-gray-900">Ponto Eletrônico</h4>
-                        <a href="#" class="text-sm font-medium text-indigo-600 hover:text-indigo-500">Ver tudo</a>
-                    </div>
-                    <div class="space-y-3">
-                        <a href="{% url 'funcionarios:ponto' %}" class="flex items-center p-3 rounded-lg hover:bg-gray-50">
-                            <div class="p-2 rounded-lg bg-yellow-50 text-yellow-600 mr-3">
-                                <i data-feather="clock" class="w-5 h-5"></i>
-                            </div>
-                            <div>
-                                <h5 class="font-medium text-gray-900">Registrar Ponto</h5>
-                                <p class="text-sm text-gray-500">Registre sua entrada/saída</p>
-                            </div>
-                            <div class="ml-auto">
-                                <i data-feather="chevron-right" class="text-gray-400"></i>
-                            </div>
-                        </a>
-                        <a href="{% url 'funcionarios:relatorio_ponto' %}" class="flex items-center p-3 rounded-lg hover:bg-gray-50">
-                            <div class="p-2 rounded-lg bg-yellow-50 text-yellow-600 mr-3">
-                                <i data-feather="bar-chart-2" class="w-5 h-5"></i>
-                            </div>
-                            <div>
-                                <h5 class="font-medium text-gray-900">Relatórios de Ponto</h5>
-                                <p class="text-sm text-gray-500">Visualize relatórios completos</p>
-                            </div>
-                            <div class="ml-auto">
-                                <i data-feather="chevron-right" class="text-gray-400"></i>
-                            </div>
-                        </a>
-                        <a href="{% url 'funcionarios:ajustes_ponto' %}" class="flex items-center p-3 rounded-lg hover:bg-gray-50">
-                            <div class="p-2 rounded-lg bg-yellow-50 text-yellow-600 mr-3">
-                                <i data-feather="settings" class="w-5 h-5"></i>
-                            </div>
-                            <div>
-                                <h5 class="font-medium text-gray-900">Ajustes de Ponto</h5>
-                                <p class="text-sm text-gray-500">Configure o sistema de ponto</p>
-                            </div>
-                            <div class="ml-auto">
-                                <i data-feather="chevron-right" class="text-gray-400"></i>
-                            </div>
-                        </a>
-                    </div>
-                </div>
-
-                <!-- Work Schedule -->
-                <div class="bg-white rounded-xl shadow-sm p-6">
-                    <div class="flex items-center justify-between mb-4">
-                        <h4 class="text-lg font-medium text-gray-900">Jornada e Horários</h4>
-                        <a href="#" class="text-sm font-medium text-indigo-600 hover:text-indigo-500">Ver tudo</a>
-                    </div>
-                    <div class="space-y-3">
-                        <a href="{% url 'funcionarios:jornada_lista' %}" class="flex items-center p-3 rounded-lg hover:bg-gray-50">
-                            <div class="p-2 rounded-lg bg-blue-50 text-blue-600 mr-3">
-                                <i data-feather="calendar" class="w-5 h-5"></i>
-                            </div>
-                            <div>
-                                <h5 class="font-medium text-gray-900">Jornadas de Trabalho</h5>
-                                <p class="text-sm text-gray-500">Gerencie as jornadas da empresa</p>
-                            </div>
-                            <div class="ml-auto">
-                                <i data-feather="chevron-right" class="text-gray-400"></i>
-                            </div>
-                        </a>
-                        <a href="{% url 'funcionarios:escala' %}" class="flex items-center p-3 rounded-lg hover:bg-gray-50">
-                            <div class="p-2 rounded-lg bg-blue-50 text-blue-600 mr-3">
-                                <i data-feather="list" class="w-5 h-5"></i>
-                            </div>
-                            <div>
-                                <h5 class="font-medium text-gray-900">Escalas</h5>
-                                <p class="text-sm text-gray-500">Visualize e crie escalas</p>
-                            </div>
-                            <div class="ml-auto">
-                                <i data-feather="chevron-right" class="text-gray-400"></i>
-                            </div>
-                        </a>
-                        <a href="{% url 'funcionarios:horarios' %}" class="flex items-center p-3 rounded-lg hover:bg-gray-50">
-                            <div class="p-2 rounded-lg bg-blue-50 text-blue-600 mr-3">
-                                <i data-feather="clock" class="w-5 h-5"></i>
-                            </div>
-                            <div>
-                                <h5 class="font-medium text-gray-900">Horários</h5>
-                                <p class="text-sm text-gray-500">Configure os horários</p>
-                            </div>
-                            <div class="ml-auto">
-                                <i data-feather="chevron-right" class="text-gray-400"></i>
-                            </div>
-                        </a>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Payroll -->
-            <div class="mb-8">
-                <div class="flex items-center justify-between mb-4">
-                    <h4 class="text-lg font-medium text-gray-900">Folha de Pagamento</h4>
-                    <a href="#" class="text-sm font-medium text-indigo-600 hover:text-indigo-500">Ver tudo</a>
-                </div>
-                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                    <a href="{% url 'funcionarios:folha_pagamento' %}" class="bg-white rounded-lg shadow-sm p-5 card-hover transition-all duration-300 flex flex-col items-center text-center">
-                        <div class="p-3 rounded-lg bg-red-50 text-red-600 mb-3">
-                            <i data-feather="dollar-sign" class="w-6 h-6"></i>
-                        </div>
-                        <h5 class="font-medium text-gray-900">Folhas de Pagamento</h5>
-                        <p class="mt-1 text-sm text-gray-500">Acesse todas as folhas</p>
-                    </a>
-                    <a href="{% url 'funcionarios:calcular_folha' %}" class="bg-white rounded-lg shadow-sm p-5 card-hover transition-all duration-300 flex flex-col items-center text-center">
-                        <div class="p-3 rounded-lg bg-red-50 text-red-600 mb-3">
-                            <i data-feather="calculator" class="w-6 h-6"></i>
-                        </div>
-                        <h5 class="font-medium text-gray-900">Calcular Folha</h5>
-                        <p class="mt-1 text-sm text-gray-500">Processe a folha de pagamento</p>
-                    </a>
-                    <a href="{% url 'funcionarios:beneficio_lista' %}" class="bg-white rounded-lg shadow-sm p-5 card-hover transition-all duration-300 flex flex-col items-center text-center">
-                        <div class="p-3 rounded-lg bg-red-50 text-red-600 mb-3">
-                            <i data-feather="gift" class="w-6 h-6"></i>
-                        </div>
-                        <h5 class="font-medium text-gray-900">Benefícios</h5>
-                        <p class="mt-1 text-sm text-gray-500">Gerencie os benefícios</p>
-                    </a>
-                    <a href="{% url 'funcionarios:exportar' %}" class="bg-white rounded-lg shadow-sm p-5 card-hover transition-all duration-300 flex flex-col items-center text-center">
-                        <div class="p-3 rounded-lg bg-red-50 text-red-600 mb-3">
-                            <i data-feather="download" class="w-6 h-6"></i>
-                        </div>
-                        <h5 class="font-medium text-gray-900">Exportar Dados</h5>
-                        <p class="mt-1 text-sm text-gray-500">Exporte dados da folha</p>
-                    </a>
-                </div>
-            </div>
-
-            <!-- Specific Benefits -->
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-                <!-- Transportation -->
-                <div class="bg-white rounded-xl shadow-sm p-6 card-hover transition-all duration-300">
-                    <div class="flex flex-col items-center text-center">
-                        <div class="p-3 rounded-lg bg-gray-50 text-gray-600 mb-3">
-                            <i data-feather="truck" class="w-6 h-6"></i>
-                        </div>
-                        <h5 class="font-medium text-gray-900">Vale Transporte</h5>
-                        <p class="mt-1 text-sm text-gray-500 mb-4">Gerencie os benefícios de transporte</p>
-                        <a href="{% url 'funcionarios:vale_transporte' %}" class="px-4 py-2 bg-gray-100 rounded-lg text-gray-700 hover:bg-gray-200 text-sm font-medium">
-                            Acessar VT
-                        </a>
-                    </div>
-                </div>
-
-                <!-- Meal -->
-                <div class="bg-white rounded-xl shadow-sm p-6 card-hover transition-all duration-300">
-                    <div class="flex flex-col items-center text-center">
-                        <div class="p-3 rounded-lg bg-gray-50 text-gray-600 mb-3">
-                            <i data-feather="coffee" class="w-6 h-6"></i>
-                        </div>
-                        <h5 class="font-medium text-gray-900">Vale Refeição</h5>
-                        <p class="mt-1 text-sm text-gray-500 mb-4">Gerencie os benefícios de alimentação</p>
-                        <a href="{% url 'funcionarios:vale_refeicao' %}" class="px-4 py-2 bg-gray-100 rounded-lg text-gray-700 hover:bg-gray-200 text-sm font-medium">
-                            Acessar VR
-                        </a>
-                    </div>
-                </div>
-
-                <!-- Health Plan -->
-                <div class="bg-white rounded-xl shadow-sm p-6 card-hover transition-all duration-300">
-                    <div class="flex flex-col items-center text-center">
-                        <div class="p-3 rounded-lg bg-gray-50 text-gray-600 mb-3">
-                            <i data-feather="heart" class="w-6 h-6"></i>
-                        </div>
-                        <h5 class="font-medium text-gray-900">Plano de Saúde</h5>
-                        <p class="mt-1 text-sm text-gray-500 mb-4">Gerencie os planos de saúde</p>
-                        <a href="{% url 'funcionarios:plano_saude' %}" class="px-4 py-2 bg-gray-100 rounded-lg text-gray-700 hover:bg-gray-200 text-sm font-medium">
-                            Acessar Plano
-                        </a>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Vacation and Training -->
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-                <!-- Vacation -->
-                <div class="bg-white rounded-xl shadow-sm p-6">
-                    <div class="flex items-center justify-between mb-4">
-                        <h4 class="text-lg font-medium text-gray-900">Férias e Afastamentos</h4>
-                        <a href="#" class="text-sm font-medium text-indigo-600 hover:text-indigo-500">Ver tudo</a>
-                    </div>
-                    <div class="space-y-3">
-                        <a href="{% url 'funcionarios:ferias_lista' %}" class="flex items-center p-3 rounded-lg hover:bg-gray-50">
-                            <div class="p-2 rounded-lg bg-green-50 text-green-600 mr-3">
-                                <i data-feather="umbrella" class="w-5 h-5"></i>
-                            </div>
-                            <div>
-                                <h5 class="font-medium text-gray-900">Lista de Férias</h5>
-                                <p class="text-sm text-gray-500">Visualize todas as férias</p>
-                            </div>
-                            <div class="ml-auto">
-                                <i data-feather="chevron-right" class="text-gray-400"></i>
-                            </div>
-                        </a>
-                        <a href="{% url 'funcionarios:planejar_ferias' %}" class="flex items-center p-3 rounded-lg hover:bg-gray-50">
-                            <div class="p-2 rounded-lg bg-green-50 text-green-600 mr-3">
-                                <i data-feather="calendar-plus" class="w-5 h-5"></i>
-                            </div>
-                            <div>
-                                <h5 class="font-medium text-gray-900">Planejar Férias</h5>
-                                <p class="text-sm text-gray-500">Agende novas férias</p>
-                            </div>
-                            <div class="ml-auto">
-                                <i data-feather="chevron-right" class="text-gray-400"></i>
-                            </div>
-                        </a>
-                        <a href="{% url 'funcionarios:afastamento_lista' %}" class="flex items-center p-3 rounded-lg hover:bg-gray-50">
-                            <div class="p-2 rounded-lg bg-green-50 text-green-600 mr-3">
-                                <i data-feather="user-x" class="w-5 h-5"></i>
-                            </div>
-                            <div>
-                                <h5 class="font-medium text-gray-900">Afastamentos</h5>
-                                <p class="text-sm text-gray-500">Gerencie os afastamentos</p>
-                            </div>
-                            <div class="ml-auto">
-                                <i data-feather="chevron-right" class="text-gray-400"></i>
-                            </div>
-                        </a>
-                    </div>
-                </div>
-
-                <!-- Training -->
-                <div class="bg-white rounded-xl shadow-sm p-6">
-                    <div class="flex items-center justify-between mb-4">
-                        <h4 class="text-lg font-medium text-gray-900">Treinamentos</h4>
-                        <a href="#" class="text-sm font-medium text-indigo-600 hover:text-indigo-500">Ver tudo</a>
-                    </div>
-                    <div class="space-y-3">
-                        <a href="{% url 'funcionarios:treinamento_lista' %}" class="flex items-center p-3 rounded-lg hover:bg-gray-50">
-                            <div class="p-2 rounded-lg bg-indigo-50 text-indigo-600 mr-3">
-                                <i data-feather="book" class="w-5 h-5"></i>
-                            </div>
-                            <div>
-                                <h5 class="font-medium text-gray-900">Lista de Treinamentos</h5>
-                                <p class="text-sm text-gray-500">Visualize todos os treinamentos</p>
-                            </div>
-                            <div class="ml-auto">
-                                <i data-feather="chevron-right" class="text-gray-400"></i>
-                            </div>
-                        </a>
-                        <a href="{% url 'funcionarios:treinamento_create' %}" class="flex items-center p-3 rounded-lg hover:bg-gray-50">
-                            <div class="p-2 rounded-lg bg-indigo-50 text-indigo-600 mr-3">
-                                <i data-feather="plus" class="w-5 h-5"></i>
-                            </div>
-                            <div>
-                                <h5 class="font-medium text-gray-900">Novo Treinamento</h5>
-                                <p class="text-sm text-gray-500">Crie um novo treinamento</p>
-                            </div>
-                            <div class="ml-auto">
-                                <i data-feather="chevron-right" class="text-gray-400"></i>
-                            </div>
-                        </a>
-                        <a href="{% url 'funcionarios:certificacao_lista' %}" class="flex items-center p-3 rounded-lg hover:bg-gray-50">
-                            <div class="p-2 rounded-lg bg-indigo-50 text-indigo-600 mr-3">
-                                <i data-feather="award" class="w-5 h-5"></i>
-                            </div>
-                            <div>
-                                <h5 class="font-medium text-gray-900">Certificações</h5>
-                                <p class="text-sm text-gray-500">Gerencie as certificações</p>
-                            </div>
-                            <div class="ml-auto">
-                                <i data-feather="chevron-right" class="text-gray-400"></i>
-                            </div>
-                        </a>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Evaluations and Recruitment -->
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-                <!-- Performance Evaluations -->
-                <div class="bg-white rounded-xl shadow-sm p-6">
-                    <div class="flex items-center justify-between mb-4">
-                        <h4 class="text-lg font-medium text-gray-900">Avaliações de Desempenho</h4>
-                        <a href="#" class="text-sm font-medium text-indigo-600 hover:text-indigo-500">Ver tudo</a>
-                    </div>
-                    <div class="space-y-3">
-                        <a href="{% url 'funcionarios:avaliacao_lista' %}" class="flex items-center p-3 rounded-lg hover:bg-gray-50">
-                            <div class="p-2 rounded-lg bg-yellow-50 text-yellow-600 mr-3">
-                                <i data-feather="star" class="w-5 h-5"></i>
-                            </div>
-                            <div>
-                                <h5 class="font-medium text-gray-900">Lista de Avaliações</h5>
-                                <p class="text-sm text-gray-500">Visualize todas as avaliações</p>
-                            </div>
-                            <div class="ml-auto">
-                                <i data-feather="chevron-right" class="text-gray-400"></i>
-                            </div>
-                        </a>
-                        <a href="{% url 'funcionarios:metas' %}" class="flex items-center p-3 rounded-lg hover:bg-gray-50">
-                            <div class="p-2 rounded-lg bg-yellow-50 text-yellow-600 mr-3">
-                                <i data-feather="target" class="w-5 h-5"></i>
-                            </div>
-                            <div>
-                                <h5 class="font-medium text-gray-900">Metas</h5>
-                                <p class="text-sm text-gray-500">Defina e acompanhe metas</p>
-                            </div>
-                            <div class="ml-auto">
-                                <i data-feather="chevron-right" class="text-gray-400"></i>
-                            </div>
-                        </a>
-                        <a href="{% url 'funcionarios:responsabilidade_tecnica' %}" class="flex items-center p-3 rounded-lg hover:bg-gray-50">
-                            <div class="p-2 rounded-lg bg-yellow-50 text-yellow-600 mr-3">
-                                <i data-feather="shield" class="w-5 h-5"></i>
-                            </div>
-                            <div>
-                                <h5 class="font-medium text-gray-900">Responsabilidade Técnica</h5>
-                                <p class="text-sm text-gray-500">Gerencie responsabilidades</p>
-                            </div>
-                            <div class="ml-auto">
-                                <i data-feather="chevron-right" class="text-gray-400"></i>
-                            </div>
-                        </a>
-                    </div>
-                </div>
-
-                <!-- Recruitment -->
-                <div class="bg-white rounded-xl shadow-sm p-6">
-                    <div class="flex items-center justify-between mb-4">
-                        <h4 class="text-lg font-medium text-gray-900">Recrutamento</h4>
-                        <a href="#" class="text-sm font-medium text-indigo-600 hover:text-indigo-500">Ver tudo</a>
-                    </div>
-                    <div class="space-y-3">
-                        <a href="{% url 'funcionarios:recrutamento' %}" class="flex items-center p-3 rounded-lg hover:bg-gray-50">
-                            <div class="p-2 rounded-lg bg-blue-50 text-blue-600 mr-3">
-                                <i data-feather="search" class="w-5 h-5"></i>
-                            </div>
-                            <div>
-                                <h5 class="font-medium text-gray-900">Dashboard Recrutamento</h5>
-                                <p class="text-sm text-gray-500">Acompanhe o processo seletivo</p>
-                            </div>
-                            <div class="ml-auto">
-                                <i data-feather="chevron-right" class="text-gray-400"></i>
-                            </div>
-                        </a>
-                        <a href="{% url 'funcionarios:candidato_lista' %}" class="flex items-center p-3 rounded-lg hover:bg-gray-50">
-                            <div class="p-2 rounded-lg bg-blue-50 text-blue-600 mr-3">
-                                <i data-feather="users" class="w-5 h-5"></i>
-                            </div>
-                            <div>
-                                <h5 class="font-medium text-gray-900">Candidatos</h5>
-                                <p class="text-sm text-gray-500">Gerencie os candidatos</p>
-                            </div>
-                            <div class="ml-auto">
-                                <i data-feather="chevron-right" class="text-gray-400"></i>
-                            </div>
-                        </a>
-                        <a href="{% url 'funcionarios:processo_seletivo' %}" class="flex items-center p-3 rounded-lg hover:bg-gray-50">
-                            <div class="p-2 rounded-lg bg-blue-50 text-blue-600 mr-3">
-                                <i data-feather="clipboard" class="w-5 h-5"></i>
-                            </div>
-                            <div>
-                                <h5 class="font-medium text-gray-900">Processos Seletivos</h5>
-                                <p class="text-sm text-gray-500">Gerencie os processos</p>
-                            </div>
-                            <div class="ml-auto">
-                                <i data-feather="chevron-right" class="text-gray-400"></i>
-                            </div>
-                        </a>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Reports -->
-            <div class="mb-8">
-                <div class="flex items-center justify-between mb-4">
-                    <h4 class="text-lg font-medium text-gray-900">Relatórios de RH</h4>
-                    <a href="#" class="text-sm font-medium text-indigo-600 hover:text-indigo-500">Ver tudo</a>
-                </div>
-                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                    <a href="{% url 'funcionarios:relatorios' %}" class="bg-white rounded-lg shadow-sm p-5 card-hover transition-all duration-300 flex flex-col items-center text-center">
-                        <div class="p-3 rounded-lg bg-gray-50 text-gray-600 mb-3">
-                            <i data-feather="pie-chart" class="w-6 h-6"></i>
-                        </div>
-                        <h5 class="font-medium text-gray-900">Dashboard Relatórios</h5>
-                        <p class="mt-1 text-sm text-gray-500">Acesse todos os relatórios</p>
-                    </a>
-                    <a href="{% url 'funcionarios:relatorio_aniversariantes' %}" class="bg-white rounded-lg shadow-sm p-5 card-hover transition-all duration-300 flex flex-col items-center text-center">
-                        <div class="p-3 rounded-lg bg-gray-50 text-gray-600 mb-3">
-                            <i data-feather="gift" class="w-6 h-6"></i>
-                        </div>
-                        <h5 class="font-medium text-gray-900">Aniversariantes</h5>
-                        <p class="mt-1 text-sm text-gray-500">Relatório de aniversários</p>
-                    </a>
-                    <a href="{% url 'funcionarios:relatorio_admissoes' %}" class="bg-white rounded-lg shadow-sm p-5 card-hover transition-all duration-300 flex flex-col items-center text-center">
-                        <div class="p-3 rounded-lg bg-gray-50 text-gray-600 mb-3">
-                            <i data-feather="user-plus" class="w-6 h-6"></i>
-                        </div>
-                        <h5 class="font-medium text-gray-900">Admissões</h5>
-                        <p class="mt-1 text-sm text-gray-500">Relatório de novas contratações</p>
-                    </a>
-                    <a href="{% url 'funcionarios:relatorio_demissoes' %}" class="bg-white rounded-lg shadow-sm p-5 card-hover transition-all duration-300 flex flex-col items-center text-center">
-                        <div class="p-3 rounded-lg bg-gray-50 text-gray-600 mb-3">
-                            <i data-feather="user-minus" class="w-6 h-6"></i>
-                        </div>
-                        <h5 class="font-medium text-gray-900">Demissões</h5>
-                        <p class="mt-1 text-sm text-gray-500">Relatório de desligamentos</p>
-                    </a>
-                </div>
-            </div>
-
-            <!-- Internal Communication -->
-            <div class="mb-8">
-                <div class="flex items-center justify-between mb-4">
-                    <h4 class="text-lg font-medium text-gray-900">Comunicação Interna</h4>
-                    <a href="#" class="text-sm font-medium text-indigo-600 hover:text-indigo-500">Ver tudo</a>
-                </div>
-                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                    <a href="{% url 'funcionarios:comunicado_lista' %}" class="bg-white rounded-lg shadow-sm p-5 card-hover transition-all duration-300 flex flex-col items-center text-center">
-                        <div class="p-3 rounded-lg bg-purple-50 text-purple-600 mb-3">
-                            <i data-feather="megaphone" class="w-6 h-6"></i>
-                        </div>
-                        <h5 class="font-medium text-gray-900">Comunicados</h5>
-                        <p class="mt-1 text-sm text-gray-500">Visualize todos os comunicados</p>
-                    </a>
-                    <a href="{% url 'funcionarios:comunicado_create' %}" class="bg-white rounded-lg shadow-sm p-5 card-hover transition-all duration-300 flex flex-col items-center text-center">
-                        <div class="p-3 rounded-lg bg-purple-50 text-purple-600 mb-3">
-                            <i data-feather="plus" class="w-6 h-6"></i>
-                        </div>
-                        <h5 class="font-medium text-gray-900">Novo Comunicado</h5>
-                        <p class="mt-1 text-sm text-gray-500">Crie um novo comunicado</p>
-                    </a>
-                    <a href="{% url 'funcionarios:mural' %}" class="bg-white rounded-lg shadow-sm p-5 card-hover transition-all duration-300 flex flex-col items-center text-center">
-                        <div class="p-3 rounded-lg bg-purple-50 text-purple-600 mb-3">
-                            <i data-feather="layout" class="w-6 h-6"></i>
-                        </div>
-                        <h5 class="font-medium text-gray-900">Mural Eletrônico</h5>
-                        <p class="mt-1 text-sm text-gray-500">Acesse o mural de avisos</p>
-                    </a>
-                    <a href="{% url 'funcionarios:relatorio_folha' %}" class="bg-white rounded-lg shadow-sm p-5 card-hover transition-all duration-300 flex flex-col items-center text-center">
-                        <div class="p-3 rounded-lg bg-purple-50 text-purple-600 mb-3">
-                            <i data-feather="file-text" class="w-6 h-6"></i>
-                        </div>
-                        <h5 class="font-medium text-gray-900">Relatório Folha</h5>
-                        <p class="mt-1 text-sm text-gray-500">Gere relatórios da folha</p>
-                    </a>
-                </div>
-            </div>
-        </main>
+<div class="rh-dashboard">
+  <header class="rh-page-head">
+    <div>
+      <h1 class="text-2xl font-bold text-gray-800 dark:text-gray-100">Recursos Humanos</h1>
+      <p>Visão geral e acesso organizado às ferramentas de RH.</p>
     </div>
+    <a class="rh-btn rh-btn-p" href="{% url 'funcionarios:create' %}">
+      <i class="fas fa-user-plus mr-1" aria-hidden="true"></i> Novo funcionário
+    </a>
+  </header>
 
-    <script>
-        feather.replace();
-        
-        // Initialize tooltips
-        document.addEventListener('DOMContentLoaded', function() {
-            const tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
-            tooltipTriggerList.map(function (tooltipTriggerEl) {
-                return new bootstrap.Tooltip(tooltipTriggerEl);
-            });
-        });
-    </script>
+  <section aria-label="Indicadores de RH" class="rh-stat-grid">
+    {% include "funcionarios/_card.html" with label="Funcionários activos" valor=total_funcionarios icone="fa-users" %}
+    {% include "funcionarios/_card.html" with label="Em experiência" valor=funcionarios_experiencia icone="fa-user-clock" %}
+    {% include "funcionarios/_card.html" with label="Aniversariantes do mês" valor=aniversariantes_mes icone="fa-birthday-cake" %}
+    {% include "funcionarios/_card.html" with label="Férias planeadas" valor=ferias_pendentes icone="fa-umbrella-beach" %}
+    {% include "funcionarios/_card.html" with label="Avaliações pendentes" valor=avaliacoes_pendentes icone="fa-clipboard-check" %}
+  </section>
 
+  <div class="rh-section-grid">
+    <!-- Pessoas, cargos e departamentos -->
+    <section class="rh-nav-section">
+      <div class="rh-nav-title">
+        <span class="rh-nav-icon"><i class="fas fa-users" aria-hidden="true"></i></span>
+        <div><h2>Funcionários e estrutura</h2><p>Registos, cargos e organização interna</p></div>
+      </div>
+      <nav class="rh-link-grid" aria-label="Funcionários e estrutura">
+        <a class="rh-link rh-link-primary" href="{% url 'funcionarios:funcionarios' %}"><i class="fas fa-list"></i><span>Lista de funcionários</span></a>
+        <a class="rh-link" href="{% url 'funcionarios:create' %}"><i class="fas fa-user-plus"></i><span>Adicionar funcionário</span></a>
+        <a class="rh-link" href="{% url 'funcionarios:cargo_lista' %}"><i class="fas fa-id-badge"></i><span>Cargos</span></a>
+        <a class="rh-link" href="{% url 'funcionarios:cargo_create' %}"><i class="fas fa-plus-circle"></i><span>Novo cargo</span></a>
+        <a class="rh-link" href="{% url 'funcionarios:departamento_lista' %}"><i class="fas fa-sitemap"></i><span>Departamentos</span></a>
+        <a class="rh-link" href="{% url 'funcionarios:departamento_create' %}"><i class="fas fa-folder-plus"></i><span>Novo departamento</span></a>
+        <a class="rh-link" href="{% url 'funcionarios:importar' %}"><i class="fas fa-file-import"></i><span>Importar funcionários</span></a>
+        <a class="rh-link" href="{% url 'funcionarios:exportar' %}"><i class="fas fa-file-export"></i><span>Exportar funcionários (CSV)</span></a>
+      </nav>
+      <p class="rh-route-note">Perfil, BI/documentos, fotografia, contactos, salário, holerites, contrato e acções de estado estão associados a cada funcionário e devem ser abertos a partir da lista ou do detalhe desse registo.</p>
+    </section>
+
+    <!-- Jornada e ponto -->
+    <section class="rh-nav-section">
+      <div class="rh-nav-title">
+        <span class="rh-nav-icon"><i class="fas fa-clock" aria-hidden="true"></i></span>
+        <div><h2>Jornada, escalas e ponto</h2><p>Horários, assiduidade e correcções</p></div>
+      </div>
+      <nav class="rh-link-grid" aria-label="Jornada e ponto">
+        <a class="rh-link" href="{% url 'funcionarios:meuturno' %}"><i class="fas fa-user-clock"></i><span>Meu turno</span></a>
+        <a class="rh-link" href="{% url 'funcionarios:escala' %}"><i class="fas fa-calendar-alt"></i><span>Escalas de trabalho</span></a>
+        <a class="rh-link" href="{% url 'funcionarios:horarios' %}"><i class="fas fa-calendar-week"></i><span>Horários de trabalho</span></a>
+        <a class="rh-link" href="{% url 'funcionarios:jornada_lista' %}"><i class="fas fa-business-time"></i><span>Jornadas</span></a>
+        <a class="rh-link" href="{% url 'funcionarios:jornada_create' %}"><i class="fas fa-plus-circle"></i><span>Nova jornada</span></a>
+        <a class="rh-link" href="{% url 'funcionarios:ponto' %}"><i class="fas fa-fingerprint"></i><span>Ponto electrónico</span></a>
+        <a class="rh-link" href="{% url 'funcionarios:relatorio_ponto' %}"><i class="fas fa-chart-bar"></i><span>Relatórios de ponto</span></a>
+        <a class="rh-link" href="{% url 'funcionarios:ajustes_ponto' %}"><i class="fas fa-sliders-h"></i><span>Ajustes de ponto</span></a>
+      </nav>
+      <p class="rh-route-note">Registar ponto e fechar turno são operações que podem alterar dados. Acede a essas acções dentro dos ecrãs próprios, em vez de as executar directamente a partir do dashboard.</p>
+    </section>
+
+    <!-- Folha salarial e recibos -->
+    <section class="rh-nav-section">
+      <div class="rh-nav-title">
+        <span class="rh-nav-icon"><i class="fas fa-money-check-alt" aria-hidden="true"></i></span>
+        <div><h2>Folha salarial e recibos</h2><p>Processamento mensal e gestão remuneratória</p></div>
+      </div>
+      <nav class="rh-link-grid" aria-label="Folha salarial e recibos">
+        <a class="rh-link rh-link-primary" href="{% url 'funcionarios:folha_pagamento' %}"><i class="fas fa-file-invoice-dollar"></i><span>Folha de pagamento</span></a>
+        <a class="rh-link" href="{% url 'funcionarios:relatorio_folha' %}"><i class="fas fa-chart-pie"></i><span>Relatório da folha</span></a>
+        <a class="rh-link" href="{% url 'funcionarios:recibo_lista' %}"><i class="fas fa-receipt"></i><span>Todos os recibos</span></a>
+        <a class="rh-link" href="{% url 'funcionarios:meus_recibos' %}"><i class="fas fa-file-alt"></i><span>Meus recibos</span></a>
+        <a class="rh-link" href="{% url 'funcionarios:recibo_previa' %}"><i class="fas fa-eye"></i><span>Pré-visualizar recibo</span></a>
+        <a class="rh-link" href="{% url 'funcionarios:processamento_lista' %}"><i class="fas fa-layer-group"></i><span>Processamentos</span></a>
+        <a class="rh-link" href="{% url 'funcionarios:processamento_novo' %}"><i class="fas fa-plus-circle"></i><span>Novo processamento</span></a>
+        <a class="rh-link" href="{% url 'funcionarios:rubrica_lista' %}"><i class="fas fa-list-ol"></i><span>Rubricas salariais</span></a>
+        <a class="rh-link" href="{% url 'funcionarios:rubrica_nova' %}"><i class="fas fa-plus-circle"></i><span>Nova rubrica</span></a>
+        <a class="rh-link" href="{% url 'funcionarios:parametro_lista' %}"><i class="fas fa-sliders-h"></i><span>Parâmetros de recibo</span></a>
+        <a class="rh-link" href="{% url 'funcionarios:parametro_novo' %}"><i class="fas fa-plus-circle"></i><span>Novo parâmetro</span></a>
+        <a class="rh-link" href="{% url 'funcionarios:tabela_irt_lista' %}"><i class="fas fa-table"></i><span>Tabelas de IRT</span></a>
+        <a class="rh-link" href="{% url 'funcionarios:tabela_irt_nova' %}"><i class="fas fa-plus-circle"></i><span>Nova tabela de IRT</span></a>
+        <a class="rh-link" href="{% url 'funcionarios:recibo_configuracao' %}"><i class="fas fa-cog"></i><span>Configuração de recibos</span></a>
+        <a class="rh-link" href="{% url 'funcionarios:auditoria_lista' %}"><i class="fas fa-clipboard-list"></i><span>Auditoria de recibos</span></a>
+      </nav>
+      <p class="rh-route-note">Calcular folha, emitir, pagar, anular e retificar recibos são operações de processamento e ficam dentro dos fluxos de cada folha, recibo ou processamento.</p>
+    </section>
+
+    <!-- Benefícios e ausência -->
+    <section class="rh-nav-section">
+      <div class="rh-nav-title">
+        <span class="rh-nav-icon"><i class="fas fa-umbrella-beach" aria-hidden="true"></i></span>
+        <div><h2>Benefícios, férias e afastamentos</h2><p>Direitos, planeamento e gestão de ausências</p></div>
+      </div>
+      <nav class="rh-link-grid" aria-label="Benefícios e ausências">
+        <a class="rh-link" href="{% url 'funcionarios:beneficio_lista' %}"><i class="fas fa-gift"></i><span>Benefícios</span></a>
+        <a class="rh-link" href="{% url 'funcionarios:vale_transporte' %}"><i class="fas fa-bus"></i><span>Vale-transporte</span></a>
+        <a class="rh-link" href="{% url 'funcionarios:vale_refeicao' %}"><i class="fas fa-utensils"></i><span>Vale-refeição</span></a>
+        <a class="rh-link" href="{% url 'funcionarios:plano_saude' %}"><i class="fas fa-heartbeat"></i><span>Plano de saúde</span></a>
+        <a class="rh-link" href="{% url 'funcionarios:ferias_lista' %}"><i class="fas fa-calendar-day"></i><span>Gestão de férias</span></a>
+        <a class="rh-link" href="{% url 'funcionarios:planejar_ferias' %}"><i class="fas fa-calendar-plus"></i><span>Planear férias</span></a>
+        <a class="rh-link" href="{% url 'funcionarios:afastamento_lista' %}"><i class="fas fa-user-minus"></i><span>Afastamentos</span></a>
+      </nav>
+    </section>
+
+    <!-- Formação e desempenho -->
+    <section class="rh-nav-section">
+      <div class="rh-nav-title">
+        <span class="rh-nav-icon"><i class="fas fa-graduation-cap" aria-hidden="true"></i></span>
+        <div><h2>Formação e desempenho</h2><p>Capacitação, certificações, metas e avaliações</p></div>
+      </div>
+      <nav class="rh-link-grid" aria-label="Formação e desempenho">
+        <a class="rh-link" href="{% url 'funcionarios:treinamento_lista' %}"><i class="fas fa-book"></i><span>Treinamentos</span></a>
+        <a class="rh-link" href="{% url 'funcionarios:treinamento_create' %}"><i class="fas fa-plus-circle"></i><span>Novo treinamento</span></a>
+        <a class="rh-link" href="{% url 'funcionarios:certificacao_lista' %}"><i class="fas fa-certificate"></i><span>Certificações</span></a>
+        <a class="rh-link" href="{% url 'funcionarios:responsabilidade_tecnica' %}"><i class="fas fa-user-shield"></i><span>Responsabilidade técnica</span></a>
+        <a class="rh-link" href="{% url 'funcionarios:avaliacao_lista' %}"><i class="fas fa-clipboard-check"></i><span>Avaliações de desempenho</span></a>
+        <a class="rh-link" href="{% url 'funcionarios:metas' %}"><i class="fas fa-bullseye"></i><span>Metas dos funcionários</span></a>
+      </nav>
+    </section>
+
+    <!-- Recrutamento -->
+    <section class="rh-nav-section">
+      <div class="rh-nav-title">
+        <span class="rh-nav-icon"><i class="fas fa-user-tie" aria-hidden="true"></i></span>
+        <div><h2>Recrutamento e selecção</h2><p>Candidaturas, candidatos e processos selectivos</p></div>
+      </div>
+      <nav class="rh-link-grid" aria-label="Recrutamento e selecção">
+        <a class="rh-link rh-link-primary" href="{% url 'funcionarios:painel_candidatura' %}"><i class="fas fa-inbox"></i><span>Painel de candidaturas</span></a>
+        <a class="rh-link" href="{% url 'funcionarios:candidato_lista' %}"><i class="fas fa-users"></i><span>Lista de candidatos</span></a>
+        <a class="rh-link" href="{% url 'funcionarios:recrutamento' %}"><i class="fas fa-bullhorn"></i><span>Recrutamento</span></a>
+        <a class="rh-link" href="{% url 'funcionarios:processo_seletivo' %}"><i class="fas fa-tasks"></i><span>Processos selectivos</span></a>
+      </nav>
+      <p class="rh-route-note">Admitir ou rejeitar um candidato exige o identificador da candidatura; essas acções devem ser abertas na listagem ou no detalhe do candidato.</p>
+    </section>
+
+    <!-- Relatórios -->
+    <section class="rh-nav-section">
+      <div class="rh-nav-title">
+        <span class="rh-nav-icon"><i class="fas fa-chart-line" aria-hidden="true"></i></span>
+        <div><h2>Relatórios e indicadores</h2><p>Consulta da actividade e evolução da equipa</p></div>
+      </div>
+      <nav class="rh-link-grid" aria-label="Relatórios RH">
+        <a class="rh-link" href="{% url 'funcionarios:relatorios' %}"><i class="fas fa-chart-bar"></i><span>Centro de relatórios</span></a>
+        <a class="rh-link" href="{% url 'funcionarios:relatorio_aniversariantes' %}"><i class="fas fa-birthday-cake"></i><span>Aniversariantes</span></a>
+        <a class="rh-link" href="{% url 'funcionarios:relatorio_admissoes' %}"><i class="fas fa-user-plus"></i><span>Relatório de admissões</span></a>
+        <a class="rh-link" href="{% url 'funcionarios:relatorio_demissoes' %}"><i class="fas fa-user-times"></i><span>Relatório de demissões</span></a>
+        <a class="rh-link" href="{% url 'funcionarios:relatorio_folha' %}"><i class="fas fa-file-invoice-dollar"></i><span>Relatório da folha salarial</span></a>
+        <a class="rh-link" href="{% url 'funcionarios:relatorio_ponto' %}"><i class="fas fa-clock"></i><span>Relatório de ponto</span></a>
+      </nav>
+    </section>
+
+    <!-- Comunicação e recibos do colaborador -->
+    <section class="rh-nav-section">
+      <div class="rh-nav-title">
+        <span class="rh-nav-icon"><i class="fas fa-comments" aria-hidden="true"></i></span>
+        <div><h2>Comunicação interna</h2><p>Comunicados e mural electrónico</p></div>
+      </div>
+      <nav class="rh-link-grid" aria-label="Comunicação interna">
+        <a class="rh-link" href="{% url 'funcionarios:comunicado_lista' %}"><i class="fas fa-bullhorn"></i><span>Comunicados</span></a>
+        <a class="rh-link" href="{% url 'funcionarios:comunicado_create' %}"><i class="fas fa-plus-circle"></i><span>Novo comunicado</span></a>
+        <a class="rh-link" href="{% url 'funcionarios:mural' %}"><i class="fas fa-chalkboard"></i><span>Mural electrónico</span></a>
+      </nav>
+    </section>
+
+    <!-- Configurações e recibos administrativos -->
+    <section class="rh-nav-section">
+      <div class="rh-nav-title">
+        <span class="rh-nav-icon"><i class="fas fa-tools" aria-hidden="true"></i></span>
+        <div><h2>Ferramentas e administração</h2><p>Utilitários gerais do módulo de RH</p></div>
+      </div>
+      <nav class="rh-link-grid" aria-label="Ferramentas RH">
+        <a class="rh-link" href="{% url 'funcionarios:dashboard' %}"><i class="fas fa-home"></i><span>Dashboard RH</span></a>
+        <a class="rh-link" href="{% url 'funcionarios:funcionarios' %}"><i class="fas fa-search"></i><span>Pesquisar funcionários</span></a>
+        <a class="rh-link" href="{% url 'funcionarios:importar' %}"><i class="fas fa-file-upload"></i><span>Importação em lote</span></a>
+        <a class="rh-link" href="{% url 'funcionarios:exportar' %}"><i class="fas fa-download"></i><span>Exportação CSV</span></a>
+      </nav>
+      <p class="rh-route-note">Os endpoints AJAX/API, URLs que exigem um ID e operações de alterar estado (activar, suspender, demitir, emitir, pagar ou anular) não são apresentados como links globais. São acessíveis a partir dos respectivos ecrãs de gestão.</p>
+    </section>
+  </div>
+</div>
 {% endblock %}

@@ -57,3 +57,23 @@ WantedBy=multi-user.target
 ## sudo systemctl daemon-reload
 ## sudo systemctl enable --now celery_worker
 ## sudo systemctl enable --now celery_beat
+
+
+
+
+
+
+################################
+Se me enviares o forms.py do app e o modelo Candidatura, ajusto os formulários e o painel de candidaturas aos campos reais.
+
+
+sobre o fiscal/views_integracoes.py
+Bug: debug_gerar_dados_teste usa Fornecedor.objects.get_or_create(nome=..., defaults={'nif': ...}). Esses campos não existem: o modelo tem razao_social e nif_bi. Dá FieldError com DEBUG=True.
+Webhooks AGT e Banco Central: usam um segredo global (GATEWAY_WEBHOOK_SECRET). Quando tiveres o contrato de assinatura real de cada um, podes migrá-los para conectores no providers.py, com segredo por empresa e idempotência. Por agora deixei-os como estão.
+
+
+Sobre o fiscal/views_integracoes.py
+Bug: debug_gerar_dados_teste usa Fornecedor.objects.get_or_create(nome=..., defaults={'nif': ...}). Esses campos não existem: o modelo tem razao_social e nif_bi. Dá FieldError com DEBUG=True.
+
+
+analisa o celery, tem erro na forma como chamei o webook de integracoes

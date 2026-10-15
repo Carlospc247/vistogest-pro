@@ -1,67 +1,207 @@
 <!-- templates/vendas/nota_debito_form.html -->
 {% extends 'base.html' %}
-{% load static %}
 
 {% block title %}{{ form.instance.pk|yesno:"Editar Nota de Débito,Nova Nota de Débito" }}{% endblock %}
-{% block page_title %}{{ form.instance.pk|yesno:"Editar Nota de Débito,Nova Nota de Débito" }}{% endblock %}
+
+{# O base.html já renderiza um page_header ("Dashboard"); aqui usamos o nosso próprio cabeçalho. #}
+{% block page_header %}{% endblock %}
+
+{# ATENÇÃO: o base.html declara "extra_css" (não "extra_head"). #}
+{% block extra_css %}
+{% include "partials/ui_kit.html" %}
+<style>
+  /* Pequenos acertos locais ao kit (usam as variáveis --ui-* do kit) */
+  .ui .nd-sec{ padding:1.1rem; }
+  .ui .nd-sec + .nd-sec{ border-top:1px solid var(--ui-border); }
+  .ui .nd-sec-h{ display:flex; align-items:center; gap:.6rem; margin:0 0 1rem; font-size:.95rem; font-weight:700; }
+  .ui .nd-sec-h i{
+    width:1.9rem; height:1.9rem; display:inline-flex; align-items:center; justify-content:center;
+    border-radius:.55rem; background:var(--ui-primary-soft); color:var(--ui-primary); font-size:.8rem;
+  }
+  .ui .nd-lista{ margin:0; padding-left:1.1rem; display:flex; flex-direction:column; gap:.55rem; font-size:.85rem; color:var(--ui-muted); }
+  .ui .tem-erro input, .ui .tem-erro select, .ui .tem-erro textarea{ border-color:var(--ui-danger); }
+  .ui .nd-erros{ margin:.4rem 0 0; padding-left:1.1rem; }
+  @media (min-width:1024px){
+    .ui .nd-aside{ position:sticky; top:1rem; align-self:start; }
+  }
+</style>
+{% endblock %}
 
 {% block content %}
-<style>
-    /* static/css/styles.css */
-body {
-    font-family: 'Arial', sans-serif;
-    background-color: #f8f9fa;
-}
+<div class="ui">
+  <div class="ui-page">
 
-.container {
-    margin-top: 20px;
-}
+    <!-- ░░ Cabeçalho ░░ -->
+    <div class="ui-head">
+      <div>
+        <nav class="ui-crumb" aria-label="Navegação">
+          <span>Vendas</span><span>/</span>
+          <a href="{% url 'vendas:nota_debito_lista' %}">Notas de Débito</a><span>/</span>
+          <span>{% if form.instance.pk %}{{ form.instance.numero_nota|default:"Editar" }}{% else %}Nova{% endif %}</span>
+        </nav>
+        <h1 class="ui-h1">{{ form.instance.pk|yesno:"Editar Nota de Débito,Nova Nota de Débito" }}</h1>
+        <p class="ui-sub">Preencha os dados da nota de débito.</p>
+      </div>
+      <div class="ui-acoes">
+        <a class="ui-btn" href="{% url 'vendas:nota_debito_lista' %}">
+          <i class="fas fa-arrow-left"></i> Voltar à lista
+        </a>
+      </div>
+    </div>
 
-.card {
-    border-radius: 8px;
-    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
-}
+    <!-- ░░ Erros gerais ░░ -->
+    {% if form.errors %}
+    <div class="ui-aviso ui-aviso-danger" role="alert">
+      <strong><i class="fas fa-circle-exclamation"></i> Não foi possível guardar a nota.</strong>
+      {% if form.non_field_errors %}
+        <ul class="nd-erros">
+          {% for error in form.non_field_errors %}<li>{{ error }}</li>{% endfor %}
+        </ul>
+      {% else %}
+        <div style="margin-top:.25rem">Verifique os campos assinalados abaixo.</div>
+      {% endif %}
+    </div>
+    {% endif %}
 
-.card-header {
-    background-color: #007bff;
-    color: white;
-    font-weight: bold;
-}
+    <div class="ui-split">
 
-.table {
-    margin-top: 20px;
-}
-
-.table th {
-    background-color: #007bff;
-    color: white;
-}
-
-.btn {
-    margin: 5px;
-}
-
-.pagination {
-    margin-top: 20px;
-}
-
-.pagination a {
-    margin: 0 5px;
-    padding: 5px 10px;
-    border-radius: 5px;
-    background-color: #007bff;
-    color: white;
-    text-decoration: none;
-}
-</style>
-
-<div class="bg-white dark:bg-gray-800 shadow rounded-lg p-6">
-    <h1 class="text-2xl font-bold text-gray-900 dark:text-white mb-4">{{ form.instance.pk|yesno:"Editar Nota de Débito,Nova Nota de Débito" }}</h1>
-
-    <form method="POST">
+      <!-- ░░ Formulário ░░ -->
+      <form method="post" class="ui-card" id="debitNoteForm">
         {% csrf_token %}
-        {{ form.as_p }}
-        <button type="submit" class="bg-blue-500 text-white px-4 py-2 rounded-lg">Salvar</button>
-    </form>
+        {% for hidden in form.hidden_fields %}{{ hidden }}{% endfor %}
+
+        <!--
+          Dados da nota.
+          Além dos campos habituais, recebe QUALQUER campo do formulário que não esteja
+          listado nas outras secções — assim nenhum campo se perde e a secção nunca fica vazia.
+        -->
+        <section class="nd-sec">
+          <h2 class="nd-sec-h"><i class="fas fa-file-invoice"></i> Dados da nota</h2>
+          <div class="ui-form-grid">
+            {% include "partials/ui_field.html" with field=form.numero_nota label="Número da nota" %}
+            {% include "partials/ui_field.html" with field=form.data_nota label="Data de emissão" %}
+            {% include "partials/ui_field.html" with field=form.cliente span2=True %}
+            {% include "partials/ui_field.html" with field=form.motivo label="Motivo" %}
+            {% include "partials/ui_field.html" with field=form.numero_documento_origem label="Documento de origem" hint="Número do documento que originou esta nota (por exemplo, a fatura)." %}
+            {% include "partials/ui_field.html" with field=form.data_vencimento label="Data de vencimento" as_date=True %}
+
+            {% for field in form %}
+              {% if not field.is_hidden and field.name != 'numero_nota' and field.name != 'data_nota' and field.name != 'cliente' and field.name != 'motivo' and field.name != 'numero_documento_origem' and field.name != 'data_vencimento' and field.name != 'subtotal' and field.name != 'desconto_valor' and field.name != 'iva_valor' and field.name != 'total' and field.name != 'valor_pago' and field.name != 'valor_pendente' and field.name != 'status' and field.name != 'requer_aprovacao' and field.name != 'aprovada_por' and field.name != 'atcud' and field.name != 'observacoes' %}
+                {% include "partials/ui_field.html" with field=field %}
+              {% endif %}
+            {% endfor %}
+          </div>
+        </section>
+
+        <!-- Valores (só aparece se o formulário tiver pelo menos um destes campos) -->
+        {% if form.subtotal or form.desconto_valor or form.iva_valor or form.total or form.valor_pago or form.valor_pendente %}
+        <section class="nd-sec">
+          <h2 class="nd-sec-h"><i class="fas fa-coins"></i> Valores</h2>
+          <div class="ui-form-grid">
+            {% include "partials/ui_field.html" with field=form.subtotal label="Subtotal (AOA)" %}
+            {% include "partials/ui_field.html" with field=form.desconto_valor label="Desconto (AOA)" %}
+            {% include "partials/ui_field.html" with field=form.iva_valor label="IVA (AOA)" %}
+            {% include "partials/ui_field.html" with field=form.total label="Total (AOA)" %}
+            {% include "partials/ui_field.html" with field=form.valor_pago label="Valor pago (AOA)" %}
+            {% include "partials/ui_field.html" with field=form.valor_pendente label="Valor pendente (AOA)" %}
+          </div>
+        </section>
+        {% endif %}
+
+        <!-- Estado e aprovação (só aparece se o formulário tiver estes campos) -->
+        {% if form.status or form.requer_aprovacao or form.aprovada_por or form.atcud %}
+        <section class="nd-sec">
+          <h2 class="nd-sec-h"><i class="fas fa-user-check"></i> Estado e aprovação</h2>
+          <div class="ui-form-grid">
+            {% include "partials/ui_field.html" with field=form.status label="Estado" %}
+            {% include "partials/ui_field.html" with field=form.aprovada_por label="Aprovada por" %}
+            {% include "partials/ui_field.html" with field=form.atcud label="ATCUD" %}
+            {% include "partials/ui_field.html" with field=form.requer_aprovacao label="Esta nota requer aprovação antes de ser aplicada" span2=True %}
+          </div>
+        </section>
+        {% endif %}
+
+        <!-- Observações (só aparece se o formulário tiver este campo) -->
+        {% if form.observacoes %}
+        <section class="nd-sec">
+          <h2 class="nd-sec-h"><i class="fas fa-clipboard-list"></i> Observações</h2>
+          <div class="ui-form-grid">
+            {% include "partials/ui_field.html" with field=form.observacoes label="Observações" hint="Informações complementares (opcional)." as_textarea=True span2=True %}
+          </div>
+        </section>
+        {% endif %}
+
+        <!-- Acções -->
+        <div class="ui-barra-acoes">
+          <a class="ui-btn" href="{% url 'vendas:nota_debito_lista' %}">
+            <i class="fas fa-xmark"></i> Cancelar
+          </a>
+          <button type="submit" class="ui-btn ui-btn-primary">
+            <i class="fas fa-check"></i>
+            {% if form.instance.pk %}Atualizar nota{% else %}Criar nota de débito{% endif %}
+          </button>
+        </div>
+      </form>
+
+      <!-- ░░ Ajuda ░░ -->
+      <aside class="ui-card nd-aside">
+        <div class="ui-card-h">
+          <h2><i class="fas fa-circle-info" style="color:var(--ui-primary);margin-right:.4rem"></i>Informações importantes</h2>
+        </div>
+        <div class="ui-pad">
+          <ul class="nd-lista">
+            <li>As notas de débito servem para acrescentar valores a uma venda ou documento já emitido.</li>
+            <li>Indique o documento de origem, para manter o histórico ligado.</li>
+            <li>Uma nota só pode ser editada enquanto estiver no estado «Emitida».</li>
+            <li>Se a nota exigir aprovação, só poderá ser aplicada depois de aprovada.</li>
+            <li>Todas as notas de débito ficam registadas para efeitos contabilísticos e fiscais.</li>
+          </ul>
+        </div>
+      </aside>
+
+    </div>
+  </div>
 </div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(() => {
+  const form = document.getElementById('debitNoteForm');
+  if (!form) return;
+
+  let enviado = false;
+
+  form.addEventListener('submit', e => {
+    // Evita duplo clique / duplo envio
+    if (enviado) { e.preventDefault(); return; }
+    enviado = true;
+
+    const btn = e.submitter;
+
+    // IMPORTANTE: só desativamos os botões DEPOIS de o envio arrancar.
+    // Campos desativados dentro do evento "submit" não seguem no POST
+    // (o formulário chegaria vazio e sem o token CSRF).
+    setTimeout(() => {
+      form.setAttribute('aria-busy', 'true');
+      form.querySelectorAll('button[type="submit"]').forEach(b => { b.disabled = true; });
+      if (btn) {
+        btn.dataset.original = btn.innerHTML;
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> A processar…';
+      }
+    }, 0);
+  });
+
+  // Voltar com o botão "atrás" do browser: repõe o formulário
+  window.addEventListener('pageshow', ev => {
+    if (!ev.persisted) return;
+    enviado = false;
+    form.removeAttribute('aria-busy');
+    form.querySelectorAll('button[type="submit"]').forEach(b => {
+      b.disabled = false;
+      if (b.dataset.original) b.innerHTML = b.dataset.original;
+    });
+  });
+})();
+</script>
 {% endblock %}

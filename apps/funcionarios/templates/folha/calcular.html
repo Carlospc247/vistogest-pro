@@ -1,56 +1,19 @@
-<!-- funcionarios/folha/calcular.html -->
-{% extends "base.html" %}
-
-{% block title %}Calcular Folha de Pagamento{% endblock %}
-
-{% block content %}
-<div class="container-fluid">
-    <h1 class="h3 mb-4">Calcular Folha de Pagamento</h1>
-    
-    <div class="row justify-content-center">
-        <div class="col-md-6">
-            <div class="card shadow">
-                <div class="card-header">
-                    <h6 class="m-0 font-weight-bold text-primary">Selecione o Período</h6>
-                </div>
-                <div class="card-body">
-                    <form method="post">
-                        {% csrf_token %}
-                        <div class="form-group">
-                            <label for="mes">Mês</label>
-                            <select name="mes" id="mes" class="form-control" required>
-                                <option value="">Selecione o mês</option>
-                                <option value="1">Janeiro</option>
-                                <option value="2">Fevereiro</option>
-                                <option value="3">Março</option>
-                                <option value="4">Abril</option>
-                                <option value="5">Maio</option>
-                                <option value="6">Junho</option>
-                                <option value="7">Julho</option>
-                                <option value="8">Agosto</option>
-                                <option value="9">Setembro</option>
-                                <option value="10">Outubro</option>
-                                <option value="11">Novembro</option>
-                                <option value="12">Dezembro</option>
-                            </select>
-                        </div>
-                        
-                        <div class="form-group">
-                            <label for="ano">Ano</label>
-                            <select name="ano" id="ano" class="form-control" required>
-                                <option value="">Selecione o ano</option>
-                                {% for ano in "2020 2021 2022 2023 2024 2025"|split:" " %}
-                                <option value="{{ ano }}">{{ ano }}</option>
-                                {% endfor %}
-                            </select>
-                        </div>
-                        
-                        <button type="submit" class="btn btn-primary">Calcular Folha</button>
-                        <a href="{% url 'funcionarios:folha_pagamento' %}" class="btn btn-secondary">Cancelar</a>
-                    </form>
-                </div>
-            </div>
-        </div>
-    </div>
+{% extends "funcionarios/_rh_base.html" %}
+{% block title %}Calcular folha{% endblock %}
+{% block rh_content %}
+<div class="max-w-md mx-auto rh-card">
+  <h1 class="text-xl font-bold mb-4">Calcular folha de pagamento</h1>
+  <form method="post" class="space-y-4">{% csrf_token %}
+    <div><label class="text-sm block mb-1">Mês</label><select name="mes" class="rh-input" id="mes">
+      {% for n,nome in "1,Janeiro;2,Fevereiro;3,Março;4,Abril;5,Maio;6,Junho;7,Julho;8,Agosto;9,Setembro;10,Outubro;11,Novembro;12,Dezembro"|make_list %}{% endfor %}
+    </select></div>
+    <div><label class="text-sm block mb-1">Ano</label><input type="number" name="ano" id="ano" class="rh-input" min="2020" max="2050"></div>
+    <button class="rh-btn rh-btn-p w-full">Calcular</button>
+  </form>
 </div>
+<script>
+const nomes=['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+const hoje=new Date(); document.getElementById('mes').innerHTML=nomes.map((n,i)=>`<option value="${i+1}" ${i===hoje.getMonth()?'selected':''}>${n}</option>`).join('');
+document.getElementById('ano').value=hoje.getFullYear();
+</script>
 {% endblock %}

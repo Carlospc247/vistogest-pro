@@ -1,99 +1,217 @@
-<!-- templates/vendas/documento_transporte_lista.html -->
 {% extends 'base.html' %}
 
+{% block title %}Documentos de Transporte{% endblock %}
+
 {% block content %}
-<style>
-    /* static/css/styles.css */
-    body {
-        font-family: 'Arial', sans-serif;
-        background-color: #f8f9fa;
-    }
+{% include "partials/ui_kit.html" %}
 
-    .container {
-        margin-top: 20px;
-    }
+{# URLs "opcionais": com "as" não dão erro se o nome ainda não existir no urls.py #}
+{% url 'vendas:documento_transporte_create' as url_criar %}
 
-    .card {
-        border-radius: 8px;
-        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
-    }
+<div class="ui ui-page">
 
-    .card-header {
-        background-color: #007bff;
-        color: white;
-        font-weight: bold;
-    }
-
-    .table {
-        margin-top: 20px;
-    }
-
-    .table th {
-        background-color: #007bff;
-        color: white;
-    }
-
-    .btn {
-        margin: 5px;
-    }
-
-    .pagination {
-        margin-top: 20px;
-    }
-
-    .pagination a {
-        margin: 0 5px;
-        padding: 5px 10px;
-        border-radius: 5px;
-        background-color: #007bff;
-        color: white;
-        text-decoration: none;
-    }
-</style>
-
-<div class="container">
-    <h1 class="mt-4">Documentos de Transporte</h1>
-    <div class="card mb-4">
-        <div class="card-header">
-            <a href="{% url 'vendas:documento_transporte_create' %}" class="btn btn-primary">Novo Documento de
-                Transporte</a>
+    <!-- Cabeçalho -->
+    <header class="ui-head">
+        <div>
+            <h1 class="ui-h1">Documentos de Transporte</h1>
+            <p class="ui-sub">Guias de transporte e remessa de mercadorias.</p>
         </div>
-        <div class="card-body">
-            <table class="table table-striped">
+        {% if url_criar %}
+        <div class="ui-acoes">
+            <a href="{{ url_criar }}" class="ui-btn ui-btn-primary"><i class="fas fa-plus"></i> Novo Documento de Transporte</a>
+        </div>
+        {% endif %}
+    </header>
+
+    <!-- Indicadores -->
+    <section class="ui-stats" aria-label="Indicadores">
+        <div class="ui-card ui-stat">
+            <div class="ui-stat-top">
+                <span class="ui-label">Documentos</span>
+                <span class="ui-stat-ico" style="background:#2563eb1f;color:#2563eb"><i class="fas fa-file-alt"></i></span>
+            </div>
+            <span class="ui-stat-val">{{ stats.total_documentos|default:"0" }}</span>
+            <span class="ui-stat-sub">no total</span>
+        </div>
+        <div class="ui-card ui-stat">
+            <div class="ui-stat-top">
+                <span class="ui-label">Em trânsito</span>
+                <span class="ui-stat-ico" style="background:#d977061f;color:#d97706"><i class="fas fa-truck"></i></span>
+            </div>
+            <span class="ui-stat-val">{{ stats.em_transito|default:"0" }}</span>
+            <span class="ui-stat-sub">a caminho do destino</span>
+        </div>
+        <div class="ui-card ui-stat">
+            <div class="ui-stat-top">
+                <span class="ui-label">Entregues</span>
+                <span class="ui-stat-ico" style="background:#16a34a1f;color:#16a34a"><i class="fas fa-check-circle"></i></span>
+            </div>
+            <span class="ui-stat-val">{{ stats.entregues|default:"0" }}</span>
+            <span class="ui-stat-sub">concluídos</span>
+        </div>
+        <div class="ui-card ui-stat">
+            <div class="ui-stat-top">
+                <span class="ui-label">Atrasados</span>
+                <span class="ui-stat-ico" style="background:#dc26261f;color:#dc2626"><i class="fas fa-exclamation-triangle"></i></span>
+            </div>
+            <span class="ui-stat-val">{{ stats.atrasados|default:"0" }}</span>
+            <span class="ui-stat-sub"><a href="?atrasados=1" style="color:inherit">ver apenas atrasados</a></span>
+        </div>
+    </section>
+
+    <!-- Filtros -->
+    <section class="ui-card ui-pad" aria-label="Filtros">
+        <form method="get" class="ui-filtros">
+            <div class="ui-field">
+                <label for="f-dest">Destinatário</label>
+                <div class="ui-busca">
+                    <i class="fas fa-search"></i>
+                    <input id="f-dest" type="search" name="destinatario" value="{{ request.GET.destinatario }}" placeholder="Nome ou NIF…">
+                </div>
+            </div>
+
+            <div class="ui-field">
+                <label for="f-status">Estado</label>
+                <select id="f-status" name="status">
+                    <option value="">Todos os estados</option>
+                    {% for choice in status_choices %}
+                    <option value="{{ choice.0 }}" {% if request.GET.status == choice.0 %}selected{% endif %}>{{ choice.1 }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div class="ui-field">
+                <label for="f-op">Operação</label>
+                <select id="f-op" name="tipo_operacao">
+                    <option value="">Todas as operações</option>
+                    {% for choice in tipo_operacao_choices %}
+                    <option value="{{ choice.0 }}" {% if request.GET.tipo_operacao == choice.0 %}selected{% endif %}>{{ choice.1 }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div class="ui-field">
+                <label class="ui-check" for="f-atr" style="padding:.6rem .8rem">
+                    <input id="f-atr" type="checkbox" name="atrasados" value="1" {% if request.GET.atrasados == '1' %}checked{% endif %}>
+                    <span style="font-size:.88rem;font-weight:600">Só atrasados</span>
+                </label>
+            </div>
+
+            <div class="ui-acoes">
+                <button type="submit" class="ui-btn ui-btn-primary"><i class="fas fa-filter"></i> Filtrar</button>
+                <a href="?" class="ui-btn">Limpar</a>
+            </div>
+        </form>
+    </section>
+
+    <!-- Lista -->
+    <section class="ui-card" aria-label="Lista de documentos de transporte">
+        <div class="ui-card-h">
+            <h2>Lista de documentos</h2>
+            <span class="ui-muted">
+                {% if page_obj %}{{ page_obj.paginator.count }} resultado{{ page_obj.paginator.count|pluralize }}{% else %}{{ documentos_transporte|length }} resultado{{ documentos_transporte|length|pluralize }}{% endif %}
+            </span>
+        </div>
+
+        {% if documentos_transporte %}
+        <div class="ui-table-wrap">
+            <table class="ui-table">
                 <thead>
                     <tr>
-                        <th>Número</th>
+                        <th>Documento</th>
                         <th>Destinatário</th>
-                        <th>Status</th>
+                        <th>Veículo</th>
+                        <th>Previsão de entrega</th>
+                        <th>Estado</th>
                         <th>Ações</th>
                     </tr>
                 </thead>
                 <tbody>
                     {% for documento in documentos_transporte %}
+                    {% url 'vendas:documento_transporte_detail' documento.pk as url_ver %}
+                    {% url 'vendas:documento_transporte_update' documento.pk as url_editar %}
+                    {% url 'vendas:documento_transporte_pdf' documento.pk as url_pdf %}
                     <tr>
-                        <td>{{ documento.numero_documento }}</td>
-                        <td>{{ documento.destinatario_cliente.nome_completo }}</td>
-                        <td>{{ documento.get_status_display }}</td>
-                        <td>
-                            <a href="{% url 'vendas:documento_transporte_detail' documento.pk %}"
-                                class="btn btn-info">Ver</a>
-                            <a href="{% url 'vendas:documento_transporte_update' documento.pk %}"
-                                class="btn btn-warning">Editar</a>
+                        <td data-label="Documento">
+                            <div class="ui-strong">{{ documento.numero_documento }}</div>
+                            <div class="ui-muted">{{ documento.get_tipo_operacao_display }}</div>
+                        </td>
+                        <td data-label="Destinatário">
+                            <div class="ui-strong">{{ documento.destinatario_nome|default:"—" }}</div>
+                            {% if documento.destinatario_provincia %}<div class="ui-muted">{{ documento.destinatario_provincia }}</div>{% endif %}
+                        </td>
+                        <td data-label="Veículo">
+                            {{ documento.veiculo_matricula|default:"—" }}
+                            {% if documento.peso_total %}<div class="ui-muted">{{ documento.peso_total|floatformat:"-3" }} kg</div>{% endif %}
+                        </td>
+                        <td data-label="Previsão">
+                            {{ documento.data_previsao_entrega|date:"d/m/Y" }}
+                            <div class="ui-muted">{{ documento.data_previsao_entrega|date:"H:i" }}</div>
+                        </td>
+                        <td data-label="Estado">
+                            {% if documento.status == 'entregue' %}
+                                <span class="ui-badge ui-badge-ok">Entregue</span>
+                            {% elif documento.status == 'em_transito' %}
+                                <span class="ui-badge ui-badge-info">Em trânsito</span>
+                            {% elif documento.status == 'preparando' %}
+                                <span class="ui-badge ui-badge-warn">Preparando carga</span>
+                            {% elif documento.status == 'cancelado' or documento.status == 'devolvido' %}
+                                <span class="ui-badge ui-badge-danger">{{ documento.get_status_display }}</span>
+                            {% else %}
+                                <span class="ui-badge ui-badge-muted">{{ documento.get_status_display }}</span>
+                            {% endif %}
+                            {% if documento.esta_atrasado %}
+                                <div style="margin-top:.3rem"><span class="ui-badge ui-badge-danger"><i class="fas fa-clock"></i> Atrasado</span></div>
+                            {% endif %}
+                        </td>
+                        <td data-label="Ações" class="ui-sem-label">
+                            <div class="ui-linha-acoes">
+                                <a href="{{ url_ver }}" class="ui-icon" title="Ver detalhes" aria-label="Ver detalhes"><i class="fas fa-eye"></i></a>
+                                {% if documento.status == 'preparando' and url_editar %}
+                                <a href="{{ url_editar }}" class="ui-icon" title="Editar" aria-label="Editar"><i class="fas fa-edit"></i></a>
+                                {% endif %}
+                                {% if url_pdf %}
+                                <a href="{{ url_pdf }}" class="ui-icon" title="Abrir PDF" aria-label="Abrir PDF" target="_blank" rel="noopener"><i class="fas fa-file-pdf"></i></a>
+                                {% endif %}
+                            </div>
                         </td>
                     </tr>
                     {% endfor %}
                 </tbody>
             </table>
-            <div class="pagination">
-                {% for page in paginator.page_range %}
-                {% if page == page_obj.number %}
-                <strong>{{ page }}</strong>
-                {% else %}
-                <a href="?page={{ page }}">{{ page }}</a>
-                {% endif %}
-                {% endfor %}
-            </div>
         </div>
-    </div>
+
+        {% if is_paginated %}
+        <div class="ui-pag">
+            <span>A mostrar {{ page_obj.start_index }}–{{ page_obj.end_index }} de {{ page_obj.paginator.count }}</span>
+            <nav class="ui-pag-nav" aria-label="Paginação">
+                {% if page_obj.has_previous %}
+                <a href="?page={{ page_obj.previous_page_number }}{% for key,value in request.GET.items %}{% if key != 'page' %}&{{ key }}={{ value|urlencode }}{% endif %}{% endfor %}" aria-label="Anterior"><i class="fas fa-chevron-left"></i></a>
+                {% endif %}
+
+                {% for num in page_obj.paginator.page_range %}
+                    {% if num == page_obj.number %}
+                    <span class="ativo" aria-current="page">{{ num }}</span>
+                    {% elif num > page_obj.number|add:'-3' and num < page_obj.number|add:'3' %}
+                    <a href="?page={{ num }}{% for key,value in request.GET.items %}{% if key != 'page' %}&{{ key }}={{ value|urlencode }}{% endif %}{% endfor %}">{{ num }}</a>
+                    {% endif %}
+                {% endfor %}
+
+                {% if page_obj.has_next %}
+                <a href="?page={{ page_obj.next_page_number }}{% for key,value in request.GET.items %}{% if key != 'page' %}&{{ key }}={{ value|urlencode }}{% endif %}{% endfor %}" aria-label="Seguinte"><i class="fas fa-chevron-right"></i></a>
+                {% endif %}
+            </nav>
+        </div>
+        {% endif %}
+
+        {% else %}
+        <div class="ui-empty">
+            <i class="fas fa-truck"></i>
+            <h3>Nenhum documento de transporte encontrado</h3>
+            <p>Ajuste os filtros ou crie o primeiro documento.</p>
+            {% if url_criar %}<a href="{{ url_criar }}" class="ui-btn ui-btn-primary"><i class="fas fa-plus"></i> Novo Documento de Transporte</a>{% endif %}
+        </div>
+        {% endif %}
+    </section>
 </div>
 {% endblock %}

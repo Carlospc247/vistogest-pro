@@ -1,6 +1,11 @@
 # apps/analytics/utils.py
 import requests
 from django.conf import settings
+import json
+from datetime import date, datetime
+from decimal import Decimal
+from django.forms.models import model_to_dict
+from django.conf import settings
 
 from django.utils import timezone
 from datetime import timedelta
@@ -243,3 +248,28 @@ def detectar_localizacao(ip_address):
         pass
 
     return {"ip": ip_address, "cidade": "Desconhecido", "pais": "Desconhecido"}
+
+
+def obter_ip_cliente(request):
+    """Obtém o IP do cliente; não confia em X-Forwarded-For salvo se o proxy for confiável."""
+    forwarded = request.META.get("HTTP_X_FORWARDED_FOR", "")
+    if forwarded:
+        # Use apenas se a infraestrutura configurar/proteger corretamente este cabeçalho.
+        return forwarded.split(",")[0].strip() or None
+    return request.META.get("REMOTE_ADDR") or None
+
+def valor_json(valor):
+    if isinstance(valor, (datetime, date)): return valor.isoformat()
+    if isinstance(valor, Decimal): return str(valor)
+    if hasattr(valor, "pk"): return valor.pk
+    return str(valor)
+
+def snapshot_modelo(obj):
+    """Snapshot JSON-friendly para auditoria; não inclui ficheiros binários."""
+    if obj is None: return None
+    dados = model_to_dict(obj)
+    return {str(k): valor_json(v) for k, v in dados.items()}
+
+def json_seguro(value, default=None):
+    try: return json.loads(json.dumps(value, default=valor_json))
+    except (TypeError, ValueError): return default if default is not None else {}

@@ -1,0 +1,9 @@
+{% extends "funcionarios/_rh_base.html" %}
+{% block title %}Benefícios{% endblock %}
+{% block rh_content %}
+<h1 class="text-2xl font-bold mb-3">Benefícios</h1>
+<div class="flex flex-wrap gap-2 mb-4"><a class="rh-btn" href="{% url 'funcionarios:vale_transporte' %}">Transporte</a><a class="rh-btn" href="{% url 'funcionarios:vale_refeicao' %}">Refeição</a><a class="rh-btn" href="{% url 'funcionarios:plano_saude' %}">Plano de saúde</a></div>
+<div class="rh-card p-0 overflow-x-auto"><table class="rh-table"><thead><tr><th>Funcionário</th><th>Tipo</th><th class="text-right">Valor</th><th>Estado</th></tr></thead><tbody>
+  {% for b in beneficios %}<tr><td>{{ b.funcionario.nome_completo }}</td><td>{{ b.get_tipo_display }}</td><td class="text-right">{{ b.valor|floatformat:2 }}</td><td>{% if b.ativo %}<span class="rh-badge rh-ok">Activo</span>{% else %}<span class="rh-badge">Inactivo</span>{% endif %}</td></tr>
+  {% empty %}<tr><td colspan="4" class="text-center py-6 rh-muted">Nenhum benefício.</td></tr>{% endfor %}</tbody></table></div>
+{% endblock %}

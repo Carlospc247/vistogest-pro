@@ -1,25 +1,2 @@
-<!-- templates/financeiro/banco/detail.html -->
-{% extends 'base.html' %}
-{% load static %}
-
-{% block title %}Detalhes da Conta Bancária{% endblock %}
-{% block page_title %}Detalhes da Conta Bancária{% endblock %}
-
-{% block content %}
-<div class="bg-white dark:bg-gray-800 shadow rounded-lg p-6">
-    <h1 class="text-2xl font-bold text-gray-900 dark:text-white mb-4">
-        Detalhes da Conta Bancária: {{ conta.nome }}
-    </h1>
-
-    <p><strong>Banco:</strong> {{ conta.banco }}</p>
-    <p><strong>Agência:</strong> {{ conta.agencia }}</p>
-    <p><strong>Conta:</strong> {{ conta.conta }}</p>
-    <p><strong>Saldo Atual:</strong> {{ conta.saldo_atual|floatformat:2 }} Kz</p>
-
-    <div class="mt-6">
-        <a href="{% url 'financeiro:banco_update' conta.id %}" class="bg-yellow-500 text-white px-4 py-2 rounded-lg">Editar</a>
-        <a href="{% url 'financeiro:extrato_bancario' conta.id %}" class="bg-blue-500 text-white px-4 py-2 rounded-lg">Ver Extrato</a>
-        <a href="{% url 'financeiro:conciliacao_bancaria' conta.id %}" class="bg-green-500 text-white px-4 py-2 rounded-lg">Conciliar</a>
-    </div>
-</div>
-{% endblock %}
+{% extends "financeiro/base_financeiro.html" %}{% block title %}Detalhe da conta bancária{% endblock %}{% block breadcrumb %}Detalhe da conta bancária{% endblock %}{% block content %}
+<header class="page-head"><div><h1>Detalhe da conta bancária</h1><p>Saldo, identificação bancária e operações associadas.</p></div>{% block page_actions %}{% endblock %}</header><section class="panel"><div class="page-head"><div><h2>{{ conta.nome }}</h2><p>{{ conta.banco }} · {{ conta.get_tipo_conta_display }}</p></div><div class="actions"><a class="btn secondary" href="{% url 'financeiro:banco_lista' %}">Voltar</a><a class="btn" href="{% url 'financeiro:banco_update' conta.pk %}">Editar</a></div></div><div class="grid"><div class="metric"><div class="label">Saldo actual</div><div class="value">{{ conta.saldo_atual|floatformat:2 }} AOA</div></div><div class="metric"><div class="label">Saldo inicial</div><div class="value">{{ conta.saldo_inicial|floatformat:2 }} AOA</div></div><div class="metric"><div class="label">Saldo disponível</div><div class="value">{{ conta.saldo_disponivel|floatformat:2 }} AOA</div></div><div class="metric"><div class="label">Limite de crédito</div><div class="value">{{ conta.limite_credito|floatformat:2 }} AOA</div></div></div><div class="detail-list"><div class="detail-item"><div class="k">Agência</div><div class="v">{{ conta.agencia }}</div></div><div class="detail-item"><div class="k">Conta</div><div class="v">{{ conta.conta }} {{ conta.digito }}</div></div><div class="detail-item"><div class="k">Última conciliação</div><div class="v">{{ conta.ultima_conciliacao|date:'d/m/Y'|default:'—' }}</div></div><div class="detail-item"><div class="k">Estado</div><div class="v">{{ conta.ativa|yesno:'Activa,Inactiva' }}</div></div></div><div class="form-actions"><a class="btn secondary" href="{% url 'financeiro:extrato_bancario' conta.pk %}">Extrato</a><a class="btn secondary" href="{% url 'financeiro:conciliacao_bancaria' conta.pk %}">Conciliação</a><a class="btn secondary" href="{% url 'financeiro:transferencia_bancaria' conta.pk %}">Transferir</a></div><div class="two-col" style="margin:18px 0"><section class="panel"><h2>Depósito</h2><form method="post" action="{% url 'financeiro:deposito_bancario' conta.pk %}">{% csrf_token %}<p><label for="deposito_valor">Valor (AOA)</label><input id="deposito_valor" name="valor" type="number" min="0.01" step="0.01" required></p><p><label for="deposito_descricao">Descrição</label><input id="deposito_descricao" name="descricao" value="Depósito bancário" required></p><p><label for="deposito_tipo">Documento / meio</label><select id="deposito_tipo" name="tipo_documento"><option value="dinheiro">Dinheiro</option><option value="transferencia">Transferência</option><option value="cheque">Cheque</option><option value="cartao">Cartão</option><option value="outros">Outros</option></select></p><button class="btn success" type="submit">Registar depósito</button></form></section><section class="panel"><h2>Saque</h2><form method="post" action="{% url 'financeiro:saque_bancario' conta.pk %}">{% csrf_token %}<p><label for="saque_valor">Valor (AOA)</label><input id="saque_valor" name="valor" type="number" min="0.01" step="0.01" required></p><p><label for="saque_descricao">Descrição</label><input id="saque_descricao" name="descricao" value="Saque bancário" required></p><p><label for="saque_tipo">Documento / meio</label><select id="saque_tipo" name="tipo_documento"><option value="dinheiro">Dinheiro</option><option value="transferencia">Transferência</option><option value="cheque">Cheque</option><option value="cartao">Cartão</option><option value="outros">Outros</option></select></p><button class="btn danger" type="submit">Registar saque</button></form></section></div><section style="margin-top:20px"><h2>Movimentações recentes</h2><div class="table-wrap"><table><thead><tr><th>Data</th><th>Tipo</th><th>Descrição</th><th>Valor</th><th>Estado</th></tr></thead><tbody>{% for m in movimentacoes_recentes %}<tr><td>{{ m.data_movimentacao|date:'d/m/Y' }}</td><td>{{ m.get_tipo_movimentacao_display }}</td><td>{{ m.descricao }}</td><td>{{ m.valor|floatformat:2 }} AOA</td><td>{{ m.get_status_display }}</td></tr>{% empty %}<tr><td colspan="5" class="empty">Sem movimentações recentes no contexto.</td></tr>{% endfor %}</tbody></table></div></section></section>{% endblock %}

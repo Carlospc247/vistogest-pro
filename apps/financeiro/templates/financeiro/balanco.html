@@ -1,31 +1,4 @@
-<!-- templates/financeiro/balanco.html -->
-{% extends 'base.html' %}
-{% load static %}
-
-{% block title %}Balanço Patrimonial{% endblock %}
-{% block page_title %}Balanço Patrimonial{% endblock %}
-
-{% block content %}
-<div class="bg-white dark:bg-gray-800 shadow rounded-lg p-6">
-    <h1 class="text-2xl font-bold text-gray-900 dark:text-white mb-4">
-        Balanço Patrimonial
-    </h1>
-
-    <div>
-        <h3 class="text-lg font-bold">Ativo Circulante</h3>
-        <p>{{ ativo_circulante|floatformat:2 }} Kz</p>
-        
-        <h3 class="text-lg font-bold">Ativo Não Circulante</h3>
-        <p>{{ ativo_nao_circulante|floatformat:2 }} Kz</p>
-
-        <h3 class="text-lg font-bold">Passivo Circulante</h3>
-        <p>{{ passivo_circulante|floatformat:2 }} Kz</p>
-
-        <h3 class="text-lg font-bold">Passivo Não Circulante</h3>
-        <p>{{ passivo_nao_circulante|floatformat:2 }} Kz</p>
-
-        <h3 class="text-lg font-bold">Patrimônio Líquido</h3>
-        <p>{{ patrimonio_liquido|floatformat:2 }} Kz</p>
-    </div>
-</div>
+{% extends "financeiro/base_financeiro.html" %}{% block title %}Balanço patrimonial{% endblock %}{% block breadcrumb %}Balanço patrimonial{% endblock %}{% block content %}
+<header class="page-head"><div><h1>Balanço patrimonial</h1><p>Visão resumida de activos, passivos e património líquido.</p></div>{% block page_actions %}{% endblock %}</header>
+<div class="grid"><article class="metric"><div class="label">Activo circulante</div><div class="value">{{ ativo_circulante|floatformat:2 }} AOA</div></article><article class="metric"><div class="label">Activo não circulante</div><div class="value">{{ ativo_nao_circulante|floatformat:2 }} AOA</div></article><article class="metric"><div class="label">Passivo circulante</div><div class="value">{{ passivo_circulante|floatformat:2 }} AOA</div></article><article class="metric"><div class="label">Passivo não circulante</div><div class="value">{{ passivo_nao_circulante|floatformat:2 }} AOA</div></article></div><section class="panel"><h2>Património líquido</h2><div class="metric"><div class="value">{{ patrimonio_liquido|floatformat:2 }} AOA</div></div><div class="notice warning" style="margin-top:15px">Os métodos de cálculo no trecho de views enviado ainda devolvem zero como placeholder. Este template apresenta os valores fornecidos pela view; não substitui a implementação contabilística do balanço.</div></section>
 {% endblock %}

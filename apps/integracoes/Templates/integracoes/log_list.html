@@ -1,0 +1,23 @@
+{% extends "integracoes/_base.html" %}
+{% block title %}Logs de integrações{% endblock %}
+{% block ig_content %}
+<h1 class="text-2xl font-bold mb-4">Logs de integrações</h1>
+<form method="get" class="ig-card mb-4 grid md:grid-cols-5 gap-3 items-end">
+  <select name="config" class="ig-input"><option value="">Todas as integrações</option>{% for c in configs %}<option value="{{ c.pk }}" {% if request.GET.config == c.pk|stringformat:"s" %}selected{% endif %}>{{ c.tipo_integracao.nome }}</option>{% endfor %}</select>
+  <select name="status" class="ig-input"><option value="">Qualquer estado</option>{% for v,l in status_choices %}<option value="{{ v }}" {% if request.GET.status == v %}selected{% endif %}>{{ l }}</option>{% endfor %}</select>
+  <select name="direcao" class="ig-input"><option value="">Entrada e saída</option>{% for v,l in direcao_choices %}<option value="{{ v }}" {% if request.GET.direcao == v %}selected{% endif %}>{{ l }}</option>{% endfor %}</select>
+  <input name="q" value="{{ request.GET.q }}" class="ig-input" placeholder="URL ou resposta…">
+  <button class="ig-btn ig-btn-p">Filtrar</button>
+</form>
+<div class="ig-card p-0 overflow-x-auto"><table class="ig-table">
+  <thead><tr><th>Quando</th><th>Integração</th><th>Dir.</th><th>Pedido</th><th>Estado</th><th>HTTP</th><th>Tempo</th><th></th></tr></thead><tbody>
+  {% for l in logs %}<tr><td class="whitespace-nowrap">{{ l.timestamp|date:"d/m/Y H:i:s" }}</td><td>{{ l.configuracao.tipo_integracao.nome }}</td><td>{{ l.get_direcao_display }}</td>
+    <td class="font-mono text-xs">{{ l.metodo }} {{ l.url|truncatechars:60 }}</td>
+    <td><span class="ig-badge {% if l.status == 'sucesso' %}ig-ok{% elif l.status == 'limite_excedido' %}ig-warn{% else %}ig-bad{% endif %}">{{ l.get_status_display }}</span></td>
+    <td>{{ l.status_code|default:"—" }}</td><td>{% if l.tempo_resposta %}{{ l.tempo_resposta|floatformat:2 }}s{% else %}—{% endif %}</td>
+    <td><a class="text-indigo-600" href="{% url 'integracoes:log_detalhe' pk=l.pk %}">Ver</a></td></tr>
+  {% empty %}<tr><td colspan="8" class="text-center py-8 ig-muted">Sem registos.</td></tr>{% endfor %}</tbody></table></div>
+{% if is_paginated %}<div class="mt-4 flex justify-between text-sm"><span class="ig-muted">Página {{ page_obj.number }} de {{ paginator.num_pages }}</span><div class="flex gap-2">
+  {% if page_obj.has_previous %}<a class="ig-btn" href="?page={{ page_obj.previous_page_number }}{% for k,v in request.GET.items %}{% if k != 'page' %}&{{ k }}={{ v|urlencode }}{% endif %}{% endfor %}">Anterior</a>{% endif %}
+  {% if page_obj.has_next %}<a class="ig-btn" href="?page={{ page_obj.next_page_number }}{% for k,v in request.GET.items %}{% if k != 'page' %}&{{ k }}={{ v|urlencode }}{% endif %}{% endfor %}">Seguinte</a>{% endif %}</div></div>{% endif %}
+{% endblock %}

@@ -1,93 +1,10 @@
-{% extends "base.html" %}
-{% load i18n %}
-{% load static %}
-
-{% block title %}Detalhes do Departamento: {{ departamento.nome }}{% endblock title %}
-
-{% block content %}
-<div class="p-4 sm:p-6 lg:p-8">
-
-    <header class="mb-6 flex justify-between items-center">
-        <h1 class="text-3xl font-bold text-gray-900 dark:text-white">
-            <i class="fas fa-building text-blue-500 mr-2"></i> {{ departamento.nome }}
-        </h1>
-        <div class="space-x-2">
-            <a href="{% url 'funcionarios:departamento_update' departamento.pk %}" 
-               class="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 transition duration-150">
-                <i class="fas fa-edit mr-2"></i> {% trans "Editar" %}
-            </a>
-            <a href="{% url 'funcionarios:departamento_lista' %}" 
-               class="inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600 transition duration-150">
-                {% trans "Voltar para Lista" %}
-            </a>
-        </div>
-    </header>
-
-    <div class="bg-white dark:bg-gray-800 shadow-xl rounded-lg overflow-hidden divide-y divide-gray-200 dark:divide-gray-700">
-        
-        <div class="p-6">
-            <h2 class="text-xl font-semibold text-gray-900 dark:text-white mb-4">{% trans "Informações Básicas" %}</h2>
-            <dl class="grid grid-cols-1 gap-x-4 gap-y-6 sm:grid-cols-2">
-                
-                <div class="sm:col-span-1">
-                    <dt class="text-sm font-medium text-gray-500 dark:text-gray-400">{% trans "Código" %}</dt>
-                    <dd class="mt-1 text-sm text-gray-900 dark:text-white">{{ departamento.codigo }}</dd>
-                </div>
-                
-                <div class="sm:col-span-1">
-                    <dt class="text-sm font-medium text-gray-500 dark:text-gray-400">{% trans "Responsável" %}</dt>
-                    <dd class="mt-1 text-sm text-gray-900 dark:text-white">
-                        {{ departamento.responsavel|default:"N/A" }}
-                    </dd>
-                </div>
-
-                <div class="sm:col-span-1">
-                    <dt class="text-sm font-medium text-gray-500 dark:text-gray-400">{% trans "Localização" %}</dt>
-                    <dd class="mt-1 text-sm text-gray-900 dark:text-white">{{ departamento.nome }}</dd>
-                </div>
-
-                <div class="sm:col-span-1">
-                    <dt class="text-sm font-medium text-gray-500 dark:text-gray-400">{% trans "Centro de Custo" %}</dt>
-                    <dd class="mt-1 text-sm text-gray-900 dark:text-white">{{ departamento.centro_custo|default:"Não Atribuído" }}</dd>
-                </div>
-
-                <div class="sm:col-span-2">
-                    <dt class="text-sm font-medium text-gray-500 dark:text-gray-400">{% trans "Descrição" %}</dt>
-                    <dd class="mt-1 text-sm text-gray-900 dark:text-white whitespace-pre-wrap">{{ departamento.descricao|default:"Sem descrição." }}</dd>
-                </div>
-
-            </dl>
-        </div>
-
-        <div class="p-6 bg-gray-50 dark:bg-gray-700">
-            <h2 class="text-xl font-semibold text-gray-900 dark:text-white mb-4">{% trans "Status e Metadata" %}</h2>
-            <dl class="grid grid-cols-1 gap-x-4 gap-y-6 sm:grid-cols-2">
-                <div class="sm:col-span-1">
-                    <dt class="text-sm font-medium text-gray-500 dark:text-gray-400">{% trans "Status Ativo" %}</dt>
-                    <dd class="mt-1 text-sm">
-                        {% if departamento.ativo %}
-                            <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800 dark:bg-green-800 dark:text-green-100">{% trans "Ativo" %}</span>
-                        {% else %}
-                            <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-red-100 text-red-800 dark:bg-red-800 dark:text-red-100">{% trans "Inativo" %}</span>
-                        {% endif %}
-                    </dd>
-                </div>
-                
-                <div class="sm:col-span-1">
-                    <dt class="text-sm font-medium text-gray-500 dark:text-gray-400">{% trans "Criado em" %}</dt>
-                    <dd class="mt-1 text-sm text-gray-900 dark:text-white">{{ departamento.created_at|date:"d/m/Y H:i" }}</dd>
-                </div>
-                
-            </dl>
-        </div>
-
-    </div>
-    
-    <div class="mt-8">
-        <a href="{% url 'funcionarios:departamento_lista' %}" class="text-blue-600 dark:text-blue-400 hover:text-blue-800 text-sm font-medium">
-            &larr; {% trans "Voltar para a lista de Departamentos" %}
-        </a>
-    </div>
-    
-</div>
-{% endblock content %}
+{% extends "funcionarios/_rh_base.html" %}
+{% block title %}{{ departamento.nome }}{% endblock %}
+{% block rh_content %}
+<a href="{% url 'funcionarios:departamento_lista' %}" class="text-sm text-indigo-600">&larr; Departamentos</a>
+<div class="flex justify-between items-center my-3"><h1 class="text-2xl font-bold">{{ departamento.nome }}</h1><a class="rh-btn" href="{% url 'funcionarios:departamento_update' pk=departamento.pk %}">Editar</a></div>
+<div class="rh-card text-sm mb-4"><p>Código: {{ departamento.codigo }}</p><p>Responsável: {{ departamento.responsavel.nome_completo|default:"—" }}</p><p>Centro de custo: {{ departamento.centro_custo|default:"—" }}</p><p class="rh-muted mt-2">{{ departamento.descricao }}</p></div>
+<div class="rh-card p-0 overflow-x-auto"><table class="rh-table"><thead><tr><th>Funcionário</th><th>Cargo</th></tr></thead><tbody>
+  {% for f in funcionarios %}<tr><td><a class="text-indigo-600" href="{% url 'funcionarios:detail' pk=f.pk %}">{{ f.nome_completo }}</a></td><td>{{ f.cargo.nome|default:"—" }}</td></tr>
+  {% empty %}<tr><td colspan="2" class="text-center py-6 rh-muted">Sem funcionários.</td></tr>{% endfor %}</tbody></table></div>
+{% endblock %}

@@ -1,0 +1,11 @@
+{# recibos/recibo_imprimir.html #}
+<!doctype html>
+<html lang="pt"><head><meta charset="utf-8"><title>{{ r.numero }}</title>{% include "recibos/_estilos.html" %}
+<style>body{margin:16px;background:#f3f4f6}@media print{body{margin:0}}</style></head>
+<body>
+<p class="no-print"><button onclick="window.print()">Imprimir</button>
+  <a href="{% url 'funcionarios:recibo_pdf' pk=r.pk %}" target="_blank">Abrir PDF</a>
+  <a href="javascript:history.back()">Voltar</a></p>
+{% include "recibos/_documento.html" %}
+{% if request.GET.auto %}<script>window.addEventListener('load', () => setTimeout(() => window.print(), 400));</script>{% endif %}
+</body></html>

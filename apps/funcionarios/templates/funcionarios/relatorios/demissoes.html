@@ -1,0 +1,4 @@
+{# relatorios/demissoes.html #}
+{% extends "relatorios/_periodo.html" %}
+{% block col_data %}Demissão{% endblock %}
+{% block valor_data %}{{ f.data_demissao|date:"d/m/Y" }}{% endblock %}

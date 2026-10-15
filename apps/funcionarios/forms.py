@@ -2,9 +2,12 @@
 from decimal import Decimal
 from django import forms
 from django.core.exceptions import ValidationError
-from django.contrib.auth import get_user_model, models
+from django.contrib.auth import get_user_model
+from django.db import models
 from .models import Funcionario, Cargo, Departamento, EscalaTrabalho, Ferias, Capacitacao, AvaliacaoDesempenho, JornadaTrabalho, RegistroPonto, Comunicado
 from datetime import date, timedelta
+from django.utils import timezone
+
 
 User = get_user_model()
 
@@ -47,6 +50,234 @@ class FuncionarioForm(forms.ModelForm):
 
         return cleaned_data
 
+
+# ============================================================
+# ADMISSÃO DE CANDIDATOS
+# ============================================================
+
+
+class AdmissaoCandidatoForm(forms.ModelForm):
+    """Recolhe os dados obrigatórios de RH para converter uma candidatura em funcionário."""
+
+    class Meta:
+        model = Funcionario
+        fields = [
+            "nome_completo", "bi", "data_nascimento", "sexo", "estado_civil",
+            "nacionalidade", "naturalidade", "endereco", "numero", "bairro",
+            "cidade", "provincia", "postal", "telefone", "whatsapp",
+            "email_pessoal", "email_corporativo", "cargo", "departamento",
+            "supervisor", "tipo_contrato", "data_admissao", "periodo_experiencia_dias",
+            "salario_atual", "vale_alimentacao", "vale_transporte", "outros_beneficios",
+            "comissao_percentual", "escolaridade", "curso_formacao",
+            "instituicao_ensino", "ano_conclusao", "observacoes", "observacoes_rh",
+        ]
+        widgets = {
+            "nome_completo": forms.TextInput(attrs={"class": "form-control", "autocomplete": "name"}),
+            "bi": forms.TextInput(attrs={"class": "form-control", "autocomplete": "off", "maxlength": 14}),
+            "data_nascimento": forms.DateInput(attrs={"class": "form-control", "type": "date"}, format="%Y-%m-%d"),
+            "sexo": forms.Select(attrs={"class": "form-select"}),
+            "estado_civil": forms.Select(attrs={"class": "form-select"}),
+            "nacionalidade": forms.TextInput(attrs={"class": "form-control"}),
+            "naturalidade": forms.TextInput(attrs={"class": "form-control"}),
+            "endereco": forms.TextInput(attrs={"class": "form-control", "autocomplete": "street-address"}),
+            "numero": forms.TextInput(attrs={"class": "form-control"}),
+            "bairro": forms.TextInput(attrs={"class": "form-control"}),
+            "cidade": forms.TextInput(attrs={"class": "form-control", "autocomplete": "address-level2"}),
+            "provincia": forms.TextInput(attrs={"class": "form-control", "autocomplete": "address-level1"}),
+            "postal": forms.TextInput(attrs={"class": "form-control", "autocomplete": "postal-code"}),
+            "telefone": forms.TextInput(attrs={"class": "form-control", "autocomplete": "tel"}),
+            "whatsapp": forms.TextInput(attrs={"class": "form-control"}),
+            "email_pessoal": forms.EmailInput(attrs={"class": "form-control", "autocomplete": "email"}),
+            "email_corporativo": forms.EmailInput(attrs={"class": "form-control"}),
+            "cargo": forms.Select(attrs={"class": "form-select"}),
+            "departamento": forms.Select(attrs={"class": "form-select"}),
+            "supervisor": forms.Select(attrs={"class": "form-select"}),
+            "tipo_contrato": forms.Select(attrs={"class": "form-select"}),
+            "data_admissao": forms.DateInput(attrs={"class": "form-control", "type": "date"}, format="%Y-%m-%d"),
+            "periodo_experiencia_dias": forms.NumberInput(attrs={"class": "form-control", "min": 0}),
+            "salario_atual": forms.NumberInput(attrs={"class": "form-control", "min": 0, "step": "0.01"}),
+            "vale_alimentacao": forms.NumberInput(attrs={"class": "form-control", "min": 0, "step": "0.01"}),
+            "vale_transporte": forms.NumberInput(attrs={"class": "form-control", "min": 0, "step": "0.01"}),
+            "outros_beneficios": forms.NumberInput(attrs={"class": "form-control", "min": 0, "step": "0.01"}),
+            "comissao_percentual": forms.NumberInput(attrs={"class": "form-control", "min": 0, "max": 100, "step": "0.01"}),
+            "escolaridade": forms.Select(attrs={"class": "form-select"}),
+            "curso_formacao": forms.TextInput(attrs={"class": "form-control"}),
+            "instituicao_ensino": forms.TextInput(attrs={"class": "form-control"}),
+            "ano_conclusao": forms.NumberInput(attrs={"class": "form-control", "min": 1900}),
+            "observacoes": forms.Textarea(attrs={"class": "form-control", "rows": 3}),
+            "observacoes_rh": forms.Textarea(attrs={"class": "form-control", "rows": 3}),
+        }
+
+    def __init__(self, *args, candidatura=None, **kwargs):
+        initial = dict(kwargs.pop("initial", {}) or {})
+        if candidatura is not None:
+            initial.setdefault("nome_completo", candidatura.nome)
+            initial.setdefault("email_pessoal", candidatura.email)
+            initial.setdefault("telefone", candidatura.telefone or "")
+        initial.setdefault("data_admissao", timezone.localdate())
+        kwargs["initial"] = initial
+        super().__init__(*args, **kwargs)
+
+        # O save() do modelo exige cargo mesmo que o ForeignKey aceite null/blank.
+        self.fields["cargo"].required = True
+        self.fields["cargo"].queryset = Cargo.objects.filter(ativo=True).order_by("nivel_hierarquico", "nome")
+        self.fields["cargo"].empty_label = "Seleccione um cargo"
+        self.fields["departamento"].queryset = Departamento.objects.filter(ativo=True).order_by("nome")
+        self.fields["departamento"].empty_label = "Seleccione um departamento"
+        supervisores = Funcionario.objects.filter(ativo=True).order_by("nome_completo")
+        if self.instance.pk:
+            supervisores = supervisores.exclude(pk=self.instance.pk)
+        self.fields["supervisor"].queryset = supervisores
+        self.fields["supervisor"].required = False
+        self.fields["email_pessoal"].required = True
+
+    def clean_bi(self):
+        return self.cleaned_data["bi"].strip().upper()
+
+    def clean_email_pessoal(self):
+        return self.cleaned_data["email_pessoal"].strip().lower()
+
+    def clean(self):
+        cleaned = super().clean()
+        admissao = cleaned.get("data_admissao")
+        nascimento = cleaned.get("data_nascimento")
+        if admissao and nascimento and nascimento >= admissao:
+            self.add_error("data_nascimento", "A data de nascimento deve ser anterior à data de admissão.")
+
+        for campo in ("salario_atual", "vale_alimentacao", "vale_transporte", "outros_beneficios"):
+            valor = cleaned.get(campo)
+            if valor is not None and valor < Decimal("0.00"):
+                self.add_error(campo, "O valor não pode ser negativo.")
+
+        comissao = cleaned.get("comissao_percentual")
+        if comissao is not None and not Decimal("0.00") <= comissao <= Decimal("100.00"):
+            self.add_error("comissao_percentual", "A comissão deve estar entre 0% e 100%.")
+        return cleaned
+
+
+# O formulário acompanha automaticamente os campos booleanos pode_* declarados
+# em Cargo, evitando esquecer as permissões novas adicionadas ao modelo.
+CARGO_BOOLEAN_FIELDS = tuple(
+    field.name
+    for field in Cargo._meta.fields
+    if isinstance(field, models.BooleanField) and field.name.startswith("pode_")
+)
+
+CARGO_BASE_FIELDS = (
+    "nome", "codigo", "descricao", "cargo_superior", "nivel_hierarquico",
+    "categoria", "salario_base", "vale_alimentacao", "vale_transporte",
+    "limite_desconto_percentual",
+)
+
+
+class CargoForm(forms.ModelForm):
+    selecionar_todos = forms.BooleanField(
+        required=False,
+        label="Seleccionar todas as permissões",
+        help_text="Marca todas as permissões pode_*; se ficar desmarcado, mantém as escolhas individuais.",
+        widget=forms.CheckboxInput(attrs={"class": "form-check-input"}),
+    )
+
+    class Meta:
+        model = Cargo
+        fields = list(CARGO_BASE_FIELDS) + ["permissions"] + list(CARGO_BOOLEAN_FIELDS) + ["selecionar_todos", "ativo"]
+        widgets = {
+            "nome": forms.TextInput(attrs={"class": "form-control", "placeholder": "Nome do cargo"}),
+            "codigo": forms.TextInput(attrs={"class": "form-control", "placeholder": "Código único"}),
+            "descricao": forms.Textarea(attrs={"class": "form-control", "rows": 3, "placeholder": "Descrição do cargo"}),
+            "cargo_superior": forms.Select(attrs={"class": "form-select"}),
+            "nivel_hierarquico": forms.NumberInput(attrs={"class": "form-control", "min": 1}),
+            "categoria": forms.Select(attrs={"class": "form-select"}),
+            "salario_base": forms.NumberInput(attrs={"class": "form-control", "min": 0, "step": "0.01"}),
+            "vale_alimentacao": forms.NumberInput(attrs={"class": "form-control", "min": 0, "step": "0.01"}),
+            "vale_transporte": forms.NumberInput(attrs={"class": "form-control", "min": 0, "step": "0.01"}),
+            "limite_desconto_percentual": forms.NumberInput(attrs={"class": "form-control", "min": 0, "max": 100, "step": "0.01"}),
+            "permissions": forms.CheckboxSelectMultiple(),
+            "ativo": forms.CheckboxInput(attrs={"class": "form-check-input"}),
+        }
+        widgets.update({
+            nome: forms.CheckboxInput(attrs={"class": "form-check-input"})
+            for nome in CARGO_BOOLEAN_FIELDS
+        })
+
+    @staticmethod
+    def get_boolean_fields():
+        """Permissões operacionais pode_*; exclui ativo e seleccionar_todos."""
+        return list(CARGO_BOOLEAN_FIELDS)
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        superiores = Cargo.objects.filter(ativo=True).order_by("nivel_hierarquico", "nome")
+        if self.instance.pk:
+            superiores = superiores.exclude(pk=self.instance.pk)
+        self.fields["cargo_superior"].queryset = superiores
+        # É uma acção momentânea, não um espelho do estado actualmente guardado.
+        # Assim, ao editar um cargo com todas as permissões activas, o utilizador
+        # ainda pode desmarcar apenas uma permissão sem que ela seja reactivada.
+        self.fields["selecionar_todos"].initial = False
+
+    def clean(self):
+        cleaned = super().clean()
+        nivel = cleaned.get("nivel_hierarquico")
+        categoria = cleaned.get("categoria")
+        selecionar_todos = bool(cleaned.get("selecionar_todos"))
+        pode_descontar = selecionar_todos or bool(cleaned.get("pode_fazer_desconto", False))
+        pode_aprovar_proforma = selecionar_todos or bool(cleaned.get("pode_aprovar_proforma", False))
+        pode_emitir_proforma = selecionar_todos or bool(cleaned.get("pode_emitir_proforma", False))
+        pode_pagar_salario = selecionar_todos or bool(cleaned.get("pode_pagar_salario", False))
+        limite = cleaned.get("limite_desconto_percentual")
+        limite = limite if limite is not None else Decimal("0.00")
+
+        if nivel is not None and nivel < 1:
+            self.add_error("nivel_hierarquico", "O nível hierárquico deve ser 1 ou superior.")
+
+        if limite < Decimal("0.00") or limite > Decimal("100.00"):
+            self.add_error("limite_desconto_percentual", "O limite de desconto deve estar entre 0% e 100%.")
+        elif not pode_descontar and limite > Decimal("0.00"):
+            self.add_error(
+                "limite_desconto_percentual",
+                "O limite deve ser 0% quando o cargo não tem permissão para conceder descontos.",
+            )
+        elif pode_descontar and limite <= Decimal("0.00"):
+            self.add_error(
+                "limite_desconto_percentual",
+                "Defina um limite superior a 0% para um cargo autorizado a conceder descontos.",
+            )
+
+        if pode_aprovar_proforma and not pode_emitir_proforma:
+            self.add_error(
+                "pode_aprovar_proforma",
+                "O cargo não pode aprovar proformas sem ter também permissão para as emitir.",
+            )
+
+        if pode_pagar_salario and nivel is not None and nivel > 3:
+            if categoria not in {"rh", "diretoria", "gerencia"}:
+                self.add_error(
+                    "pode_pagar_salario",
+                    "Para pagar salários, o cargo deve ser de RH, Diretoria, Gerência ou ter nível hierárquico até 3.",
+                )
+
+        for campo in ("salario_base", "vale_alimentacao", "vale_transporte"):
+            valor = cleaned.get(campo)
+            if valor is not None and valor < Decimal("0.00"):
+                self.add_error(campo, "O valor não pode ser negativo.")
+        return cleaned
+
+    def save(self, commit=True):
+        instance = super().save(commit=False)
+        if self.cleaned_data.get("selecionar_todos"):
+            for campo in self.get_boolean_fields():
+                setattr(instance, campo, True)
+
+        # Esta checkbox é um comando de interface, não uma permissão persistente.
+        # O modelo tem o campo por compatibilidade; não guardamos True após salvar.
+        instance.selecionar_todos = False
+
+        if commit:
+            instance.save()
+            self.save_m2m()
+        return instance
+        
 
 class EscalaTrabalhoForm(forms.ModelForm):
     class Meta:
@@ -136,98 +367,6 @@ class AvaliacaoDesempenhoForm(forms.ModelForm):
 
         if None not in notas:
             cleaned_data['nota_geral'] = sum(notas) / len(notas)
-
-        return cleaned_data
-
-
-class CargoForm(forms.ModelForm):
-    selecionar_todos = forms.BooleanField(
-        required=False,
-        label="Selecionar todas permissões",
-        help_text="Marca ou desmarca todas as permissões booleanas automaticamente"
-    )
-
-    class Meta:
-        model = Cargo
-        fields = [
-            'nome', 'codigo', 'descricao', 'cargo_superior', 'nivel_hierarquico',
-            'categoria', 'salario_base', 'vale_alimentacao', 'vale_transporte',
-            'pode_pagar_salario', 'pode_vender', 'pode_fazer_desconto',
-            'limite_desconto_percentual', 'pode_cancelar_venda', 'pode_fazer_devolucao',
-            'pode_alterar_preco', 'pode_gerenciar_estoque', 'pode_fazer_compras',
-            'pode_aprovar_pedidos', 'pode_gerenciar_funcionarios', 'pode_editar_produtos',
-            'pode_emitir_faturacredito', 'pode_liquidar_faturacredito', 'pode_emitir_proforma',
-            'pode_aprovar_proforma', 'ativo',
-        ]
-        widgets = {
-            'nome': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Nome do cargo'}),
-            'codigo': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Código único'}),
-            'descricao': forms.Textarea(attrs={'class': 'form-control', 'rows': 3, 'placeholder': 'Descrição do cargo'}),
-            'cargo_superior': forms.Select(attrs={'class': 'form-control'}),
-            'nivel_hierarquico': forms.NumberInput(attrs={'class': 'form-control', 'min': 1}),
-            'categoria': forms.Select(attrs={'class': 'form-control'}),
-            'salario_base': forms.NumberInput(attrs={'class': 'form-control', 'step': 0.01}),
-            'vale_alimentacao': forms.NumberInput(attrs={'class': 'form-control', 'step': 0.01}),
-            'vale_transporte': forms.NumberInput(attrs={'class': 'form-control', 'step': 0.01}),
-            'limite_desconto_percentual': forms.NumberInput(attrs={'class': 'form-control', 'step': 0.01}),
-            # widgets para os booleans
-            **{f: forms.CheckboxInput(attrs={'class': 'form-checkbox'}) for f in [
-                'pode_pagar_salario', 'pode_vender', 'pode_fazer_desconto',
-                'pode_cancelar_venda', 'pode_fazer_devolucao', 'pode_alterar_preco',
-                'pode_gerenciar_estoque', 'pode_fazer_compras', 'pode_aprovar_pedidos',
-                'pode_gerenciar_funcionarios', 'pode_editar_produtos', 'pode_emitir_faturacredito',
-                'pode_liquidar_faturacredito', 'pode_emitir_proforma', 'pode_aprovar_proforma',
-                'ativo'
-            ]}
-        }
-
-    def get_boolean_fields(self):
-        """Retorna todos os campos booleanos exceto 'ativo'."""
-        return [f.name for f in self.instance._meta.fields if isinstance(f, models.BooleanField) and f.name != "ativo"]
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        if self.instance.pk:
-            self.fields['selecionar_todos'].initial = all(getattr(self.instance, f) for f in self.get_boolean_fields())
-        else:
-            self.fields['selecionar_todos'].initial = False
-
-    def save(self, commit=True):
-        instance = super().save(commit=False)
-        boolean_fields = self.get_boolean_fields()
-        if self.cleaned_data.get('selecionar_todos'):
-            for field in boolean_fields:
-                setattr(instance, field, True)
-        else:
-            for field in boolean_fields:
-                setattr(instance, field, False)
-        if commit:
-            instance.save()
-        return instance
-
-    def clean(self):
-        cleaned_data = super().clean()
-
-        # --- Regra 1: Coerência de Desconto ---
-        pode_fazer_desconto = cleaned_data.get('pode_fazer_desconto')
-        limite_desconto = cleaned_data.get('limite_desconto_percentual') or Decimal('0')
-
-        if not pode_fazer_desconto and limite_desconto > Decimal('0'):
-            self.add_error('limite_desconto_percentual', "O limite de desconto deve ser 0% se o cargo não tiver permissão para descontar.")
-            cleaned_data['limite_desconto_percentual'] = Decimal('0')
-        elif pode_fazer_desconto and limite_desconto <= Decimal('0'):
-            raise ValidationError({'limite_desconto_percentual': "Se o cargo pode fazer desconto, o limite percentual deve ser maior que 0."}, code='limite_invalido')
-
-        # --- Regra 2: Aprovação de Documentos Fiscais ---
-        if cleaned_data.get('pode_aprovar_proforma') and not cleaned_data.get('pode_emitir_proforma'):
-            raise ValidationError({'pode_aprovar_proforma': "O cargo não pode ter permissão apenas para Aprovar Proforma sem poder Emiti-la."}, code='inconsistencia_aprovacao')
-
-        # --- Regra 3: Pagamento de salário ---
-        if cleaned_data.get('pode_pagar_salario'):
-            nivel_hierarquico = cleaned_data.get('nivel_hierarquico')
-            categoria = cleaned_data.get('categoria')
-            if nivel_hierarquico > 3 and categoria not in ['rh', 'diretoria', 'gerencia']:
-                raise ValidationError({'pode_pagar_salario': "Somente cargos de RH, Diretoria ou Nível Hierárquico até 3 podem pagar salário."}, code='nivel_inadequado')
 
         return cleaned_data
 

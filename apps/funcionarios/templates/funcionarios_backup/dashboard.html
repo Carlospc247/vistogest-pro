@@ -1,0 +1,713 @@
+<!-- funcionarios/dashboard.html -->
+{% extends "base.html" %}
+
+{% block title %}Dashboard RH{% endblock %}
+
+{% block content %}
+
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard RH | HR Pulse</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/feather-icons/dist/feather.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f8fafc;
+        }
+        .card-hover:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1);
+        }
+        .gradient-primary {
+            background: linear-gradient(135deg, #3b82f6 0%, #6366f1 100%);
+        }
+        .gradient-success {
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+        }
+        .gradient-warning {
+            background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+        }
+        .gradient-danger {
+            background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+        }
+    </style>
+</head>
+<body class="bg-gray-50">
+    <div class="min-h-screen">
+        <!-- Header -->
+        <header class="bg-white shadow-sm">
+            <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+                <div class="flex justify-between items-center">
+                    <div class="flex items-center">
+                        <div class="flex-shrink-0">
+                            <i data-feather="users" class="h-8 w-8 text-indigo-600"></i>
+                        </div>
+                        <h1 class="ml-3 text-2xl font-bold text-gray-900">HR Pulse</h1>
+                    </div>
+                    <div class="flex items-center space-x-4">
+                        <button class="p-2 rounded-full bg-gray-100 text-gray-600 hover:bg-gray-200">
+                            <i data-feather="bell"></i>
+                        </button>
+                        <div class="flex items-center">
+                            <img class="h-8 w-8 rounded-full" src="https://randomuser.me/api/portraits/women/44.jpg" alt="User profile">
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+            <!-- Page Title -->
+            <div class="flex justify-between items-center mb-8">
+                <h2 class="text-3xl font-bold text-gray-900">Dashboard de Recursos Humanos</h2>
+                <div class="flex space-x-3">
+                    <button class="px-4 py-2 bg-white border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 flex items-center">
+                        <i data-feather="download" class="mr-2"></i> Exportar
+                    </button>
+                    <button class="px-4 py-2 bg-indigo-600 rounded-lg text-white hover:bg-indigo-700 flex items-center">
+                        <i data-feather="plus" class="mr-2"></i> Novo Funcionário
+                    </button>
+                </div>
+            </div>
+
+            <!-- Stats Cards -->
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+                <!-- Total Employees -->
+                <div class="bg-white rounded-xl shadow-sm p-6 card-hover transition-all duration-300">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <p class="text-sm font-medium text-gray-500">Total de Funcionários</p>
+                            <p class="mt-1 text-3xl font-semibold text-gray-900">{{ total_funcionarios }}</p>
+                        </div>
+                        <div class="p-3 rounded-lg bg-indigo-50 text-indigo-600">
+                            <i data-feather="users"></i>
+                        </div>
+                    </div>
+                    <div class="mt-4">
+                        <div class="flex items-center text-sm text-gray-500">
+                            <i data-feather="trending-up" class="text-green-500 mr-1"></i>
+                            <span>12% vs último mês</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Probation Period -->
+                <div class="bg-white rounded-xl shadow-sm p-6 card-hover transition-all duration-300">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <p class="text-sm font-medium text-gray-500">Em Período de Experiência</p>
+                            <p class="mt-1 text-3xl font-semibold text-gray-900">{{ funcionarios_experiencia }}</p>
+                        </div>
+                        <div class="p-3 rounded-lg bg-blue-50 text-blue-600">
+                            <i data-feather="clock"></i>
+                        </div>
+                    </div>
+                    <div class="mt-4">
+                        <div class="flex items-center text-sm text-gray-500">
+                            <i data-feather="trending-down" class="text-red-500 mr-1"></i>
+                            <span>5% vs último mês</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Birthdays -->
+                <div class="bg-white rounded-xl shadow-sm p-6 card-hover transition-all duration-300">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <p class="text-sm font-medium text-gray-500">Aniversariantes do Mês</p>
+                            <p class="mt-1 text-3xl font-semibold text-gray-900">{{ aniversariantes_mes }}</p>
+                        </div>
+                        <div class="p-3 rounded-lg bg-pink-50 text-pink-600">
+                            <i data-feather="gift"></i>
+                        </div>
+                    </div>
+                    <div class="mt-4">
+                        <a href="#" class="text-sm font-medium text-indigo-600 hover:text-indigo-500">Ver lista completa</a>
+                    </div>
+                </div>
+
+                <!-- Pending Vacations -->
+                <div class="bg-white rounded-xl shadow-sm p-6 card-hover transition-all duration-300">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <p class="text-sm font-medium text-gray-500">Férias Pendentes</p>
+                            <p class="mt-1 text-3xl font-semibold text-gray-900">{{ ferias_pendentes }}</p>
+                        </div>
+                        <div class="p-3 rounded-lg bg-yellow-50 text-yellow-600">
+                            <i data-feather="calendar"></i>
+                        </div>
+                    </div>
+                    <div class="mt-4">
+                        <a href="#" class="text-sm font-medium text-indigo-600 hover:text-indigo-500">Aprovar agora</a>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Pending Evaluations -->
+            <div class="bg-white rounded-xl shadow-sm p-6 mb-8">
+                <div class="flex items-center justify-between mb-4">
+                    <h3 class="text-lg font-semibold text-gray-900">Avaliações Pendentes</h3>
+                    <a href="#" class="text-sm font-medium text-indigo-600 hover:text-indigo-500">Ver todas</a>
+                </div>
+                <div class="bg-indigo-50 rounded-lg p-4">
+                    <div class="flex items-center">
+                        <div class="flex-shrink-0">
+                            <i data-feather="alert-circle" class="h-5 w-5 text-indigo-600"></i>
+                        </div>
+                        <div class="ml-3">
+                            <p class="text-sm font-medium text-indigo-800">
+                                Você tem {{ avaliacoes_pendentes }} avaliações pendentes para concluir
+                            </p>
+                        </div>
+                        <div class="ml-auto">
+                            <button class="px-3 py-1 bg-indigo-600 rounded-md text-white text-sm hover:bg-indigo-700">
+                                Iniciar avaliações
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Quick Navigation -->
+            <h3 class="text-xl font-semibold text-gray-900 mb-6">Navegação Rápida</h3>
+
+            <!-- Employee Management -->
+            <div class="mb-8">
+                <div class="flex items-center justify-between mb-4">
+                    <h4 class="text-lg font-medium text-gray-900">Gestão de Funcionários</h4>
+                    <a href="#" class="text-sm font-medium text-indigo-600 hover:text-indigo-500">Ver tudo</a>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                    <a href="{% url 'funcionarios:funcionarios' %}" class="bg-white rounded-lg shadow-sm p-5 card-hover transition-all duration-300 flex flex-col items-center text-center">
+                        <div class="p-3 rounded-lg bg-indigo-50 text-indigo-600 mb-3">
+                            <i data-feather="users" class="w-6 h-6"></i>
+                        </div>
+                        <h5 class="font-medium text-gray-900">Lista de Funcionários</h5>
+                        <p class="mt-1 text-sm text-gray-500">Gerencie todos os colaboradores</p>
+                    </a>
+                    <a href="{% url 'funcionarios:create' %}" class="bg-white rounded-lg shadow-sm p-5 card-hover transition-all duration-300 flex flex-col items-center text-center">
+                        <div class="p-3 rounded-lg bg-green-50 text-green-600 mb-3">
+                            <i data-feather="user-plus" class="w-6 h-6"></i>
+                        </div>
+                        <h5 class="font-medium text-gray-900">Novo Funcionário</h5>
+                        <p class="mt-1 text-sm text-gray-500">Adicione um novo colaborador</p>
+                    </a>
+                    <a href="{% url 'funcionarios:meuturno' %}" class="bg-white rounded-lg shadow-sm p-5 card-hover transition-all duration-300 flex flex-col items-center text-center">
+                        <div class="p-3 rounded-lg bg-blue-50 text-blue-600 mb-3">
+                            <i data-feather="clock" class="w-6 h-6"></i>
+                        </div>
+                        <h5 class="font-medium text-gray-900">Meu Turno</h5>
+                        <p class="mt-1 text-sm text-gray-500">Visualize turnos e escalas</p>
+                    </a>
+                    <a href="{% url 'funcionarios:importar' %}" class="bg-white rounded-lg shadow-sm p-5 card-hover transition-all duration-300 flex flex-col items-center text-center">
+                        <div class="p-3 rounded-lg bg-yellow-50 text-yellow-600 mb-3">
+                            <i data-feather="upload" class="w-6 h-6"></i>
+                        </div>
+                        <h5 class="font-medium text-gray-900">Importar Funcionários</h5>
+                        <p class="mt-1 text-sm text-gray-500">Importe dados em massa</p>
+                    </a>
+                </div>
+            </div>
+
+            <!-- Organizational Structure -->
+            <div class="mb-8">
+                <div class="flex items-center justify-between mb-4">
+                    <h4 class="text-lg font-medium text-gray-900">Estrutura Organizacional</h4>
+                    <a href="#" class="text-sm font-medium text-indigo-600 hover:text-indigo-500">Ver tudo</a>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                    <a href="{% url 'funcionarios:cargo_lista' %}" class="bg-white rounded-lg shadow-sm p-5 card-hover transition-all duration-300 flex flex-col items-center text-center">
+                        <div class="p-3 rounded-lg bg-green-50 text-green-600 mb-3">
+                            <i data-feather="award" class="w-6 h-6"></i>
+                        </div>
+                        <h5 class="font-medium text-gray-900">Cargos</h5>
+                        <p class="mt-1 text-sm text-gray-500">Gerencie os cargos da empresa</p>
+                    </a>
+                    <a href="{% url 'funcionarios:cargo_create' %}" class="bg-white rounded-lg shadow-sm p-5 card-hover transition-all duration-300 flex flex-col items-center text-center">
+                        <div class="p-3 rounded-lg bg-green-100 text-green-600 mb-3">
+                            <i data-feather="plus" class="w-6 h-6"></i>
+                        </div>
+                        <h5 class="font-medium text-gray-900">Novo Cargo</h5>
+                        <p class="mt-1 text-sm text-gray-500">Crie um novo cargo</p>
+                    </a>
+                    <a href="{% url 'funcionarios:departamento_lista' %}" class="bg-white rounded-lg shadow-sm p-5 card-hover transition-all duration-300 flex flex-col items-center text-center">
+                        <div class="p-3 rounded-lg bg-green-50 text-green-600 mb-3">
+                            <i data-feather="layers" class="w-6 h-6"></i>
+                        </div>
+                        <h5 class="font-medium text-gray-900">Departamentos</h5>
+                        <p class="mt-1 text-sm text-gray-500">Visualize os departamentos</p>
+                    </a>
+                    <a href="{% url 'funcionarios:departamento_create' %}" class="bg-white rounded-lg shadow-sm p-5 card-hover transition-all duration-300 flex flex-col items-center text-center">
+                        <div class="p-3 rounded-lg bg-green-100 text-green-600 mb-3">
+                            <i data-feather="plus" class="w-6 h-6"></i>
+                        </div>
+                        <h5 class="font-medium text-gray-900">Novo Departamento</h5>
+                        <p class="mt-1 text-sm text-gray-500">Crie um novo departamento</p>
+                    </a>
+                </div>
+            </div>
+
+            <!-- Time and Attendance -->
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+                <!-- Time Clock -->
+                <div class="bg-white rounded-xl shadow-sm p-6">
+                    <div class="flex items-center justify-between mb-4">
+                        <h4 class="text-lg font-medium text-gray-900">Ponto Eletrônico</h4>
+                        <a href="#" class="text-sm font-medium text-indigo-600 hover:text-indigo-500">Ver tudo</a>
+                    </div>
+                    <div class="space-y-3">
+                        <a href="{% url 'funcionarios:ponto' %}" class="flex items-center p-3 rounded-lg hover:bg-gray-50">
+                            <div class="p-2 rounded-lg bg-yellow-50 text-yellow-600 mr-3">
+                                <i data-feather="clock" class="w-5 h-5"></i>
+                            </div>
+                            <div>
+                                <h5 class="font-medium text-gray-900">Registrar Ponto</h5>
+                                <p class="text-sm text-gray-500">Registre sua entrada/saída</p>
+                            </div>
+                            <div class="ml-auto">
+                                <i data-feather="chevron-right" class="text-gray-400"></i>
+                            </div>
+                        </a>
+                        <a href="{% url 'funcionarios:relatorio_ponto' %}" class="flex items-center p-3 rounded-lg hover:bg-gray-50">
+                            <div class="p-2 rounded-lg bg-yellow-50 text-yellow-600 mr-3">
+                                <i data-feather="bar-chart-2" class="w-5 h-5"></i>
+                            </div>
+                            <div>
+                                <h5 class="font-medium text-gray-900">Relatórios de Ponto</h5>
+                                <p class="text-sm text-gray-500">Visualize relatórios completos</p>
+                            </div>
+                            <div class="ml-auto">
+                                <i data-feather="chevron-right" class="text-gray-400"></i>
+                            </div>
+                        </a>
+                        <a href="{% url 'funcionarios:ajustes_ponto' %}" class="flex items-center p-3 rounded-lg hover:bg-gray-50">
+                            <div class="p-2 rounded-lg bg-yellow-50 text-yellow-600 mr-3">
+                                <i data-feather="settings" class="w-5 h-5"></i>
+                            </div>
+                            <div>
+                                <h5 class="font-medium text-gray-900">Ajustes de Ponto</h5>
+                                <p class="text-sm text-gray-500">Configure o sistema de ponto</p>
+                            </div>
+                            <div class="ml-auto">
+                                <i data-feather="chevron-right" class="text-gray-400"></i>
+                            </div>
+                        </a>
+                    </div>
+                </div>
+
+                <!-- Work Schedule -->
+                <div class="bg-white rounded-xl shadow-sm p-6">
+                    <div class="flex items-center justify-between mb-4">
+                        <h4 class="text-lg font-medium text-gray-900">Jornada e Horários</h4>
+                        <a href="#" class="text-sm font-medium text-indigo-600 hover:text-indigo-500">Ver tudo</a>
+                    </div>
+                    <div class="space-y-3">
+                        <a href="{% url 'funcionarios:jornada_lista' %}" class="flex items-center p-3 rounded-lg hover:bg-gray-50">
+                            <div class="p-2 rounded-lg bg-blue-50 text-blue-600 mr-3">
+                                <i data-feather="calendar" class="w-5 h-5"></i>
+                            </div>
+                            <div>
+                                <h5 class="font-medium text-gray-900">Jornadas de Trabalho</h5>
+                                <p class="text-sm text-gray-500">Gerencie as jornadas da empresa</p>
+                            </div>
+                            <div class="ml-auto">
+                                <i data-feather="chevron-right" class="text-gray-400"></i>
+                            </div>
+                        </a>
+                        <a href="{% url 'funcionarios:escala' %}" class="flex items-center p-3 rounded-lg hover:bg-gray-50">
+                            <div class="p-2 rounded-lg bg-blue-50 text-blue-600 mr-3">
+                                <i data-feather="list" class="w-5 h-5"></i>
+                            </div>
+                            <div>
+                                <h5 class="font-medium text-gray-900">Escalas</h5>
+                                <p class="text-sm text-gray-500">Visualize e crie escalas</p>
+                            </div>
+                            <div class="ml-auto">
+                                <i data-feather="chevron-right" class="text-gray-400"></i>
+                            </div>
+                        </a>
+                        <a href="{% url 'funcionarios:horarios' %}" class="flex items-center p-3 rounded-lg hover:bg-gray-50">
+                            <div class="p-2 rounded-lg bg-blue-50 text-blue-600 mr-3">
+                                <i data-feather="clock" class="w-5 h-5"></i>
+                            </div>
+                            <div>
+                                <h5 class="font-medium text-gray-900">Horários</h5>
+                                <p class="text-sm text-gray-500">Configure os horários</p>
+                            </div>
+                            <div class="ml-auto">
+                                <i data-feather="chevron-right" class="text-gray-400"></i>
+                            </div>
+                        </a>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Payroll -->
+            <div class="mb-8">
+                <div class="flex items-center justify-between mb-4">
+                    <h4 class="text-lg font-medium text-gray-900">Folha de Pagamento</h4>
+                    <a href="#" class="text-sm font-medium text-indigo-600 hover:text-indigo-500">Ver tudo</a>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                    <a href="{% url 'funcionarios:folha_pagamento' %}" class="bg-white rounded-lg shadow-sm p-5 card-hover transition-all duration-300 flex flex-col items-center text-center">
+                        <div class="p-3 rounded-lg bg-red-50 text-red-600 mb-3">
+                            <i data-feather="dollar-sign" class="w-6 h-6"></i>
+                        </div>
+                        <h5 class="font-medium text-gray-900">Folhas de Pagamento</h5>
+                        <p class="mt-1 text-sm text-gray-500">Acesse todas as folhas</p>
+                    </a>
+                    <a href="{% url 'funcionarios:calcular_folha' %}" class="bg-white rounded-lg shadow-sm p-5 card-hover transition-all duration-300 flex flex-col items-center text-center">
+                        <div class="p-3 rounded-lg bg-red-50 text-red-600 mb-3">
+                            <i data-feather="calculator" class="w-6 h-6"></i>
+                        </div>
+                        <h5 class="font-medium text-gray-900">Calcular Folha</h5>
+                        <p class="mt-1 text-sm text-gray-500">Processe a folha de pagamento</p>
+                    </a>
+                    <a href="{% url 'funcionarios:beneficio_lista' %}" class="bg-white rounded-lg shadow-sm p-5 card-hover transition-all duration-300 flex flex-col items-center text-center">
+                        <div class="p-3 rounded-lg bg-red-50 text-red-600 mb-3">
+                            <i data-feather="gift" class="w-6 h-6"></i>
+                        </div>
+                        <h5 class="font-medium text-gray-900">Benefícios</h5>
+                        <p class="mt-1 text-sm text-gray-500">Gerencie os benefícios</p>
+                    </a>
+                    <a href="{% url 'funcionarios:exportar' %}" class="bg-white rounded-lg shadow-sm p-5 card-hover transition-all duration-300 flex flex-col items-center text-center">
+                        <div class="p-3 rounded-lg bg-red-50 text-red-600 mb-3">
+                            <i data-feather="download" class="w-6 h-6"></i>
+                        </div>
+                        <h5 class="font-medium text-gray-900">Exportar Dados</h5>
+                        <p class="mt-1 text-sm text-gray-500">Exporte dados da folha</p>
+                    </a>
+                </div>
+            </div>
+
+            <!-- Specific Benefits -->
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+                <!-- Transportation -->
+                <div class="bg-white rounded-xl shadow-sm p-6 card-hover transition-all duration-300">
+                    <div class="flex flex-col items-center text-center">
+                        <div class="p-3 rounded-lg bg-gray-50 text-gray-600 mb-3">
+                            <i data-feather="truck" class="w-6 h-6"></i>
+                        </div>
+                        <h5 class="font-medium text-gray-900">Vale Transporte</h5>
+                        <p class="mt-1 text-sm text-gray-500 mb-4">Gerencie os benefícios de transporte</p>
+                        <a href="{% url 'funcionarios:vale_transporte' %}" class="px-4 py-2 bg-gray-100 rounded-lg text-gray-700 hover:bg-gray-200 text-sm font-medium">
+                            Acessar VT
+                        </a>
+                    </div>
+                </div>
+
+                <!-- Meal -->
+                <div class="bg-white rounded-xl shadow-sm p-6 card-hover transition-all duration-300">
+                    <div class="flex flex-col items-center text-center">
+                        <div class="p-3 rounded-lg bg-gray-50 text-gray-600 mb-3">
+                            <i data-feather="coffee" class="w-6 h-6"></i>
+                        </div>
+                        <h5 class="font-medium text-gray-900">Vale Refeição</h5>
+                        <p class="mt-1 text-sm text-gray-500 mb-4">Gerencie os benefícios de alimentação</p>
+                        <a href="{% url 'funcionarios:vale_refeicao' %}" class="px-4 py-2 bg-gray-100 rounded-lg text-gray-700 hover:bg-gray-200 text-sm font-medium">
+                            Acessar VR
+                        </a>
+                    </div>
+                </div>
+
+                <!-- Health Plan -->
+                <div class="bg-white rounded-xl shadow-sm p-6 card-hover transition-all duration-300">
+                    <div class="flex flex-col items-center text-center">
+                        <div class="p-3 rounded-lg bg-gray-50 text-gray-600 mb-3">
+                            <i data-feather="heart" class="w-6 h-6"></i>
+                        </div>
+                        <h5 class="font-medium text-gray-900">Plano de Saúde</h5>
+                        <p class="mt-1 text-sm text-gray-500 mb-4">Gerencie os planos de saúde</p>
+                        <a href="{% url 'funcionarios:plano_saude' %}" class="px-4 py-2 bg-gray-100 rounded-lg text-gray-700 hover:bg-gray-200 text-sm font-medium">
+                            Acessar Plano
+                        </a>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Vacation and Training -->
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+                <!-- Vacation -->
+                <div class="bg-white rounded-xl shadow-sm p-6">
+                    <div class="flex items-center justify-between mb-4">
+                        <h4 class="text-lg font-medium text-gray-900">Férias e Afastamentos</h4>
+                        <a href="#" class="text-sm font-medium text-indigo-600 hover:text-indigo-500">Ver tudo</a>
+                    </div>
+                    <div class="space-y-3">
+                        <a href="{% url 'funcionarios:ferias_lista' %}" class="flex items-center p-3 rounded-lg hover:bg-gray-50">
+                            <div class="p-2 rounded-lg bg-green-50 text-green-600 mr-3">
+                                <i data-feather="umbrella" class="w-5 h-5"></i>
+                            </div>
+                            <div>
+                                <h5 class="font-medium text-gray-900">Lista de Férias</h5>
+                                <p class="text-sm text-gray-500">Visualize todas as férias</p>
+                            </div>
+                            <div class="ml-auto">
+                                <i data-feather="chevron-right" class="text-gray-400"></i>
+                            </div>
+                        </a>
+                        <a href="{% url 'funcionarios:planejar_ferias' %}" class="flex items-center p-3 rounded-lg hover:bg-gray-50">
+                            <div class="p-2 rounded-lg bg-green-50 text-green-600 mr-3">
+                                <i data-feather="calendar-plus" class="w-5 h-5"></i>
+                            </div>
+                            <div>
+                                <h5 class="font-medium text-gray-900">Planejar Férias</h5>
+                                <p class="text-sm text-gray-500">Agende novas férias</p>
+                            </div>
+                            <div class="ml-auto">
+                                <i data-feather="chevron-right" class="text-gray-400"></i>
+                            </div>
+                        </a>
+                        <a href="{% url 'funcionarios:afastamento_lista' %}" class="flex items-center p-3 rounded-lg hover:bg-gray-50">
+                            <div class="p-2 rounded-lg bg-green-50 text-green-600 mr-3">
+                                <i data-feather="user-x" class="w-5 h-5"></i>
+                            </div>
+                            <div>
+                                <h5 class="font-medium text-gray-900">Afastamentos</h5>
+                                <p class="text-sm text-gray-500">Gerencie os afastamentos</p>
+                            </div>
+                            <div class="ml-auto">
+                                <i data-feather="chevron-right" class="text-gray-400"></i>
+                            </div>
+                        </a>
+                    </div>
+                </div>
+
+                <!-- Training -->
+                <div class="bg-white rounded-xl shadow-sm p-6">
+                    <div class="flex items-center justify-between mb-4">
+                        <h4 class="text-lg font-medium text-gray-900">Treinamentos</h4>
+                        <a href="#" class="text-sm font-medium text-indigo-600 hover:text-indigo-500">Ver tudo</a>
+                    </div>
+                    <div class="space-y-3">
+                        <a href="{% url 'funcionarios:treinamento_lista' %}" class="flex items-center p-3 rounded-lg hover:bg-gray-50">
+                            <div class="p-2 rounded-lg bg-indigo-50 text-indigo-600 mr-3">
+                                <i data-feather="book" class="w-5 h-5"></i>
+                            </div>
+                            <div>
+                                <h5 class="font-medium text-gray-900">Lista de Treinamentos</h5>
+                                <p class="text-sm text-gray-500">Visualize todos os treinamentos</p>
+                            </div>
+                            <div class="ml-auto">
+                                <i data-feather="chevron-right" class="text-gray-400"></i>
+                            </div>
+                        </a>
+                        <a href="{% url 'funcionarios:treinamento_create' %}" class="flex items-center p-3 rounded-lg hover:bg-gray-50">
+                            <div class="p-2 rounded-lg bg-indigo-50 text-indigo-600 mr-3">
+                                <i data-feather="plus" class="w-5 h-5"></i>
+                            </div>
+                            <div>
+                                <h5 class="font-medium text-gray-900">Novo Treinamento</h5>
+                                <p class="text-sm text-gray-500">Crie um novo treinamento</p>
+                            </div>
+                            <div class="ml-auto">
+                                <i data-feather="chevron-right" class="text-gray-400"></i>
+                            </div>
+                        </a>
+                        <a href="{% url 'funcionarios:certificacao_lista' %}" class="flex items-center p-3 rounded-lg hover:bg-gray-50">
+                            <div class="p-2 rounded-lg bg-indigo-50 text-indigo-600 mr-3">
+                                <i data-feather="award" class="w-5 h-5"></i>
+                            </div>
+                            <div>
+                                <h5 class="font-medium text-gray-900">Certificações</h5>
+                                <p class="text-sm text-gray-500">Gerencie as certificações</p>
+                            </div>
+                            <div class="ml-auto">
+                                <i data-feather="chevron-right" class="text-gray-400"></i>
+                            </div>
+                        </a>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Evaluations and Recruitment -->
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+                <!-- Performance Evaluations -->
+                <div class="bg-white rounded-xl shadow-sm p-6">
+                    <div class="flex items-center justify-between mb-4">
+                        <h4 class="text-lg font-medium text-gray-900">Avaliações de Desempenho</h4>
+                        <a href="#" class="text-sm font-medium text-indigo-600 hover:text-indigo-500">Ver tudo</a>
+                    </div>
+                    <div class="space-y-3">
+                        <a href="{% url 'funcionarios:avaliacao_lista' %}" class="flex items-center p-3 rounded-lg hover:bg-gray-50">
+                            <div class="p-2 rounded-lg bg-yellow-50 text-yellow-600 mr-3">
+                                <i data-feather="star" class="w-5 h-5"></i>
+                            </div>
+                            <div>
+                                <h5 class="font-medium text-gray-900">Lista de Avaliações</h5>
+                                <p class="text-sm text-gray-500">Visualize todas as avaliações</p>
+                            </div>
+                            <div class="ml-auto">
+                                <i data-feather="chevron-right" class="text-gray-400"></i>
+                            </div>
+                        </a>
+                        <a href="{% url 'funcionarios:metas' %}" class="flex items-center p-3 rounded-lg hover:bg-gray-50">
+                            <div class="p-2 rounded-lg bg-yellow-50 text-yellow-600 mr-3">
+                                <i data-feather="target" class="w-5 h-5"></i>
+                            </div>
+                            <div>
+                                <h5 class="font-medium text-gray-900">Metas</h5>
+                                <p class="text-sm text-gray-500">Defina e acompanhe metas</p>
+                            </div>
+                            <div class="ml-auto">
+                                <i data-feather="chevron-right" class="text-gray-400"></i>
+                            </div>
+                        </a>
+                        <a href="{% url 'funcionarios:responsabilidade_tecnica' %}" class="flex items-center p-3 rounded-lg hover:bg-gray-50">
+                            <div class="p-2 rounded-lg bg-yellow-50 text-yellow-600 mr-3">
+                                <i data-feather="shield" class="w-5 h-5"></i>
+                            </div>
+                            <div>
+                                <h5 class="font-medium text-gray-900">Responsabilidade Técnica</h5>
+                                <p class="text-sm text-gray-500">Gerencie responsabilidades</p>
+                            </div>
+                            <div class="ml-auto">
+                                <i data-feather="chevron-right" class="text-gray-400"></i>
+                            </div>
+                        </a>
+                    </div>
+                </div>
+
+                <!-- Recruitment -->
+                <div class="bg-white rounded-xl shadow-sm p-6">
+                    <div class="flex items-center justify-between mb-4">
+                        <h4 class="text-lg font-medium text-gray-900">Recrutamento</h4>
+                        <a href="#" class="text-sm font-medium text-indigo-600 hover:text-indigo-500">Ver tudo</a>
+                    </div>
+                    <div class="space-y-3">
+                        <a href="{% url 'funcionarios:recrutamento' %}" class="flex items-center p-3 rounded-lg hover:bg-gray-50">
+                            <div class="p-2 rounded-lg bg-blue-50 text-blue-600 mr-3">
+                                <i data-feather="search" class="w-5 h-5"></i>
+                            </div>
+                            <div>
+                                <h5 class="font-medium text-gray-900">Dashboard Recrutamento</h5>
+                                <p class="text-sm text-gray-500">Acompanhe o processo seletivo</p>
+                            </div>
+                            <div class="ml-auto">
+                                <i data-feather="chevron-right" class="text-gray-400"></i>
+                            </div>
+                        </a>
+                        <a href="{% url 'funcionarios:candidato_lista' %}" class="flex items-center p-3 rounded-lg hover:bg-gray-50">
+                            <div class="p-2 rounded-lg bg-blue-50 text-blue-600 mr-3">
+                                <i data-feather="users" class="w-5 h-5"></i>
+                            </div>
+                            <div>
+                                <h5 class="font-medium text-gray-900">Candidatos</h5>
+                                <p class="text-sm text-gray-500">Gerencie os candidatos</p>
+                            </div>
+                            <div class="ml-auto">
+                                <i data-feather="chevron-right" class="text-gray-400"></i>
+                            </div>
+                        </a>
+                        <a href="{% url 'funcionarios:processo_seletivo' %}" class="flex items-center p-3 rounded-lg hover:bg-gray-50">
+                            <div class="p-2 rounded-lg bg-blue-50 text-blue-600 mr-3">
+                                <i data-feather="clipboard" class="w-5 h-5"></i>
+                            </div>
+                            <div>
+                                <h5 class="font-medium text-gray-900">Processos Seletivos</h5>
+                                <p class="text-sm text-gray-500">Gerencie os processos</p>
+                            </div>
+                            <div class="ml-auto">
+                                <i data-feather="chevron-right" class="text-gray-400"></i>
+                            </div>
+                        </a>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Reports -->
+            <div class="mb-8">
+                <div class="flex items-center justify-between mb-4">
+                    <h4 class="text-lg font-medium text-gray-900">Relatórios de RH</h4>
+                    <a href="#" class="text-sm font-medium text-indigo-600 hover:text-indigo-500">Ver tudo</a>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                    <a href="{% url 'funcionarios:relatorios' %}" class="bg-white rounded-lg shadow-sm p-5 card-hover transition-all duration-300 flex flex-col items-center text-center">
+                        <div class="p-3 rounded-lg bg-gray-50 text-gray-600 mb-3">
+                            <i data-feather="pie-chart" class="w-6 h-6"></i>
+                        </div>
+                        <h5 class="font-medium text-gray-900">Dashboard Relatórios</h5>
+                        <p class="mt-1 text-sm text-gray-500">Acesse todos os relatórios</p>
+                    </a>
+                    <a href="{% url 'funcionarios:relatorio_aniversariantes' %}" class="bg-white rounded-lg shadow-sm p-5 card-hover transition-all duration-300 flex flex-col items-center text-center">
+                        <div class="p-3 rounded-lg bg-gray-50 text-gray-600 mb-3">
+                            <i data-feather="gift" class="w-6 h-6"></i>
+                        </div>
+                        <h5 class="font-medium text-gray-900">Aniversariantes</h5>
+                        <p class="mt-1 text-sm text-gray-500">Relatório de aniversários</p>
+                    </a>
+                    <a href="{% url 'funcionarios:relatorio_admissoes' %}" class="bg-white rounded-lg shadow-sm p-5 card-hover transition-all duration-300 flex flex-col items-center text-center">
+                        <div class="p-3 rounded-lg bg-gray-50 text-gray-600 mb-3">
+                            <i data-feather="user-plus" class="w-6 h-6"></i>
+                        </div>
+                        <h5 class="font-medium text-gray-900">Admissões</h5>
+                        <p class="mt-1 text-sm text-gray-500">Relatório de novas contratações</p>
+                    </a>
+                    <a href="{% url 'funcionarios:relatorio_demissoes' %}" class="bg-white rounded-lg shadow-sm p-5 card-hover transition-all duration-300 flex flex-col items-center text-center">
+                        <div class="p-3 rounded-lg bg-gray-50 text-gray-600 mb-3">
+                            <i data-feather="user-minus" class="w-6 h-6"></i>
+                        </div>
+                        <h5 class="font-medium text-gray-900">Demissões</h5>
+                        <p class="mt-1 text-sm text-gray-500">Relatório de desligamentos</p>
+                    </a>
+                </div>
+            </div>
+
+            <!-- Internal Communication -->
+            <div class="mb-8">
+                <div class="flex items-center justify-between mb-4">
+                    <h4 class="text-lg font-medium text-gray-900">Comunicação Interna</h4>
+                    <a href="#" class="text-sm font-medium text-indigo-600 hover:text-indigo-500">Ver tudo</a>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                    <a href="{% url 'funcionarios:comunicado_lista' %}" class="bg-white rounded-lg shadow-sm p-5 card-hover transition-all duration-300 flex flex-col items-center text-center">
+                        <div class="p-3 rounded-lg bg-purple-50 text-purple-600 mb-3">
+                            <i data-feather="megaphone" class="w-6 h-6"></i>
+                        </div>
+                        <h5 class="font-medium text-gray-900">Comunicados</h5>
+                        <p class="mt-1 text-sm text-gray-500">Visualize todos os comunicados</p>
+                    </a>
+                    <a href="{% url 'funcionarios:comunicado_create' %}" class="bg-white rounded-lg shadow-sm p-5 card-hover transition-all duration-300 flex flex-col items-center text-center">
+                        <div class="p-3 rounded-lg bg-purple-50 text-purple-600 mb-3">
+                            <i data-feather="plus" class="w-6 h-6"></i>
+                        </div>
+                        <h5 class="font-medium text-gray-900">Novo Comunicado</h5>
+                        <p class="mt-1 text-sm text-gray-500">Crie um novo comunicado</p>
+                    </a>
+                    <a href="{% url 'funcionarios:mural' %}" class="bg-white rounded-lg shadow-sm p-5 card-hover transition-all duration-300 flex flex-col items-center text-center">
+                        <div class="p-3 rounded-lg bg-purple-50 text-purple-600 mb-3">
+                            <i data-feather="layout" class="w-6 h-6"></i>
+                        </div>
+                        <h5 class="font-medium text-gray-900">Mural Eletrônico</h5>
+                        <p class="mt-1 text-sm text-gray-500">Acesse o mural de avisos</p>
+                    </a>
+                    <a href="{% url 'funcionarios:relatorio_folha' %}" class="bg-white rounded-lg shadow-sm p-5 card-hover transition-all duration-300 flex flex-col items-center text-center">
+                        <div class="p-3 rounded-lg bg-purple-50 text-purple-600 mb-3">
+                            <i data-feather="file-text" class="w-6 h-6"></i>
+                        </div>
+                        <h5 class="font-medium text-gray-900">Relatório Folha</h5>
+                        <p class="mt-1 text-sm text-gray-500">Gere relatórios da folha</p>
+                    </a>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        feather.replace();
+        
+        // Initialize tooltips
+        document.addEventListener('DOMContentLoaded', function() {
+            const tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
+            tooltipTriggerList.map(function (tooltipTriggerEl) {
+                return new bootstrap.Tooltip(tooltipTriggerEl);
+            });
+        });
+    </script>
+
+{% endblock %}

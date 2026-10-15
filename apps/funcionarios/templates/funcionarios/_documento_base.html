@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="pt"><head><meta charset="utf-8"><title>{% block doc_title %}Documento{% endblock %}</title>
+<style>
+ body{font-family:Arial,sans-serif;max-width:820px;margin:2rem auto;padding:0 1rem;color:#111;line-height:1.55;font-size:.95rem}
+ h1{text-align:center;font-size:1.25rem;text-transform:uppercase;margin:1.5rem 0}
+ .cab{text-align:center;border-bottom:2px solid #111;padding-bottom:.6rem}
+ table{width:100%;border-collapse:collapse;margin:.8rem 0}td,th{border:1px solid #bbb;padding:.35rem .5rem;font-size:.9rem;text-align:left}
+ .assin{display:flex;justify-content:space-between;margin-top:4.5rem}.assin div{width:42%;border-top:1px solid #000;text-align:center;padding-top:.3rem;font-size:.85rem}
+ @media print{.no-print{display:none}}
+</style></head>
+<body>
+<p class="no-print"><button onclick="window.print()">Imprimir</button> <a href="javascript:history.back()">Voltar</a></p>
+<div class="cab"><strong>{{ request.tenant.nome|default:"Empresa" }}</strong><br>NIF {{ request.tenant.nif }}</div>
+{% block doc_corpo %}{% endblock %}
+</body></html>

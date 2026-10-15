@@ -1,0 +1,45 @@
+<!-- funcionarios/contatos.html -->
+{% extends "base.html" %}
+
+{% block title %}Editar Contatos - {{ funcionario.nome_completo }}{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row justify-content-center">
+        <div class="col-md-6">
+            <div class="card shadow">
+                <div class="card-header">
+                    <h5 class="m-0 font-weight-bold text-primary">Editar Contatos</h5>
+                </div>
+                <div class="card-body">
+                    <form method="post">
+                        {% csrf_token %}
+                        <div class="form-group">
+                            <label for="{{ form.telefone.id_for_label }}">Telefone</label>
+                            {{ form.telefone }}
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="{{ form.whatsapp.id_for_label }}">WhatsApp</label>
+                            {{ form.whatsapp }}
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="{{ form.email_pessoal.id_for_label }}">Email Pessoal</label>
+                            {{ form.email_pessoal }}
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="{{ form.email_corporativo.id_for_label }}">Email Corporativo</label>
+                            {{ form.email_corporativo }}
+                        </div>
+                        
+                        <button type="submit" class="btn btn-primary">Salvar</button>
+                        <a href="{% url 'funcionarios:perfil' funcionario.pk %}" class="btn btn-secondary">Cancelar</a>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

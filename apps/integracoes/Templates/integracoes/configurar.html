@@ -1,0 +1,25 @@
+{% extends "integracoes/_base.html" %}
+{% block title %}Configurar {{ tipo.nome }}{% endblock %}
+{% block ig_content %}
+<div class="max-w-3xl mx-auto">
+  <a href="{% if config %}{% url 'integracoes:detalhe' pk=config.pk %}{% else %}{% url 'integracoes:dashboard' %}{% endif %}" class="text-sm text-indigo-600">&larr; Voltar</a>
+  <div class="flex items-center gap-3 my-3"><div class="ig-ico"><i class="{{ tipo.icone }}"></i></div><h1 class="text-2xl font-bold">{{ tipo.nome }}</h1></div>
+  <p class="text-sm ig-muted mb-4">{{ tipo.descricao }} <a class="text-indigo-600" href="{% url 'integracoes:guia' %}#tipo-{{ tipo.codigo }}">Ver passo a passo</a></p>
+  <form method="post" class="ig-card space-y-6" autocomplete="off">{% csrf_token %}
+    {% if form.non_field_errors %}<div class="ig-alert ig-bad">{{ form.non_field_errors }}</div>{% endif %}
+    <section><h2 class="font-semibold mb-3">Geral</h2><div class="grid md:grid-cols-2 gap-4">
+      {% for field in form.visible_fields %}{% if field.name|slice:":5" != "cred_" and field.name|slice:":4" != "cfg_" %}{% include "integracoes/_campo.html" %}{% endif %}{% endfor %}
+    </div></section>
+    <section><h2 class="font-semibold mb-1">Credenciais</h2><p class="text-xs ig-muted mb-3"><i class="fas fa-lock mr-1"></i>Guardadas cifradas. Os campos secretos nunca são mostrados de volta.</p>
+      <div class="grid md:grid-cols-2 gap-4">
+      {% for field in form.visible_fields %}{% if field.name|slice:":5" == "cred_" %}{% include "integracoes/_campo.html" %}{% endif %}{% endfor %}
+    </div></section>
+    {% if tipo.esquema_configuracoes %}
+    <section><h2 class="font-semibold mb-3">Opções</h2><div class="grid md:grid-cols-2 gap-4">
+      {% for field in form.visible_fields %}{% if field.name|slice:":4" == "cfg_" %}{% include "integracoes/_campo.html" %}{% endif %}{% endfor %}
+    </div></section>
+    {% endif %}
+    <div class="flex justify-end gap-2 pt-3 border-t"><a class="ig-btn" href="{% url 'integracoes:dashboard' %}">Cancelar</a><button class="ig-btn ig-btn-p"><i class="fas fa-save mr-1"></i> Guardar</button></div>
+  </form>
+</div>
+{% endblock %}

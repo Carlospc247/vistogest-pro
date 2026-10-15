@@ -1,0 +1,524 @@
+{% extends "site/loja/base_loja.html" %}
+
+{% block titulo %}Minha conta{% endblock %}
+
+{% block conteudo %}
+<section class="pagina">
+
+    <div class="duas">
+
+        <!-- Dados do cliente -->
+        <div class="painel">
+
+            <p class="cat">Área do cliente</p>
+
+            <h1>
+                Olá, {{ cliente.nome }}
+            </h1>
+
+            <div style="margin-top:18px;">
+
+                <div class="resumo-linha">
+                    <span>Email</span>
+                    <strong>{{ cliente.email }}</strong>
+                </div>
+
+                {% if cliente.telefone %}
+                    <div class="resumo-linha">
+                        <span>Telefone</span>
+                        <strong>{{ cliente.telefone }}</strong>
+                    </div>
+                {% endif %}
+
+            </div>
+
+            <a
+                class="btn"
+                href="{% url 'site:cliente_pedidos' %}"
+            >
+                Ver os meus pedidos
+            </a>
+
+            <a
+                class="btn btn-sec"
+                href="{% url 'site:cliente_recuperar_senha' %}"
+            >
+                Redefinir senha
+            </a>
+
+            <a
+                class="btn btn-sec"
+                href="{% url 'site:cliente_logout' %}"
+            >
+                Sair
+            </a>
+
+        </div>
+
+
+        <!-- Pedidos -->
+        <div class="painel">
+
+            <h2>Pedidos recentes</h2>
+
+            {% if pedidos %}
+
+                {% for pedido in pedidos|slice:":5" %}
+
+                    <div class="item-linha">
+
+                        <div>
+
+                            <a
+                                class="item-nome"
+                                href="{% url 'site:pedido_confirmacao' pedido.referencia %}"
+                            >
+                                {{ pedido.referencia }}
+                            </a>
+
+                            <div class="item-meta">
+                                {{ pedido.created_at|date:"d/m/Y H:i" }}
+                                · {{ pedido.get_status_display }}
+                            </div>
+
+                        </div>
+
+                        <div class="valor">
+
+                            {{ pedido.total|floatformat:2 }}
+                            {{ pedido.moeda|default:config.moeda|default:"AOA" }}
+
+                        </div>
+
+                    </div>
+
+                {% endfor %}
+
+                <a
+                    class="btn btn-sec"
+                    href="{% url 'site:cliente_pedidos' %}"
+                >
+                    Ver todos os pedidos
+                </a>
+
+            {% else %}
+
+                <div
+                    class="vazio"
+                    style="padding:36px 12px;"
+                >
+
+                    <h2>Nenhum pedido ainda</h2>
+
+                    <p>
+                        Quando fizer uma encomenda,
+                        ela aparecerá aqui.
+                    </p>
+
+                    <a
+                        class="btn btn-auto"
+                        href="{% url 'site:loja' %}"
+                    >
+                        Ir para a loja
+                    </a>
+
+                </div>
+
+            {% endif %}
+
+        </div>
+
+    </div>
+
+
+    <!-- ========================================================= -->
+    <!-- CONTACTOS ENVIADOS PELO CLIENTE -->
+    <!-- ========================================================= -->
+
+    <div
+        class="painel"
+        style="margin-top:32px;"
+    >
+
+        <div style="
+            display:flex;
+            justify-content:space-between;
+            align-items:center;
+            gap:16px;
+            flex-wrap:wrap;
+            margin-bottom:18px;
+        ">
+
+            <div>
+                <p class="cat">Comunicação</p>
+
+                <h2>
+                    Minhas mensagens
+                </h2>
+            </div>
+
+            <a
+                class="btn btn-auto"
+                href="{% url 'site:contato' %}"
+            >
+                Enviar nova mensagem
+            </a>
+
+        </div>
+
+
+        {% if contactos %}
+
+            {% for contacto in contactos %}
+
+                <div
+                    style="
+                        border:1px solid var(--linha);
+                        border-radius:var(--raio);
+                        padding:18px;
+                        margin-bottom:14px;
+                        background:var(--superficie);
+                    "
+                >
+
+                    <div style="
+                        display:flex;
+                        justify-content:space-between;
+                        align-items:flex-start;
+                        gap:16px;
+                        flex-wrap:wrap;
+                    ">
+
+                        <div>
+
+                            <h3 style="
+                                margin:0 0 5px;
+                                font-size:1rem;
+                            ">
+                                {{ contacto.get_tipo_display }}
+                            </h3>
+
+                            <div class="item-meta">
+                                {{ contacto.created_at|date:"d/m/Y H:i" }}
+                            </div>
+
+                        </div>
+
+
+                        {% if contacto.atendido %}
+
+                            <span
+                                class="pilula"
+                                style="
+                                    background:#dcfce7;
+                                    color:#166534;
+                                "
+                            >
+                                Atendido
+                            </span>
+
+                        {% else %}
+
+                            <span
+                                class="pilula"
+                                style="
+                                    background:#fef3c7;
+                                    color:#92400e;
+                                "
+                            >
+                                Pendente
+                            </span>
+
+                        {% endif %}
+
+                    </div>
+
+
+                    <div style="
+                        margin-top:14px;
+                        color:var(--texto);
+                        white-space:pre-line;
+                        overflow-wrap:anywhere;
+                    ">
+                        {{ contacto.mensagem }}
+                    </div>
+
+
+                    <div
+                        class="item-meta"
+                        style="margin-top:10px;"
+                    >
+                        Enviado para:
+                        {{ contacto.email }}
+                    </div>
+
+
+                    <!-- Resposta (feedback) do gestor do site -->
+                    {% if contacto.feedback %}
+
+                        <div
+                            role="note"
+                            style="
+                                margin-top:16px;
+                                padding:14px;
+                                border-left:4px solid var(--primaria);
+                                background:var(--fundo);
+                                border-radius:var(--raio);
+                            "
+                        >
+
+                            <strong>
+                                Resposta da empresa
+                            </strong>
+
+                            <div
+                                style="
+                                    margin-top:7px;
+                                    white-space:pre-line;
+                                    overflow-wrap:anywhere;
+                                "
+                            >{{ contacto.feedback }}</div>
+
+                            {% if contacto.atendido_em %}
+                                <div
+                                    class="item-meta"
+                                    style="margin-top:8px;"
+                                >
+                                    Respondido em
+                                    {{ contacto.atendido_em|date:"d/m/Y H:i" }}
+                                </div>
+                            {% endif %}
+
+                        </div>
+
+                    {% endif %}
+
+                </div>
+
+            {% endfor %}
+
+        {% else %}
+
+            <div
+                class="vazio"
+                style="padding:42px 20px;"
+            >
+
+                <h2>Nenhuma mensagem</h2>
+
+                <p>
+                    As mensagens que enviar pelo formulário
+                    de contacto aparecerão aqui.
+                </p>
+
+            </div>
+
+        {% endif %}
+
+    </div>
+
+
+    <!-- ========================================================= -->
+    <!-- RECLAMAÇÕES -->
+    <!-- ========================================================= -->
+
+    <div
+        class="painel"
+        style="margin-top:24px;"
+    >
+
+        <div style="
+            display:flex;
+            justify-content:space-between;
+            align-items:center;
+            gap:16px;
+            flex-wrap:wrap;
+            margin-bottom:18px;
+        ">
+
+            <div>
+
+                <p class="cat">Atendimento</p>
+
+                <h2>
+                    Minhas reclamações
+                </h2>
+
+            </div>
+
+            <a
+                class="btn btn-auto"
+                href="{% url 'site:reclamacao' %}"
+            >
+                Fazer reclamação
+            </a>
+
+        </div>
+
+
+        {% if reclamacoes %}
+
+            {% for reclamacao in reclamacoes %}
+
+                <div
+                    style="
+                        border:1px solid var(--linha);
+                        border-radius:var(--raio);
+                        padding:18px;
+                        margin-bottom:14px;
+                        background:var(--superficie);
+                    "
+                >
+
+                    <div style="
+                        display:flex;
+                        justify-content:space-between;
+                        align-items:flex-start;
+                        gap:16px;
+                        flex-wrap:wrap;
+                    ">
+
+                        <div>
+
+                            <h3 style="
+                                margin:0 0 5px;
+                                font-size:1rem;
+                            ">
+                                {{ reclamacao.assunto }}
+                            </h3>
+
+                            <div class="item-meta">
+                                {{ reclamacao.created_at|date:"d/m/Y H:i" }}
+                            </div>
+
+                        </div>
+
+
+                        {% if reclamacao.atendido %}
+
+                            <span
+                                class="pilula"
+                                style="
+                                    background:#dcfce7;
+                                    color:#166534;
+                                "
+                            >
+                                Atendida
+                            </span>
+
+                        {% else %}
+
+                            <span
+                                class="pilula"
+                                style="
+                                    background:#fee2e2;
+                                    color:#991b1b;
+                                "
+                            >
+                                Não atendida
+                            </span>
+
+                        {% endif %}
+
+                    </div>
+
+
+                    <div style="
+                        margin-top:14px;
+                        color:var(--texto);
+                        white-space:pre-line;
+                        overflow-wrap:anywhere;
+                    ">
+                        {{ reclamacao.mensagem }}
+                    </div>
+
+
+                    {% if reclamacao.status %}
+
+                        <div
+                            class="item-meta"
+                            style="margin-top:10px;"
+                        >
+                            Estado:
+                            {{ reclamacao.get_status_display }}
+                        </div>
+
+                    {% endif %}
+
+
+                    <!-- Resposta (feedback) do gestor do site.
+                         Usa "feedback" e, se vazio, cai no antigo campo "resposta". -->
+                    {% with resposta=reclamacao.feedback|default:reclamacao.resposta %}
+                    {% if resposta %}
+
+                        <div
+                            role="note"
+                            style="
+                                margin-top:16px;
+                                padding:14px;
+                                border-left:4px solid var(--primaria);
+                                background:var(--fundo);
+                                border-radius:var(--raio);
+                            "
+                        >
+
+                            <strong>
+                                Resposta da empresa
+                            </strong>
+
+                            <div
+                                style="
+                                    margin-top:7px;
+                                    white-space:pre-line;
+                                    overflow-wrap:anywhere;
+                                "
+                            >{{ resposta }}</div>
+
+                            {% if reclamacao.atendido_em %}
+                                <div
+                                    class="item-meta"
+                                    style="margin-top:8px;"
+                                >
+                                    Respondido em
+                                    {{ reclamacao.atendido_em|date:"d/m/Y H:i" }}
+                                </div>
+                            {% endif %}
+
+                        </div>
+
+                    {% endif %}
+                    {% endwith %}
+
+                </div>
+
+            {% endfor %}
+
+        {% else %}
+
+            <div
+                class="vazio"
+                style="padding:42px 20px;"
+            >
+
+                <h2>Nenhuma reclamação</h2>
+
+                <p>
+                    As reclamações que enviar aparecerão aqui
+                    para acompanhar o atendimento.
+                </p>
+
+                <a
+                    class="btn btn-auto"
+                    href="{% url 'site:reclamacao' %}"
+                >
+                    Fazer reclamação
+                </a>
+
+            </div>
+
+        {% endif %}
+
+    </div>
+
+</section>
+{% endblock %}

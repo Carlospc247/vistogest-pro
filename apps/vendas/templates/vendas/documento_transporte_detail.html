@@ -1,96 +1,151 @@
 <!-- templates/vendas/documento_transporte_detail.html -->
 {% extends 'base.html' %}
 
-{% block content %}
+{% block title %}Documento de Transporte {{ documento.numero_documento }}{% endblock %}
+
+{# O base.html já renderiza um page_header ("Dashboard"); aqui usamos o nosso próprio cabeçalho. #}
+{% block page_header %}{% endblock %}
+
+{# ATENÇÃO: o base.html declara "extra_css" (não "extra_head"). #}
+{% block extra_css %}
+{% include "partials/ui_kit.html" %}
 <style>
-    /* static/css/styles.css */
-body {
-    font-family: 'Arial', sans-serif;
-    background-color: #f8f9fa;
-}
-
-.container {
-    margin-top: 20px;
-}
-
-.card {
-    border-radius: 8px;
-    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
-}
-
-.card-header {
-    background-color: #007bff;
-    color: white;
-    font-weight: bold;
-}
-
-.table {
-    margin-top: 20px;
-}
-
-.table th {
-    background-color: #007bff;
-    color: white;
-}
-
-.btn {
-    margin: 5px;
-}
-
-.pagination {
-    margin-top: 20px;
-}
-
-.pagination a {
-    margin: 0 5px;
-    padding: 5px 10px;
-    border-radius: 5px;
-    background-color: #007bff;
-    color: white;
-    text-decoration: none;
-}
+  /* Acerto local: cantos da tabela acompanham o arredondamento do cartão */
+  .ui .dt-card{ overflow:hidden; }
+  @media (min-width:1024px){
+    /* Em ecrã largo, os detalhes ficam à direita e a tabela à esquerda */
+    .ui .dt-detalhes{ order:2; }
+  }
 </style>
+{% endblock %}
 
-<div class="container">
-    <h1 class="mt-4">Documento de Transporte {{ documento.numero_documento }}</h1>
-    <div class="card mb-4">
-        <div class="card-header">
-            <h5>Detalhes do Documento</h5>
-        </div>
-        <div class="card-body">
-            <p><strong>Destinatário:</strong> {{ documento.destinatario_cliente.nome_completo }}</p>
-            <p><strong>Status:</strong> {{ documento.get_status_display }}</p>
-            <h5>Itens</h5>
-            <table class="table">
-                <thead>
-                    <tr>
-                        <th>Produto</th>
-                        <th>Quantidade</th>
-                        <th>Peso Unitário</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for item in itens %}
-                    <tr>
-                        <td>{{ item.produto.nome }}</td>
-                        <td>{{ item.quantidade_enviada }}</td>
-                        <td>{{ item.peso_unitario }}</td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-            <div class="pagination">
-                {% for page in paginator.page_range %}
-                    {% if page == paginator.number %}
-                        <strong>{{ page }}</strong>
-                    {% else %}
-                        <a href="?page={{ page }}">{{ page }}</a>
-                    {% endif %}
-                {% endfor %}
-            </div>
+{% block content %}
+<div class="ui">
+  <div class="ui-page">
 
-            <a href="{% url 'vendas:documento_transporte_lista' %}" class="btn btn-secondary">Voltar</a>
-        </div>
+    <!-- ░░ Cabeçalho ░░ -->
+    <div class="ui-head">
+      <div>
+        <nav class="ui-crumb" aria-label="Navegação">
+          <span>Vendas</span><span>/</span>
+          <a href="{% url 'vendas:documento_transporte_lista' %}">Guias de Transporte</a><span>/</span>
+          <span>{{ documento.numero_documento }}</span>
+        </nav>
+        <h1 class="ui-h1">Documento de Transporte {{ documento.numero_documento }}</h1>
+        <p class="ui-sub">
+          {# Cor do estado: ajuste os valores à lista de estados do seu model #}
+          <span class="ui-badge
+            {% if documento.status == 'entregue' or documento.status == 'concluido' or documento.status == 'emitido' or documento.status == 'emitida' %}ui-badge-ok
+            {% elif documento.status == 'cancelado' or documento.status == 'anulado' %}ui-badge-danger
+            {% elif documento.status == 'pendente' or documento.status == 'rascunho' or documento.status == 'em_transito' %}ui-badge-warn
+            {% else %}ui-badge-info{% endif %}">
+            {{ documento.get_status_display }}
+          </span>
+        </p>
+      </div>
+      <div class="ui-acoes">
+        <a class="ui-btn" href="{% url 'vendas:documento_transporte_lista' %}">
+          <i class="fas fa-arrow-left"></i> Voltar à lista
+        </a>
+      </div>
     </div>
+
+    <div class="ui-split">
+
+      <!-- ░░ Itens ░░ -->
+      <div class="ui-card dt-card">
+        <div class="ui-card-h">
+          <h2><i class="fas fa-boxes-stacked" style="color:var(--ui-primary);margin-right:.4rem"></i>Itens</h2>
+          {% if paginator %}<span class="ui-muted">{{ paginator.count }} item{{ paginator.count|pluralize:",ns" }}</span>{% endif %}
+        </div>
+
+        {% if itens %}
+        <div class="ui-table-wrap">
+          <table class="ui-table">
+            <thead>
+              <tr>
+                <th>Produto</th>
+                <th class="ui-num">Quantidade</th>
+                <th class="ui-num">Peso unitário</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for item in itens %}
+              <tr>
+                <td data-label="Produto"><span class="ui-strong">{{ item.produto.nome|default:"—" }}</span></td>
+                <td data-label="Quantidade" class="ui-num">{{ item.quantidade_enviada|floatformat:"-2" }}</td>
+                <td data-label="Peso unitário" class="ui-num">{{ item.peso_unitario|floatformat:"-2"|default:"—" }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+
+        {% if paginator and paginator.num_pages > 1 %}
+        {# "itens.number" existe quando "itens" é uma página; caso contrário não destaca a página atual #}
+        {% with atual=itens.number %}
+        <div class="ui-pag">
+          <span>{{ paginator.num_pages }} páginas</span>
+          <div class="ui-pag-nav">
+            {% for page in paginator.page_range %}
+              {% if page == atual %}
+                <span class="ativo" aria-current="page">{{ page }}</span>
+              {% else %}
+                <a href="?page={{ page }}">{{ page }}</a>
+              {% endif %}
+            {% endfor %}
+          </div>
+        </div>
+        {% endwith %}
+        {% endif %}
+
+        {% else %}
+
+        <div class="ui-empty">
+          <i class="fas fa-box-open"></i>
+          <h3>Sem itens</h3>
+          <p>Este documento ainda não tem itens registados.</p>
+        </div>
+
+        {% endif %}
+      </div>
+
+      <!-- ░░ Detalhes ░░ -->
+      <aside class="ui-card dt-detalhes" style="align-self:start">
+        <div class="ui-card-h">
+          <h2><i class="fas fa-circle-info" style="color:var(--ui-primary);margin-right:.4rem"></i>Detalhes do documento</h2>
+        </div>
+        <div class="ui-pad">
+          <dl class="ui-dl" style="grid-template-columns:1fr">
+            <div>
+              <dt>Número</dt>
+              <dd>{{ documento.numero_documento }}</dd>
+            </div>
+            <div>
+              <dt>Destinatário</dt>
+              <dd>{{ documento.destinatario_cliente.nome_completo|default:"—" }}</dd>
+            </div>
+            <div>
+              <dt>Estado</dt>
+              <dd>{{ documento.get_status_display }}</dd>
+            </div>
+            {% if documento.data_emissao %}
+            <div>
+              <dt>Data de emissão</dt>
+              <dd>{{ documento.data_emissao|date:"d/m/Y" }}</dd>
+            </div>
+            {% endif %}
+            {% if documento.observacoes %}
+            <div>
+              <dt>Observações</dt>
+              <dd style="white-space:pre-line">{{ documento.observacoes }}</dd>
+            </div>
+            {% endif %}
+          </dl>
+        </div>
+      </aside>
+
+    </div>
+  </div>
 </div>
 {% endblock %}

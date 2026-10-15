@@ -1,0 +1,7 @@
+{% extends "fiscal/base_fiscal.html" %}
+{% block title %}Operação fiscal{% endblock %}
+{% block topbar_title %}Operação fiscal{% endblock %}
+{% block content %}
+<div class="page-head"><div><p class="eyebrow">Resultado da operação</p><h1>{{ titulo|default:"Não foi possível concluir a operação" }}</h1><p>{{ mensagem|default:"Verifique os dados e tente novamente." }}</p></div></div>
+<section class="card"><div class="card-body"><div class="notice{% if sucesso %}{% else %} danger{% endif %}">{{ detalhe|default:mensagem|default:"Não foram fornecidos detalhes adicionais." }}</div><div class="actions" style="margin-top:18px"><a class="btn btn-primary" href="{% url 'fiscal:dashboard' %}">Voltar ao painel</a><a class="btn btn-light" href="{% url 'fiscal:validacao' %}">Abrir validação</a></div></div></section>
+{% endblock %}

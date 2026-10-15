@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}Comparar cotações{% endblock %}
+{% block content %}
+<div class="container mx-auto px-4 py-8 max-w-4xl">
+  <a href="{% url 'fornecedores:cotacao_detail' pk=cotacao.pk %}" class="text-sm text-indigo-600 hover:underline">&larr; {{ cotacao.titulo }}</a>
+  <h1 class="text-2xl font-bold text-gray-800 my-4">Comparação de cotações vigentes</h1>
+  <div class="bg-white rounded-xl border border-gray-100 shadow-sm overflow-x-auto">
+    <table class="w-full text-sm">
+      <thead class="bg-gray-50 text-left text-gray-500"><tr><th class="p-3">Cotação</th><th>Fornecedor</th><th>Validade</th><th class="text-right">Total</th><th class="text-right pr-3">Diferença</th></tr></thead>
+      <tbody>
+        <tr class="bg-indigo-50 font-medium"><td class="p-3">{{ cotacao.titulo }} (actual)</td><td>{{ cotacao.fornecedor.nome_exibicao }}</td><td>{{ cotacao.data_validade|date:"d/m/Y" }}</td><td class="text-right">{{ cotacao.total|floatformat:2 }} Kz</td><td class="pr-3"></td></tr>
+        {% for o in outras %}
+        <tr class="border-t"><td class="p-3"><a class="text-indigo-600" href="{% url 'fornecedores:cotacao_detail' pk=o.pk %}">{{ o.titulo }}</a></td>
+          <td>{{ o.fornecedor.nome_exibicao }}</td><td>{{ o.data_validade|date:"d/m/Y" }}</td>
+          <td class="text-right">{{ o.total|floatformat:2 }} Kz</td>
+          <td class="text-right pr-3 {% if o.total < cotacao.total %}text-green-700{% else %}text-red-700{% endif %}">{% if o.total < cotacao.total %}mais barata{% elif o.total > cotacao.total %}mais cara{% else %}igual{% endif %}</td></tr>
+        {% empty %}<tr><td colspan="5" class="p-6 text-center text-gray-500">Não há outras cotações vigentes.</td></tr>{% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

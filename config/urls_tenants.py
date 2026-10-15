@@ -35,6 +35,7 @@ urlpatterns = [
     path('financeiro/',    include(('apps.financeiro.urls',    'financeiro'),    namespace='financeiro')),
     path('servicos/',      include(('apps.servicos.urls',      'servicos'),      namespace='servicos')),
     path('configuracoes/', include(('apps.configuracoes.urls', 'configuracoes'), namespace='configuracoes')),
+    path('integracoes/',   include(('apps.integracoes.urls',   'integracoes'),     namespace='integracoes')),
     path('analytics/',     include(('apps.analytics.urls',    'analytics'),     namespace='analytics')),
     path('relatorios/',    include(('apps.relatorios.urls',   'relatorios'),    namespace='relatorios')),
     path('fiscal/',        include(('apps.fiscal.urls',       'fiscal'),        namespace='fiscal')),

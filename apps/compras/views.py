@@ -1,59 +1,98 @@
-from django.shortcuts import render, get_object_or_404, redirect
-from django.views.generic import ListView, DetailView
-from .models import Compra
-from django.contrib.auth.mixins import AccessMixin
+# apps/compras/views.py
+from decimal import Decimal
+from django.contrib import messages
+from django.contrib.auth.mixins import LoginRequiredMixin
+from django.db import transaction
+from django.db.models import Prefetch
+from django.http import HttpResponseForbidden
+from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse_lazy
+from django.utils import timezone
+from django.views import View
+from django.views.generic import ListView, TemplateView, DetailView
+from .forms import CompraForm, ItemCompraFormSet, CompraFiltroForm
+from .models import Compra, ItemCompra
 
+class CompraTenantMixin(LoginRequiredMixin):
+    def dispatch(self, request,*args,**kwargs):
+        tenant=getattr(request,"tenant",None)
+        if not tenant or getattr(tenant,"schema_name","public")=="public":
+            return HttpResponseForbidden("A área de compras só está disponível dentro de uma empresa.")
+        return super().dispatch(request,*args,**kwargs)
 
+def total_compra(compra):
+    return sum((item.subtotal for item in compra.itens.all()), Decimal("0.00"))
 
-class PermissaoAcaoMixin(AccessMixin):
-    # CRÍTICO: Definir esta variável na View
-    acao_requerida = None 
+class CompraDashboardView(CompraTenantMixin, TemplateView):
+    template_name="compras/dashboard.html"
+    def get_context_data(self, **kwargs):
+        c=super().get_context_data(**kwargs)
+        compras=list(Compra.objects.prefetch_related("itens").select_related("fornecedor").order_by("-data")[:200])
+        hoje=timezone.localdate()
+        c.update({"title":"Painel de Compras","total_compras":Compra.objects.count(),"compras_hoje":Compra.objects.filter(data__date=hoje).count(),"valor_compras":sum((total_compra(x) for x in compras),Decimal("0.00")),"compras_recentes":compras[:8]})
+        return c
 
-    def dispatch(self, request, *args, **kwargs):
-        if not request.user.is_authenticated:
-            return self.handle_no_permission()
-
-        try:
-            # Tenta obter o Funcionario (ligação fundamental)
-            funcionario = request.user.funcionario 
-        except Exception:
-            messages.error(request, "Acesso negado. O seu usuário não está ligado a um registro de funcionário.")
-            return self.handle_no_permission()
-
-        if self.acao_requerida:
-            # Usa a lógica dinâmica do modelo Funcionario (que já criámos)
-            if not funcionario.pode_realizar_acao(self.acao_requerida):
-                messages.error(request, f"Acesso negado. O seu cargo não permite realizar a ação de '{self.acao_requerida}'.")
-                return redirect(reverse_lazy('core_tenants:dashboard'))
-
-        return super().dispatch(request, *args, **kwargs)
-
-
-# Lista todas as compras com filtros simples
-class CompraListView(ListView):
-    model = Compra
-    template_name = "compras/compra_list.html"  # Crie esta pasta/template
-    context_object_name = "compras"
-    paginate_by = 25
-    ordering = ['-data']
-
+class CompraListView(CompraTenantMixin, ListView):
+    model=Compra; template_name="compras/compra_list.html"; context_object_name="compras"; paginate_by=25
     def get_queryset(self):
-        queryset = super().get_queryset()
-        fornecedor = self.request.GET.get('fornecedor')
-        if fornecedor:
-            queryset = queryset.filter(fornecedor__nome__icontains=fornecedor)
-        data_inicio = self.request.GET.get('data_inicio')
-        data_fim = self.request.GET.get('data_fim')
-        if data_inicio:
-            queryset = queryset.filter(data__date__gte=data_inicio)
-        if data_fim:
-            queryset = queryset.filter(data__date__lte=data_fim)
-        return queryset
+        qs=Compra.objects.select_related("fornecedor").prefetch_related("itens").order_by("-data")
+        self.filtro=CompraFiltroForm(self.request.GET or None)
+        if self.filtro.is_valid():
+            d=self.filtro.cleaned_data
+            if d.get("data_inicio"): qs=qs.filter(data__date__gte=d["data_inicio"])
+            if d.get("data_fim"): qs=qs.filter(data__date__lte=d["data_fim"])
+            if d.get("fornecedor"): qs=qs.filter(fornecedor=d["fornecedor"])
+        return qs
+    def get_context_data(self, **kwargs):
+        c=super().get_context_data(**kwargs)
+        c.update(title="Compras", filtro_form=getattr(self,"filtro",CompraFiltroForm()))
+        for compra in c["compras"]:
+            compra.total_display=total_compra(compra)
+        return c
 
-# Detalhes de uma compra específica
-class CompraDetailView(DetailView):
-    model = Compra
-    template_name = "compras/compra_detail.html"  # Crie esta pasta/template
-    context_object_name = "compra"
+class CompraDetailView(CompraTenantMixin, DetailView):
+    model=Compra; template_name="compras/compra_detail.html"; context_object_name="compra"
+    def get_queryset(self): return Compra.objects.select_related("fornecedor").prefetch_related("itens__produto")
+    def get_context_data(self, **kwargs):
+        c=super().get_context_data(**kwargs); c["title"]=f"Compra #{self.object.pk}"; c["total_compra"]=total_compra(self.object); return c
 
+class CompraFormView(CompraTenantMixin, View):
+    template_name="compras/compra_form.html"; success_url=reverse_lazy("compras:listar")
+    def get_object(self):
+        pk=self.kwargs.get("pk")
+        return get_object_or_404(Compra,pk=pk) if pk else Compra()
+    def render_page(self, form, formset, status=200):
+        obj=getattr(self,"object",None)
+        context={"form":form,"item_formset":formset,"object":obj,"title":"Editar Compra" if obj and obj.pk else "Registar Compra"}
+        return render(self.request,self.template_name,context,status=status)
+    def get(self,request,*args,**kwargs):
+        self.object=self.get_object(); form=CompraForm(instance=self.object)
+        formset=ItemCompraFormSet(instance=self.object,prefix="itens")
+        return self.render_page(form,formset)
+    def post(self,request,*args,**kwargs):
+        self.object=self.get_object(); form=CompraForm(request.POST,instance=self.object)
+        formset=ItemCompraFormSet(request.POST,instance=self.object,prefix="itens")
+        if form.is_valid() and formset.is_valid():
+            with transaction.atomic():
+                compra=form.save()
+                formset.instance=compra
+                formset.save()
+            messages.success(request,"Compra guardada com sucesso.")
+            return redirect("compras:detalhe",pk=compra.pk)
+        return self.render_page(form,formset,400)
+
+class CompraCreateView(CompraFormView):
+    pass
+
+class CompraUpdateView(CompraFormView):
+    pass
+
+class CompraDeleteView(CompraTenantMixin, View):
+    template_name="compras/compra_confirm_delete.html"
+    def get(self,request,pk): return render(request,self.template_name,{"compra":get_object_or_404(Compra,pk=pk)})
+    def post(self,request,pk):
+        compra=get_object_or_404(Compra,pk=pk)
+        compra_id=compra.pk
+        compra.delete()
+        messages.success(request,f"Compra #{compra_id} eliminada.")
+        return redirect("compras:listar")

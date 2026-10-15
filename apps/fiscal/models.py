@@ -58,9 +58,8 @@ class TaxaIVAAGT(TimeStampedModel):
     facto na lista oficial (Tabela 4 do Decreto Executivo 683/25: M10-M24,
     M80-M86, M30-M38, M90-M93, M00, M02, M04). Isto será substituído numa
     fase posterior, junto com a Tabela 5 (Imposto de Selo: S01-S03) e
-    Tabela 6 (IEC: I01-I16). Também o campo `empresa` abaixo está pendente
-    de remoção (isolamento físico via django-tenants) — não removido ainda
-    nesta fase, que trata apenas da arquitetura de chaves.
+    Tabela 6 (IEC: I01-I16). Também o campo `empresa` abaixo foi removido (isolamento 
+    físico via django-tenants) se trata da arquitetura de chaves.
     """
     TAX_TYPE_CHOICES = [
         ('IVA', 'Imposto sobre o Valor Acrescentado (IVA)'),
@@ -80,8 +79,6 @@ class TaxaIVAAGT(TimeStampedModel):
         ('NA',  'NA — Recibos sem descrição de imposto'),
     ]
     
-    # apps/fiscal/models.py — TaxaIVAAGT, substituir TAX_EXEMPTION_REASON_CHOICES
-
     TAX_EXEMPTION_REASON_CHOICES = [
         # --- Tabela 4 (IVA), Art. 12.º — isenções internas ---
         ('M10', 'M10 — Transmissão de bens alimentares (Anexo I)'),
@@ -156,15 +153,19 @@ class TaxaIVAAGT(TimeStampedModel):
     ]
 
     # Vínculo com a empresa para personalização, embora as taxas sejam tipicamente globais.
-    empresa = models.ForeignKey(
-        'empresas.Empresa', 
-        on_delete=models.CASCADE, 
-        related_name='taxas_iva'
-    )
+    #empresa = models.ForeignKey(
+     #   'empresas.Empresa', 
+      #  on_delete=models.CASCADE, 
+       # related_name='taxas_iva'
+    #)
+    #CODIGO_PAIS_CHOICES = [
+     #   ('AO', 'AO - Angola'),
+    #]
     
     # Detalhes Fiscais
     nome = models.CharField(max_length=100, help_text="Ex: IVA Taxa Normal 14%")
-    codigo_pais = models.CharField(max_length=2, default='AO', editable=False) # Angola
+    #codigo_pais = models.CharField(max_length=2, choices=CODIGO_PAIS_CHOICES, verbose_name="Código do País", default='AO', editable=False)
+    codigo_pais = models.CharField(max_length=2, default='AO')
     tax_type = models.CharField(max_length=3, choices=TAX_TYPE_CHOICES, verbose_name="Tipo de Imposto (TaxType)")
     tax_code = models.CharField(max_length=3, choices=TAX_CODE_CHOICES, verbose_name="Código da Taxa (TaxCode)")
     

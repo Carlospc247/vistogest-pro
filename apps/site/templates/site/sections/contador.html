@@ -1,0 +1,23 @@
+<section style="padding:clamp(2.5rem,5vw,4.5rem) 1.25rem;background:var(--cor-primaria,#4f46e5);color:#fff">
+  <style>
+    #site-contador-{{ secao.pk }}{width:min(100%,1200px);margin:auto}
+    #site-contador-{{ secao.pk }} .site-counter-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:1.4rem;text-align:center}
+    #site-contador-{{ secao.pk }} .site-counter{padding:1.2rem .8rem}
+    #site-contador-{{ secao.pk }} .site-counter-number{font-size:clamp(2rem,4vw,3.2rem);font-weight:850;line-height:1.1}
+    #site-contador-{{ secao.pk }} .site-counter-label{margin-top:.55rem;font-size:.9rem;color:rgba(255,255,255,.85)}
+  </style>
+  <div id="site-contador-{{ secao.pk }}">
+    {% if dados.titulo %}<h2 style="font-size:clamp(1.5rem,3vw,2.2rem);font-weight:800;text-align:center;margin:0 0 1.6rem">{{ dados.titulo }}</h2>{% endif %}
+    <div class="site-counter-grid">
+      {% for item in dados.contadores_json %}
+      <div class="site-counter">
+        {% if item.icone %}<div style="font-size:1.3rem;margin-bottom:.7rem"><i class="{{ item.icone }}"></i></div>{% endif %}
+        <div class="site-counter-number">{{ item.numero }}{{ item.sufixo }}</div>
+        <div class="site-counter-label">{{ item.label }}</div>
+      </div>
+      {% empty %}
+        {% if modo_preview %}<p style="grid-column:1/-1;text-align:center">Adiciona contadores em contadores_json.</p>{% endif %}
+      {% endfor %}
+    </div>
+  </div>
+</section>

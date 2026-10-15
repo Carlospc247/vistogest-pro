@@ -49,6 +49,22 @@ from apps.vendas.models import Venda
 from apps.produtos.models import Produto
 from apps.clientes.models import Cliente
 
+import json
+from datetime import datetime, time, timedelta
+from django.contrib import messages
+from django.contrib.auth.mixins import LoginRequiredMixin
+from django.db.models import Q
+from django.http import JsonResponse, HttpResponseForbidden
+from django.shortcuts import get_object_or_404, redirect
+from django.urls import reverse_lazy
+from django.utils import timezone
+from django.views import View
+from django.views.generic import TemplateView, ListView, CreateView, UpdateView, DeleteView
+from .forms import EventoAnalyticsFiltroForm, AuditoriaAlteracaoFiltroForm, DashboardPersonalizadoForm, AuditoriaInvestimentoForm, PeriodoFiltroForm
+from .models import EventoAnalytics, AuditoriaAlteracao, AlertaInteligente, NotificacaoAlerta, DashboardPersonalizado, AuditoriaInvestimento, RegistroAuditoriaOperacional
+from .services import resumo_dashboard, marcar_notificacao_lida
+
+
 logger = logging.getLogger(__name__)
 
 
@@ -58,139 +74,44 @@ logger = logging.getLogger(__name__)
 
 
 
-class PermissaoAcaoMixin(AccessMixin):
-    # CRÍTICO: Definir esta variável na View
-    acao_requerida = None 
 
+def _can_manage_analytics(user):
+    return bool(getattr(user, "is_superuser", False) or getattr(user, "is_staff", False) or getattr(user, "e_administrador_empresa", False))
+
+class AnalyticsPermissionMixin:
+    """Permite administradores, permissões Django ou a autorização dinâmica do funcionário."""
+    permission_code = None
+    action_code = None
     def dispatch(self, request, *args, **kwargs):
-        if not request.user.is_authenticated:
-            return self.handle_no_permission()
+        user=request.user
+        if _can_manage_analytics(user):
+            return super().dispatch(request, *args, **kwargs)
+        if self.permission_code and user.has_perm(self.permission_code):
+            return super().dispatch(request, *args, **kwargs)
+        employee=getattr(user, "funcionario", None) or getattr(user, "funcionario_relacionado", None)
+        action=getattr(employee, "pode_realizar_acao", None) if employee else None
+        if self.action_code and callable(action) and action(self.action_code):
+            return super().dispatch(request, *args, **kwargs)
+        return HttpResponseForbidden("Não tem permissão para consultar esta área de Analytics.")
 
-        try:
-            # Tenta obter o Funcionario (ligação fundamental)
-            funcionario = request.user.funcionario 
-        except Exception:
-            messages.error(request, "Acesso negado. O seu usuário não está ligado a um registro de funcionário.")
-            return self.handle_no_permission()
-
-        if self.acao_requerida:
-            # Usa a lógica dinâmica do modelo Funcionario (que já criámos)
-            if not funcionario.pode_realizar_acao(self.acao_requerida):
-                messages.error(request, f"Acesso negado. O seu cargo não permite realizar a ação de '{self.acao_requerida}'.")
-                return redirect(reverse_lazy('core_tenants:dashboard'))
-
+class AnalyticsTenantMixin(LoginRequiredMixin):
+    """As tabelas são isoladas pelo schema do tenant; recusa contexto público."""
+    def dispatch(self, request, *args, **kwargs):
+        tenant=getattr(request, "tenant", None)
+        if not tenant or getattr(tenant, "schema_name", "public") == "public":
+            return HttpResponseForbidden("Esta área exige um contexto de empresa.")
         return super().dispatch(request, *args, **kwargs)
 
-
-class AnalyticsDashboardView(BaseViewMixin, TemplateView):
-    template_name = 'analytics/dashboard.html'
-    
+class AnalyticsDashboardView(AnalyticsTenantMixin, AnalyticsPermissionMixin, TemplateView):
+    permission_code="analytics.view_eventoanalytics"; action_code="ver_analytics"
+    template_name="analytics/dashboard.html"
     def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-    
-        usuario = self.request.user
-        
-        # Verificar se há dashboard personalizado padrão
-        dashboard_padrao = DashboardPersonalizado.objects.filter(
-            usuario=usuario,
-            padrao=True
-        ).first()
-        
-        if dashboard_padrao:
-            context['dashboard_personalizado'] = dashboard_padrao
-        
-        # Métricas principais
-        hoje = timezone.now().date()
-        ontem = hoje - timedelta(days=1)
-        mes_atual = hoje.replace(day=1)
-        mes_anterior = (mes_atual - timedelta(days=1)).replace(day=1)
-        
-        # Eventos hoje vs ontem
-        eventos_hoje = EventoAnalytics.objects.filter(
-            timestamp__date=hoje
-        ).count()
-        
-        eventos_ontem = EventoAnalytics.objects.filter(
-            timestamp__date=ontem
-        ).count()
-        
-        variacao_eventos = self._calcular_variacao(eventos_hoje, eventos_ontem)
-        
-        # Vendas do período
-        vendas_mes = Venda.objects.filter(
-            data_venda__gte=mes_atual,
-            status='finalizada'
-        ).aggregate(
-            total=Sum('total'),
-            quantidade=Count('id')
-        )
-        
-        vendas_mes_anterior = Venda.objects.filter(
-            data_venda__gte=mes_anterior,
-            data_venda__lt=mes_atual,
-            status='finalizada'
-        ).aggregate(
-            total=Sum('total'),
-            quantidade=Count('id')
-        )
-        
-        variacao_vendas = self._calcular_variacao(
-            vendas_mes['total'] or 0,
-            vendas_mes_anterior['total'] or 0
-        )
-        
-        # Alertas ativos
-        alertas_ativos = AlertaInteligente.objects.filter(
-            status='ativo'
-        ).count()
-        
-        # Top eventos por categoria
-        eventos_por_categoria = EventoAnalytics.objects.filter(
-            timestamp__gte=timezone.now() - timedelta(days=7)
-        ).values('categoria').annotate(
-            total=Count('id')
-        ).order_by('-total')[:5]
-        
-        # Eventos por hora (últimas 24h)
-        eventos_por_hora = EventoAnalytics.objects.filter(
-            timestamp__gte=timezone.now() - timedelta(hours=24)
-        ).extra(
-            select={'hora': 'EXTRACT(hour FROM timestamp)'}
-        ).values('hora').annotate(
-            total=Count('id')
-        ).order_by('hora')
-        
-        # Usuários mais ativos
-        usuarios_ativos = EventoAnalytics.objects.filter(
-            timestamp__gte=timezone.now() - timedelta(days=7),
-            usuario__isnull=False
-        ).values(
-            'usuario__username',
-            'usuario__first_name',
-            'usuario__last_name'
-        ).annotate(
-            total_eventos=Count('id')
-        ).order_by('-total_eventos')[:10]
-        
-        context.update({
-            'eventos_hoje': eventos_hoje,
-            'eventos_ontem': eventos_ontem,
-            'variacao_eventos': variacao_eventos,
-            'vendas_mes': vendas_mes,
-            'variacao_vendas': variacao_vendas,
-            'alertas_ativos': alertas_ativos,
-            'eventos_por_categoria': eventos_por_categoria,
-            'eventos_por_hora': list(eventos_por_hora),
-            'usuarios_ativos': usuarios_ativos,
-            'title': 'Analytics Dashboard'
-        })
-        
+        context=super().get_context_data(**kwargs)
+        context.update(resumo_dashboard(self.request.user))
+        context["title"]="Analytics e Inteligência Operacional"
+        context["eventos_recentes"]=EventoAnalytics.objects.select_related("usuario").order_by("-timestamp")[:10]
+        context["alertas_recentes"]=AlertaInteligente.objects.filter(status="ativo").order_by("-created_at")[:6]
         return context
-    
-    def _calcular_variacao(self, atual, anterior):
-        if anterior == 0:
-            return 100 if atual > 0 else 0
-        return round(((atual - anterior) / anterior) * 100, 2)
 
 
 class AnalyticsOverviewView(BaseViewMixin, TemplateView):
@@ -253,70 +174,172 @@ class AnalyticsOverviewView(BaseViewMixin, TemplateView):
 # =====================================
 from django.db.models.functions import Coalesce
 
-class EventoAnalyticsListView(BaseViewMixin, ListView):
-    model = EventoAnalytics
-    template_name = 'analytics/eventos/lista.html'
-    context_object_name = 'eventos'
-    paginate_by = 50
-    
+
+
+
+class EventoAnalyticsListView(AnalyticsTenantMixin, AnalyticsPermissionMixin, ListView):
+    permission_code="analytics.view_eventoanalytics"; action_code="ver_analytics_eventos"
+    model=EventoAnalytics; template_name="analytics/eventos_list.html"; context_object_name="eventos"; paginate_by=30
     def get_queryset(self):
-        queryset = EventoAnalytics.objects.all(
-        ).select_related('usuario').order_by('-timestamp')
-        
-        # Filtros
-        categoria = self.request.GET.get('categoria')
-        if categoria:
-            queryset = queryset.filter(categoria=categoria)
-        
-        acao = self.request.GET.get('acao')
-        if acao:
-            queryset = queryset.filter(acao__icontains=acao)
-        
-        usuario_id = self.request.GET.get('usuario')
-        if usuario_id:
-            queryset = queryset.filter(usuario_id=usuario_id)
-        
-        data_inicio = self.request.GET.get('data_inicio')
-        if data_inicio:
-            queryset = queryset.filter(timestamp__gte=data_inicio)
-        
-        data_fim = self.request.GET.get('data_fim')
-        if data_fim:
-            queryset = queryset.filter(timestamp__lte=data_fim)
-        
-        return queryset
-    
+        qs=EventoAnalytics.objects.select_related("usuario").all()
+        self.form=EventoAnalyticsFiltroForm(self.request.GET or None)
+        if self.form.is_valid():
+            d=self.form.cleaned_data
+            if d.get("data_inicio"): qs=qs.filter(timestamp__date__gte=d["data_inicio"])
+            if d.get("data_fim"): qs=qs.filter(timestamp__date__lte=d["data_fim"])
+            if d.get("categoria"): qs=qs.filter(categoria=d["categoria"])
+            if d.get("acao"): qs=qs.filter(acao__icontains=d["acao"])
+        return qs.order_by("-timestamp")
     def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-    
-        
-        # Estatísticas dos filtros aplicados
-        queryset_filtrado = self.get_queryset()
-        
-        stats = queryset_filtrado.aggregate(
-            total_eventos=Count('id'),
-            usuarios_unicos=Count('usuario', distinct=True),
-            soma_valores=Coalesce(Sum('valor'), 0)
-        )
-        
-        # Categorias disponíveis
-        categorias = EventoAnalytics.objects.filter(
-            
-        ).values_list('categoria', flat=True).distinct()
-        
-        # Usuários disponíveis
-        usuarios = User.objects.all(
-        ).distinct().order_by('first_name', 'username')
-        
-        context.update({
-            'stats': stats,
-            'categorias': categorias,
-            'usuarios': usuarios,
-            'filtro_form': FiltroEventosForm(self.request.GET),
-            'title': 'Eventos Analytics'
-        })
-        
-        return context
+        c=super().get_context_data(**kwargs); c.update(title="Eventos Analytics", filtro_form=getattr(self,"form",EventoAnalyticsFiltroForm())); return c
+
+
+
+class AuditoriaAlteracaoListView(AnalyticsTenantMixin, AnalyticsPermissionMixin, ListView):
+    permission_code="analytics.view_auditoriaalteracao"; action_code="ver_auditoria"
+    model=AuditoriaAlteracao; template_name="analytics/auditoria_alteracoes_list.html"; context_object_name="registos"; paginate_by=30
+    def get_queryset(self):
+        qs=AuditoriaAlteracao.objects.select_related("usuario","content_type")
+        self.form=AuditoriaAlteracaoFiltroForm(self.request.GET or None)
+        if self.form.is_valid():
+            d=self.form.cleaned_data
+            if d.get("tipo_operacao"): qs=qs.filter(tipo_operacao=d["tipo_operacao"])
+            if d.get("data_inicio"): qs=qs.filter(timestamp__date__gte=d["data_inicio"])
+            if d.get("data_fim"): qs=qs.filter(timestamp__date__lte=d["data_fim"])
+            if d.get("utilizador"): qs=qs.filter(usuario__username__icontains=d["utilizador"])
+        return qs.order_by("-timestamp")
+    def get_context_data(self, **kwargs):
+        c=super().get_context_data(**kwargs); c.update(title="Auditoria de Alterações", filtro_form=getattr(self,"form",AuditoriaAlteracaoFiltroForm())); return c
+
+
+class AlertaInteligenteListView(AnalyticsTenantMixin, AnalyticsPermissionMixin, ListView):
+    permission_code="analytics.view_alertainteligente"; action_code="ver_alertas_gerenciais"
+    model=AlertaInteligente; template_name="analytics/alertas_list.html"; context_object_name="alertas"; paginate_by=25
+    def get_queryset(self):
+        qs=AlertaInteligente.objects.all()
+        status=self.request.GET.get("status", "ativo"); prioridade=self.request.GET.get("prioridade", "")
+        if status in {v for v,_ in AlertaInteligente.STATUS_CHOICES}: qs=qs.filter(status=status)
+        if prioridade in {v for v,_ in AlertaInteligente.PRIORIDADE_CHOICES}: qs=qs.filter(prioridade=prioridade)
+        return qs.order_by("-created_at")
+    def get_context_data(self, **kwargs):
+        c=super().get_context_data(**kwargs); c.update(title="Alertas Inteligentes", status_atual=self.request.GET.get("status","ativo"), prioridade_atual=self.request.GET.get("prioridade",""), status_choices=AlertaInteligente.STATUS_CHOICES, prioridade_choices=AlertaInteligente.PRIORIDADE_CHOICES); return c
+
+class AlertaInteligenteAtualizarView(AnalyticsTenantMixin, AnalyticsPermissionMixin, View):
+    permission_code="analytics.change_alertainteligente"; action_code="resolver_alertas"
+    http_method_names=["post"]
+    def post(self, request, pk):
+        alerta=get_object_or_404(AlertaInteligente, pk=pk)
+        status=request.POST.get("status", "resolvido")
+        allowed={v for v,_ in AlertaInteligente.STATUS_CHOICES}
+        if status not in allowed:
+            messages.error(request,"Estado de alerta inválido."); return redirect("analytics:alertas")
+        alerta.status=status
+        if status == "resolvido":
+            alerta.resolvido_em=timezone.now(); alerta.resolvido_por=request.user
+        else:
+            alerta.resolvido_em=None; alerta.resolvido_por=None
+        alerta.save(update_fields=["status","resolvido_em","resolvido_por"])
+        messages.success(request,"Estado do alerta atualizado.")
+        return redirect("analytics:alertas")
+
+
+class NotificacaoAlertaListView(AnalyticsTenantMixin, ListView):
+    template_name="analytics/notificacoes_list.html"; context_object_name="notificacoes"; paginate_by=30
+    def get_queryset(self): return NotificacaoAlerta.objects.filter(usuario=self.request.user).select_related("alerta").order_by("lida","-enviada_em")
+    def get_context_data(self, **kwargs):
+        c=super().get_context_data(**kwargs); c["title"]="Notificações"; return c
+
+
+class NotificacaoAlertaMarcarLidaView(AnalyticsTenantMixin, View):
+    http_method_names=["post"]
+    def post(self, request, pk):
+        n=get_object_or_404(NotificacaoAlerta, pk=pk, usuario=request.user)
+        marcar_notificacao_lida(n, request.user)
+        messages.success(request,"Notificação marcada como lida.")
+        return redirect("analytics:notificacoes")
+
+class DashboardPersonalizadoListView(AnalyticsTenantMixin, ListView):
+    model=DashboardPersonalizado; template_name="analytics/dashboards_list.html"; context_object_name="dashboards"; paginate_by=20
+    def get_queryset(self): return DashboardPersonalizado.objects.filter(Q(usuario=self.request.user)|Q(publico=True)).order_by("-padrao","nome")
+    def get_context_data(self, **kwargs):
+        c=super().get_context_data(**kwargs); c["title"]="Dashboards Personalizados"; return c
+
+class DashboardPersonalizadoCreateView(AnalyticsTenantMixin, CreateView):
+    model=DashboardPersonalizado; form_class=DashboardPersonalizadoForm; template_name="analytics/dashboard_form.html"; success_url=reverse_lazy("analytics:dashboards")
+    def form_valid(self, form):
+        form.instance.usuario=self.request.user
+        if form.cleaned_data.get("padrao"):
+            DashboardPersonalizado.objects.filter(usuario=self.request.user, padrao=True).update(padrao=False)
+        messages.success(self.request,"Dashboard personalizado criado."); return super().form_valid(form)
+
+class DashboardPersonalizadoUpdateView(AnalyticsTenantMixin, UpdateView):
+    model=DashboardPersonalizado; form_class=DashboardPersonalizadoForm; template_name="analytics/dashboard_form.html"; success_url=reverse_lazy("analytics:dashboards")
+    def get_queryset(self): return DashboardPersonalizado.objects.filter(usuario=self.request.user)
+    def form_valid(self, form):
+        if form.cleaned_data.get("padrao"): DashboardPersonalizado.objects.filter(usuario=self.request.user,padrao=True).exclude(pk=self.object.pk).update(padrao=False)
+        messages.success(self.request,"Dashboard personalizado atualizado."); return super().form_valid(form)
+
+
+
+
+class DashboardPersonalizadoDeleteView(AnalyticsTenantMixin, DeleteView):
+    model=DashboardPersonalizado; template_name="analytics/confirm_delete.html"; context_object_name="object"; success_url=reverse_lazy("analytics:dashboards")
+    def get_queryset(self): return DashboardPersonalizado.objects.filter(usuario=self.request.user)
+    def form_valid(self, form): messages.success(self.request,"Dashboard eliminado."); return super().form_valid(form)
+
+class AuditoriaInvestimentoListView(AnalyticsTenantMixin, ListView):
+    model=AuditoriaInvestimento; template_name="analytics/auditoria_investimento_list.html"; context_object_name="vinculos"; paginate_by=25
+    def get_queryset(self):
+        qs=AuditoriaInvestimento.objects.select_related("usuario").prefetch_related("lotes_vinculados","fabricantes_vinculados")
+        if not _can_manage_analytics(self.request.user): qs=qs.filter(usuario=self.request.user)
+        return qs
+    def get_context_data(self, **kwargs): c=super().get_context_data(**kwargs); c["title"]="Acessos de Auditoria de Investimento"; return c
+
+class AuditoriaInvestimentoCreateView(AnalyticsTenantMixin, CreateView):
+    model=AuditoriaInvestimento; form_class=AuditoriaInvestimentoForm; template_name="analytics/auditoria_investimento_form.html"; success_url=reverse_lazy("analytics:auditoria-investimentos")
+    def form_valid(self, form):
+        if not _can_manage_analytics(self.request.user):
+            return HttpResponseForbidden("Só administradores podem criar estes vínculos.")
+        # O utilizador escolhido no formulário é o auditor ao qual o escopo será atribuído.
+        messages.success(self.request,"Vínculo de auditoria criado."); return super().form_valid(form)
+
+class AuditoriaInvestimentoUpdateView(AnalyticsTenantMixin, UpdateView):
+    model=AuditoriaInvestimento; form_class=AuditoriaInvestimentoForm; template_name="analytics/auditoria_investimento_form.html"; success_url=reverse_lazy("analytics:auditoria-investimentos")
+    def get_queryset(self): return AuditoriaInvestimento.objects.all() if _can_manage_analytics(self.request.user) else AuditoriaInvestimento.objects.none()
+    def dispatch(self, request, *args, **kwargs):
+        if not _can_manage_analytics(request.user): return HttpResponseForbidden("Só administradores podem alterar os escopos de auditoria.")
+        return super().dispatch(request, *args, **kwargs)
+    def form_valid(self, form): messages.success(self.request,"Vínculo de auditoria atualizado."); return super().form_valid(form)
+
+
+class AuditoriaInvestimentoDeleteView(AnalyticsTenantMixin, DeleteView):
+    model=AuditoriaInvestimento; template_name="analytics/confirm_delete.html"; context_object_name="object"; success_url=reverse_lazy("analytics:auditoria-investimentos")
+    def get_queryset(self): return AuditoriaInvestimento.objects.all() if _can_manage_analytics(self.request.user) else AuditoriaInvestimento.objects.none()
+    def dispatch(self, request, *args, **kwargs):
+        if not _can_manage_analytics(request.user): return HttpResponseForbidden("Só administradores podem eliminar escopos de auditoria.")
+        return super().dispatch(request, *args, **kwargs)
+    def form_valid(self, form): messages.success(self.request,"Vínculo de auditoria eliminado."); return super().form_valid(form)
+
+class RegistroAuditoriaOperacionalListView(AnalyticsTenantMixin, AnalyticsPermissionMixin, ListView):
+    permission_code="analytics.view_registroauditoriaoperacional"; action_code="ver_auditoria_operacional"
+    model=RegistroAuditoriaOperacional; template_name="analytics/auditoria_operacional_list.html"; context_object_name="registos"; paginate_by=50
+    def get_queryset(self):
+        qs=RegistroAuditoriaOperacional.objects.select_related("usuario","content_type")
+        self.form=PeriodoFiltroForm(self.request.GET or None)
+        if self.form.is_valid():
+            d=self.form.cleaned_data
+            if d.get("data_inicio"): qs=qs.filter(timestamp__date__gte=d["data_inicio"])
+            if d.get("data_fim"): qs=qs.filter(timestamp__date__lte=d["data_fim"])
+            if d.get("app_origem"): qs=qs.filter(app_origem__icontains=d["app_origem"])
+            if d.get("operacao"): qs=qs.filter(operacao=d["operacao"])
+        return qs.order_by("-timestamp")
+    def get_context_data(self, **kwargs): c=super().get_context_data(**kwargs); c.update(title="Auditoria Operacional", filtro_form=getattr(self,"form",PeriodoFiltroForm())); return c
+
+class AnalyticsResumoAPIView(AnalyticsTenantMixin, View):
+    def get(self, request):
+        summary=resumo_dashboard(request.user)
+        # os valores são serializáveis pelo JsonResponse; a data só é devolvida como ISO
+        return JsonResponse({"success":True, "summary":summary, "timestamp":timezone.now().isoformat()})
 
 
 class EventosTempoRealView(BaseViewMixin, TemplateView):

@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}{{ titulo }}{% endblock %}
+{% block content %}
+<div class="container mx-auto px-4 py-8 max-w-6xl">
+  <a href="{% url 'fornecedores:relatorios' %}" class="text-sm text-indigo-600 hover:underline">&larr; Relatórios</a>
+  <h1 class="text-2xl font-bold text-gray-800 my-4">{{ titulo }}</h1>
+
+  {% if com_periodo %}
+  <form method="get" class="bg-white rounded-xl border p-4 mb-4 flex flex-wrap gap-3 items-end">
+    <div><label class="block text-xs text-gray-500">Início</label><input type="date" name="inicio" value="{{ inicio|date:'Y-m-d' }}" class="border rounded px-2 py-1.5"></div>
+    <div><label class="block text-xs text-gray-500">Fim</label><input type="date" name="fim" value="{{ fim|date:'Y-m-d' }}" class="border rounded px-2 py-1.5"></div>
+    <button class="px-4 py-2 rounded bg-gray-800 text-white text-sm">Aplicar</button>
+  </form>
+  {% endif %}
+
+  {% if cards %}
+  <div class="grid sm:grid-cols-3 gap-4 mb-4">
+    {% for label, valor in cards %}
+    <div class="bg-white rounded-xl border p-4"><p class="text-xs text-gray-500">{{ label }}</p><p class="text-xl font-bold text-gray-800">{{ valor }}</p></div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  <div class="bg-white rounded-xl border border-gray-100 shadow-sm overflow-x-auto">
+    <table class="w-full text-sm">
+      <thead class="bg-gray-50 text-left text-gray-500"><tr>{% for c in cabecalho %}<th class="p-3">{{ c }}</th>{% endfor %}</tr></thead>
+      <tbody>
+      {% for linha in linhas %}
+        <tr class="border-t">{% for celula in linha %}<td class="p-3">{{ celula }}</td>{% endfor %}</tr>
+      {% empty %}<tr><td colspan="{{ cabecalho|length }}" class="p-6 text-center text-gray-500">Sem dados para mostrar.</td></tr>{% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <button onclick="window.print()" class="mt-4 px-4 py-2 border rounded bg-white text-sm"><i class="fas fa-print mr-1"></i> Imprimir</button>
+</div>
+{% endblock %}

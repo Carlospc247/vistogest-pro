@@ -1,87 +1,174 @@
-<!-- templates/vendas/nota_debito_detail.html -->
+<!--nota_debito_detail.html-->
 {% extends 'base.html' %}
 
+{% block title %}Nota de Débito {{ nota_debito.numero_nota }}{% endblock %}
+
 {% block content %}
-<style>
-    /* static/css/styles.css */
-body {
-    font-family: 'Arial', sans-serif;
-    background-color: #f8f9fa;
-}
+{% include "partials/ui_kit.html" %}
 
-.container {
-    margin-top: 20px;
-}
+{# URLs "opcionais": com "as" não dão erro se o nome ainda não existir no urls.py #}
+{% url 'vendas:nota_debito_lista' as url_lista %}
+{% url 'vendas:nota_debito_update' nota_debito.pk as url_editar %}
+{% url 'vendas:aplicar_nota_debito' nota_debito.pk as url_aplicar %}
+{% url 'vendas:aprovar_nota_debito' nota_debito.pk as url_aprovar %}
+{% url 'vendas:nota_debito_pdf' nota_debito.pk as url_pdf %}
 
-.card {
-    border-radius: 8px;
-    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
-}
+<div class="ui ui-page">
 
-.card-header {
-    background-color: #007bff;
-    color: white;
-    font-weight: bold;
-}
-
-.table {
-    margin-top: 20px;
-}
-
-.table th {
-    background-color: #007bff;
-    color: white;
-}
-
-.btn {
-    margin: 5px;
-}
-
-.pagination {
-    margin-top: 20px;
-}
-
-.pagination a {
-    margin: 0 5px;
-    padding: 5px 10px;
-    border-radius: 5px;
-    background-color: #007bff;
-    color: white;
-    text-decoration: none;
-}
-</style>
-
-<div class="container">
-    <h1 class="mt-4">Nota de Débito {{ nota_debito.numero_nota }}</h1>
-    <div class="card mb-4">
-        <div class="card-header">
-            <h5>Detalhes da Nota</h5>
+    <!-- Cabeçalho -->
+    <header class="ui-head">
+        <div>
+            <nav class="ui-crumb" aria-label="Navegação">
+                {% if url_lista %}<a href="{{ url_lista }}">Notas de Débito</a>{% else %}<span>Notas de Débito</span>{% endif %}
+                <span>/</span>
+                <span>{{ nota_debito.numero_nota }}</span>
+            </nav>
+            <h1 class="ui-h1">Nota de Débito {{ nota_debito.numero_nota }}</h1>
+            <p class="ui-sub">
+                {% if nota_debito.status == 'aplicada' %}<span class="ui-badge ui-badge-ok">Aplicada</span>
+                {% elif nota_debito.status == 'paga' %}<span class="ui-badge ui-badge-ok">Paga</span>
+                {% elif nota_debito.status == 'cancelada' %}<span class="ui-badge ui-badge-danger">Cancelada</span>
+                {% elif nota_debito.status == 'vencida' %}<span class="ui-badge ui-badge-danger">Vencida</span>
+                {% elif nota_debito.status == 'emitida' %}<span class="ui-badge ui-badge-info">Emitida</span>
+                {% else %}<span class="ui-badge ui-badge-muted">{{ nota_debito.get_status_display }}</span>{% endif %}
+                &nbsp;Emitida em {{ nota_debito.data_nota|date:"d/m/Y H:i" }}
+            </p>
         </div>
-        <div class="card-body">
-            <p><strong>Cliente:</strong> {{ nota_debito.cliente.nome_completo }}</p>
-            <p><strong>Total:</strong> {{ nota_debito.total_debito }}</p>
-            <p><strong>Status:</strong> {{ nota_debito.get_status_display }}</p>
-            <h5>Itens</h5>
-            <table class="table">
-                <thead>
-                    <tr>
-                        <th>Produto</th>
-                        <th>Quantidade</th>
-                        <th>Valor Unitário</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for item in itens %}
-                    <tr>
-                        <td>{{ item.produto.nome }}</td>
-                        <td>{{ item.quantidade }}</td>
-                        <td>{{ item.valor_unitario }}</td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-            <a href="{% url 'vendas:nota_debito_lista' %}" class="btn btn-secondary">Voltar</a>
+
+        <div class="ui-acoes">
+            {% if url_lista %}<a href="{{ url_lista }}" class="ui-btn"><i class="fas fa-arrow-left"></i> Voltar</a>{% endif %}
+            {% if url_pdf %}<a href="{{ url_pdf }}" target="_blank" rel="noopener" class="ui-btn"><i class="fas fa-file-pdf"></i> PDF</a>{% endif %}
+            {% if url_editar and nota_debito.status == 'emitida' %}
+            <a href="{{ url_editar }}" class="ui-btn"><i class="fas fa-edit"></i> Editar</a>
+            {% endif %}
         </div>
+    </header>
+
+    <!-- Avisos de vencimento / aprovação -->
+    {% if nota_debito.status != 'paga' and nota_debito.status != 'cancelada' %}
+        {% if esta_vencida %}
+        <div class="ui-aviso ui-aviso-danger">
+            <i class="fas fa-exclamation-triangle"></i>
+            Esta nota está vencida há {{ dias_vencimento|cut:"-" }} dia{{ dias_vencimento|cut:"-"|pluralize }}
+            (vencimento em {{ nota_debito.data_vencimento|date:"d/m/Y" }}).
+        </div>
+        {% else %}
+        <div class="ui-aviso">
+            <i class="fas fa-calendar-alt"></i>
+            Vence em {{ nota_debito.data_vencimento|date:"d/m/Y" }}
+            {% if dias_vencimento == 0 %}(hoje){% else %}(daqui a {{ dias_vencimento }} dia{{ dias_vencimento|pluralize }}){% endif %}.
+        </div>
+        {% endif %}
+    {% endif %}
+
+    {% if nota_debito.requer_aprovacao and not nota_debito.aprovada_por %}
+    <div class="ui-aviso ui-aviso-warn">
+        <i class="fas fa-user-check"></i> Esta nota requer aprovação antes de ser aplicada.
+        {% if url_aprovar %}
+        <form method="post" action="{{ url_aprovar }}" style="display:inline;margin-left:.5rem">
+            {% csrf_token %}
+            <button type="submit" class="ui-btn ui-btn-sm">Aprovar agora</button>
+        </form>
+        {% endif %}
+    </div>
+    {% endif %}
+
+    <div class="ui-split">
+        <div style="display:flex;flex-direction:column;gap:1rem;min-width:0">
+
+            <!-- Dados da nota -->
+            <section class="ui-card ui-pad">
+                <h2 class="ui-label" style="margin:0 0 .9rem">Detalhes da nota</h2>
+                <dl class="ui-dl">
+                    <div><dt>Cliente</dt><dd>{{ nota_debito.cliente.nome_completo|default:"—" }}</dd></div>
+                    <div><dt>Motivo</dt><dd>{{ nota_debito.get_motivo_display }}</dd></div>
+                    <div><dt>Documento de origem</dt><dd>{{ nota_debito.numero_documento_origem }}</dd></div>
+                    <div><dt>Vencimento</dt><dd>{{ nota_debito.data_vencimento|date:"d/m/Y" }}</dd></div>
+                    <div><dt>Emitida por</dt><dd>{{ nota_debito.emitida_por.get_full_name|default:nota_debito.emitida_por|default:"—" }}</dd></div>
+                    {% if nota_debito.atcud %}<div><dt>ATCUD</dt><dd>{{ nota_debito.atcud }}</dd></div>{% endif %}
+                    {% if nota_debito.observacoes %}
+                    <div style="grid-column:1/-1"><dt>Observações</dt><dd style="white-space:pre-wrap">{{ nota_debito.observacoes }}</dd></div>
+                    {% endif %}
+                </dl>
+            </section>
+
+            <!-- Itens -->
+            <section class="ui-card">
+                <div class="ui-card-h"><h2>Itens</h2><span class="ui-muted">{{ itens|length }} item{{ itens|length|pluralize:",s" }}</span></div>
+                {% if itens %}
+                <div class="ui-table-wrap">
+                    <table class="ui-table">
+                        <thead>
+                            <tr>
+                                <th>Descrição</th>
+                                <th class="ui-num">Qtd.</th>
+                                <th class="ui-num">Valor unit.</th>
+                                <th class="ui-num">IVA</th>
+                                <th class="ui-num">Total</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for item in itens %}
+                            <tr>
+                                <td data-label="Descrição">
+                                    <div class="ui-strong">{{ item.descricao_item }}</div>
+                                    {% if item.justificativa %}<div class="ui-muted">{{ item.justificativa }}</div>{% endif %}
+                                </td>
+                                <td data-label="Qtd." class="ui-num">{{ item.quantidade|floatformat:"-2" }}</td>
+                                <td data-label="Valor unit." class="ui-num">{{ item.valor_unitario|floatformat:"2g" }}</td>
+                                <td data-label="IVA" class="ui-num">{{ item.iva_percentual|floatformat:"-2" }}%</td>
+                                <td data-label="Total" class="ui-num ui-strong">{{ item.total_item|floatformat:"2g" }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <div class="ui-empty"><i class="fas fa-box-open"></i><h3>Sem itens</h3><p>Esta nota ainda não tem itens.</p></div>
+                {% endif %}
+            </section>
+        </div>
+
+        <!-- Resumo e ações -->
+        <aside style="display:flex;flex-direction:column;gap:1rem;min-width:0">
+            <section class="ui-card ui-pad">
+                <h2 class="ui-label" style="margin:0 0 .9rem">Resumo financeiro</h2>
+                <dl class="ui-dl" style="grid-template-columns:1fr">
+                    <div style="display:flex;justify-content:space-between"><dt style="margin:0">Subtotal</dt><dd>{{ nota_debito.subtotal|floatformat:"2g" }}</dd></div>
+                    <div style="display:flex;justify-content:space-between"><dt style="margin:0">Desconto</dt><dd>{{ nota_debito.desconto_valor|floatformat:"2g" }}</dd></div>
+                    <div style="display:flex;justify-content:space-between"><dt style="margin:0">IVA</dt><dd>{{ nota_debito.iva_valor|floatformat:"2g" }}</dd></div>
+                    <div style="display:flex;justify-content:space-between;border-top:1px solid var(--ui-border);padding-top:.7rem">
+                        <dt style="margin:0">Total</dt><dd class="ui-strong" style="font-size:1.15rem">AOA {{ nota_debito.total|floatformat:"2g" }}</dd>
+                    </div>
+                    <div style="display:flex;justify-content:space-between"><dt style="margin:0">Pago</dt><dd>{{ nota_debito.valor_pago|floatformat:"2g" }}</dd></div>
+                    <div style="display:flex;justify-content:space-between"><dt style="margin:0">Pendente</dt><dd class="ui-strong">{{ nota_debito.valor_pendente|floatformat:"2g" }}</dd></div>
+                </dl>
+            </section>
+
+            <section class="ui-card ui-pad">
+                <h2 class="ui-label" style="margin:0 0 .9rem">Ações</h2>
+                {% if pode_aplicar and url_aplicar %}
+                <form method="post" action="{{ url_aplicar }}" id="form-aplicar">
+                    {% csrf_token %}
+                    <button type="submit" class="ui-btn ui-btn-ok" style="width:100%" id="btn-aplicar"
+                            onclick="return confirm('Aplicar esta nota de débito? Esta ação não pode ser desfeita.')">
+                        <i class="fas fa-check-circle"></i> Aplicar nota de débito
+                    </button>
+                </form>
+                {% elif motivo_nao_aplicar %}
+                <div class="ui-aviso">{{ motivo_nao_aplicar }}</div>
+                {% else %}
+                <p class="ui-muted" style="margin:0">Sem ações disponíveis.</p>
+                {% endif %}
+            </section>
+        </aside>
     </div>
 </div>
+
+<script>
+    // evita duplo clique ao aplicar
+    document.getElementById('form-aplicar')?.addEventListener('submit', () => {
+        const b = document.getElementById('btn-aplicar'); if (b) b.disabled = true;
+    });
+</script>
 {% endblock %}

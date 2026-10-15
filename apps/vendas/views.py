@@ -15,14 +15,16 @@ import json
 import logging
 import traceback
 from datetime import datetime, timedelta
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
+from django.core.serializers.json import DjangoJSONEncoder
+
 from functools import wraps
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.mixins import LoginRequiredMixin, PermissionRequiredMixin, AccessMixin
 from django.core.cache import caches
-from django.core.exceptions import ValidationError
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.core.paginator import Paginator
 from django.db import connection, transaction
 from django.db.models import Q, Sum, Count, F, Avg, DecimalField
@@ -69,6 +71,18 @@ from .services import validar_itens_por_regime
 from .tasks import verificar_margem_critica
 
 from django.core.cache import cache as bi_cache
+from decimal import Decimal, InvalidOperation
+from django.core.serializers.json import DjangoJSONEncoder
+
+
+# ---------------------------------------------------------------------
+# 1) HELPERS COMUNS (FP / FT)
+# ---------------------------------------------------------------------
+IVA_PADRAO = Decimal('14.00')
+CENTIMO = Decimal('0.01')
+
+
+
 
 logger = logging.getLogger(__name__)
 
@@ -1101,31 +1115,80 @@ class AplicarDescontoAPIView(BaseVendaView, PermissaoAcaoMixin, View):
             return JsonResponse({'success': False, 'message': str(e)})
 
 
+
+
 class PDVView(LoginRequiredMixin, PermissaoAcaoMixin, TemplateView):
+    """Ponto de venda condicionado ao tipo de actividade do tenant."""
+
     acao_requerida = 'vender'
     template_name = 'vendas/pdv.html'
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        emp = self.request.user.empresa
-        regime = emp.regime_empresa if emp else None
 
-        context['clientes'] = list(Cliente.objects.filter(ativo=True).values('id', 'nome_completo'))
-        context['formas_pagamento'] = list(FormaPagamento.objects.filter(ativa=True).values('id', 'nome'))
+        # Obter a empresa através do tenant activo, não da FK do utilizador.
+        tenant = (
+            getattr(self.request, 'tenant', None)
+            or getattr(connection, 'tenant', None)
+        )
 
-        if regime in ['COMERCIO', 'MISTO']:
-            context['produtos'] = list(Produto.objects.filter(ativo=True).values(
-                'id', 'nome_produto', 'preco_venda', 'estoque_atual'))
+        if (
+            tenant is None
+            or getattr(tenant, 'schema_name', 'public') == 'public'
+        ):
+            raise PermissionDenied(
+                'O PDV só está disponível no domínio de uma empresa.'
+            )
+
+        # regime = tipo de actividade: COMERCIO, SERVICOS ou MISTO.
+        regime = getattr(tenant, 'regime', None)
+
+        if regime not in {'COMERCIO', 'SERVICOS', 'MISTO'}:
+            raise PermissionDenied(
+                'O tipo de actividade da empresa não está configurado correctamente.'
+            )
+
+        context['clientes'] = list(
+            Cliente.objects.filter(ativo=True).values(
+                'id', 'nome_completo'
+            )
+        )
+
+        context['formas_pagamento'] = list(
+            FormaPagamento.objects.filter(ativa=True).values(
+                'id', 'nome'
+            )
+        )
+
+        # Produtos apenas para COMERCIO ou MISTO.
+        if regime in {'COMERCIO', 'MISTO'}:
+            context['produtos'] = list(
+                Produto.objects.filter(ativo=True).values(
+                    'id', 'nome_produto', 'preco_venda',
+                    'estoque_atual'
+                )
+            )
         else:
             context['produtos'] = []
 
-        if regime in ['SERVICOS', 'MISTO']:
-            context['servicos'] = list(Servico.objects.filter(ativo=True).values('id', 'nome', 'preco_padrao'))
+        # Serviços apenas para SERVICOS ou MISTO.
+        if regime in {'SERVICOS', 'MISTO'}:
+            context['servicos'] = list(
+                Servico.objects.filter(ativo=True).values(
+                    'id', 'nome', 'preco_padrao'
+                )
+            )
         else:
             context['servicos'] = []
 
-        context['regime_empresa'] = regime
+        # O template recebe o nome correspondente ao campo do modelo.
+        context['regime'] = regime
+
         return context
+
+
+
+
 
 
 class PDVCreateAPIView(APIView):
@@ -1461,8 +1524,21 @@ def finalizar_documento_transporte_api(request):
     try:
         data = json.loads(request.body)
 
-        if connection.tenant.regime_empresa == 'SERVICOS':
-            raise ValidationError("Empresas em regime de serviços não emitem Guia de Transporte de mercadorias.")
+        tenant = getattr(connection, 'tenant', None)
+
+        if (
+            tenant is None
+            or getattr(tenant, 'schema_name', 'public') == 'public'
+        ):
+            raise ValidationError(
+                'Não foi possível determinar o tenant da empresa.'
+            )
+
+        if tenant.regime == 'SERVICOS':
+            raise ValidationError(
+                'Empresas em regime de serviços não emitem '
+                'Guias de Transporte de mercadorias.'
+            )
 
         gt = DocumentoTransporte.objects.create(
             emitido_por=request.user,

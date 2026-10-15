@@ -1,0 +1,50 @@
+<!-- funcionarios/importar.html -->
+{% extends "base.html" %}
+
+{% block title %}Importar Funcionários{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <h1 class="h3 mb-4">Importar Funcionários</h1>
+    
+    <div class="row justify-content-center">
+        <div class="col-md-8">
+            <div class="card shadow">
+                <div class="card-header">
+                    <h6 class="m-0 font-weight-bold text-primary">Upload de Arquivo</h6>
+                </div>
+                <div class="card-body">
+                    <div class="alert alert-info">
+                        <h6><i class="fas fa-info-circle"></i> Instruções:</h6>
+                        <ul>
+                            <li>O arquivo deve estar no formato CSV</li>
+                            <li>A primeira linha deve conter os cabeçalhos</li>
+                            <li>Colunas obrigatórias: nome_completo, bi, data_nascimento, cargo, departamento</li>
+                        </ul>
+                    </div>
+                    
+                    <form method="post" enctype="multipart/form-data">
+                        {% csrf_token %}
+                        <div class="form-group">
+                            <label for="arquivo">Selecione o arquivo CSV</label>
+                            <input type="file" name="arquivo" id="arquivo" class="form-control-file" accept=".csv" required>
+                        </div>
+                        
+                        <button type="submit" class="btn btn-primary">Importar</button>
+                        <a href="{% url 'funcionarios:funcionarios' %}" class="btn btn-secondary">Cancelar</a>
+                    </form>
+                    
+                    <hr>
+                    
+                    <h6>Modelo de Arquivo</h6>
+                    <p>
+                        <a href="#" class="btn btn-outline-secondary btn-sm">
+                            <i class="fas fa-download"></i> Baixar Modelo CSV
+                        </a>
+                    </p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

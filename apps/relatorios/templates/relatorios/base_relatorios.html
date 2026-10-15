@@ -1,0 +1,150 @@
+{% extends "base.html" %}
+
+{#
+  Template intermédio de compatibilidade para relatórios.
+  Mantém os blocos title, extra_head, content e extra_js já usados pelos
+  templates existentes, enquanto delega o layout global em base.html.
+#}
+
+{% block title %}{{ title|default:"Relatórios" }}{% endblock %}
+
+{# Os templates de relatório mais antigos desenham o seu próprio cabeçalho
+   e breadcrumb dentro de content; evitamos cabeçalhos/breadcrumbs duplicados. #}
+{% block page_header %}{% endblock %}
+{% block breadcrumbs %}{% endblock %}
+
+{% block extra_css %}
+<style>
+    :root {
+        --report-navy: #122744;
+        --report-blue: #2457a7;
+        --report-accent: #e6a23c;
+        --report-ink: #172033;
+        --report-muted: #65728a;
+        --report-line: #e1e7ef;
+        --report-surface: #ffffff;
+        --report-canvas: #f4f7fb;
+        --report-success: #18794e;
+        --report-warning: #a65c00;
+        --report-danger: #b42318;
+    }
+    html.dark {
+        --report-navy: #e5edf8;
+        --report-blue: #8ab8ff;
+        --report-accent: #f5c46c;
+        --report-ink: #e5e7eb;
+        --report-muted: #a8b4c5;
+        --report-line: #374151;
+        --report-surface: #1f2937;
+        --report-canvas: #111827;
+        --report-success: #86efac;
+        --report-warning: #fcd34d;
+        --report-danger: #fca5a5;
+    }
+
+    /* Compatibilidade visual de componentes usados nos relatórios antigos.
+       Não recria body, shell, topbar, sidebar nem footer: são geridos por base.html. */
+    .crumb { margin: 0 0 8px; color: var(--report-muted); font-size: .78rem; }
+    .crumb a { color: var(--report-blue); text-decoration: none; }
+    .crumb a:hover { text-decoration: underline; }
+    .page-head {
+        display: flex; align-items: flex-start; justify-content: space-between;
+        gap: 18px; flex-wrap: wrap; margin: 0 0 20px;
+    }
+    .page-head h1 { margin: 0; color: var(--report-navy); font-size: clamp(1.4rem, 2.5vw, 1.75rem); line-height: 1.2; letter-spacing: -.025em; }
+    .page-head p { margin: 8px 0 0; color: var(--report-muted); }
+    .actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .btn {
+        display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+        border: 1px solid var(--report-line); border-radius: 8px; padding: 8px 12px;
+        background: var(--report-surface); color: var(--report-ink); font: inherit;
+        font-size: .8rem; font-weight: 700; cursor: pointer; text-decoration: none;
+    }
+    .btn:hover { text-decoration: none; filter: brightness(.97); }
+    .btn.primary { background: var(--report-blue); border-color: var(--report-blue); color: #fff; }
+    .btn.subtle { background: rgba(148, 163, 184, .08); }
+
+    .grid { gap: 14px; margin: 18px 0; }
+    .grid:not([class*="grid-cols-"]) { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    .grid.grid-2, .grid.cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .grid.grid-3, .grid.cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .grid.grid-4, .grid.cols-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    .kpi {
+        min-width: 0; padding: 16px; border: 1px solid var(--report-line);
+        border-radius: 12px; background: var(--report-surface); color: var(--report-ink);
+        box-shadow: 0 2px 8px rgba(20, 40, 75, .035);
+    }
+    .kpi .label { color: var(--report-muted); font-size: .78rem; font-weight: 700; }
+    .kpi .value { margin-top: 5px; color: var(--report-navy); font-size: 1.45rem; font-weight: 800; overflow-wrap: anywhere; }
+    .panel {
+        margin: 16px 0; overflow: hidden; border: 1px solid var(--report-line);
+        border-radius: 12px; background: var(--report-surface); color: var(--report-ink);
+    }
+    .panel-head {
+        display: flex; align-items: center; justify-content: space-between; gap: 15px;
+        padding: 15px 18px; border-bottom: 1px solid var(--report-line);
+    }
+    .panel-head h2 { margin: 0; color: var(--report-navy); font-size: .95rem; font-weight: 800; }
+    .panel-body { padding: 18px; }
+    .filters {
+        display: flex; align-items: end; gap: 12px; flex-wrap: wrap; margin: 16px 0;
+        padding: 15px; border: 1px solid var(--report-line); border-radius: 12px;
+        background: var(--report-surface);
+    }
+    .field { display: flex; min-width: 160px; flex-direction: column; gap: 5px; }
+    .field label { color: var(--report-muted); font-size: .72rem; font-weight: 800; }
+    .field input, .field select, .field textarea, input, select, textarea {
+        max-width: 100%; padding: 8px 10px; border: 1px solid #cdd6e3; border-radius: 7px;
+        background: var(--report-surface); color: var(--report-ink); font: inherit;
+    }
+    .table-wrap { overflow-x: auto; width: 100%; }
+    .table-wrap table { width: 100%; border-collapse: collapse; font-size: .8rem; }
+    .table-wrap th { background: rgba(148, 163, 184, .10); color: var(--report-muted); text-align: left; font-size: .7rem; text-transform: uppercase; letter-spacing: .035em; white-space: nowrap; }
+    .table-wrap th, .table-wrap td { padding: 11px 13px; border-bottom: 1px solid var(--report-line); vertical-align: top; }
+    .table-wrap tbody tr:hover { background: rgba(148, 163, 184, .06); }
+    .empty { padding: 26px 18px; color: var(--report-muted); text-align: center; }
+    .alert { margin: 12px 0; padding: 12px 14px; border: 1px solid #d4e3fb; border-radius: 9px; background: #f1f6ff; color: #244a81; }
+    .alert.warning { border-color: #f3d58a; background: #fff8e7; color: #774b00; }
+    .alert.error { border-color: #ffc7c2; background: #fff1f0; color: var(--report-danger); }
+    .pill { display: inline-block; padding: 3px 8px; border-radius: 99px; background: #edf2f8; color: #46556e; font-size: .72rem; font-weight: 750; }
+    .cards-list { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+    .item-card { min-width: 0; padding: 14px; border: 1px solid var(--report-line); border-radius: 10px; background: var(--report-surface); color: var(--report-ink); }
+    .item-card h3 { margin: 0 0 6px; color: var(--report-navy); font-size: .9rem; }
+    .item-card p { margin: 0; color: var(--report-muted); font-size: .8rem; }
+    .form-area { max-width: 850px; }
+    .form-area p { margin: 12px 0; }
+    .form-area label { display: block; margin-bottom: 5px; font-weight: 700; }
+    .form-area input, .form-area select, .form-area textarea { width: 100%; }
+    .form-area input[type="checkbox"] { width: auto; }
+    .form-area .helptext { color: var(--report-muted); font-size: .72rem; }
+    .pagination { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 12px 18px; color: var(--report-muted); }
+
+    html.dark .kpi, html.dark .panel, html.dark .item-card, html.dark .filters { border-color: var(--report-line); background: var(--report-surface); color: var(--report-ink); box-shadow: none; }
+    html.dark .table-wrap th { background: #273449; }
+    html.dark .field input, html.dark .field select, html.dark .field textarea,
+    html.dark input, html.dark select, html.dark textarea { border-color: #4b5563; background: #111827; color: #e5e7eb; }
+    html.dark .btn { border-color: #4b5563; background: #1f2937; color: #e5e7eb; }
+    html.dark .btn.primary { border-color: var(--report-blue); background: #2457a7; color: #fff; }
+    html.dark .pill { background: #374151; color: #e5e7eb; }
+
+    @media (max-width: 1000px) {
+        .grid:not([class*="grid-cols-"]), .grid.grid-4, .grid.cols-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        .grid.grid-3, .grid.cols-3, .cards-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+    @media (max-width: 640px) {
+        .page-head { display: block; }
+        .page-head h1 { font-size: 1.4rem; }
+        .page-head .actions { margin-top: 14px; }
+        .grid:not([class*="grid-cols-"]), .grid.grid-2, .grid.grid-3, .grid.grid-4,
+        .grid.cols-2, .grid.cols-3, .grid.cols-4, .cards-list { grid-template-columns: 1fr; }
+        .panel-body { padding: 14px; }
+        .filters { align-items: stretch; }
+        .field { min-width: 100%; }
+    }
+    @media print {
+        .actions, .filters, .no-print { display: none !important; }
+        .panel, .kpi, .item-card { box-shadow: none; break-inside: avoid; }
+    }
+</style>
+{% block extra_head %}{% endblock %}
+{% endblock %}

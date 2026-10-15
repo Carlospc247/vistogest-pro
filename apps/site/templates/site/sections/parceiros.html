@@ -1,0 +1,24 @@
+<section style="padding:clamp(2rem,5vw,4rem) 1.25rem;background:#f8fafc">
+  <style>
+    #site-parceiros-{{ secao.pk }}{width:min(100%,1200px);margin:auto}
+    #site-parceiros-{{ secao.pk }} .site-partner-grid{display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:1.5rem 2rem}
+    #site-parceiros-{{ secao.pk }} .site-partner-link{display:flex;align-items:center;justify-content:center;min-width:120px;max-width:210px;min-height:70px;padding:.75rem 1rem;border-radius:12px;background:#fff;border:1px solid #e2e8f0}
+    #site-parceiros-{{ secao.pk }} img{display:block;max-width:100%;max-height:65px;object-fit:contain}
+  </style>
+  <div id="site-parceiros-{{ secao.pk }}">
+    {% if dados.titulo %}<h2 style="font-size:clamp(1.4rem,3vw,2rem);font-weight:800;text-align:center;margin:0 0 1.75rem">{{ dados.titulo }}</h2>{% endif %}
+    <div class="site-partner-grid">
+      {% for logo in dados.logos_json %}
+        {% with src=logo.url|default:'' %}
+          {% if src %}
+            {% if logo.link %}<a class="site-partner-link" href="{{ logo.link }}" target="_blank" rel="noopener">{% else %}<div class="site-partner-link">{% endif %}
+              <img src="{{ src }}" alt="{{ logo.alt|default:'Parceiro' }}" loading="lazy">
+            {% if logo.link %}</a>{% else %}</div>{% endif %}
+          {% endif %}
+        {% endwith %}
+      {% empty %}
+        {% if modo_preview %}<p style="color:#64748b">Adiciona logos em logos_json.</p>{% endif %}
+      {% endfor %}
+    </div>
+  </div>
+</section>

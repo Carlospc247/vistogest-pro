@@ -1,352 +1,192 @@
-import json
 import os
-import subprocess
-import zipfile
-from datetime import datetime
-from django.views.generic.edit import FormView
-from django.core.mail import send_mail
 from django.conf import settings
 from django.contrib import messages
-from django.contrib.auth.mixins import LoginRequiredMixin
-from django.db import transaction
-from django.http import HttpResponse, Http404, FileResponse, JsonResponse
+from django.utils import timezone
+from django.contrib.auth.mixins import LoginRequiredMixin, AccessMixin
+from django.core.mail import send_mail
+from django.http import FileResponse, Http404, HttpResponseForbidden
 from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse_lazy
-from django.views.generic import TemplateView, UpdateView, ListView, View
-from django.contrib.auth.decorators import login_required
-from .models import ConfiguracaoFiscal, BackupConfiguracao, PersonalizacaoInterface, HistoricoBackup
-from .forms import ConfiguracaoFiscalForm, BackupConfiguracoesForm, ContactForm, PersonalizacaoInterfaceForm
-from django.urls import reverse_lazy
-from django.views.generic import CreateView, UpdateView, DeleteView
-from .models import DadosBancarios
-from .forms import DadosBancariosForm
-from django.contrib.auth.mixins import AccessMixin
-from django.contrib import messages
-from django.shortcuts import redirect
-from django.contrib.auth.mixins import LoginRequiredMixin
+from django.views import View
+from django.views.generic import TemplateView, UpdateView, ListView, FormView, DetailView, DeleteView, CreateView
 from django_tenants.utils import get_public_schema_name
-
-
-
+from .models import ConfiguracaoFiscal, BackupConfiguracao, PersonalizacaoInterface, HistoricoBackup, DadosBancarios
+from .forms import ConfiguracaoFiscalForm, BackupConfiguracoesForm, ContactForm, PersonalizacaoInterfaceForm, DadosBancariosForm
+from .services.backup_service import executar_backup, limpar_backups_antigos, restaurar_backup
 
 class PermissaoAcaoMixin(AccessMixin):
-    # CRÍTICO: Definir esta variável na View
-    acao_requerida = None 
-
-    def dispatch(self, request, *args, **kwargs):
-        if not request.user.is_authenticated:
-            return self.handle_no_permission()
-
-        try:
-            # Tenta obter o Funcionario (ligação fundamental)
-            funcionario = request.user.funcionario 
-        except Exception:
-            messages.error(request, "Acesso negado. O seu usuário não está ligado a um registro de funcionário.")
-            return self.handle_no_permission()
-
+    acao_requerida=None
+    def dispatch(self, request,*args,**kwargs):
+        if not request.user.is_authenticated: return self.handle_no_permission()
+        user=request.user
+        # Administradores podem gerir as configurações da sua própria empresa.
+        if getattr(user,"is_superuser",False) or getattr(user,"is_staff",False) or getattr(user,"e_administrador_empresa",False):
+            return super().dispatch(request,*args,**kwargs)
         if self.acao_requerida:
-            # Usa a lógica dinâmica do modelo Funcionario (que já criámos)
-            if not funcionario.pode_realizar_acao(self.acao_requerida):
-                messages.error(request, f"Acesso negado. O seu cargo não permite realizar a ação de '{self.acao_requerida}'.")
-                return redirect(reverse_lazy('configuracoes:dashboard')) # Redirecionamento para a Home ou Dashboard
-
-        return super().dispatch(request, *args, **kwargs)
- 
-
-
-
+            funcionario=getattr(user,"funcionario",None) or getattr(user,"funcionario_relacionado",None)
+            pode=getattr(funcionario,"pode_realizar_acao",None) if funcionario else None
+            if callable(pode):
+                if not pode(self.acao_requerida):
+                    messages.error(request,"O seu cargo não permite realizar esta ação.")
+                    return HttpResponseForbidden("Acesso negado.")
+            elif not user.has_perm(f"configuracoes.{self.acao_requerida}"):
+                messages.error(request,"Não tem permissão para realizar esta ação.")
+                return HttpResponseForbidden("Acesso negado.")
+        return super().dispatch(request,*args,**kwargs)
 
 class ConfiguracoesBaseView(LoginRequiredMixin, PermissaoAcaoMixin):
-    acao_requerida = 'acessar_configuracoes'
-    """
-    Mixin base para as views de configurações, garantindo que a requisição
-    está rodando no contexto de um Tenant (Empresa) válido via django_tenants.
-    """
-
+    acao_requerida="acessar_configuracoes"
     def get_empresa(self):
-        """
-        Retorna a empresa (Tenant) atual da requisição.
-        O TenantMiddleware do django_tenants disponibiliza isso em request.tenant.
-        """
-        tenant = getattr(self.request, 'tenant', None)
-
-        # Valida se o tenant existe e se NÃO é o schema 'public'
-        if tenant and tenant.schema_name != get_public_schema_name():
-            return tenant
-
+        tenant=getattr(self.request,"tenant",None)
+        if tenant and getattr(tenant,"schema_name",get_public_schema_name()) != get_public_schema_name(): return tenant
         return None
-
-    def dispatch(self, request, *args, **kwargs):
+    def dispatch(self,request,*args,**kwargs):
         if not self.get_empresa():
-            messages.error(request, "Acesso permitido apenas no contexto de uma empresa.")
-            return redirect('core_tenants:dashboard')  # Redireciona se estiver no schema público ou sem tenant
+            messages.error(request,"Aceda a esta área através do domínio da sua empresa.")
+            return HttpResponseForbidden("Esta área requer um tenant.")
+        return super().dispatch(request,*args,**kwargs)
 
-        return super().dispatch(request, *args, **kwargs)
-    
+def _fiscal_config():
+    # Não se usa empresa=...: os dados já estão isolados pelo schema do tenant.
+    defaults={"razao_social":"","nome_fantasia":"","nif":"","email":"","site":"","telefone":"","endereco":"","cidade":"","provincia":"","postal":""}
+    obj, _=ConfiguracaoFiscal.objects.get_or_create(defaults=defaults)
+    return obj
 
-class ConfiguracoesDashboardView(ConfiguracoesBaseView, TemplateView):
-    acao_requerida = 'acessar_configuracoes'
+def _backup_config():
+    obj=BackupConfiguracao.objects.first()
+    return obj or BackupConfiguracao()
 
-    template_name = 'configuracoes/dashboard.html'
+class ConfiguracoesDashboardView(ConfiguracoesBaseView,TemplateView):
+    template_name="configuracoes/dashboard.html"
+    def get_context_data(self,**kwargs):
+        c=super().get_context_data(**kwargs); c["title"]="Painel de Configurações"
+        c["config_fiscal_exists"]=ConfiguracaoFiscal.objects.exists(); c["config_backup_exists"]=BackupConfiguracao.objects.exists()
+        c["config_interface_exists"]=PersonalizacaoInterface.objects.filter().exists()
+        c["ultimo_backup"]=HistoricoBackup.objects.filter(status="sucesso").order_by("-data_criacao").first()
+        return c
 
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        
-        context['title'] = "Painel de Configurações"
-        context['config_fiscal_exists'] = ConfiguracaoFiscal.objects.all().exists()
-        context['config_backup_exists'] = BackupConfiguracao.objects.all().exists()
-        context['config_interface_exists'] = PersonalizacaoInterface.objects.all().exists()
-        context['ultimo_backup'] = HistoricoBackup.objects.filter(
-            status='sucesso'
-        ).order_by('-data_criacao').first()
-        
-        return context
+class ConfiguracaoFiscalUpdateView(ConfiguracoesBaseView,UpdateView):
+    acao_requerida="alterar_dados_fiscais"; model=ConfiguracaoFiscal; form_class=ConfiguracaoFiscalForm; template_name="configuracoes/fiscal.html"
+    def get_object(self,queryset=None): return _fiscal_config()
+    def get_success_url(self): messages.success(self.request,"Dados fiscais guardados com sucesso."); return reverse_lazy("configuracoes:fiscal_detail")
+    def get_context_data(self,**kwargs): c=super().get_context_data(**kwargs); c["title"]="Configurações Fiscais"; return c
 
+class ConfiguracaoFiscalDetailView(ConfiguracoesBaseView,DetailView):
+    acao_requerida="acessar_detalhes_fiscal"; model=ConfiguracaoFiscal; template_name="configuracoes/fiscal_detail.html"; context_object_name="object"
+    def get_object(self,queryset=None): return ConfiguracaoFiscal.objects.first()
+    def get_context_data(self,**kwargs):
+        c=super().get_context_data(**kwargs); c["title"]="Dados Fiscais da Empresa"
+        c["dados_bancarios"]=DadosBancarios.objects.filter(configuracao_fiscal=self.object).order_by("nome_banco") if self.object else DadosBancarios.objects.none()
+        return c
 
-class ConfiguracaoFiscalUpdateView(ConfiguracoesBaseView, PermissaoAcaoMixin, UpdateView):
-    acao_requerida = 'alterar_dados_fiscais'
-    model = ConfiguracaoFiscal
-    form_class = ConfiguracaoFiscalForm
-    template_name = 'configuracoes/fiscal.html'
-    
-    def get_object(self, queryset=None):
-        # Usa get_or_create para garantir que a configuração sempre exista para a empresa
-        obj, created = ConfiguracaoFiscal.objects.get_or_create(empresa=self.get_empresa())
+class ConfiguracaoFiscalDeleteView(ConfiguracoesBaseView,DeleteView):
+    acao_requerida="eliminar_detalhes_fiscal"; model=ConfiguracaoFiscal; template_name="configuracoes/fiscal_confirm_delete.html"; success_url=reverse_lazy("configuracoes:fiscal_detail")
+    def get_object(self,queryset=None): return get_object_or_404(ConfiguracaoFiscal.objects.all().order_by("pk"),pk=self.request.POST.get("pk") or self.kwargs.get("pk")) if self.kwargs.get("pk") else get_object_or_404(ConfiguracaoFiscal.objects.all().order_by("pk"))
+    def form_valid(self,form): messages.success(self.request,"Configuração fiscal removida. Os dados bancários associados também serão removidos."); return super().form_valid(form)
+
+class PersonalizacaoInterfaceUpdateView(ConfiguracoesBaseView,UpdateView):
+    acao_requerida="alterar_interface"; model=PersonalizacaoInterface; form_class=PersonalizacaoInterfaceForm; template_name="configuracoes/interface.html"
+    def get_object(self,queryset=None):
+        obj,_=PersonalizacaoInterface.objects.get_or_create(defaults={"tema":"auto","cor_primaria":"#5D5CDE"})
         return obj
-
-    def get_success_url(self):
-        messages.success(self.request, "Configurações fiscais atualizadas com sucesso!")
-        return reverse_lazy('configuracoes:fiscal_update')
-
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        context['title'] = "Configurações Fiscais"
-        return context
-
-
-
-
-class PersonalizacaoInterfaceUpdateView(ConfiguracoesBaseView, PermissaoAcaoMixin, UpdateView):
-    acao_requerida = 'alterar_interface'
-
-    model = PersonalizacaoInterface
-    form_class = PersonalizacaoInterfaceForm
-    template_name = 'configuracoes/interface.html'
-
-    def get_object(self, queryset=None):
-        # Prioriza a configuração do utilizador; se não existir, usa/cria a da empresa
-        obj, created = PersonalizacaoInterface.objects.get_or_create(
-            usuario=self.request.user
-        )
-        return obj
-
-    
-    def form_valid(self, form):
-        # Quando o formulário é guardado com sucesso, removemos a preferência da sessão.
-        # Isto força o context_processor a ler o novo valor da BD no próximo pedido.
-        if 'interface_prefs' in self.request.session:
-            del self.request.session['interface_prefs']
+    def form_valid(self,form):
         
-        messages.success(self.request, "Preferências de interface salvas com sucesso!")
+        if "interface_prefs" in self.request.session: del self.request.session["interface_prefs"]
+        messages.success(self.request,"Preferências da interface guardadas.")
         return super().form_valid(form)
+    def get_success_url(self): return reverse_lazy("configuracoes:interface")
+    def get_context_data(self,**kwargs): c=super().get_context_data(**kwargs); c["title"]="Personalização da Interface"; return c
 
-    def get_success_url(self):
-        # A mensagem de sucesso foi movida para form_valid
-        return reverse_lazy('configuracoes:interface')
-    
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        context['title'] = "Personalização da Interface"
-        return context
-
-
-class SuporteView(LoginRequiredMixin, FormView):
-    template_name = 'configuracoes/suporte.html'
-    form_class = ContactForm
-    success_url = reverse_lazy('configuracoes:suporte')
-
+class SuporteView(LoginRequiredMixin,FormView):
+    template_name="configuracoes/suporte.html"; form_class=ContactForm; success_url=reverse_lazy("configuracoes:suporte")
     def get_initial(self):
-        """ Pré-preenche o formulário com os dados do utilizador logado. """
-        initial = super().get_initial()
-        initial['nome'] = self.request.user.get_full_name()
-        initial['email'] = self.request.user.email
-        return initial
-
-    def form_valid(self, form):
-        """
-        Esta função é executada quando o formulário é válido.
-        Aqui é onde enviamos o email.
-        """
-        nome = form.cleaned_data['nome']
-        email = form.cleaned_data['email']
-        assunto = form.cleaned_data['assunto']
-        mensagem = form.cleaned_data['mensagem']
-
-        # Prepara o conteúdo do email
-        corpo_email = f"""
-        Nova mensagem de suporte recebida:
-        -----------------------------------
-        De: {nome} <{email}>
-        Assunto: {assunto}
-        -----------------------------------
-        Mensagem:
-        {mensagem}
-        """
-
-        # Envia o email
-        send_mail(
-            subject=f"[Suporte VistoGEST] - {assunto}",
-            message=corpo_email,
-            from_email=settings.DEFAULT_FROM_EMAIL, # Email remetente (configurado em settings.py)
-            recipient_list=[settings.SUPPORT_EMAIL], # Email destinatário (a configurar)
-            fail_silently=False,
-        )
-
-        messages.success(self.request, "A sua mensagem foi enviada com sucesso! A nossa equipa entrará em contacto em breve.")
-        return super().form_valid(form)
-
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        context['title'] = "Central de Ajuda e Suporte"
-        return context
-
-
-class BackupConfiguracaoUpdateView(ConfiguracoesBaseView, PermissaoAcaoMixin, UpdateView):
-    acao_requerida = 'atualizar_backups'
-
-    model = BackupConfiguracao
-    form_class = BackupConfiguracoesForm
-    template_name = 'configuracoes/backup_config.html'
-
-    def get_object(self, queryset=None):
-        obj, created = BackupConfiguracao.objects.get_or_create(empresa=self.get_empresa())
-        return obj
-
-    def get_success_url(self):
-        messages.success(self.request, "Configurações de backup atualizadas com sucesso!")
-        return reverse_lazy('configuracoes:backup_config')
-    
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        context['title'] = "Configurar Backups"
-        return context
-
-
-class BackupListView(ConfiguracoesBaseView, PermissaoAcaoMixin, ListView):
-    acao_requerida = 'ver_configuracoes'
-    model = HistoricoBackup
-    template_name = 'configuracoes/backup_historico.html'
-    context_object_name = 'backups'
-    paginate_by = 15
-
-    def get_queryset(self):
-        return HistoricoBackup.objects.filter(empresa=self.get_empresa()).order_by('-data_criacao')
-
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        context['title'] = "Histórico de Backups"
-        return context
-
-
-from apps.configuracoes.services.backup_service import executar_backup
-
-class BackupManualCreateView(ConfiguracoesBaseView, PermissaoAcaoMixin, View):
-    acao_requerida = 'fazer_backup_manual'
-    def post(self, request, *args, **kwargs):
-        empresa = self.get_empresa()
+        i=super().get_initial(); i["nome"]=self.request.user.get_full_name() or self.request.user.get_username(); i["email"]=self.request.user.email; return i
+    def form_valid(self,form):
+        recipient=getattr(settings,"SUPPORT_EMAIL",None)
+        if not recipient:
+            messages.error(self.request,"O suporte ainda não está configurado. Defina SUPPORT_EMAIL no settings.py.")
+            return self.form_invalid(form)
+        body=(f"Nova mensagem de suporte\n\nNome: {form.cleaned_data['nome']}\nEmail: {form.cleaned_data['email']}\nAssunto: {form.cleaned_data['assunto']}\n\n{form.cleaned_data['mensagem']}")
         try:
-            backup = executar_backup(empresa, tipo='manual', user=request.user)
-            messages.success(request, f"Backup '{backup.nome_ficheiro}' criado com sucesso!")
-        except Exception as e:
-            messages.error(request, f"Erro ao criar o backup: {e}")
-        return redirect('configuracoes:backup_historico')
-
-
-
-class BackupDownloadView(ConfiguracoesBaseView, PermissaoAcaoMixin, View):
-    def get(self, request, *args, **kwargs):
-        backup = get_object_or_404(HistoricoBackup, pk=kwargs['pk'], empresa=self.get_empresa())
-        
-        if not backup.ficheiro_backup or not os.path.exists(backup.ficheiro_backup.path):
-            raise Http404("Ficheiro de backup não encontrado no servidor.")
-            
-        return FileResponse(open(backup.ficheiro_backup.path, 'rb'), as_attachment=True)
-
-
-class BackupRestoreView(ConfiguracoesBaseView, PermissaoAcaoMixin, View):
-    def post(self, request, *args, **kwargs):
-        messages.warning(request, "A funcionalidade de restauração automática não está implementada por motivos de segurança. Por favor, contacte o suporte técnico para restaurar um backup.")
-        return redirect('configuracoes:backup_historico')
-
-
-
-from django.views.generic import DetailView, DeleteView
-from django.urls import reverse_lazy
-
-
-class ConfiguracaoFiscalDetailView(ConfiguracoesBaseView, PermissaoAcaoMixin, DetailView):
-    acao_requerida = 'acessar_detalhes_fiscal'
-    """
-    Exibe os detalhes da configuração fiscal da empresa logada.
-    """
-    model = ConfiguracaoFiscal
-    template_name = 'configuracoes/fiscal_detail.html'
-
-    def get_object(self, queryset=None):
-        empresa = self.get_empresa()
-        obj, created = ConfiguracaoFiscal.objects.get_or_create(empresa=empresa)
-        return obj
-
-
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        context['title'] = "Detalhes Fiscais da Empresa"
-        return context
-    
-
-# E a nova view para eliminar a configuração
-class ConfiguracaoFiscalDeleteView(ConfiguracoesBaseView, PermissaoAcaoMixin, DeleteView):
-    acao_requerida = 'eliminar_detalhes_fiscal'
-    """
-    Exibe a página de confirmação para eliminar as configurações fiscais.
-    """
-    model = ConfiguracaoFiscal
-    template_name = 'configuracoes/fiscal_confirm_delete.html'
-    
-    def get_object(self, queryset=None):
-        # Garante que só pode eliminar a sua própria configuração
-        return ConfiguracaoFiscal.objects.get(empresa=self.get_empresa())
-    
-    def get_success_url(self):
-        messages.success(self.request, "Configurações fiscais eliminadas com sucesso!")
-        return reverse_lazy('configuracoes:fiscal_detail') # Redireciona de volta para a página de detalhes, que agora estará vazia.
- 
-
-
-class DadosBancariosCreateView(CreateView, PermissaoAcaoMixin):
-    acao_requerida ='criar_dados_bancarios'
-    model = DadosBancarios
-    form_class = DadosBancariosForm
-    template_name = 'configuracoes/dados_bancarios_form.html'
-    success_url = reverse_lazy('configuracoes:fiscal_detail')
-
-    def form_valid(self, form):
-        # Associa a conta bancária à configuração fiscal da empresa logada
-        config_fiscal = self.request.user.config_fiscal
-        form.instance.configuracao_fiscal = config_fiscal
+            send_mail(f"[Suporte VistoGEST] {form.cleaned_data['assunto']}",body,settings.DEFAULT_FROM_EMAIL,[recipient],fail_silently=False)
+        except Exception:
+            messages.error(self.request,"Não foi possível enviar a mensagem. Tente novamente mais tarde.")
+            return self.form_invalid(form)
+        messages.success(self.request,"Mensagem enviada à equipa de suporte.")
         return super().form_valid(form)
+    def get_context_data(self,**kwargs): c=super().get_context_data(**kwargs); c["title"]="Central de Ajuda e Suporte"; return c
 
-class DadosBancariosUpdateView(UpdateView, PermissaoAcaoMixin):
-    acao_requerida ='atualizar_dados_bancarios'
-    model = DadosBancarios
-    form_class = DadosBancariosForm
-    template_name = 'configuracoes/dados_bancarios_form.html'
-    success_url = reverse_lazy('configuracoes:fiscal')
+class BackupConfiguracaoUpdateView(ConfiguracoesBaseView,UpdateView):
+    acao_requerida="atualizar_backups"; model=BackupConfiguracao; form_class=BackupConfiguracoesForm; template_name="configuracoes/backup_config.html"
+    def get_object(self,queryset=None): return _backup_config()
+    def form_valid(self,form): messages.success(self.request,"Política de backups guardada."); return super().form_valid(form)
+    def get_success_url(self): return reverse_lazy("configuracoes:backup_config")
+    def get_context_data(self,**kwargs): c=super().get_context_data(**kwargs); c["title"]="Configurar Backups"; c["ultimo_backup"]=HistoricoBackup.objects.order_by("-data_criacao").first(); return c
 
-class DadosBancariosDeleteView(DeleteView, PermissaoAcaoMixin):
-    acao_requerida ='apagar_dados_bancarios'
-    model = DadosBancarios
-    template_name = 'configuracoes/dados_bancarios_confirm_delete.html'
-    success_url = reverse_lazy('configuracoes:fiscal_detail')
+class BackupListView(ConfiguracoesBaseView,ListView):
+    acao_requerida="ver_configuracoes"; model=HistoricoBackup; template_name="configuracoes/backup_historico.html"; context_object_name="backups"; paginate_by=20
+    def get_queryset(self): return HistoricoBackup.objects.order_by("-data_criacao")
+    def get_context_data(self,**kwargs): c=super().get_context_data(**kwargs); c["title"]="Histórico de Backups"; return c
 
+class BackupManualCreateView(ConfiguracoesBaseView,View):
+    acao_requerida="fazer_backup_manual"
+    http_method_names=["post"]
+    def post(self,request,*args,**kwargs):
+        try:
+            backup=executar_backup(tipo="manual",user=request.user,tenant=self.get_empresa())
+            messages.success(request,f"Backup '{backup.nome_ficheiro}' criado com sucesso.")
+        except Exception as exc:
+            messages.error(request,f"Falha na criação do backup: {exc}")
+        return redirect("configuracoes:backup_historico")
 
+class BackupDownloadView(ConfiguracoesBaseView,View):
+    acao_requerida="descarregar_backup"
+    def get(self,request,*args,**kwargs):
+        backup=get_object_or_404(HistoricoBackup,pk=kwargs["pk"],status="sucesso")
+        if not backup.ficheiro_backup or not backup.ficheiro_backup.storage.exists(backup.ficheiro_backup.name): raise Http404("Ficheiro de backup não encontrado.")
+        stream=backup.ficheiro_backup.open("rb")
+        return FileResponse(stream,as_attachment=True,filename=os.path.basename(backup.ficheiro_backup.name))
+
+class BackupRestoreView(ConfiguracoesBaseView,View):
+    acao_requerida="restaurar_backup"
+    def post(self,request,*args,**kwargs):
+        # Restauração é destrutiva: exige superuser/permissão e confirmação textual explícita.
+        if not (request.user.is_superuser or request.user.has_perm("configuracoes.restore_backup")):
+            return HttpResponseForbidden("Só um superutilizador ou utilizador com permissão restore_backup pode restaurar backups.")
+        if request.POST.get("confirmacao") != "RESTAURAR":
+            messages.error(request,"Confirmação inválida. Escreva RESTAURAR para autorizar a operação."); return redirect("configuracoes:backup_historico")
+        backup=get_object_or_404(HistoricoBackup,pk=kwargs["pk"],status="sucesso")
+        try:
+            # Cria uma cópia de segurança do estado actual antes de sobrepor dados.
+            safety_backup=executar_backup(tipo="manual",user=request.user,tenant=self.get_empresa())
+            safety_name=safety_backup.ficheiro_backup.name
+            safety_size=safety_backup.tamanho_ficheiro
+            manifest=restaurar_backup(backup,tenant=self.get_empresa())
+            # O dump restaurado pode repor um histórico antigo; regista novamente a cópia pré-restauração.
+            HistoricoBackup.objects.create(
+                tipo="manual", status="sucesso", data_conclusao=timezone.now(),
+                ficheiro_backup=safety_name, tamanho_ficheiro=safety_size, solicitado_por=None,
+                detalhes_erro=f"Cópia automática criada antes da restauração de #{kwargs['pk']}."
+            )
+            messages.success(request,f"Restauração concluída para o schema {manifest['schema_name']}. Foi preservada uma cópia pré-restauração no histórico.")
+        except Exception as exc:
+            messages.error(request,f"Não foi possível restaurar o backup: {exc}")
+        return redirect("configuracoes:backup_historico")
+
+class DadosBancariosBaseMixin(ConfiguracoesBaseView):
+    def get_config_fiscal(self): return _fiscal_config()
+    def get_queryset(self): return DadosBancarios.objects.filter(configuracao_fiscal=self.get_config_fiscal())
+
+class DadosBancariosCreateView(DadosBancariosBaseMixin,CreateView):
+    acao_requerida="criar_dados_bancarios"; model=DadosBancarios; form_class=DadosBancariosForm; template_name="configuracoes/dados_bancarios_form.html"; success_url=reverse_lazy("configuracoes:fiscal_detail")
+    def form_valid(self,form): form.instance.configuracao_fiscal=self.get_config_fiscal(); messages.success(self.request,"Dados bancários adicionados."); return super().form_valid(form)
+    def get_context_data(self,**kwargs): c=super().get_context_data(**kwargs); c["title"]="Adicionar Dados Bancários"; return c
+
+class DadosBancariosUpdateView(DadosBancariosBaseMixin,UpdateView):
+    acao_requerida="atualizar_dados_bancarios"; model=DadosBancarios; form_class=DadosBancariosForm; template_name="configuracoes/dados_bancarios_form.html"; success_url=reverse_lazy("configuracoes:fiscal_detail")
+    def form_valid(self,form): messages.success(self.request,"Dados bancários atualizados."); return super().form_valid(form)
+    def get_context_data(self,**kwargs): c=super().get_context_data(**kwargs); c["title"]="Editar Dados Bancários"; return c
+
+class DadosBancariosDeleteView(DadosBancariosBaseMixin,DeleteView):
+    acao_requerida="apagar_dados_bancarios"; model=DadosBancarios; template_name="configuracoes/dados_bancarios_confirm_delete.html"; success_url=reverse_lazy("configuracoes:fiscal_detail")
+    def form_valid(self,form): messages.success(self.request,"Dados bancários removidos."); return super().form_valid(form)

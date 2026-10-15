@@ -1,0 +1,14 @@
+{# documentos/contrato.html #}
+{% extends "documentos/_documento_base.html" %}
+{% block doc_title %}Contrato de trabalho{% endblock %}
+{% block doc_corpo %}
+<h1>Contrato de trabalho</h1>
+<p>Entre <strong>{{ request.tenant.nome }}</strong>, NIF {{ request.tenant.nif }}, com sede em {{ request.tenant.endereco }}, {{ request.tenant.cidade }}, adiante designada <em>entidade empregadora</em>, e <strong>{{ funcionario.nome_completo }}</strong>, portador do BI n.º {{ funcionario.bi }}, residente em {{ funcionario.endereco_completo }}, adiante designado <em>trabalhador</em>, é celebrado o presente contrato, que se rege pelas cláusulas seguintes.</p>
+<p><strong>1.ª — Função.</strong> O trabalhador é admitido para exercer as funções de {{ funcionario.cargo.nome|default:"____" }}, no departamento {{ funcionario.departamento.nome }}.</p>
+<p><strong>2.ª — Início e tipo.</strong> O contrato ({{ funcionario.get_tipo_contrato_display }}) inicia-se em {{ funcionario.data_admissao|date:"d/m/Y" }}, com período experimental de {{ funcionario.periodo_experiencia_dias }} dias.</p>
+<p><strong>3.ª — Horário.</strong> O período normal de trabalho é de {{ funcionario.carga_horaria_semanal }} horas semanais{% if funcionario.horario_entrada %}, das {{ funcionario.horario_entrada|time:"H:i" }} às {{ funcionario.horario_saida|time:"H:i" }}{% endif %}.</p>
+<p><strong>4.ª — Remuneração.</strong> O trabalhador receberá o salário base mensal de {{ funcionario.salario_atual|floatformat:2 }} Kz, acrescido de subsídios no valor de {{ funcionario.vale_alimentacao|add:funcionario.vale_transporte|add:funcionario.outros_beneficios|floatformat:2 }} Kz.</p>
+<p><strong>5.ª — Legislação.</strong> Em tudo o que não estiver previsto aplica-se a legislação laboral angolana em vigor.</p>
+<p>Luanda, {% now "d/m/Y" %}.</p>
+<div class="assin"><div>A entidade empregadora</div><div>O trabalhador</div></div>
+{% endblock %}

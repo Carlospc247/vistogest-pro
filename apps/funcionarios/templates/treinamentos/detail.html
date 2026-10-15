@@ -1,0 +1,16 @@
+{# treinamentos/detail.html #}
+{% extends "funcionarios/_rh_base.html" %}
+{% block title %}{{ treinamento.titulo }}{% endblock %}
+{% block rh_content %}
+<a href="{% url 'funcionarios:treinamento_lista' %}" class="text-sm text-indigo-600">&larr; Formação</a>
+<div class="rh-card text-sm space-y-1 mt-3 max-w-3xl">
+  <h1 class="text-2xl font-bold mb-2">{{ treinamento.titulo }}</h1>
+  <p>Funcionário: <a class="text-indigo-600" href="{% url 'funcionarios:detail' pk=treinamento.funcionario_id %}">{{ treinamento.funcionario.nome_completo }}</a></p>
+  <p>{{ treinamento.get_tipo_display }} • {{ treinamento.get_modalidade_display }} • {{ treinamento.carga_horaria }} h</p>
+  <p>{{ treinamento.data_inicio|date:"d/m/Y" }} a {{ treinamento.data_fim|date:"d/m/Y" }} • {{ treinamento.get_status_display }}</p>
+  <p>Instituição: {{ treinamento.instituicao }}{% if treinamento.instrutor %} • Instrutor: {{ treinamento.instrutor }}{% endif %}</p>
+  <p>Custo total: <strong>{{ treinamento.total|floatformat:2 }} Kz</strong>{% if treinamento.nota_final %} • Nota: {{ treinamento.nota_final }}{% endif %}</p>
+  {% if treinamento.certificado %}<p><a class="text-indigo-600" href="{{ treinamento.certificado.url }}" target="_blank">Ver certificado</a></p>{% endif %}
+  <p class="pt-2">{{ treinamento.descricao|linebreaksbr }}</p>
+</div>
+{% endblock %}

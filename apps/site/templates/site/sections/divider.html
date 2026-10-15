@@ -1,0 +1,5 @@
+{% with espessura=dados.espessura|default:1 cor=dados.cor|default:'#e5e7eb' margem=dados.margem|default:'md' %}
+<div class="site-divider site-divider-{{ secao.pk }}" aria-hidden="true" style="padding: {% if margem == 'sm' %}1rem{% elif margem == 'lg' %}3rem{% elif margem == 'none' %}0{% else %}1.75rem{% endif %} 1.25rem">
+  <hr style="width:min(100%,1200px);margin:0 auto;border:0;border-top:{{ espessura }}px solid {{ cor }}">
+</div>
+{% endwith %}

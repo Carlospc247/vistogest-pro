@@ -591,6 +591,8 @@ class TemplateRelatorio(TimeStampedModel):
     def __str__(self):
         return self.nome
 
+
+
 class Relatorio(TimeStampedModel):
     """
     Regista uma instância de um relatório que foi gerado.
@@ -620,6 +622,8 @@ class Relatorio(TimeStampedModel):
 
     def __str__(self):
         return f"{self.template.nome} gerado em {self.data_geracao.strftime('%d/%m/%Y %H:%M')}"
+
+
 
 class AgendamentoRelatorio(TimeStampedModel):
     """

@@ -1,15 +1,2 @@
-<!-- templates/financeiro/analises/endividamento.html -->
-{% extends 'base.html' %}
-{% load static %}
-
-{% block title %}Análise de Endividamento{% endblock %}
-{% block page_title %}Endividamento{% endblock %}
-
-{% block content %}
-<div class="container mx-auto p-4">
-    <h1 class="text-2xl font-bold mb-4">Análise de Endividamento</h1>
-    <p>Visualize os indicadores de endividamento aqui.</p>
-    <!-- Adicione gráficos ou tabelas conforme necessário -->
-    <a href="{% url 'financeiro:analises_index' %}" class="btn btn-secondary">Voltar</a>
-</div>
-{% endblock %}
+{% extends "financeiro/base_financeiro.html" %}{% block title %}Análise de endividamento{% endblock %}{% block breadcrumb %}Análise de endividamento{% endblock %}{% block content %}
+<header class="page-head"><div><h1>Análise de endividamento</h1><p>Analise obrigações, vencimentos e saldo em aberto.</p></div>{% block page_actions %}{% endblock %}</header><section class="panel"><form method="get" class="filters"><div class="field"><label>Período inicial</label><input type="date" name="data_inicio" value="{{ request.GET.data_inicio }}"></div><div class="field"><label>Período final</label><input type="date" name="data_fim" value="{{ request.GET.data_fim }}"></div><button class="btn">Actualizar análise</button></form><div class="grid"><div class="metric"><div class="label">Indicador principal</div><div class="value">{{ indicador_principal|default:'—' }}</div><div class="hint">A view precisa enviar o cálculo.</div></div><div class="metric"><div class="label">Período</div><div class="value" style="font-size:16px">{{ request.GET.data_inicio|default:'Início' }} — {{ request.GET.data_fim|default:'Actual' }}</div></div></div><div class="notice warning">A view actual não calcula este indicador. Não utilize valores de exemplo para tomada de decisão financeira até ligar o cálculo aos dados reais e validá-lo.</div></section>{% endblock %}

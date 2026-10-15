@@ -1,26 +1,4 @@
-<!-- templates/financeiro/conta_pagar/detail.html -->
-{% extends 'base.html' %}
-{% load static %}
-
-{% block title %}Detalhes da Conta a Pagar{% endblock %}
-{% block page_title %}Detalhes da Conta a Pagar{% endblock %}
-
-{% block content %}
-<div class="bg-white dark:bg-gray-800 shadow rounded-lg p-6">
-    <h1 class="text-2xl font-bold text-gray-900 dark:text-white mb-4">
-        Detalhes da Conta a Pagar: {{ conta.fornecedor.nome }}
-    </h1>
-
-    <p><strong>Data Vencimento:</strong> {{ conta.data_vencimento|date:"d/m/Y" }}</p>
-    <p><strong>Valor:</strong> {{ conta.valor|floatformat:2 }} Kz</p>
-    <p><strong>Status:</strong> {{ conta.get_status_display }}</p>
-
-    <div class="mt-6">
-        <a href="{% url 'financeiro:conta_pagar_update' conta.id %}" class="bg-yellow-500 text-white px-4 py-2 rounded-lg">Editar</a>
-        <form method="POST" action="{% url 'financeiro:pagar_conta' conta.id %}" class="inline">
-            {% csrf_token %}
-            <button type="submit" class="bg-green-500 text-white px-4 py-2 rounded-lg">Pagar</button>
-        </form>
-    </div>
-</div>
+{% extends "financeiro/base_financeiro.html" %}{% block title %}Detalhe da conta a pagar{% endblock %}{% block breadcrumb %}Detalhe da conta a pagar{% endblock %}{% block content %}
+<header class="page-head"><div><h1>Detalhe da conta a pagar</h1><p>Dados da obrigação, saldo em aberto e operações disponíveis.</p></div>{% block page_actions %}{% endblock %}</header>
+<section class="panel"><div class="page-head"><div><h2>{{ conta.numero_documento }} · {{ conta.descricao }}</h2><p>{{ conta.fornecedor|default:'Fornecedor não indicado' }}</p></div><div class="actions"><a class="btn secondary" href="{% url 'financeiro:conta_pagar_lista' %}">Voltar</a><a class="btn secondary" href="{% url 'financeiro:conta_pagar_update' conta.pk %}">Editar</a></div></div><div class="grid"><div class="metric"><div class="label">Valor original</div><div class="value">{{ conta.valor_original|floatformat:2 }}</div></div><div class="metric"><div class="label">Saldo a pagar</div><div class="value">{{ conta.valor_saldo|floatformat:2 }}</div></div><div class="metric"><div class="label">Estado</div><div class="value">{{ conta.get_status_display }}</div></div><div class="metric"><div class="label">Vencimento</div><div class="value">{{ conta.data_vencimento|date:'d/m/Y' }}</div></div></div><div class="detail-list"><div class="detail-item"><div class="k">Tipo</div><div class="v">{{ conta.get_tipo_conta_display }}</div></div><div class="detail-item"><div class="k">Centro de custo</div><div class="v">{{ conta.centro_custo|default:'—' }}</div></div><div class="detail-item"><div class="k">Parcela</div><div class="v">{{ conta.numero_parcela }}/{{ conta.total_parcelas }}</div></div><div class="detail-item"><div class="k">Pagamento</div><div class="v">{{ conta.data_pagamento|date:'d/m/Y'|default:'—' }}</div></div></div>{% if conta.observacoes %}<h2 style="margin-top:18px">Observações</h2><p>{{ conta.observacoes|linebreaksbr }}</p>{% endif %}<div class="form-actions"><form method="post" action="{% url 'financeiro:pagar_conta' conta.pk %}">{% csrf_token %}<label for="valor_pago">Valor a pagar (AOA)</label><input id="valor_pago" name="valor_pago" type="number" min="0.01" max="{{ conta.valor_saldo }}" step="0.01" value="{{ conta.valor_saldo }}" required><label for="data_pagamento">Data de pagamento</label><input id="data_pagamento" name="data_pagamento" type="date" required><label for="forma_pagamento">Forma de pagamento</label><select id="forma_pagamento" name="forma_pagamento"><option value="transferencia">Transferência</option><option value="dinheiro">Dinheiro</option><option value="cheque">Cheque</option><option value="cartao">Cartão</option><option value="outros">Outros</option></select><label for="conta_bancaria">Conta bancária</label><select id="conta_bancaria" name="conta_bancaria" required>{% for c in contas_bancarias %}<option value="{{ c.pk }}">{{ c.nome }} — {{ c.banco }}</option>{% endfor %}</select><button class="btn success" type="submit">Registar pagamento</button></form><form method="post" action="{% url 'financeiro:agendar_pagamento' conta.pk %}">{% csrf_token %}<label for="data_agendamento">Agendar para</label><input id="data_agendamento" type="date" name="data_agendamento" required><button class="btn secondary" type="submit">Agendar pagamento</button></form></div></section>
 {% endblock %}

@@ -1,0 +1,71 @@
+{% extends "site/loja/base_loja.html" %}
+
+{% block titulo %}Os meus pedidos{% endblock %}
+
+{% block conteudo %}
+<section class="pagina">
+    <div class="migalhas">
+        <a href="{% url 'site:pagina_home' %}">Início</a>
+        <span> / </span>
+        <a href="{% url 'site:cliente_perfil' %}">Minha conta</a>
+        <span> / </span>
+        <span>Pedidos</span>
+    </div>
+
+    <h1>Os meus pedidos</h1>
+
+    {% if pedidos %}
+        <div class="painel">
+            <div class="tabela-wrap">
+                <table class="tabela">
+                    <thead>
+                        <tr>
+                            <th>Referência</th>
+                            <th>Data</th>
+                            <th>Estado</th>
+                            <th class="num">Total</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for pedido in pedidos %}
+                            <tr>
+                                <td>
+                                    <strong>{{ pedido.referencia }}</strong>
+                                </td>
+                                <td>
+                                    {{ pedido.created_at|date:"d/m/Y H:i" }}
+                                </td>
+                                <td>
+                                    <span class="pilula">
+                                        {{ pedido.get_status_display }}
+                                    </span>
+                                </td>
+                                <td class="num">
+                                    <strong>
+                                        {{ pedido.total|floatformat:2 }}
+                                        {{ pedido.moeda|default:config.moeda|default:"AOA" }}
+                                    </strong>
+                                </td>
+                                <td>
+                                    <a href="{% url 'site:pedido_confirmacao' pedido.referencia %}">
+                                        Ver pedido
+                                    </a>
+                                </td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    {% else %}
+        <div class="painel vazio">
+            <h2>Ainda não tem pedidos</h2>
+            <p>Faça a sua primeira encomenda na nossa loja.</p>
+            <a class="btn btn-auto" href="{% url 'site:loja' %}">
+                Ir para a loja
+            </a>
+        </div>
+    {% endif %}
+</section>
+{% endblock %}

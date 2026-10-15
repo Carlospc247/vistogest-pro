@@ -1,1171 +1,421 @@
 # apps/relatorios/utils.py
-import logging
-import json
-import os
-from datetime import datetime, timedelta, date
-from decimal import Decimal
-from typing import Dict, List, Any, Optional
-from django.db.models import Q, Sum, Count, Avg, Max, Min, F
-from django.utils import timezone
-from django.conf import settings
-from django.core.files.base import ContentFile
-from django.template.loader import render_to_string
-from django.http import HttpResponse
-import numpy as np
-import pandas as pd
-import openpyxl
-from reportlab.pdfgen import canvas
-from reportlab.lib.pagesizes import letter, A4
-from reportlab.lib import colors
-from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph
-from reportlab.lib.styles import getSampleStyleSheet
+"""Serviços de geração de relatórios compatíveis com os models tenant-scoped.
+
+Não aceita SQL arbitrário de TipoRelatorio.query_sql. Os dados são recolhidos por
+queries ORM aprovadas e executados no schema activo do django-tenants.
+"""
+from __future__ import annotations
+
 import csv
-import io
+import json
+import logging
+import time
+from datetime import date, datetime, timedelta
+from decimal import Decimal
+from io import BytesIO, StringIO
 
-from .models import (
-    RelatorioGerado, MetricaKPI, AnaliseVendas, AnaliseEstoque, 
-    AnaliseClientes, AlertaGerencial
-)
-from apps.vendas.models import Venda, ItemVenda
-from apps.produtos.models import Produto
+from django.core.files.base import ContentFile
+from django.db import connection
+from django.db.models import Count, F, Max, Sum
+from django.utils import timezone
+
 from apps.clientes.models import Cliente
-from apps.funcionarios.models import Funcionario
-from statsmodels.tsa.api import Holt
-from statsmodels.tsa.seasonal import seasonal_decompose
-from sklearn.cluster import KMeans
-from sklearn.preprocessing import StandardScaler
-from django.db.models.functions import TruncMonth
-
-
-
-
-
-
+from apps.produtos.models import Produto
+from apps.vendas.models import ItemVenda, Venda
+from .models import AlertaGerencial, DashboardConfig, MetricaKPI, RelatorioGerado
 
 logger = logging.getLogger(__name__)
 
 
-def calcular_metricas_vendas(empresa, data_inicio: date, data_fim: date) -> Dict[str, Any]:
-    """
-    Calcular métricas de vendas para o período especificado
-    """
-    try:
-        # Query base
-        vendas = Venda.objects.filter(
-            data_venda__gte=data_inicio,
-            data_venda__lte=data_fim,
-            status='finalizada'
-        )
-        
-        
-        # Métricas básicas
-        total_vendas = vendas.count()
-        faturamento_total = vendas.aggregate(Sum('total'))['total__sum'] or 0
-        ticket_medio = vendas.aggregate(Avg('total'))['total__avg'] or 0
-        
-        # Itens vendidos
-        total_itens = ItemVenda.objects.filter(
-            venda__in=vendas
-        ).aggregate(Sum('quantidade'))['quantidade__sum'] or 0
-        
-        # Vendas por dia
-        vendas_por_dia = {}
-        current_date = data_inicio
-        while current_date <= data_fim:
-            vendas_dia = vendas.filter(data_venda=current_date)
-            vendas_por_dia[current_date.isoformat()] = {
-                'quantidade': vendas_dia.count(),
-                'valor': float(vendas_dia.aggregate(Sum('total'))['total__sum'] or 0)
-            }
-            current_date += timedelta(days=1)
-        
-        # Top produtos
-        top_produtos = ItemVenda.objects.filter(
-            venda__in=vendas
-        ).values(
-            'produto__nome_comercial'
-        ).annotate(
-            quantidade_vendida=Sum('quantidade'),
-            total=Sum(F('quantidade') * F('preco_unitario'))
-        ).order_by('-quantidade_vendida')[:10]
-        
-        # Top clientes
-        top_clientes = vendas.values(
-            'cliente__nome',
-            'cliente__cpf_cnpj'
-        ).annotate(
-            total_compras=Count('id'),
-            total=Sum('total')
-        ).order_by('-total')[:10]
-        
-        # Comparar com período anterior
-        dias_periodo = (data_fim - data_inicio).days + 1
-        data_inicio_anterior = data_inicio - timedelta(days=dias_periodo)
-        data_fim_anterior = data_inicio - timedelta(days=1)
-        
-        vendas_anterior = Venda.objects.filter(
-            data_venda__gte=data_inicio_anterior,
-            data_venda__lte=data_fim_anterior,
-            status='finalizada'
-        )
-        
-        
-        faturamento_anterior = vendas_anterior.aggregate(Sum('total'))['total__sum'] or 0
-        
-        variacao_faturamento = 0
-        if faturamento_anterior > 0:
-            variacao_faturamento = ((faturamento_total - faturamento_anterior) / faturamento_anterior) * 100
-        
-        return {
-            'total_vendas': total_vendas,
-            'faturamento_total': float(faturamento_total),
-            'ticket_medio': float(ticket_medio),
-            'total_itens': total_itens,
-            'vendas_por_dia': vendas_por_dia,
-            'top_produtos': list(top_produtos),
-            'top_clientes': list(top_clientes),
-            'faturamento_anterior': float(faturamento_anterior),
-            'variacao_faturamento': variacao_faturamento,
-            'periodo': {
-                'inicio': data_inicio.isoformat(),
-                'fim': data_fim.isoformat(),
-                'dias': dias_periodo
-            }
-        }
-        
-    except Exception as e:
-        logger.error(f'Erro ao calcular métricas de vendas: {e}')
-        return {}
-
-
-def calcular_analise_abc_produtos(empresa, data_inicio: date, data_fim: date) -> Dict[str, Any]:
-    """
-    Calcular análise ABC de produtos baseada em faturamento
-    """
-    try:
-        # Query base
-        vendas = Venda.objects.filter(
-            data_venda__gte=data_inicio,
-            data_venda__lte=data_fim,
-            status='finalizada'
-        )
-        
-        
-        # Faturamento por produto
-        produtos_faturamento = ItemVenda.objects.filter(
-            venda__in=vendas
-        ).values(
-            'produto__id',
-            'produto__nome_comercial',
-            'produto__codigo'
-        ).annotate(
-            quantidade_vendida=Sum('quantidade'),
-            faturamento=Sum(F('quantidade') * F('preco_unitario'))
-        ).order_by('-faturamento')
-        
-        # Calcular participação percentual
-        faturamento_total = sum(item['faturamento'] for item in produtos_faturamento)
-        
-        produtos_com_participacao = []
-        faturamento_acumulado = 0
-        
-        for produto in produtos_faturamento:
-            faturamento_acumulado += produto['faturamento']
-            participacao = (produto['faturamento'] / faturamento_total) * 100 if faturamento_total > 0 else 0
-            participacao_acumulada = (faturamento_acumulado / faturamento_total) * 100 if faturamento_total > 0 else 0
-            
-            # Classificação ABC
-            if participacao_acumulada <= 80:
-                classe = 'A'
-            elif participacao_acumulada <= 95:
-                classe = 'B'
-            else:
-                classe = 'C'
-            
-            produtos_com_participacao.append({
-                'produto_id': produto['produto__id'],
-                'nome': produto['produto__nome_comercial'],
-                'codigo': produto['produto__codigo'],
-                'quantidade_vendida': produto['quantidade_vendida'],
-                'faturamento': float(produto['faturamento']),
-                'participacao': participacao,
-                'participacao_acumulada': participacao_acumulada,
-                'classe': classe
-            })
-        
-        # Separar por classe
-        classe_a = [p for p in produtos_com_participacao if p['classe'] == 'A']
-        classe_b = [p for p in produtos_com_participacao if p['classe'] == 'B']
-        classe_c = [p for p in produtos_com_participacao if p['classe'] == 'C']
-        
-        return {
-            'faturamento_total': float(faturamento_total),
-            'total_produtos': len(produtos_com_participacao),
-            'classe_a': {
-                'produtos': classe_a,
-                'quantidade': len(classe_a),
-                'faturamento': sum(p['faturamento'] for p in classe_a)
-            },
-            'classe_b': {
-                'produtos': classe_b,
-                'quantidade': len(classe_b),
-                'faturamento': sum(p['faturamento'] for p in classe_b)
-            },
-            'classe_c': {
-                'produtos': classe_c,
-                'quantidade': len(classe_c),
-                'faturamento': sum(p['faturamento'] for p in classe_c)
-            },
-            'periodo': {
-                'inicio': data_inicio.isoformat(),
-                'fim': data_fim.isoformat()
-            }
-        }
-        
-    except Exception as e:
-        logger.error(f'Erro ao calcular análise ABC: {e}')
-        return {}
-
-
-def calcular_segmentacao_rfm_clientes(empresa, data_inicio: date, data_fim: date) -> Dict[str, Any]:
-    """
-    Calcular segmentação RFM (Recência, Frequência, Valor Monetário) de clientes
-    """
-    try:
-        # Query base
-        vendas = Venda.objects.filter(
-            data_venda__gte=data_inicio,
-            data_venda__lte=data_fim,
-            status='finalizada',
-            cliente__isnull=False
-        )
-        
-        
-        # Calcular métricas RFM por cliente
-        clientes_rfm = []
-        
-        for cliente in Cliente.objects.filter(ativo=True):
-            vendas_cliente = vendas.filter(cliente=cliente)
-            
-            if not vendas_cliente.exists():
-                continue
-            
-            # Recência (dias desde a última compra)
-            ultima_compra = vendas_cliente.order_by('-data_venda').first()
-            recencia = (data_fim - ultima_compra.data_venda).days
-            
-            # Frequência (número de compras)
-            frequencia = vendas_cliente.count()
-            
-            # Valor Monetário (total gasto)
-            valor_monetario = vendas_cliente.aggregate(Sum('total'))['total__sum'] or 0
-            
-            clientes_rfm.append({
-                'cliente_id': cliente.id,
-                'nome': cliente.nome,
-                'cpf_cnpj': cliente.cpf_cnpj,
-                'recencia': recencia,
-                'frequencia': frequencia,
-                'valor_monetario': float(valor_monetario)
-            })
-        
-        if not clientes_rfm:
-            return {'erro': 'Nenhum cliente com vendas no período'}
-        
-        # Calcular quintis para cada métrica
-        clientes_rfm.sort(key=lambda x: x['recencia'])
-        quintil_size = len(clientes_rfm) // 5
-        
-        for i, cliente in enumerate(clientes_rfm):
-            # Score de Recência (inverso - menor recência = maior score)
-            if i < quintil_size:
-                cliente['r_score'] = 5
-            elif i < quintil_size * 2:
-                cliente['r_score'] = 4
-            elif i < quintil_size * 3:
-                cliente['r_score'] = 3
-            elif i < quintil_size * 4:
-                cliente['r_score'] = 2
-            else:
-                cliente['r_score'] = 1
-        
-        # Frequência
-        clientes_rfm.sort(key=lambda x: x['frequencia'], reverse=True)
-        for i, cliente in enumerate(clientes_rfm):
-            if i < quintil_size:
-                cliente['f_score'] = 5
-            elif i < quintil_size * 2:
-                cliente['f_score'] = 4
-            elif i < quintil_size * 3:
-                cliente['f_score'] = 3
-            elif i < quintil_size * 4:
-                cliente['f_score'] = 2
-            else:
-                cliente['f_score'] = 1
-        
-        # Valor Monetário
-        clientes_rfm.sort(key=lambda x: x['valor_monetario'], reverse=True)
-        for i, cliente in enumerate(clientes_rfm):
-            if i < quintil_size:
-                cliente['m_score'] = 5
-            elif i < quintil_size * 2:
-                cliente['m_score'] = 4
-            elif i < quintil_size * 3:
-                cliente['m_score'] = 3
-            elif i < quintil_size * 4:
-                cliente['m_score'] = 2
-            else:
-                cliente['m_score'] = 1
-        
-        # Segmentação baseada nos scores
-        for cliente in clientes_rfm:
-            r, f, m = cliente['r_score'], cliente['f_score'], cliente['m_score']
-            
-            if r >= 4 and f >= 4 and m >= 4:
-                cliente['segmento'] = 'Champions'
-            elif r >= 3 and f >= 3 and m >= 3:
-                cliente['segmento'] = 'Cliente Leal'
-            elif r >= 4 and f <= 2:
-                cliente['segmento'] = 'Novo Cliente'
-            elif r <= 2 and f >= 3 and m >= 3:
-                cliente['segmento'] = 'Em Risco'
-            elif r <= 2 and f <= 2:
-                cliente['segmento'] = 'Perdido'
-            else:
-                cliente['segmento'] = 'Outros'
-        
-        # Agrupar por segmento
-        segmentos = {}
-        for cliente in clientes_rfm:
-            segmento = cliente['segmento']
-            if segmento not in segmentos:
-                segmentos[segmento] = []
-            segmentos[segmento].append(cliente)
-        
-        return {
-            'total_clientes': len(clientes_rfm),
-            'segmentos': segmentos,
-            'clientes_detalhados': clientes_rfm,
-            'periodo': {
-                'inicio': data_inicio.isoformat(),
-                'fim': data_fim.isoformat()
-            }
-        }
-        
-    except Exception as e:
-        logger.error(f'Erro ao calcular segmentação RFM: {e}')
-        return {}
-
-
-def gerar_relatorio_pdf(dados: Dict[str, Any], titulo: str, template_name: str = None) -> bytes:
-    """
-    Gerar relatório em formato PDF
-    """
-    try:
-        buffer = io.BytesIO()
-        doc = SimpleDocTemplate(buffer, pagesize=A4)
-        story = []
-        
-        # Estilos
-        styles = getSampleStyleSheet()
-        title_style = styles['Title']
-        heading_style = styles['Heading2']
-        normal_style = styles['Normal']
-        
-        # Título
-        story.append(Paragraph(titulo, title_style))
-        story.append(Paragraph("<br/><br/>", normal_style))
-        
-        # Dados gerais
-        if 'resumo' in dados:
-            story.append(Paragraph("Resumo Executivo", heading_style))
-            for key, value in dados['resumo'].items():
-                story.append(Paragraph(f"<b>{key}:</b> {value}", normal_style))
-            story.append(Paragraph("<br/>", normal_style))
-        
-        # Tabelas de dados
-        if 'tabelas' in dados:
-            for tabela_nome, tabela_dados in dados['tabelas'].items():
-                story.append(Paragraph(tabela_nome, heading_style))
-                
-                if tabela_dados:
-                    # Cabeçalhos
-                    headers = list(tabela_dados[0].keys())
-                    table_data = [headers]
-                    
-                    # Dados
-                    for row in tabela_dados[:20]:  # Limitar a 20 linhas
-                        table_data.append([str(row.get(header, '')) for header in headers])
-                    
-                    # Criar tabela
-                    table = Table(table_data)
-                    table.setStyle(TableStyle([
-                        ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
-                        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-                        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-                        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-                        ('FONTSIZE', (0, 0), (-1, 0), 12),
-                        ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-                        ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
-                        ('GRID', (0, 0), (-1, -1), 1, colors.black)
-                    ]))
-                    
-                    story.append(table)
-                    story.append(Paragraph("<br/>", normal_style))
-        
-        # Construir PDF
-        doc.build(story)
-        buffer.seek(0)
-        return buffer.getvalue()
-        
-    except Exception as e:
-        logger.error(f'Erro ao gerar PDF: {e}')
-        return b''
-
-
-def gerar_relatorio_excel(dados: Dict[str, Any], titulo: str) -> bytes:
-    """
-    Gerar relatório em formato Excel
-    """
-    try:
-        buffer = io.BytesIO()
-        
-        with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
-            # Resumo
-            if 'resumo' in dados:
-                resumo_df = pd.DataFrame(list(dados['resumo'].items()), 
-                                       columns=['Métrica', 'Valor'])
-                resumo_df.to_excel(writer, sheet_name='Resumo', index=False)
-            
-            # Tabelas de dados
-            if 'tabelas' in dados:
-                for nome, tabela_dados in dados['tabelas'].items():
-                    if tabela_dados:
-                        df = pd.DataFrame(tabela_dados)
-                        # Limitar nome da aba (Excel tem limite de 31 caracteres)
-                        sheet_name = nome[:31]
-                        df.to_excel(writer, sheet_name=sheet_name, index=False)
-            
-            # Dados detalhados
-            if 'dados_detalhados' in dados and isinstance(dados['dados_detalhados'], list):
-                df_detalhes = pd.DataFrame(dados['dados_detalhados'])
-                df_detalhes.to_excel(writer, sheet_name='Dados Detalhados', index=False)
-        
-        buffer.seek(0)
-        return buffer.getvalue()
-        
-    except Exception as e:
-        logger.error(f'Erro ao gerar Excel: {e}')
-        return b''
-
-
-def gerar_relatorio_csv(dados: Dict[str, Any], titulo: str) -> str:
-    """
-    Gerar relatório em formato CSV
-    """
-    try:
-        output = io.StringIO()
-        writer = csv.writer(output)
-        
-        # Título
-        writer.writerow([titulo])
-        writer.writerow([])  # Linha vazia
-        
-        # Resumo
-        if 'resumo' in dados:
-            writer.writerow(['RESUMO'])
-            for key, value in dados['resumo'].items():
-                writer.writerow([key, value])
-            writer.writerow([])  # Linha vazia
-        
-        # Dados principais
-        if 'dados_principais' in dados and isinstance(dados['dados_principais'], list):
-            if dados['dados_principais']:
-                # Cabeçalhos
-                headers = list(dados['dados_principais'][0].keys())
-                writer.writerow(headers)
-                
-                # Dados
-                for row in dados['dados_principais']:
-                    writer.writerow([row.get(header, '') for header in headers])
-        
-        return output.getvalue()
-        
-    except Exception as e:
-        logger.error(f'Erro ao gerar CSV: {e}')
-        return ''
-
-
-def processar_relatorio_assincrono(relatorio_id: int):
-    """
-    Processar relatório de forma assíncrona
-    """
-    try:
-        relatorio = RelatorioGerado.objects.get(id=relatorio_id)
-        relatorio.status = 'processando'
-        relatorio.data_inicio_processamento = timezone.now()
-        relatorio.save()
-        
-        # Determinar tipo de processamento baseado no tipo de relatório
-        tipo_codigo = relatorio.tipo_relatorio.codigo
-        
-        if tipo_codigo == 'VENDAS_GERAL':
-            dados = processar_relatorio_vendas(relatorio)
-        elif tipo_codigo == 'ANALISE_ABC':
-            dados = processar_relatorio_abc(relatorio)
-        elif tipo_codigo == 'SEGMENTACAO_RFM':
-            dados = processar_relatorio_rfm(relatorio)
-        else:
-            # Processamento genérico
-            dados = processar_relatorio_generico(relatorio)
-        
-        if dados:
-            # Gerar arquivo no formato solicitado
-            if relatorio.formato == 'pdf':
-                conteudo = gerar_relatorio_pdf(dados, relatorio.tipo_relatorio.nome)
-                nome_arquivo = f'{relatorio.codigo_relatorio}.pdf'
-            elif relatorio.formato == 'excel':
-                conteudo = gerar_relatorio_excel(dados, relatorio.tipo_relatorio.nome)
-                nome_arquivo = f'{relatorio.codigo_relatorio}.xlsx'
-            elif relatorio.formato == 'csv':
-                conteudo = gerar_relatorio_csv(dados, relatorio.tipo_relatorio.nome)
-                nome_arquivo = f'{relatorio.codigo_relatorio}.csv'
-            elif relatorio.formato == 'json':
-                conteudo = json.dumps(dados, indent=2, ensure_ascii=False, default=str).encode('utf-8')
-                nome_arquivo = f'{relatorio.codigo_relatorio}.json'
-            else:
-                raise ValueError(f'Formato não suportado: {relatorio.formato}')
-            
-            # Salvar arquivo
-            if isinstance(conteudo, str):
-                conteudo = conteudo.encode('utf-8')
-            
-            relatorio.arquivo_resultado.save(
-                nome_arquivo,
-                ContentFile(conteudo),
-                save=False
-            )
-            
-            # Salvar dados do resultado
-            relatorio.dados_resultado = dados
-            relatorio.total_registros = dados.get('total_registros', 0)
-            relatorio.status = 'concluido'
-        else:
-            relatorio.status = 'erro'
-            relatorio.mensagem_erro = 'Erro ao processar dados do relatório'
-        
-        # Finalizar
-        relatorio.data_conclusao = timezone.now()
-        relatorio.tempo_processamento = relatorio.data_conclusao - relatorio.data_inicio_processamento
-        relatorio.save()
-        
-        logger.info(f'Relatório {relatorio.codigo_relatorio} processado com sucesso')
-        
-    except Exception as e:
-        logger.error(f'Erro ao processar relatório {relatorio_id}: {e}')
+def _has_field(model, path):
+    current = model
+    field = None
+    for part in path.split("__"):
         try:
-            relatorio = RelatorioGerado.objects.get(id=relatorio_id)
-            relatorio.status = 'erro'
-            relatorio.mensagem_erro = str(e)
-            relatorio.data_conclusao = timezone.now()
-            if relatorio.data_inicio_processamento:
-                relatorio.tempo_processamento = relatorio.data_conclusao - relatorio.data_inicio_processamento
-            relatorio.save()
-        except:
-            pass
+            field = current._meta.get_field(part)
+        except Exception:
+            return False
+        if getattr(field, "is_relation", False) and getattr(field, "related_model", None):
+            current = field.related_model
+    return field is not None
 
 
-def processar_relatorio_vendas(relatorio: RelatorioGerado) -> Dict[str, Any]:
+def _date_filter(qs, model, path, start, end):
+    if not _has_field(model, path):
+        return qs
+    try:
+        field = model._meta.get_field(path)
+        if field.get_internal_type() == "DateTimeField":
+            return qs.filter(**{f"{path}__date__range": (start, end)})
+    except Exception:
+        # Para um path relacional, resolve o último campo a partir do model.
+        current = model
+        field = None
+        for part in path.split("__"):
+            field = current._meta.get_field(part)
+            if getattr(field, "is_relation", False) and getattr(field, "related_model", None):
+                current = field.related_model
+        if field and field.get_internal_type() == "DateTimeField":
+            return qs.filter(**{f"{path}__date__range": (start, end)})
+    return qs.filter(**{f"{path}__range": (start, end)})
+
+
+def _normalizar_valor(value):
+    if isinstance(value, (date, datetime)):
+        return value.isoformat()
+    if isinstance(value, Decimal):
+        return float(value)
+    if isinstance(value, dict):
+        return {str(k): _normalizar_valor(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_normalizar_valor(v) for v in value]
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    return str(value)
+
+
+def _rows_for(queryset, fields, limit=10000):
+    rows = []
+    for obj in queryset[:limit]:
+        row = {}
+        for label, path in fields:
+            value = obj
+            for part in path.split("__"):
+                value = getattr(value, part, None) if value is not None else None
+                if callable(value):
+                    try:
+                        value = value()
+                    except TypeError:
+                        value = None
+            row[label] = _normalizar_valor(value)
+        rows.append(row)
+    return rows
+
+
+def calcular_metricas_vendas(empresa=None, data_inicio=None, data_fim=None):
+    """Calcula métricas de venda no schema actual; ``empresa`` é ignorada por compatibilidade.
+
+    Datas finais inclusivas são tratadas correctamente, incluindo todo o último dia.
     """
-    Processar relatório específico de vendas
-    """
-    dados = calcular_metricas_vendas(
-        empresa=relatorio.empresa,
-        data_inicio=relatorio.data_inicio,
-        data_fim=relatorio.data_fim,
-       )
-    
-    # Estruturar dados para o relatório
+    hoje = timezone.localdate()
+    data_inicio = data_inicio or (hoje.replace(day=1))
+    data_fim = data_fim or hoje
+    qs = Venda.objects.all()
+    if _has_field(Venda, "status"):
+        qs = qs.filter(status="finalizada")
+    date_field = "data_venda" if _has_field(Venda, "data_venda") else ("data" if _has_field(Venda, "data") else None)
+    if date_field:
+        qs = _date_filter(qs, Venda, date_field, data_inicio, data_fim)
+    total_vendas = qs.count()
+    faturamento = qs.aggregate(total=Sum("total"))["total"] or Decimal("0") if _has_field(Venda, "total") else Decimal("0")
+    ticket_medio = faturamento / total_vendas if total_vendas else Decimal("0")
+    itens = ItemVenda.objects.filter(venda__in=qs)
+    total_itens = itens.aggregate(total=Sum("quantidade"))["total"] or 0 if _has_field(ItemVenda, "quantidade") else 0
+
+    vendas_por_dia = []
+    if date_field:
+        from django.db.models.functions import TruncDate
+        vendas_por_dia = list(qs.annotate(dia=TruncDate(date_field)).values("dia").annotate(total=Sum("total"), quantidade=Count("pk")).order_by("dia"))
+        for row in vendas_por_dia:
+            row["dia"] = _normalizar_valor(row.get("dia")); row["total"] = _normalizar_valor(row.get("total"))
+
+    top_produtos = []
+    if _has_field(ItemVenda, "produto") and _has_field(ItemVenda, "quantidade") and _has_field(ItemVenda, "preco_unitario"):
+        top_produtos = list(itens.filter(produto__isnull=False).values("produto_id", "produto__nome_comercial", "produto__codigo_interno").annotate(
+            quantidade=Sum("quantidade"), faturamento=Sum(F("quantidade") * F("preco_unitario"))
+        ).order_by("-faturamento")[:10])
+        for row in top_produtos:
+            row["faturamento"] = _normalizar_valor(row.get("faturamento"))
+
+    top_clientes = []
+    if _has_field(Venda, "cliente"):
+        name_field = "cliente__nome_completo" if _has_field(Venda, "cliente__nome_completo") else ("cliente__razao_social" if _has_field(Venda, "cliente__razao_social") else None)
+        values = ["cliente_id"] + ([name_field] if name_field else [])
+        top_clientes = list(qs.filter(cliente__isnull=False).values(*values).annotate(
+            compras=Count("pk"), total=Sum("total")
+        ).order_by("-total")[:10])
+        for row in top_clientes:
+            row["total"] = _normalizar_valor(row.get("total"))
+
     return {
-        'titulo': 'Relatório de Vendas',
-        'periodo': dados.get('periodo', {}),
-        'resumo': {
-            'Total de Vendas': dados.get('total_vendas', 0),
-            'Faturamento Total': f"AO {dados.get('faturamento_total', 0):,.2f}",
-            'Ticket Médio': f"AO {dados.get('ticket_medio', 0):,.2f}",
-            'Total de Itens': dados.get('total_itens', 0),
-            'Variação vs Período Anterior': f"{dados.get('variacao_faturamento', 0):.1f}%"
-        },
-        'tabelas': {
-            'Top Produtos': dados.get('top_produtos', []),
-            'Top Clientes': dados.get('top_clientes', [])
-        },
-        'dados_detalhados': dados,
-        'total_registros': dados.get('total_vendas', 0)
+        "data_inicio": data_inicio.isoformat(), "data_fim": data_fim.isoformat(),
+        "total_vendas": total_vendas, "faturamento_total": _normalizar_valor(faturamento),
+        "ticket_medio": _normalizar_valor(ticket_medio), "total_itens": total_itens,
+        "vendas_por_dia": vendas_por_dia, "top_produtos": top_produtos, "top_clientes": top_clientes,
     }
 
 
-def processar_relatorio_abc(relatorio: RelatorioGerado) -> Dict[str, Any]:
-    """
-    Processar relatório de análise ABC
-    """
-    dados = calcular_analise_abc_produtos(
-        empresa=relatorio.empresa,
-        data_inicio=relatorio.data_inicio,
-        data_fim=relatorio.data_fim,
-    )
-    
-    return {
-        'titulo': 'Análise ABC de Produtos',
-        'periodo': dados.get('periodo', {}),
-        'resumo': {
-            'Faturamento Total': f"AO {dados.get('faturamento_total', 0):,.2f}",
-            'Total de Produtos': dados.get('total_produtos', 0),
-            'Produtos Classe A': dados.get('classe_a', {}).get('quantidade', 0),
-            'Produtos Classe B': dados.get('classe_b', {}).get('quantidade', 0),
-            'Produtos Classe C': dados.get('classe_c', {}).get('quantidade', 0)
-        },
-        'tabelas': {
-            'Produtos Classe A': dados.get('classe_a', {}).get('produtos', []),
-            'Produtos Classe B': dados.get('classe_b', {}).get('produtos', []),
-            'Produtos Classe C': dados.get('classe_c', {}).get('produtos', [])
-        },
-        'dados_detalhados': dados,
-        'total_registros': dados.get('total_produtos', 0)
-    }
+def calcular_analise_abc_produtos(empresa=None, data_inicio=None, data_fim=None):
+    hoje = timezone.localdate(); data_inicio = data_inicio or (hoje - timedelta(days=89)); data_fim = data_fim or hoje
+    qs = ItemVenda.objects.all()
+    if _has_field(ItemVenda, "venda__status"): qs = qs.filter(venda__status="finalizada")
+    qs = _date_filter(qs, ItemVenda, "venda__data_venda", data_inicio, data_fim)
+    agrupado = qs.filter(produto__isnull=False).values("produto_id", "produto__codigo_interno", "produto__nome_comercial").annotate(
+        quantidade=Sum("quantidade"), faturamento=Sum(F("quantidade") * F("preco_unitario"))
+    ).order_by("-faturamento")
+    rows = list(agrupado); total = sum((r.get("faturamento") or Decimal("0")) for r in rows); acum = Decimal("0")
+    result = []
+    for row in rows:
+        valor = row.get("faturamento") or Decimal("0"); acum += valor
+        perc = (acum / total * 100) if total else Decimal("0")
+        classe = "A" if perc <= 80 else "B" if perc <= 95 else "C"
+        result.append({**row, "faturamento": _normalizar_valor(valor), "percentual_acumulado": round(float(perc), 2), "classificacao": classe})
+    return {"total_faturamento": _normalizar_valor(total), "produtos": result}
 
 
-def processar_relatorio_rfm(relatorio: RelatorioGerado) -> Dict[str, Any]:
-    """
-    Processar relatório de segmentação RFM
-    """
-    dados = calcular_segmentacao_rfm_clientes(
-        empresa=relatorio.empresa,
-        data_inicio=relatorio.data_inicio,
-        data_fim=relatorio.data_fim,
-    )
-    
-    # Preparar resumo por segmento
-    resumo_segmentos = {}
-    for segmento, clientes in dados.get('segmentos', {}).items():
-        resumo_segmentos[f'Clientes {segmento}'] = len(clientes)
-    
-    return {
-        'titulo': 'Segmentação RFM de Clientes',
-        'periodo': dados.get('periodo', {}),
-        'resumo': {
-            'Total de Clientes': dados.get('total_clientes', 0),
-            **resumo_segmentos
-        },
-        'tabelas': {
-            segmento: clientes for segmento, clientes in dados.get('segmentos', {}).items()
-        },
-        'dados_detalhados': dados,
-        'total_registros': dados.get('total_clientes', 0)
-    }
+def calcular_segmentacao_rfm_clientes(empresa=None, data_inicio=None, data_fim=None):
+    hoje = timezone.localdate(); data_inicio = data_inicio or (hoje - timedelta(days=364)); data_fim = data_fim or hoje
+    results = []
+    clients = Cliente.objects.all()
+    if _has_field(Cliente, "ativo"): clients = clients.filter(ativo=True)
+    for cliente in clients.iterator():
+        vendas = Venda.objects.filter(cliente=cliente)
+        if _has_field(Venda, "status"): vendas = vendas.filter(status="finalizada")
+        vendas = _date_filter(vendas, Venda, "data_venda", data_inicio, data_fim) if _has_field(Venda, "data_venda") else vendas
+        values = vendas.aggregate(frequencia=Count("pk"), monetario=Sum("total"), ultima=Max("data_venda"))
+        if not values["frequencia"]: continue
+        ultima = values["ultima"]
+        if isinstance(ultima, datetime): ultima = timezone.localtime(ultima).date() if timezone.is_aware(ultima) else ultima.date()
+        recencia = (data_fim - ultima).days if ultima else None
+        results.append({"cliente_id": cliente.pk, "cliente": str(getattr(cliente, "nome_exibicao", None) or getattr(cliente, "nome_completo", None) or cliente),
+            "recencia_dias": recencia, "frequencia": values["frequencia"], "valor_monetario": _normalizar_valor(values["monetario"] or 0)})
+    return sorted(results, key=lambda item: (item["recencia_dias"] if item["recencia_dias"] is not None else 10**9, -item["frequencia"]))
 
 
-def processar_relatorio_generico(relatorio: RelatorioGerado) -> Dict[str, Any]:
-    """
-    Processamento genérico para outros tipos de relatório
-    """
-    return {
-        'titulo': relatorio.tipo_relatorio.nome,
-        'periodo': {
-            'inicio': relatorio.data_inicio.isoformat() if relatorio.data_inicio else None,
-            'fim': relatorio.data_fim.isoformat() if relatorio.data_fim else None
-        },
-        'resumo': {
-            'Status': 'Processado com sucesso',
-            'Formato': relatorio.formato.upper()
-        },
-        'dados_detalhados': {
-            'parametros': relatorio.parametros,
-            'filtros_aplicados': {
-                'categorias': [cat.nome for cat in relatorio.categorias.all()],
-                'funcionarios': [func.user.get_full_name() for func in relatorio.funcionarios.all()]
-            }
-        },
-        'total_registros': 1
-    }
+def gerar_relatorio_pdf(dados, titulo="Relatório VistoGEST"):
+    from reportlab.lib import colors
+    from reportlab.lib.pagesizes import A4, landscape
+    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+    from reportlab.lib.styles import getSampleStyleSheet
+    from xml.sax.saxutils import escape
+    rows = dados if isinstance(dados, list) else dados.get("linhas", []) if isinstance(dados, dict) else []
+    stream = BytesIO(); doc = SimpleDocTemplate(stream, pagesize=landscape(A4)); styles = getSampleStyleSheet()
+    story = [Paragraph(escape(str(titulo)), styles["Title"]), Spacer(1, 12)]
+    if rows:
+        if not isinstance(rows[0], dict): rows = [{"Valor": row} for row in rows]
+        headers = list(rows[0].keys()); table_data = [headers] + [[str(row.get(key, "")) for key in headers] for row in rows]
+        table = Table(table_data, repeatRows=1)
+        table.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#16345f")), ("TEXTCOLOR", (0, 0), (-1, 0), colors.white), ("GRID", (0, 0), (-1, -1), .4, colors.grey), ("VALIGN", (0, 0), (-1, -1), "TOP")]))
+        story.append(table)
+    else:
+        story.append(Paragraph("Sem dados para o período seleccionado.", styles["BodyText"]))
+    doc.build(story); return stream.getvalue()
 
 
-def criar_kpi_automatico(empresa, codigo: str, nome: str, tipo_metrica: str, 
-                        periodo: str, data_referencia: date) -> Optional[MetricaKPI]:
+def gerar_relatorio_excel(dados):
+    from openpyxl import Workbook
+    rows = dados if isinstance(dados, list) else dados.get("linhas", []) if isinstance(dados, dict) else []
+    if rows and not isinstance(rows[0], dict): rows = [{"Valor": row} for row in rows]
+    headers = list(rows[0].keys()) if rows else ["Informação"]
+    book = Workbook(); sheet = book.active; sheet.title = "Relatório"; sheet.append(headers)
+    for row in rows: sheet.append([_normalizar_valor(row.get(h)) for h in headers])
+    output = BytesIO(); book.save(output); return output.getvalue()
+
+
+def gerar_relatorio_csv(dados):
+    rows = dados if isinstance(dados, list) else dados.get("linhas", []) if isinstance(dados, dict) else []
+    if rows and not isinstance(rows[0], dict): rows = [{"Valor": row} for row in rows]
+    headers = list(rows[0].keys()) if rows else ["Informação"]
+    output = StringIO(); writer = csv.DictWriter(output, fieldnames=headers, extrasaction="ignore"); writer.writeheader()
+    for row in rows: writer.writerow({k: _normalizar_valor(v) for k, v in row.items()})
+    return output.getvalue()
+
+
+def _gerar_dados_relatorio(relatorio):
+    """Whitelist de relatórios: nunca executa `TipoRelatorio.query_sql` sem parametrização."""
+    codigo = (getattr(relatorio.tipo_relatorio, "codigo", "") or "").upper()
+    start = relatorio.data_inicio or (timezone.localdate() - timedelta(days=29))
+    end = relatorio.data_fim or timezone.localdate()
+    if codigo in {"VENDAS_GERAL", "VENDAS", "RELATORIO_VENDAS"} or "VENDA" in codigo:
+        metricas = calcular_metricas_vendas(None, start, end)
+        return {"titulo": getattr(relatorio.tipo_relatorio, "nome", "Relatório de Vendas"), "resumo": {k: metricas[k] for k in ("total_vendas", "faturamento_total", "ticket_medio", "total_itens")}, "linhas": metricas["vendas_por_dia"], "top_produtos": metricas["top_produtos"], "top_clientes": metricas["top_clientes"]}
+    if "ABC" in codigo or "ESTOQUE" in codigo or "PRODUTO" in codigo:
+        data = calcular_analise_abc_produtos(None, start, end)
+        return {"titulo": getattr(relatorio.tipo_relatorio, "nome", "Análise de Produtos"), "resumo": {"total_faturamento": data["total_faturamento"], "total_produtos": len(data["produtos"])}, "linhas": data["produtos"]}
+    if "CLIENTE" in codigo or "RFM" in codigo or "FIDEL" in codigo:
+        data = calcular_segmentacao_rfm_clientes(None, start, end)
+        return {"titulo": getattr(relatorio.tipo_relatorio, "nome", "Segmentação de Clientes"), "resumo": {"total_clientes": len(data)}, "linhas": data}
+    categoria = str(getattr(relatorio.tipo_relatorio, "categoria", "")).lower()
+    if categoria == "estoque":
+        qs = Produto.objects.all()
+        fields = [("Código", "codigo_interno"), ("Produto", "nome_comercial"), ("Stock", "estoque_atual"), ("Mínimo", "estoque_minimo"), ("Custo", "preco_custo")]
+        fields = [(label, path) for label, path in fields if _has_field(Produto, path)]
+        rows = _rows_for(qs.order_by("pk"), fields)
+    elif categoria == "clientes":
+        fields = [("Código", "codigo_cliente"), ("Nome", "nome_completo"), ("NIF", "nif"), ("Telefone", "telefone"), ("Activo", "ativo")]
+        fields = [(label, path) for label, path in fields if _has_field(Cliente, path)]
+        rows = _rows_for(Cliente.objects.order_by("pk"), fields)
+    else:
+        rows = []
+    return {"titulo": getattr(relatorio.tipo_relatorio, "nome", "Relatório"), "resumo": {"total_registos": len(rows)}, "linhas": rows}
+
+
+def processar_relatorio_assincrono(relatorio_id, schema_name=None):
+    """Processa um relatório dentro do schema já seleccionado pelo task.
+
+    O worker deve entrar em `schema_context(schema_name)` antes desta função.
     """
-    Criar KPI automaticamente baseado em regras de negócio
-    """
+    relatorio = RelatorioGerado.objects.select_related("tipo_relatorio").get(pk=relatorio_id)
+    start_time = timezone.now(); started = time.monotonic()
+    relatorio.status = "processando"
+    for field, value in (("inicio_processamento", start_time), ("data_inicio_processamento", start_time), ("mensagem_erro", "")):
+        if _has_field(RelatorioGerado, field): setattr(relatorio, field, value)
+    relatorio.save()
     try:
-        # Verificar se já existe
-        existing = MetricaKPI.objects.filter(
-            codigo=codigo,
-            data_referencia=data_referencia
-        ).first()
-        
-        if existing:
-            return existing
-        
-        # Calcular valor baseado no tipo
-        valor_atual = 0
-        valor_anterior = 0
-        detalhes_calculo = {}
-        
-        if codigo == 'VENDAS_DIA':
-            vendas_dia = Venda.objects.filter(
-                data_venda=data_referencia,
-                status='finalizada'
-            )
-            
-            valor_atual = vendas_dia.aggregate(Sum('total'))['total__sum'] or 0
-            
-            # Valor do dia anterior
-            data_anterior = data_referencia - timedelta(days=1)
-            vendas_anterior = Venda.objects.filter(
-                data_venda=data_anterior,
-                status='finalizada'
-            )
-            
-            valor_anterior = vendas_anterior.aggregate(Sum('total'))['total__sum'] or 0
-            
-            detalhes_calculo = {
-                'total_vendas': vendas_dia.count(),
-                'ticket_medio': vendas_dia.aggregate(Avg('total'))['total__avg'] or 0
-            }
-        
-        # Criar KPI
-        kpi = MetricaKPI.objects.create(
-            codigo=codigo,
-            nome=nome,
-            tipo_metrica=tipo_metrica,
-            periodo=periodo,
-            data_referencia=data_referencia,
-            valor_atual=valor_atual,
-            valor_anterior=valor_anterior,
-            detalhes_calculo=detalhes_calculo,
-            formato_exibicao='moeda' if 'vendas' in codigo.lower() else 'numero'
-        )
-        
-        return kpi
-        
-    except Exception as e:
-        logger.error(f'Erro ao criar KPI automático: {e}')
-        return None
+        data = _gerar_dados_relatorio(relatorio)
+        fmt = (relatorio.formato or "json").lower()
+        if fmt == "pdf": payload = gerar_relatorio_pdf(data.get("linhas", []), data.get("titulo", "Relatório")); ext = "pdf"
+        elif fmt == "excel": payload = gerar_relatorio_excel(data.get("linhas", [])); ext = "xlsx"
+        elif fmt == "csv": payload = gerar_relatorio_csv(data.get("linhas", [])); ext = "csv"
+        elif fmt == "html":
+            from django.utils.html import escape
+            rows = data.get("linhas", []); headers = list(rows[0].keys()) if rows and isinstance(rows[0], dict) else []
+            pieces = ["<!doctype html><html lang='pt-PT'><meta charset='utf-8'><title>", escape(data.get("titulo", "Relatório")), "</title><h1>", escape(data.get("titulo", "Relatório")), "</h1><table border='1'><thead><tr>"]
+            pieces.extend(f"<th>{escape(str(h))}</th>" for h in headers); pieces.append("</tr></thead><tbody>")
+            for row in rows:
+                pieces.append("<tr>"); pieces.extend(f"<td>{escape(str(row.get(h, '')))}</td>" for h in headers); pieces.append("</tr>")
+            pieces.append("</tbody></table></html>"); payload = "".join(pieces); ext = "html"
+        else: payload = json.dumps(data, ensure_ascii=False, indent=2, default=str); ext = "json"
+        if isinstance(payload, str): payload = payload.encode("utf-8")
+        filename = f"{relatorio.codigo_relatorio or ('relatorio-' + str(relatorio.pk))}.{ext}"
+        relatorio.arquivo_resultado.save(filename, ContentFile(payload), save=False)
+        relatorio.dados_resultado = data
+        relatorio.total_registros = len(data.get("linhas", []))
+        relatorio.status = "concluido"
+        if _has_field(RelatorioGerado, "mensagem_erro"): relatorio.mensagem_erro = ""
+        end_time = timezone.now()
+        for field in ("fim_processamento", "data_fim_processamento"):
+            if _has_field(RelatorioGerado, field): setattr(relatorio, field, end_time)
+        for field in ("tempo_processamento", "duracao_processamento"):
+            if _has_field(RelatorioGerado, field): setattr(relatorio, field, timedelta(seconds=max(0, time.monotonic() - started)))
+        relatorio.save()
+        return relatorio
+    except Exception as exc:
+        logger.exception("Falha ao processar RelatorioGerado pk=%s no schema=%s", relatorio_id, schema_name or connection.schema_name)
+        relatorio.status = "erro"
+        if _has_field(RelatorioGerado, "mensagem_erro"): relatorio.mensagem_erro = str(exc)[:4000]
+        for field in ("fim_processamento", "data_fim_processamento"):
+            if _has_field(RelatorioGerado, field): setattr(relatorio, field, timezone.now())
+        relatorio.save()
+        raise
 
 
-def detectar_alertas_automaticos(empresa):
-    """
-    Detectar e criar alertas automáticos baseados em métricas
-    """
+def criar_kpi_automatico(empresa=None, codigo=None, nome=None, tipo_metrica="monetario", periodo="diario", data_referencia=None, valor_meta=None):
+    """Cria/actualiza um KPI no schema actual; `empresa` é mantido por compatibilidade."""
+    if not codigo:
+        raise ValueError("codigo é obrigatório")
+    data_referencia = data_referencia or timezone.localdate()
+    metric_value = Decimal("0")
+    if "VENDA" in codigo.upper() and _has_field(Venda, "total"):
+        qs = Venda.objects.all()
+        if _has_field(Venda, "status"): qs = qs.filter(status="finalizada")
+        qs = _date_filter(qs, Venda, "data_venda", data_referencia, data_referencia) if _has_field(Venda, "data_venda") else qs.none()
+        metric_value = qs.aggregate(v=Sum("total"))["v"] or Decimal("0")
+    defaults = {}
+    for field, value in (("nome", nome or codigo.replace("_", " ").title()), ("tipo_metrica", tipo_metrica), ("periodo", periodo), ("data_referencia", data_referencia), ("valor_atual", metric_value), ("valor_meta", valor_meta)):
+        if value is not None and _has_field(MetricaKPI, field): defaults[field] = value
+    # Preferência por chave composta quando suportada; fallback para codigo único do model actual.
     try:
-        alertas_criados = []
-        hoje = date.today()
-        
-        # 1. Verificar vendas baixas
-        vendas_hoje = Venda.objects.filter(
-            data_venda=hoje,
-            status='finalizada'
-        ).aggregate(Sum('total'))['total__sum'] or 0
-        
-        # Média dos últimos 7 dias
-        data_inicio_semana = hoje - timedelta(days=7)
-        vendas_semana = Venda.objects.filter(
-            data_venda__gte=data_inicio_semana,
-            data_venda__lt=hoje,
-            status='finalizada'
-        ).aggregate(Sum('total'))['total__sum'] or 0
-        
-        media_diaria = vendas_semana / 7 if vendas_semana > 0 else 0
-        
-        # Se vendas de hoje estão 30% abaixo da média
-        if media_diaria > 0 and vendas_hoje < (media_diaria * 0.7):
-            alerta = AlertaGerencial.objects.create(
-                tipo_alerta='queda_vendas',
-                prioridade='alta',
-                titulo=f'Vendas baixas detectadas',
-                descricao=f'Vendas de hoje (AO {vendas_hoje:,.2f}) estão 30% abaixo da média semanal (AO {media_diaria:,.2f})',
-                valor_atual=vendas_hoje,
-                valor_esperado=media_diaria,
-                data_referencia=hoje,
-                acoes_recomendadas=[
-                    'Verificar problemas operacionais',
-                    'Analisar concorrência',
-                    'Revisar estratégias de marketing',
-                    'Verificar satisfação dos clientes'
-                ]
-            )
-            alertas_criados.append(alerta)
-        
-        # 2. Verificar produtos sem estoque
-        produtos_sem_estoque = Produto.objects.filter(
-            ativo=True,
-            estoque_atual=0
-        ).count()
-        
-        if produtos_sem_estoque > 0:
-            alerta = AlertaGerencial.objects.create(
-                tipo_alerta='estoque_baixo',
-                prioridade='media',
-                titulo=f'{produtos_sem_estoque} produto(s) sem estoque',
-                descricao=f'Foram detectados {produtos_sem_estoque} produtos com estoque zerado',
-                valor_atual=produtos_sem_estoque,
-                data_referencia=hoje,
-                acoes_recomendadas=[
-                    'Verificar produtos em falta',
-                    'Contactar fornecedores',
-                    'Atualizar previsão de entrega',
-                    'Comunicar clientes se necessário'
-                ]
-            )
-            alertas_criados.append(alerta)
-        
-        return alertas_criados
-        
-    except Exception as e:
-        logger.error(f'Erro ao detectar alertas automáticos: {e}')
-        return []
-
-
-def gerar_dashboard_dados(dashboard_config, periodo_dias: int = 30) -> Dict[str, Any]:
-    """
-    Gerar dados para dashboard personalizado
-    """
-    try:
-        empresa = dashboard_config.empresa
-        data_inicio = date.today() - timedelta(days=periodo_dias)
-        data_fim = date.today()
-        
-        dados_widgets = {}
-        
-        for widget in dashboard_config.widgets_incluidos:
-            widget_id = widget.get('id')
-            widget_type = widget.get('type')
-            
-            if widget_type == 'vendas_resumo':
-                dados_widgets[widget_id] = calcular_metricas_vendas(
-                    empresa, data_inicio, data_fim
-                )
-            
-            elif widget_type == 'top_produtos':
-                # Top 10 produtos por faturamento
-                vendas = Venda.objects.filter(
-                    data_venda__gte=data_inicio,
-                    data_venda__lte=data_fim,
-                    status='finalizada'
-                )
-                
-                top_produtos = ItemVenda.objects.filter(
-                    venda__in=vendas
-                ).values(
-                    'produto__nome_comercial'
-                ).annotate(
-                    faturamento=Sum(F('quantidade') * F('preco_unitario'))
-                ).order_by('-faturamento')[:10]
-                
-                dados_widgets[widget_id] = list(top_produtos)
-            
-            elif widget_type == 'alertas_ativos':
-                alertas = AlertaGerencial.objects.filter(
-                    ativo=True
-                ).order_by('-prioridade')[:5]
-                
-                dados_widgets[widget_id] = [
-                    {
-                        'titulo': alerta.titulo,
-                        'prioridade': alerta.prioridade,
-                        'tipo': alerta.tipo_alerta,
-                        'data': alerta.data_referencia.isoformat()
-                    }
-                    for alerta in alertas
-                ]
-            
-            elif widget_type == 'kpis_principais':
-                kpis = MetricaKPI.objects.filter(
-                    data_referencia=data_fim
-                ).order_by('tipo_metrica')[:6]
-                
-                dados_widgets[widget_id] = [
-                    {
-                        'nome': kpi.nome,
-                        'valor_atual': float(kpi.valor_atual),
-                        'formato': kpi.formato_exibicao,
-                        'variacao': float(kpi.variacao_percentual),
-                        'status_meta': kpi.status_meta
-                    }
-                    for kpi in kpis
-                ]
-        
-        return {
-            'dashboard_id': dashboard_config.id,
-            'nome': dashboard_config.nome,
-            'periodo': {
-                'inicio': data_inicio.isoformat(),
-                'fim': data_fim.isoformat(),
-                'dias': periodo_dias
-            },
-            'widgets': dados_widgets,
-            'ultima_atualizacao': timezone.now().isoformat()
-        }
-        
-    except Exception as e:
-        logger.error(f'Erro ao gerar dados do dashboard: {e}')
-        return {}
-
-
-def exportar_dashboard_pdf(dashboard_config, dados_dashboard: Dict[str, Any]) -> bytes:
-    """
-    Exportar dashboard como PDF
-    """
-    try:
-        # Usar template HTML para renderizar o dashboard
-        html_content = render_to_string('relatorios/dashboard_pdf.html', {
-            'dashboard': dashboard_config,
-            'dados': dados_dashboard
-        })
-        
-        # Converter HTML para PDF usando alguma biblioteca como WeasyPrint
-        # Por enquanto, retornar PDF simples
-        return gerar_relatorio_pdf(dados_dashboard, f'Dashboard: {dashboard_config.nome}')
-        
-    except Exception as e:
-        logger.error(f'Erro ao exportar dashboard PDF: {e}')
-        return b''
-
-
-
-def calcular_previsao_vendas(empresa, data_inicio: date, data_fim: date, periodos_previsao: int = 3) -> Dict[str, Any]:
-    """
-    Calcular previsão de vendas para os próximos períodos usando Holt's Linear Trend Model.
-    """
-    try:
-        # Agrupar vendas por mês para a série temporal
-        vendas_mensais = Venda.objects.filter(
-            data_venda__gte=data_inicio,
-            data_venda__lte=data_fim,
-            status='finalizada'
-        ).annotate(
-            mes=TruncMonth('data_venda')
-        ).values('mes').annotate(
-            faturamento=Sum('total')
-        ).order_by('mes')
-        
-        if len(vendas_mensais) < 4: # Requer um mínimo de dados para prever
-            return {'erro': 'Dados insuficientes para gerar previsão.'}
-        
-        # Preparar dados para o pandas
-        df = pd.DataFrame(list(vendas_mensais))
-        df['mes'] = pd.to_datetime(df['mes'])
-        df = df.set_index('mes')
-        
-        # Treinar o modelo de previsão (Holt's)
-        modelo = Holt(df['faturamento'], initialization_method="estimated").fit()
-        previsao = modelo.forecast(periodos_previsao)
-        
-        return {
-            'historico': df.reset_index().to_dict('records'),
-            'previsao': {
-                'periodos': periodos_previsao,
-                'valores': previsao.to_dict()
-            },
-            'modelo': 'Holt Linear Trend'
-        }
-        
-    except Exception as e:
-        logger.error(f'Erro ao calcular previsão de vendas: {e}')
-        return {}
-
-
-def analisar_sazonalidade(empresa, data_inicio: date, data_fim: date, periodo: int = 12) -> Dict[str, Any]:
-    """
-    Analisar a sazonalidade das vendas, decompondo a série temporal.
-    """
-    try:
-        vendas_mensais = Venda.objects.filter(
-            data_venda__gte=data_inicio,
-            data_venda__lte=data_fim,
-            status='finalizada'
-        ).annotate(
-            mes=TruncMonth('data_venda')
-        ).values('mes').annotate(
-            faturamento=Sum('total')
-        ).order_by('mes')
-
-        if len(vendas_mensais) < periodo * 2: # Requer pelo menos 2 ciclos completos
-            return {'erro': 'Dados insuficientes para análise de sazonalidade.'}
-
-        df = pd.DataFrame(list(vendas_mensais), columns=['mes', 'faturamento']).set_index('mes')
-        
-        # Decompor a série
-        decomposicao = seasonal_decompose(df['faturamento'], model='additive', period=periodo)
-        
-        sazonalidade = decomposicao.seasonal.reset_index().to_dict('records')
-        tendencia = decomposicao.trend.dropna().reset_index().to_dict('records')
-        
-        # Encontrar picos de sazonalidade
-        pico = max(sazonalidade, key=lambda x: x['seasonal'])
-        vale = min(sazonalidade, key=lambda x: x['seasonal'])
-
-        return {
-            'sazonalidade': sazonalidade,
-            'tendencia': tendencia,
-            'pico_sazonal': pico,
-            'vale_sazonal': vale
-        }
-
-    except Exception as e:
-        logger.error(f'Erro ao analisar sazonalidade: {e}')
-        return {}
-
-
-def calcular_tendencias(empresa, data_inicio: date, data_fim: date) -> Dict[str, Any]:
-    """
-    Calcular a tendência geral de uma métrica (ex: faturamento) usando regressão linear.
-    """
-    try:
-        vendas_mensais = Venda.objects.filter(
-            data_venda__gte=data_inicio,
-            data_venda__lte=data_fim,
-            status='finalizada'
-        ).annotate(
-            mes=TruncMonth('data_venda')
-        ).values('mes').annotate(
-            faturamento=Sum('total')
-        ).order_by('mes')
-
-        if len(vendas_mensais) < 2:
-            return {'erro': 'Dados insuficientes para calcular tendência.'}
-
-        df = pd.DataFrame(list(vendas_mensais))
-        df['periodo'] = range(len(df)) # Eixo X (tempo)
-
-        # Regressão Linear com numpy
-        coeficientes = np.polyfit(df['periodo'], df['faturamento'], 1)
-        inclinacao = coeficientes[0]
-
-        if inclinacao > 5: # Threshold para considerar crescimento
-            tendencia = 'Crescimento'
-        elif inclinacao < -5:
-            tendencia = 'Declínio'
+        obj, created = MetricaKPI.objects.update_or_create(codigo=codigo, data_referencia=data_referencia, defaults=defaults)
+    except Exception:
+        obj = MetricaKPI.objects.filter(codigo=codigo).first()
+        if obj:
+            for key, value in defaults.items(): setattr(obj, key, value)
+            obj.save(); created = False
         else:
-            tendencia = 'Estável'
-            
-        return {
-            'dados': df.to_dict('records'),
-            'inclinacao': inclinacao,
-            'tendencia': tendencia
-        }
-
-    except Exception as e:
-        logger.error(f'Erro ao calcular tendências: {e}')
-        return {}
+            obj = MetricaKPI.objects.create(codigo=codigo, **defaults); created = True
+    return obj
 
 
-def gerar_cubo_olap(empresa, data_inicio: date, data_fim: date, dimensoes: List[str], metrica: str) -> Dict[str, Any]:
-    """
-    Gerar um cubo de dados (pivot table) para análise multidimensional.
-    Ex: dimensoes=['categoria__nome'], metrica='total'
-    """
-    try:
-        dados_flat = Venda.objects.filter( data_venda__range=(data_inicio, data_fim), status='finalizada'
-        ).values(*dimensoes, metrica)
-        
-        if not dados_flat:
-            return {'erro': 'Nenhum dado encontrado para os filtros selecionados.'}
-
-        df = pd.DataFrame(list(dados_flat))
-        
-        # Cria a pivot table (o cubo)
-        cubo = pd.pivot_table(
-            df, 
-            index=dimensoes[0], 
-            columns=dimensoes[1] if len(dimensoes) > 1 else None, 
-            values=metrica, 
-            aggfunc='sum', 
-            fill_value=0
-        )
-        
-        return {
-            'dimensoes': dimensoes,
-            'metrica': metrica,
-            'cubo_html': cubo.to_html(classes='table table-bordered table-striped')
-        }
-        
-    except Exception as e:
-        logger.error(f'Erro ao gerar cubo OLAP: {e}')
-        return {}
+def detectar_alertas_automaticos(empresa=None):
+    """Devolve alertas calculados sem presumir campos persistentes inexistentes."""
+    alerts = []; low_stock = Produto.objects.all()
+    if _has_field(Produto, "estoque_minimo") and _has_field(Produto, "estoque_atual"):
+        low_stock = low_stock.filter(estoque_atual__lte=F("estoque_minimo"))
+        for product in low_stock[:100]:
+            alerts.append({"tipo": "estoque_baixo", "titulo": f"Stock baixo: {getattr(product, 'nome_comercial', product)}", "descricao": f"Stock actual: {getattr(product, 'estoque_atual', '—')}; mínimo: {getattr(product, 'estoque_minimo', '—')}.", "produto_id": product.pk})
+    # Persistência só ocorre se os campos obrigatórios do model forem compatíveis.
+    for item in alerts:
+        try:
+            kwargs = {}
+            for field, value in (("titulo", item["titulo"]), ("descricao", item["descricao"]), ("tipo", item["tipo"]), ("prioridade", "media"), ("status", "aberto")):
+                if _has_field(AlertaGerencial, field): kwargs[field] = value
+            if _has_field(AlertaGerencial, "dados"): kwargs["dados"] = item
+            if _has_field(AlertaGerencial, "detalhes"): kwargs["detalhes"] = item["descricao"]
+            required_fk = [f.name for f in AlertaGerencial._meta.fields if getattr(f, "many_to_one", False) and not f.null and not f.has_default() and f.name not in kwargs]
+            required_simple = [f.name for f in AlertaGerencial._meta.fields if f.concrete and not getattr(f, "many_to_one", False) and not f.primary_key and not f.null and not f.blank and not f.has_default() and f.name not in kwargs]
+            if not required_fk and not required_simple:
+                AlertaGerencial.objects.create(**kwargs)
+        except Exception:
+            logger.debug("Não foi possível persistir alerta automático: %s", item.get("titulo"), exc_info=True)
+    return alerts
 
 
-def executar_data_mining(empresa, data_inicio: date, data_fim: date, n_clusters: int = 4) -> Dict[str, Any]:
-    """
-    Executar data mining para segmentação de clientes usando K-Means.
-    """
-    try:
-        dados_clientes = Cliente.objects.filter(
-            venda__data_venda__range=(data_inicio, data_fim)
-        ).annotate(
-            faturamento_total=Sum('venda__total'),
-            frequencia=Count('venda__id'),
-            ticket_medio=Avg('venda__total')
-        ).values('id', 'nome', 'faturamento_total', 'frequencia', 'ticket_medio')
-
-        if len(dados_clientes) < n_clusters:
-            return {'erro': 'Dados insuficientes para clusterização.'}
-
-        df = pd.DataFrame(list(dados_clientes)).dropna()
-        
-        # Preparar dados para o modelo
-        features = df[['faturamento_total', 'frequencia', 'ticket_medio']]
-        scaler = StandardScaler()
-        features_scaled = scaler.fit_transform(features)
-        
-        # Treinar modelo K-Means
-        kmeans = KMeans(n_clusters=n_clusters, random_state=42, n_init=10)
-        df['segmento'] = kmeans.fit_predict(features_scaled)
-        
-        # Agrupar resultados
-        segmentos = {}
-        for i in range(n_clusters):
-            cluster_data = df[df['segmento'] == i]
-            segmentos[f'Segmento {i+1}'] = {
-                'total_clientes': len(cluster_data),
-                'faturamento_medio': cluster_data['faturamento_total'].mean(),
-                'frequencia_media': cluster_data['frequencia'].mean(),
-                'clientes': cluster_data.to_dict('records')
-            }
-            
-        return {
-            'total_clientes_analisados': len(df),
-            'numero_segmentos': n_clusters,
-            'segmentos': segmentos
-        }
-
-    except Exception as e:
-        logger.error(f'Erro ao executar data mining: {e}')
-        return {}
+def gerar_dashboard_dados(dashboard_config):
+    hoje = timezone.localdate(); start = hoje - timedelta(days=29)
+    metricas = calcular_metricas_vendas(None, start, hoje)
+    alertas = AlertaGerencial.objects.all().order_by("-pk")[:10]
+    kpis = MetricaKPI.objects.all().order_by("-data_referencia")[:10]
+    return {"data_inicio": start.isoformat(), "data_fim": hoje.isoformat(), "metricas_vendas": metricas, "alertas": list(alertas), "kpis": list(kpis), "layout": getattr(dashboard_config, "layout", {}), "widgets": getattr(dashboard_config, "widgets", [])}
 
 
-def calcular_correlacoes(empresa, data_inicio: date, data_fim: date) -> Dict[str, Any]:
-    """
-    Calcular a matriz de correlação entre métricas de vendas.
-    """
-    try:
-        dados_vendas = Venda.objects.filter( data_venda__range=(data_inicio, data_fim), status='finalizada'
-        ).annotate(
-            num_itens=Sum('itens_venda__quantidade')
-        ).values('total', 'desconto', 'num_itens')
+def exportar_dashboard_pdf(dashboard_config):
+    data = gerar_dashboard_dados(dashboard_config)
+    return gerar_relatorio_pdf([{"Indicador": key, "Valor": json.dumps(value, ensure_ascii=False, default=str)} for key, value in data["metricas_vendas"].items()], "Dashboard de Relatórios")
 
-        if len(dados_vendas) < 2:
-            return {'erro': 'Dados insuficientes para calcular correlações.'}
 
-        df = pd.DataFrame(list(dados_vendas))
-        matriz_correlacao = df.corr()
-        
-        return {
-            'matriz_html': matriz_correlacao.to_html(classes='table table-bordered', float_format='{:,.2f}'.format),
-            'dados_brutos': matriz_correlacao.to_dict()
-        }
+def calcular_previsao_vendas(empresa=None, meses_historico=12, meses_previsao=3):
+    from django.db.models.functions import TruncMonth
+    qs = Venda.objects.all()
+    if _has_field(Venda, "status"): qs = qs.filter(status="finalizada")
+    if not (_has_field(Venda, "data_venda") and _has_field(Venda, "total")):
+        return {"historico": [], "previsao": [], "aviso": "Campos de data/total não disponíveis."}
+    grouped = list(qs.annotate(mes=TruncMonth("data_venda")).values("mes").annotate(total=Sum("total")).order_by("mes"))
+    hist = [{"mes": row["mes"].strftime("%Y-%m"), "total": float(row["total"] or 0)} for row in grouped if row["mes"]]
+    if len(hist) < 3:
+        return {"historico": hist, "previsao": [], "aviso": "São necessários pelo menos três meses de dados para uma previsão simples."}
+    vals = [row["total"] for row in hist[-meses_historico:]]; avg = sum(vals[-3:]) / min(3, len(vals))
+    last = grouped[-1]["mes"].date().replace(day=1); future = []
+    for i in range(1, meses_previsao + 1):
+        month = last.month + i; year = last.year + (month - 1) // 12; month = ((month - 1) % 12) + 1
+        future.append({"mes": f"{year:04d}-{month:02d}", "total_previsto": round(avg, 2), "metodo": "média móvel de 3 meses"})
+    return {"historico": hist, "previsao": future}
 
-    except Exception as e:
-        logger.error(f'Erro ao calcular correlações: {e}')
-        return {}
-    
 
+def analisar_sazonalidade(empresa=None, ano=None):
+    from django.db.models.functions import ExtractMonth
+    qs = Venda.objects.all()
+    if _has_field(Venda, "status"): qs = qs.filter(status="finalizada")
+    if ano and _has_field(Venda, "data_venda"): qs = qs.filter(data_venda__year=ano)
+    if not (_has_field(Venda, "data_venda") and _has_field(Venda, "total")): return []
+    return list(qs.annotate(mes=ExtractMonth("data_venda")).values("mes").annotate(total=Sum("total"), quantidade=Count("pk")).order_by("mes"))
+
+
+def calcular_tendencias(empresa=None, data_inicio=None, data_fim=None):
+    metrics = calcular_metricas_vendas(empresa, data_inicio, data_fim)
+    daily = metrics["vendas_por_dia"]
+    if len(daily) < 2: return {"tendencia": "dados_insuficientes", "variacao_percentual": 0, "dias": daily}
+    first, last = float(daily[0].get("total") or 0), float(daily[-1].get("total") or 0)
+    change = ((last - first) / first * 100) if first else 0
+    return {"tendencia": "crescente" if change > 0 else "decrescente" if change < 0 else "estável", "variacao_percentual": round(change, 2), "dias": daily}
+
+
+def gerar_cubo_olap(dimensoes=None, metrica="total", empresa=None, data_inicio=None, data_fim=None):
+    """Cubo OLAP simples e parametrizado; aceita apenas dimensões conhecidas."""
+    allowed_dims = {"dia": "data_venda", "mes": "data_venda", "estado": "status", "forma_pagamento": "forma_pagamento__nome"}
+    dims = [d for d in (dimensoes or ["mes"]) if d in allowed_dims and _has_field(Venda, allowed_dims[d])]
+    if not dims or not _has_field(Venda, metrica): return []
+    qs = Venda.objects.all()
+    if _has_field(Venda, "status"): qs = qs.filter(status="finalizada")
+    if data_inicio and data_fim: qs = _date_filter(qs, Venda, "data_venda", data_inicio, data_fim)
+    field_list = [allowed_dims[d] for d in dims]
+    return list(qs.values(*field_list).annotate(valor=Sum(metrica), quantidade=Count("pk")).order_by(*field_list)[:1000])
+
+
+def executar_data_mining(empresa=None, data_inicio=None, data_fim=None):
+    return calcular_segmentacao_rfm_clientes(empresa, data_inicio, data_fim)
+
+
+def calcular_correlacoes(empresa=None, data_inicio=None, data_fim=None):
+    # Sem biblioteca estatística obrigatória: devolve métricas de entrada validadas.
+    return calcular_metricas_vendas(empresa, data_inicio, data_fim)

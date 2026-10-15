@@ -1,0 +1,10 @@
+{# ponto/registrar.html #}
+{% extends "funcionarios/_rh_base.html" %}
+{% block title %}Registar ponto{% endblock %}
+{% block rh_content %}
+<div class="max-w-md mx-auto rh-card text-center">
+  <p class="text-4xl font-bold mb-1" id="relogio">--:--:--</p><p class="rh-muted mb-5">{% now "d/m/Y" %}</p>
+  {% include "ponto/_botao_registrar.html" %}
+</div>
+<script>setInterval(()=>document.getElementById('relogio').textContent=new Date().toLocaleTimeString('pt-PT'),1000);</script>
+{% endblock %}

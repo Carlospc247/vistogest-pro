@@ -1,0 +1,18 @@
+{% extends "integracoes/_base.html" %}
+{% block title %}Webhook #{{ webhook.pk }}{% endblock %}
+{% block ig_content %}
+<a href="{% url 'integracoes:webhook_lista' %}" class="text-sm text-indigo-600">&larr; Webhooks</a>
+<div class="flex flex-wrap justify-between items-center gap-3 my-3">
+  <h1 class="text-xl font-bold">{{ webhook.configuracao.tipo_integracao.nome }} — {{ webhook.evento|default:"evento" }}</h1>
+  <form method="post" action="{% url 'integracoes:webhook_reprocessar' pk=webhook.pk %}">{% csrf_token %}<button class="ig-btn ig-btn-p"><i class="fas fa-redo mr-1"></i> {% if webhook.processado %}Reprocessar{% else %}Processar de novo{% endif %}</button></form>
+</div>
+<div class="ig-card text-sm grid md:grid-cols-4 gap-3 mb-4">
+  <p><span class="ig-muted">Recebido</span><br>{{ webhook.recebido_em|date:"d/m/Y H:i:s" }}</p><p><span class="ig-muted">IP</span><br>{{ webhook.ip_origem|default:"—" }}</p>
+  <p><span class="ig-muted">Tentativas</span><br>{{ webhook.tentativas_processamento }}</p>
+  <p><span class="ig-muted">Estado</span><br>{% if webhook.processado %}Processado em {{ webhook.processado_em|date:"d/m H:i" }}{% else %}Pendente{% endif %}</p>
+  <p class="md:col-span-4 break-all"><span class="ig-muted">ID externo</span><br><code>{{ webhook.identificador_externo|default:"—" }}</code></p>
+</div>
+{% if webhook.erro_processamento %}<div class="ig-alert ig-bad"><strong>Erro:</strong> {{ webhook.erro_processamento }}</div>{% endif %}
+<div class="grid lg:grid-cols-2 gap-4"><div><h2 class="font-semibold mb-1">Payload</h2><pre class="ig-pre">{{ payload_fmt }}</pre></div>
+  <div><h2 class="font-semibold mb-1">Cabeçalhos</h2><pre class="ig-pre">{{ headers_json }}</pre></div></div>
+{% endblock %}

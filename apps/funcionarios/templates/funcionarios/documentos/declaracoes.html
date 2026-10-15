@@ -1,0 +1,10 @@
+{# documentos/declaracoes.html #}
+{% extends "documentos/_documento_base.html" %}
+{% block doc_title %}Declaração{% endblock %}
+{% block doc_corpo %}
+<h1>Declaração</h1>
+<p>Para os devidos efeitos, declara-se que <strong>{{ funcionario.nome_completo }}</strong>, portador do BI n.º {{ funcionario.bi }}, {% if funcionario.ativo %}é funcionário(a) desta empresa desde {{ funcionario.data_admissao|date:"d/m/Y" }}{% else %}foi funcionário(a) desta empresa de {{ funcionario.data_admissao|date:"d/m/Y" }} a {{ funcionario.data_demissao|date:"d/m/Y" }}{% endif %}, exercendo as funções de {{ funcionario.cargo.nome|default:"____" }}, com a remuneração mensal de {{ funcionario.salario_total|floatformat:2 }} Kz.</p>
+<p>Por ser verdade, passa-se a presente declaração, que vai assinada.</p>
+<p>Luanda, {% now "d/m/Y" %}.</p>
+<div class="assin"><div>A entidade empregadora</div><div></div></div>
+{% endblock %}

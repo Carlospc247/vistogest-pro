@@ -1,0 +1,71 @@
+{# recibos/recibo_detail.html #}
+{% extends "funcionarios/_rh_base.html" %}
+{% block title %}{{ r.numero }}{% endblock %}
+{% block extra_css %}{{ block.super }}{% include "recibos/_estilos.html" %}{% endblock %}
+{% block rh_content %}
+{% include "recibos/nav.html" %}
+<div class="flex flex-wrap justify-between items-center gap-3 mb-4">
+  <div><a href="{% url 'funcionarios:recibo_lista' %}" class="text-sm text-indigo-600">&larr; Recibos</a>
+    <h1 class="text-2xl font-bold">{{ r.numero }}
+      <span class="rh-badge {% if r.estado == 'PAGO' %}rh-ok{% elif r.estado == 'ANULADO' %}rh-bad{% else %}rh-warn{% endif %}">{{ r.get_estado_display }}</span></h1></div>
+  <div class="flex flex-wrap gap-2 items-center">
+    <a class="rh-btn" target="_blank" href="{% url 'funcionarios:recibo_imprimir' pk=r.pk %}?auto=1"><i class="fas fa-print mr-1"></i> Imprimir</a>
+    <a class="rh-btn rh-btn-p" target="_blank" href="{% url 'funcionarios:recibo_pdf' pk=r.pk %}"><i class="fas fa-file-pdf mr-1"></i> PDF</a>
+    {% if pode_processar %}
+      {% if r.editavel %}<form method="post" action="{% url 'funcionarios:recibo_recalcular' pk=r.pk %}">{% csrf_token %}<button class="rh-btn">Recalcular</button></form>{% endif %}
+      {% if r.estado == 'CALCULADO' %}<form method="post" action="{% url 'funcionarios:recibo_emitir' pk=r.pk %}" onsubmit="return confirm('Emitir? Depois só poderá retificar.')">{% csrf_token %}<button class="rh-btn rh-btn-ok">Emitir</button></form>{% endif %}
+      <a class="rh-btn" href="{% url 'funcionarios:recibo_confirmacao' pk=r.pk %}">Assinaturas / confirmação</a>
+    {% endif %}
+  </div>
+</div>
+
+{% if r.erros %}<div class="rv-erro"><b>Erros:</b> {{ r.erros|join:"; " }}</div>{% endif %}
+{% for a in r.avisos %}<div class="rv-aviso">{{ a }}</div>{% endfor %}
+{% if r.hash_integridade %}<p class="text-sm mb-2">Integridade:
+  {% if r.integridade_ok %}<span class="rh-badge rh-ok">válida</span>{% else %}<span class="rh-badge rh-bad">ALTERADO — não corresponde ao emitido</span>{% endif %}</p>{% endif %}
+{% if r.recibo_original %}<p class="text-sm mb-2">Retifica <a class="text-indigo-600" href="{% url 'funcionarios:recibo_detalhe' pk=r.recibo_original.pk %}">{{ r.recibo_original.numero }}</a> — {{ r.motivo }}</p>{% endif %}
+
+{% include "recibos/_documento.html" %}
+
+{% if pode_processar and r.editavel %}
+<div class="grid lg:grid-cols-2 gap-4 mt-5">
+  <div class="rh-card"><h2 class="font-semibold mb-2">Lançamentos do mês (quantidade / valor)</h2>
+    <form method="post" action="{% url 'funcionarios:recibo_lancamento' pk=r.pk %}" class="grid grid-cols-3 gap-2">{% csrf_token %}
+      <div class="col-span-3 rh-campo">{{ form_lancamento.rubrica }}</div>
+      <div class="rh-campo">{{ form_lancamento.quantidade }}</div><div class="rh-campo">{{ form_lancamento.valor }}</div>
+      <button class="rh-btn rh-btn-p">Aplicar</button>
+      <p class="col-span-3 text-xs rh-muted">Quantidade (horas, dias de falta, unidades) e/ou valor (unitário ou total, conforme a rubrica). O recibo é recalculado.</p>
+    </form>
+    <ul class="mt-3 text-sm space-y-1">
+      {% for rub, v in lancamentos %}<li class="flex justify-between"><span>{{ rub.nome|default:"?" }} — qtd {{ v.quantidade|default:"—" }} / valor {{ v.valor|default:"—" }}</span>
+        <form method="post" action="{% url 'funcionarios:recibo_lancamento' pk=r.pk %}">{% csrf_token %}<button name="remover" value="{{ rub.codigo }}" class="text-red-600">remover</button></form></li>
+      {% empty %}<li class="rh-muted">Sem lançamentos.</li>{% endfor %}
+    </ul></div>
+  <div class="rh-card"><h2 class="font-semibold mb-2">Ajustar salário-base (só neste recibo)</h2>
+    <form method="post" action="{% url 'funcionarios:recibo_ajuste' pk=r.pk %}" class="flex gap-2 items-end">{% csrf_token %}
+      <div class="rh-campo flex-1">{{ form_ajuste.ajuste_salario_base }}</div><button class="rh-btn rh-btn-p">Aplicar</button></form>
+    <p class="text-xs rh-muted mt-2">Actual: {% if r.ajuste_salario_base is not None %}{{ r.ajuste_salario_base|floatformat:"2g" }} (ajustado){% else %}do cadastro do funcionário{% endif %}. Fica registado na auditoria. Deixe vazio para voltar ao cadastro.</p></div>
+</div>
+{% endif %}
+
+{% if pode_processar and r.estado == 'EMITIDO' %}
+<div class="rh-card mt-4"><h2 class="font-semibold mb-2">Registar pagamento</h2>
+  <form method="post" action="{% url 'funcionarios:recibo_pagar' pk=r.pk %}" class="flex flex-wrap gap-3 items-end">{% csrf_token %}
+    <div class="rh-campo">{{ form_pagamento.data_pagamento }}</div><div class="rh-campo">{{ form_pagamento.referencia_pagamento }}</div>
+    <button class="rh-btn rh-btn-ok">Marcar como pago</button></form></div>
+{% endif %}
+
+{% if pode_estornar and r.estado == 'EMITIDO' or pode_estornar and r.estado == 'PAGO' %}
+<div class="grid md:grid-cols-2 gap-4 mt-4">
+  <form method="post" action="{% url 'funcionarios:recibo_retificar' pk=r.pk %}" class="rh-card space-y-2">{% csrf_token %}
+    <h2 class="font-semibold">Retificar</h2><textarea name="motivo" rows="2" class="rh-input" placeholder="Motivo da retificação" required></textarea>
+    <button class="rh-btn">Criar recibo retificativo</button></form>
+  <form method="post" action="{% url 'funcionarios:recibo_anular' pk=r.pk %}" class="rh-card space-y-2" onsubmit="return confirm('Anular este recibo?')">{% csrf_token %}
+    <h2 class="font-semibold">Anular</h2><textarea name="motivo" rows="2" class="rh-input" placeholder="Motivo da anulação" required></textarea>
+    <button class="rh-btn rh-btn-d">Anular recibo</button></form>
+</div>
+{% endif %}
+
+{% if auditoria %}<div class="rh-card mt-4"><h2 class="font-semibold mb-2">Histórico</h2>
+  <ul class="text-sm space-y-1">{% for a in auditoria %}<li>{{ a.timestamp|date:"d/m/Y H:i" }} — {{ a.acao }} ({{ a.utilizador|default:"sistema" }})</li>{% endfor %}</ul></div>{% endif %}
+{% endblock %}

@@ -1,0 +1,118 @@
+<!-- site/forms/contato_form.html -->
+{% extends "site/loja/base_loja.html" %}
+
+{% block titulo %}Contacto{% endblock %}
+
+{% block conteudo %}
+<section class="pagina">
+    <div class="medio">
+        <div class="migalhas">
+            <a href="{% url 'site:pagina_home' %}">Início</a>
+            <span> / </span>
+            <span>Contacto</span>
+        </div>
+
+        <div class="painel">
+            <h1>Entre em contacto</h1>
+            <p class="suave">
+                Preencha o formulário e entraremos em contacto consigo.
+            </p>
+
+            {% if cliente_formulario %}
+                <div class="aviso">
+                    A sua mensagem será associada à conta de
+                    <strong>{{ cliente_formulario.email }}</strong>.
+                    Pode acompanhar a resposta no seu
+                    <a href="{% url 'site:cliente_perfil' %}">perfil</a>.
+                </div>
+            {% endif %}
+
+            <form method="post">
+                {% csrf_token %}
+
+                <div class="campo">
+                    <label for="id_nome">Nome</label>
+                    <input
+                        id="id_nome"
+                        type="text"
+                        name="nome"
+                        value="{{ cliente_formulario.nome|default:'' }}"
+                        {% if cliente_formulario %}readonly{% endif %}
+                        required
+                        autocomplete="name"
+                    >
+                </div>
+
+                <div class="campo">
+                    <label for="id_email">Email</label>
+                    <input
+                        id="id_email"
+                        type="email"
+                        name="email"
+                        value="{{ cliente_formulario.email|default:'' }}"
+                        {% if cliente_formulario %}readonly{% endif %}
+                        required
+                        autocomplete="email"
+                    >
+                </div>
+
+                <div class="campo">
+                    <label for="id_telefone">Telefone</label>
+                    <input
+                        id="id_telefone"
+                        type="tel"
+                        name="telefone"
+                        value="{{ cliente_formulario.telefone|default:'' }}"
+                        {# só bloqueia se o cliente já tiver telefone guardado #}
+                        {% if cliente_formulario.telefone %}readonly{% endif %}
+                        autocomplete="tel"
+                    >
+                </div>
+
+                <div class="campo">
+                    <label for="id_tipo">Motivo do contacto</label>
+                    <select id="id_tipo" name="tipo">
+                        <option value="contato">Contacto Geral</option>
+                        <option value="compra_produto">Compra de Produto</option>
+                        <option value="compra_servico">Compra de Serviço</option>
+                        <option value="suporte">Suporte Pós-Venda</option>
+                    </select>
+                </div>
+
+                <div class="campo">
+                    <label for="id_mensagem">Mensagem</label>
+                    <textarea
+                        id="id_mensagem"
+                        name="mensagem"
+                        rows="6"
+                        required
+                        placeholder="Escreva a sua mensagem"
+                    ></textarea>
+                </div>
+
+                <button type="submit" class="btn">
+                    Enviar mensagem
+                </button>
+            </form>
+
+            {% if config.telefone_publico or config.email_publico or config.endereco_publico %}
+                <div class="rodape-form" style="margin-top: 24px;">
+                    {% if config.telefone_publico %}
+                        <div>{{ config.telefone_publico }}</div>
+                    {% endif %}
+                    {% if config.email_publico %}
+                        <div>
+                            <a href="mailto:{{ config.email_publico }}">
+                                {{ config.email_publico }}
+                            </a>
+                        </div>
+                    {% endif %}
+                    {% if config.endereco_publico %}
+                        <div>{{ config.endereco_publico|linebreaksbr }}</div>
+                    {% endif %}
+                </div>
+            {% endif %}
+        </div>
+    </div>
+</section>
+{% endblock %}

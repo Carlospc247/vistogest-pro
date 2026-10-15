@@ -1,0 +1,71 @@
+{% extends "site/loja/base_loja.html" %}
+
+{% block titulo %}Definir nova senha{% endblock %}
+
+{% block conteudo %}
+<section class="pagina">
+
+    <div class="estreito">
+
+        <div class="migalhas">
+            <a href="{% url 'site:pagina_home' %}">Início</a>
+            <span> / </span>
+            <span>Nova senha</span>
+        </div>
+
+        <div class="painel">
+
+            <h1>Definir nova senha</h1>
+
+            <p class="suave">
+                Escolha uma nova senha para a sua conta.
+            </p>
+
+            <form method="post">
+                {% csrf_token %}
+
+                <div class="campo">
+                    <label for="id_senha">
+                        Nova senha
+                    </label>
+
+                    <input
+                        type="password"
+                        id="id_senha"
+                        name="senha"
+                        required
+                        minlength="6"
+                        autocomplete="new-password"
+                    >
+
+                    <span class="ajuda">
+                        A senha deve ter pelo menos 6 caracteres.
+                    </span>
+                </div>
+
+                <div class="campo">
+                    <label for="id_confirmar_senha">
+                        Confirmar nova senha
+                    </label>
+
+                    <input
+                        type="password"
+                        id="id_confirmar_senha"
+                        name="confirmar_senha"
+                        required
+                        minlength="6"
+                        autocomplete="new-password"
+                    >
+                </div>
+
+                <button type="submit" class="btn">
+                    Redefinir senha
+                </button>
+            </form>
+
+        </div>
+
+    </div>
+
+</section>
+{% endblock %}

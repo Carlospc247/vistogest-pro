@@ -1,0 +1,147 @@
+{% extends "site/loja/base_loja.html" %}
+
+{% block titulo %}Carrinho{% endblock %}
+
+{% block conteudo %}
+<section class="pagina">
+
+    <div class="migalhas">
+        <a href="{% url 'site:pagina_home' %}">Início</a>
+        <span> / </span>
+        <a href="{% url 'site:loja' %}">Loja</a>
+        <span> / </span>
+        <span>Carrinho</span>
+    </div>
+
+    <h1>O seu carrinho</h1>
+
+    {% if itens %}
+        <div class="layout-resumo">
+
+            <div class="painel">
+                {% for item in itens %}
+                    <div class="item-linha" id="item-{{ item.id }}">
+
+                        <div>
+                            <a
+                                class="item-nome"
+                                href="{% if item.produto %}{% url 'site:produto_detalhe' item.produto.pk %}{% elif item.servico %}{% url 'site:servico_detalhe' item.servico.pk %}{% endif %}"
+                            >
+                                {{ item.nome }}
+                            </a>
+
+                            <div class="item-meta">
+                                Quantidade: {{ item.quantidade }}
+                            </div>
+                        </div>
+
+                        <div class="valor valor-unit">
+                            {{ item.preco_unitario|floatformat:2 }}
+                            {{ config.moeda|default:"AOA" }}
+                        </div>
+
+                        <div class="valor">
+                            {{ item.total_linha|floatformat:2 }}
+                            {{ config.moeda|default:"AOA" }}
+                        </div>
+
+                        <button
+                            type="button"
+                            class="btn btn-perigo js-remover-item"
+                            data-id="{{ item.id }}"
+                        >
+                            Remover
+                        </button>
+
+                    </div>
+                {% endfor %}
+            </div>
+
+            <aside class="painel">
+                <h2>Resumo</h2>
+
+                <div class="resumo-linha">
+                    <span>Itens</span>
+                    <strong>{{ carrinho_obj.total_itens }}</strong>
+                </div>
+
+                <div class="resumo-total">
+                    <span>Total</span>
+                    <span>
+                        {{ carrinho_obj.total|floatformat:2 }}
+                        {{ config.moeda|default:"AOA" }}
+                    </span>
+                </div>
+
+                <a class="btn" href="{% url 'site:checkout' %}">
+                    Continuar para checkout
+                </a>
+
+                <a class="btn btn-sec" href="{% url 'site:loja' %}">
+                    Continuar a comprar
+                </a>
+            </aside>
+
+        </div>
+
+    {% else %}
+
+        <div class="painel vazio">
+            <h2>O seu carrinho está vazio</h2>
+            <p>
+                Ainda não adicionou nenhum produto ou serviço.
+            </p>
+
+            <a class="btn btn-auto" href="{% url 'site:loja' %}">
+                Ir para a loja
+            </a>
+        </div>
+
+    {% endif %}
+</section>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('click', function (event) {
+    const btn = event.target.closest('.js-remover-item');
+
+    if (!btn) {
+        return;
+    }
+
+    const itemId = btn.dataset.id;
+
+    btn.disabled = true;
+    btn.textContent = 'A remover…';
+
+    window.Loja.enviar(
+        "{% url 'site:remover_carrinho' %}",
+        {
+            item_id: itemId
+        }
+    ).then(function (res) {
+        if (res.ok && res.d.success) {
+            window.location.reload();
+            return;
+        }
+
+        btn.disabled = false;
+        btn.textContent = 'Remover';
+
+        window.Loja.aviso(
+            res.d.error || 'Não foi possível remover o item.',
+            true
+        );
+    }).catch(function () {
+        btn.disabled = false;
+        btn.textContent = 'Remover';
+
+        window.Loja.aviso(
+            'Sem ligação. Tente novamente.',
+            true
+        );
+    });
+});
+</script>
+{% endblock %}

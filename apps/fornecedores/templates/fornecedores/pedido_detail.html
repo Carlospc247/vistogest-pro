@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% block title %}{{ pedido.numero_pedido }}{% endblock %}
+{% block content %}
+<div class="container mx-auto px-4 py-8 max-w-5xl space-y-6">
+  <div class="flex flex-wrap justify-between items-start gap-3">
+    <div>
+      <a href="{% url 'fornecedores:pedido_lista' %}" class="text-sm text-indigo-600 hover:underline">&larr; Pedidos</a>
+      <h1 class="text-2xl font-bold text-gray-800 mt-1">{{ pedido.numero_pedido }}
+        <span class="ml-2 px-3 py-1 rounded-full text-sm bg-gray-100 align-middle">{{ pedido.get_status_display }}</span></h1>
+      <p class="text-gray-500">
+        <a class="hover:underline" href="{% url 'fornecedores:detail' pk=pedido.fornecedor.pk %}">{{ pedido.fornecedor.razao_social }}</a>
+        • {{ pedido.data_pedido|date:"d/m/Y" }} • Urgência: {{ pedido.get_urgencia_display }}</p>
+    </div>
+    <div class="flex flex-wrap gap-2 text-sm">
+      <a href="{% url 'fornecedores:pedido_update' pk=pedido.pk %}" class="px-3 py-2 border rounded bg-white">Editar</a>
+      <a href="{% url 'fornecedores:pedido_imprimir' pk=pedido.pk %}" target="_blank" class="px-3 py-2 border rounded bg-white">Imprimir</a>
+      <a href="{% url 'fornecedores:pedido_pdf' pk=pedido.pk %}" target="_blank" class="px-3 py-2 border rounded bg-white">PDF</a>
+      <a href="{% url 'fornecedores:pedido_xml' pk=pedido.pk %}" class="px-3 py-2 border rounded bg-white">XML</a>
+      <a href="{% url 'fornecedores:pedido_delete' pk=pedido.pk %}" class="px-3 py-2 border border-red-300 text-red-600 rounded">Eliminar</a>
+    </div>
+  </div>
+
+  <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-4 flex flex-wrap gap-2 items-center">
+    {% if pedido.status == 'rascunho' %}
+      <form method="post" action="{% url 'fornecedores:pedido_enviar' pk=pedido.pk %}">{% csrf_token %}<button class="px-3 py-2 rounded bg-indigo-600 text-white text-sm">Enviar ao fornecedor</button></form>
+    {% endif %}
+    {% if pedido.status == 'enviado' or pedido.status == 'confirmado' %}
+      <form method="post" action="{% url 'fornecedores:pedido_aprovar' pk=pedido.pk %}">{% csrf_token %}<button class="px-3 py-2 rounded bg-green-600 text-white text-sm">Aprovar</button></form>
+    {% endif %}
+    {% if pedido.status != 'rascunho' and pedido.status != 'recebido' and pedido.status != 'finalizado' and pedido.status != 'cancelado' %}
+      <form method="post" action="{% url 'fornecedores:pedido_receber' pk=pedido.pk %}">{% csrf_token %}<button class="px-3 py-2 rounded bg-teal-600 text-white text-sm">Marcar como recebido</button></form>
+    {% endif %}
+    {% if pedido.status != 'finalizado' and pedido.status != 'cancelado' %}
+      <form method="post" action="{% url 'fornecedores:pedido_cancelar' pk=pedido.pk %}" class="flex gap-2 ml-auto">{% csrf_token %}
+        <input name="motivo" placeholder="Motivo do cancelamento" class="border rounded px-2 py-1.5 text-sm">
+        <button class="px-3 py-2 rounded bg-red-600 text-white text-sm">Cancelar pedido</button></form>
+    {% endif %}
+  </div>
+
+  <div class="bg-white rounded-xl border border-gray-100 shadow-sm overflow-x-auto">
+    <table class="w-full text-sm">
+      <thead class="bg-gray-50 text-left text-gray-500"><tr><th class="p-3">Produto</th><th>Qtd</th><th>Recebida</th><th>P. Unit.</th><th>Desc. %</th><th class="text-right pr-3">Total</th></tr></thead>
+      <tbody>
+      {% for it in pedido.itens.all %}
+        <tr class="border-t"><td class="p-3">{{ it.produto.nome_comercial }}</td><td>{{ it.quantidade }}</td><td>{{ it.quantidade_recebida }}</td>
+        <td>{{ it.preco_unitario|floatformat:2 }}</td><td>{{ it.desconto_item }}</td><td class="text-right pr-3">{{ it.total|floatformat:2 }}</td></tr>
+      {% empty %}<tr><td colspan="6" class="p-6 text-center text-gray-500">Sem itens.</td></tr>{% endfor %}
+      </tbody>
+      <tfoot class="text-sm">
+        <tr class="border-t"><td colspan="5" class="p-2 text-right text-gray-500">Subtotal</td><td class="text-right pr-3">{{ pedido.subtotal|floatformat:2 }}</td></tr>
+        <tr><td colspan="5" class="p-2 text-right text-gray-500">Desconto</td><td class="text-right pr-3">- {{ pedido.desconto_valor|floatformat:2 }}</td></tr>
+        <tr><td colspan="5" class="p-2 text-right text-gray-500">Frete + seguro + outras</td><td class="text-right pr-3">{{ pedido.valor_frete|add:pedido.valor_seguro|add:pedido.outras_despesas|floatformat:2 }}</td></tr>
+        <tr class="font-bold"><td colspan="5" class="p-2 text-right">TOTAL</td><td class="text-right pr-3">{{ pedido.total|floatformat:2 }} Kz</td></tr>
+      </tfoot>
+    </table>
+  </div>
+
+  <div class="grid md:grid-cols-2 gap-6">
+    <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-5 text-sm space-y-1">
+      <h2 class="font-semibold mb-2">Entrega e pagamento</h2>
+      <p>Entrega prevista: {{ pedido.data_entrega_prevista|date:"d/m/Y"|default:"—" }}</p>
+      <p>Entrega real: {{ pedido.data_entrega_real|date:"d/m/Y"|default:"—" }}</p>
+      <p>Condição: {{ pedido.condicao_pagamento|default:"—" }}</p>
+      <p>Transportadora: {{ pedido.transportadora|default:"—" }}</p>
+      {% if pedido.motivo_cancelamento %}<p class="text-red-700">Motivo do cancelamento: {{ pedido.motivo_cancelamento }}</p>{% endif %}
+    </div>
+    <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-5 text-sm">
+      <h2 class="font-semibold mb-2">Histórico</h2>
+      <ul class="space-y-1">
+      {% for h in pedido.historico.all %}
+        <li>{{ h.created_at|date:"d/m/Y H:i" }} — {{ h.status_anterior }} → <strong>{{ h.status_novo }}</strong> ({{ h.usuario }})</li>
+      {% empty %}<li class="text-gray-500">Sem movimentos.</li>{% endfor %}
+      </ul>
+    </div>
+  </div>
+</div>
+{% endblock %}

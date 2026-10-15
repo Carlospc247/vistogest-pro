@@ -1,0 +1,10 @@
+{# _campo.html — espera a variável `field` #}
+<div class="ig-campo">
+  {% if field.widget_type == 'checkbox' %}
+    <label class="inline-flex items-center gap-2 text-sm">{{ field }} {{ field.label }}</label>
+  {% else %}
+    <label for="{{ field.id_for_label }}" class="block text-sm font-medium mb-1">{{ field.label }}</label>{{ field }}
+  {% endif %}
+  {% if field.help_text %}<p class="text-xs ig-muted mt-1">{{ field.help_text }}</p>{% endif %}
+  {% for e in field.errors %}<p class="text-xs text-red-600 mt-1">{{ e }}</p>{% endfor %}
+</div>

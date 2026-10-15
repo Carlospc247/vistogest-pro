@@ -1,0 +1,103 @@
+{% extends "integracoes/_base.html" %}
+{% block title %}Guia de integrações{% endblock %}
+{% block ig_content %}
+<div class="grid lg:grid-cols-4 gap-6">
+  <aside class="lg:col-span-1"><div class="ig-card text-sm sticky top-4 space-y-1">
+    <p class="font-semibold mb-1">Neste guia</p>
+    <a class="block text-indigo-600" href="#visao-geral">Visão geral</a><a class="block text-indigo-600" href="#pre-requisitos">Pré-requisitos</a>
+    <a class="block text-indigo-600" href="#passo-a-passo">Passo a passo</a><a class="block text-indigo-600" href="#tipos">Tipos suportados</a>
+    <a class="block text-indigo-600" href="#webhooks">Webhooks</a><a class="block text-indigo-600" href="#codigo">Usar no código</a>
+    <a class="block text-indigo-600" href="#seguranca">Segurança</a><a class="block text-indigo-600" href="#problemas">Problemas comuns</a>
+  </div></aside>
+
+  <div class="lg:col-span-3 space-y-8">
+    <section id="visao-geral" class="ig-card"><h1 class="text-2xl font-bold mb-2">Guia de integrações</h1>
+      <p class="text-sm">O centro de integrações liga o VistoGest a serviços externos (mensagens, e-mail, pagamentos, APIs vossas). Cada integração tem credenciais cifradas, um teste de ligação, limites diários, registo de todas as chamadas e um endereço de webhook para receber eventos.</p>
+      <ol class="list-decimal ml-5 mt-3 text-sm space-y-1"><li><strong>Configurar</strong> — preencher credenciais e opções.</li><li><strong>Testar ligação</strong> — valida as credenciais sem activar.</li><li><strong>Activar</strong> — só então o sistema passa a usá-la.</li><li><strong>Monitorizar</strong> — em Logs e Webhooks.</li></ol></section>
+
+    <section id="pre-requisitos" class="ig-card text-sm"><h2 class="text-lg font-semibold mb-2">Pré-requisitos</h2>
+      <ul class="list-disc ml-5 space-y-2">
+        <li><strong>Permissão:</strong> o seu cargo precisa de <em>Pode aceder às configurações</em>.</li>
+        <li><strong>Chave de cifra (administrador do servidor):</strong> defina <code>ENCRYPTION_KEY</code> no <code>.env</code>. Para gerar uma:
+          <pre class="ig-pre mt-1">python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"</pre>
+          Guarde-a em cofre: <strong>se a perder, as credenciais guardadas deixam de ser recuperáveis</strong>. Para rodar a chave, ponha a nova primeiro, separada por vírgula (<code>NOVA,ANTIGA</code>) e volte a guardar as credenciais.</li>
+        <li><strong>HTTPS público:</strong> para receber webhooks, o domínio da empresa tem de ser acessível pela Internet em HTTPS. Em desenvolvimento use um túnel (ngrok/cloudflared) e registe o domínio do túnel no tenant.</li>
+        <li><strong>Contas nos fornecedores:</strong> cada serviço exige conta/credenciais próprias (ver cada tipo abaixo).</li></ul></section>
+
+    <section id="passo-a-passo" class="ig-card text-sm"><h2 class="text-lg font-semibold mb-2">Passo a passo (qualquer integração)</h2>
+      <ol class="list-decimal ml-5 space-y-2">
+        <li>No <a class="text-indigo-600" href="{% url 'integracoes:dashboard' %}">Painel</a>, escolha o serviço e clique em <strong>Configurar</strong>.</li>
+        <li>Comece em ambiente <strong>Teste (sandbox)</strong> com credenciais de teste, quando o fornecedor as oferece.</li>
+        <li>Grave e clique em <strong>Testar ligação</strong>. Se falhar, abra o log da chamada (cabeçalhos e corpo estão mascarados).</li>
+        <li>Se o serviço envia eventos, copie o <strong>URL do webhook</strong> (página de detalhe) para o portal do fornecedor.</li>
+        <li>Clique em <strong>Activar</strong>. Passe a Produção apenas depois de testar tudo com credenciais reais.</li>
+        <li>Defina um <strong>limite diário</strong> adequado para evitar custos inesperados.</li></ol></section>
+
+    <section id="tipos"><h2 class="text-lg font-semibold mb-3">Tipos de integração suportados</h2>
+      <div class="ig-card p-0 overflow-x-auto mb-4"><table class="ig-table"><thead><tr><th>Integração</th><th>Categoria</th><th>Webhook de entrada</th><th>Conector</th><th></th></tr></thead><tbody>
+        {% for t in tipos %}<tr><td><i class="{{ t.icone }} mr-1"></i>{{ t.nome }}</td><td>{{ t.get_categoria_display }}</td><td>{% if t.suporta_webhook %}Sim{% else %}Não{% endif %}</td>
+          <td>{% if t.implementado %}<span class="ig-badge ig-ok">Disponível</span>{% else %}<span class="ig-badge">—</span>{% endif %}</td>
+          <td><a class="text-indigo-600" href="{% url 'integracoes:configurar' codigo=t.codigo %}">Configurar</a></td></tr>{% endfor %}</tbody></table></div>
+
+      {% for t in tipos %}
+      <details id="tipo-{{ t.codigo }}" class="ig-card mb-3 text-sm"><summary class="cursor-pointer font-semibold"><i class="{{ t.icone }} mr-2"></i>{{ t.nome }}</summary>
+        <p class="ig-muted mt-2">{{ t.descricao }}</p>
+        {% if t.esquema_credenciais %}<h3 class="font-medium mt-3">Credenciais necessárias</h3><ul class="list-disc ml-5">
+          {% for c in t.esquema_credenciais %}<li><strong>{{ c.label }}</strong>{% if c.segredo %} <span class="ig-badge">secreto</span>{% endif %}{% if c.obrigatorio == False %} <span class="ig-badge">opcional</span>{% endif %}{% if c.ajuda %} — {{ c.ajuda }}{% endif %}</li>{% endfor %}</ul>{% endif %}
+        <h3 class="font-medium mt-3">Passos</h3><ol class="list-decimal ml-5 space-y-1">{% for p in t.passos %}<li>{{ p }}</li>{% endfor %}</ol>
+        <div class="mt-3 flex gap-2"><a class="ig-btn ig-btn-p" href="{% url 'integracoes:configurar' codigo=t.codigo %}">Configurar agora</a>{% if t.url_documentacao %}<a class="ig-btn" target="_blank" rel="noopener" href="{{ t.url_documentacao }}">Documentação oficial</a>{% endif %}</div>
+      </details>{% endfor %}
+      <p class="text-xs ig-muted">A integração fiscal com a AGT (SAF-T, facturação electrónica) é gerida no módulo Fiscal, que tem as suas próprias chaves e certificados.</p></section>
+
+    <section id="webhooks" class="ig-card text-sm space-y-3"><h2 class="text-lg font-semibold">Webhooks de entrada</h2>
+      <p>Cada integração com webhook tem um URL único, por exemplo:</p><pre class="ig-pre">{{ exemplo_url }}</pre>
+      <p>Para fornecedores genéricos, o remetente envia um <code>POST</code> com o corpo (JSON) e o cabeçalho <code>X-Webhook-Signature: sha256=&lt;hex&gt;</code>, onde o hex é o HMAC-SHA256 <strong>do corpo exacto</strong> com o segredo mostrado em «Gerar novo segredo HMAC». Opcionalmente <code>X-Webhook-Id</code> (identificador único, para ignorar reenvios).</p>
+      {% verbatim %}<pre class="ig-pre"># Python
+import hmac, hashlib, json, requests
+corpo = json.dumps({"evento": "pagamento.confirmado", "referencia": "123"}).encode()
+assinatura = "sha256=" + hmac.new(SEGREDO.encode(), corpo, hashlib.sha256).hexdigest()
+requests.post(URL, data=corpo, headers={"Content-Type": "application/json",
+              "X-Webhook-Signature": assinatura, "X-Webhook-Id": "evt_001"})
+
+# Shell
+BODY='{"evento":"ping"}'
+SIG=$(printf '%s' "$BODY" | openssl dgst -sha256 -hmac "$SEGREDO" | sed 's/^.* //')
+curl -X POST "$URL" -H "Content-Type: application/json" -H "X-Webhook-Signature: sha256=$SIG" -d "$BODY"</pre>{% endverbatim %}
+      <ul class="list-disc ml-5 space-y-1"><li>Respostas: <code>200</code> aceite (também em reenvios duplicados), <code>401</code> assinatura inválida, <code>404</code> token desconhecido ou integração inactiva, <code>413</code> corpo &gt; 1 MB.</li>
+        <li>WhatsApp (Meta) usa o seu próprio esquema: <code>X-Hub-Signature-256</code> com o <em>App Secret</em>, e verificação por <code>hub.verify_token</code>. Twilio usa apenas o token do URL.</li>
+        <li>Eventos recebidos ficam em <a class="text-indigo-600" href="{% url 'integracoes:webhook_lista' %}">Webhooks</a>; os que falharem podem ser reprocessados.</li></ul></section>
+
+    <section id="codigo" class="ig-card text-sm space-y-2"><h2 class="text-lg font-semibold">Usar nas outras partes do sistema</h2>
+      {% verbatim %}<pre class="ig-pre">from apps.integracoes.services.api import enviar_mensagem, emitir_evento
+
+# WhatsApp / SMS / e-mail (usa a 1.ª integração de mensagens activa, ou escolha com canal=)
+ok, msg = enviar_mensagem("244923000000", "A sua factura FR 2026/15 está pronta.")
+ok, msg = enviar_mensagem("cliente@exemplo.ao", "Segue a factura.", canal="sendgrid", assunto="Factura")
+
+# Evento para o vosso sistema (webhook de saída)
+emitir_evento("venda.finalizada", {"numero": "FR 2026/15", "total": "15000.00"})</pre>{% endverbatim %}
+      <p>As duas funções nunca levantam excepção: devolvem sucesso/falha e tudo fica nos logs. Lógica de negócio para eventos recebidos implementa-se em <code>processar_webhook()</code> do conector em <code>services/providers.py</code>.</p>
+      <p>Para adicionar um serviço novo: crie uma classe com <code>@registrar("codigo")</code> em <code>providers.py</code>, acrescente a entrada em <code>services/catalogo.py</code> e execute <code>seed_integracoes</code>.</p></section>
+
+    <section id="seguranca" class="ig-card text-sm"><h2 class="text-lg font-semibold mb-2">Segurança e boas práticas</h2>
+      <ul class="list-disc ml-5 space-y-1">
+        <li>As credenciais são cifradas (Fernet) e nunca são mostradas depois de gravadas; deixar um campo secreto em branco mantém o valor.</li>
+        <li>As chamadas de saída só aceitam <strong>https</strong> e bloqueiam endereços internos/privados (protecção contra SSRF); não seguem redirecionamentos.</li>
+        <li>Os logs mascaram cabeçalhos e campos sensíveis. Use um limite diário e analise os erros com regularidade.</li>
+        <li>Use credenciais com o <strong>mínimo de permissões</strong> e rode-as se alguém deixar a equipa. «Remover credenciais» desactiva a integração imediatamente.</li>
+        <li>Se suspeitar que um segredo de webhook foi exposto, gere um novo e actualize o remetente.</li></ul></section>
+
+    <section id="problemas" class="ig-card text-sm"><h2 class="text-lg font-semibold mb-2">Problemas comuns</h2>
+      <table class="ig-table"><tbody>
+        <tr><td class="font-medium w-1/3">«ENCRYPTION_KEY não configurada»</td><td>Defina a variável no servidor e reinicie a aplicação.</td></tr>
+        <tr><td class="font-medium">«Não foi possível decifrar»</td><td>A chave mudou. Reponha a chave anterior (ou <code>NOVA,ANTIGA</code>) ou volte a introduzir as credenciais.</td></tr>
+        <tr><td class="font-medium">Teste falha com HTTP 401/403</td><td>Credencial errada, expirada ou sem permissões; confirme o ambiente (teste vs. produção).</td></tr>
+        <tr><td class="font-medium">«Falha de ligação (timeout)»</td><td>Aumente o timeout (máx. 120 s) ou verifique o estado do fornecedor.</td></tr>
+        <tr><td class="font-medium">«Endereços internos não são permitidos»</td><td>O URL aponta para a rede interna. Use o endereço público HTTPS.</td></tr>
+        <tr><td class="font-medium">«Limite diário excedido»</td><td>Aumente o limite na configuração; o contador reinicia à meia-noite.</td></tr>
+        <tr><td class="font-medium">Webhook devolve 401</td><td>Assinatura calculada sobre o corpo errado (tem de ser os bytes exactos) ou segredo desactualizado.</td></tr>
+        <tr><td class="font-medium">Webhook devolve 404</td><td>Token errado ou integração desactivada. Confirme também que o caminho <code>/integracoes/webhook/</code> não está atrás do login do sistema.</td></tr>
+        <tr><td class="font-medium">WhatsApp: mensagem aceite mas não entregue</td><td>Fora da janela de 24 h é obrigatório usar um modelo aprovado pela Meta.</td></tr></tbody></table></section>
+  </div>
+</div>
+{% endblock %}

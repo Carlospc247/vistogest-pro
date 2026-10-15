@@ -1,0 +1,16 @@
+<button id="btnPonto" class="rh-btn rh-btn-p" style="font-size:1rem;padding:.7rem 1.4rem"><i class="fas fa-fingerprint mr-2"></i> Registar ponto</button>
+<p id="pontoMsg" class="mt-2 text-sm"></p>
+<script>
+document.getElementById('btnPonto').addEventListener('click', async function () {
+  this.disabled = true;
+  try {
+    const r = await fetch("{% url 'funcionarios:registrar_ponto' %}", {method:'POST', headers:{'X-CSRFToken':'{{ csrf_token }}'}});
+    const d = await r.json();
+    const m = document.getElementById('pontoMsg');
+    m.textContent = d.message + (d.horario ? ' (' + d.horario + ')' : '');
+    m.className = 'mt-2 text-sm ' + (d.success ? 'text-green-700' : 'text-red-600');
+    if (d.success) setTimeout(() => location.reload(), 1200);
+  } catch (e) { document.getElementById('pontoMsg').textContent = 'Erro de ligação.'; }
+  this.disabled = false;
+});
+</script>

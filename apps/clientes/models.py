@@ -623,7 +623,8 @@ class TelefoneCliente(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
-        return f"{self.cliente.nome} - {self.numero}"
+        return f"{self.cliente.nome_exibicao} - {self.numero}"
+
 
 class GrupoCliente(models.Model):
     nome = models.CharField(max_length=100, unique=True)
@@ -640,6 +641,5 @@ class ProgramaFidelidade(models.Model):
     data_entrada = models.DateField(auto_now_add=True)
 
     def __str__(self):
-        return f"{self.cliente.nome} - {self.pontos} pontos"
-
+        return f"{self.cliente.nome_exibicao} - {self.pontos} pontos"
 

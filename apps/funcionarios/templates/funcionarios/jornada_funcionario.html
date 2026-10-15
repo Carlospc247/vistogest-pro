@@ -1,0 +1,15 @@
+{% extends "funcionarios/_rh_base.html" %}
+{% block title %}Jornada — {{ funcionario.nome_completo }}{% endblock %}
+{% block rh_content %}
+<a href="{% url 'funcionarios:detail' pk=funcionario.pk %}" class="text-sm text-indigo-600">&larr; {{ funcionario.nome_completo }}</a>
+<h1 class="text-2xl font-bold my-3">Jornada de trabalho</h1>
+<div class="grid md:grid-cols-2 gap-4 text-sm">
+  <div class="rh-card space-y-1"><h2 class="font-semibold mb-2">Horário padrão</h2>
+    <p>Carga semanal: {{ funcionario.carga_horaria_semanal }} h</p>
+    <p>Entrada: {{ funcionario.horario_entrada|time:"H:i"|default:"—" }} • Saída: {{ funcionario.horario_saida|time:"H:i"|default:"—" }}</p>
+    <p>Almoço: {{ funcionario.horario_almoco_inicio|time:"H:i"|default:"—" }} às {{ funcionario.horario_almoco_fim|time:"H:i"|default:"—" }}</p>
+    <p>Sábado: {{ funcionario.trabalha_sabado|yesno:"Sim,Não" }} • Domingo: {{ funcionario.trabalha_domingo|yesno:"Sim,Não" }} • Feriados: {{ funcionario.trabalha_feriado|yesno:"Sim,Não" }}</p></div>
+  <div class="rh-card"><h2 class="font-semibold mb-2">Últimas escalas</h2><ul class="space-y-1">
+    {% for e in funcionario.escalas.all|slice:":10" %}<li>{{ e.data_trabalho|date:"d/m/Y" }} — {{ e.get_turno_display }} ({{ e.horario_entrada|time:"H:i" }}–{{ e.horario_saida|time:"H:i" }})</li>{% empty %}<li class="rh-muted">Sem escalas.</li>{% endfor %}</ul></div>
+</div>
+{% endblock %}

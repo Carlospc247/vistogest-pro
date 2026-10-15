@@ -4,50 +4,655 @@
 
 {% block title %}Editor de Site — {{ pagina.titulo }}{% endblock %}
 
-{% block extra_head %}
-<!-- SortableJS para drag-and-drop -->
-<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
-<!-- Trix Editor para texto rico -->
+{# O base.html já renderiza um page_header ("Dashboard"); o editor ocupa o ecrã todo. #}
+{% block page_header %}{% endblock %}
+
+{# ATENÇÃO: o base.html declara "extra_css" (não "extra_head"). #}
+{% block extra_css %}
+<!-- Trix Editor para texto rico (CSS) -->
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/trix@2.0.8/dist/trix.css">
-<script src="https://cdn.jsdelivr.net/npm/trix@2.0.8/dist/trix.umd.min.js"></script>
 <style>
-    /* Editor layout */
-    #editor-canvas { min-height: 60vh; }
-    .secao-card { transition: box-shadow .2s, transform .15s; }
-    .secao-card:hover { box-shadow: 0 4px 20px rgba(0,0,0,.12); }
-    .secao-card.sortable-ghost { opacity: .4; transform: scale(.98); }
-    .secao-card.sortable-chosen { box-shadow: 0 8px 30px rgba(99,102,241,.25); }
-    .drag-handle { cursor: grab; }
-    .drag-handle:active { cursor: grabbing; }
-    /* Painel lateral de propriedades */
-    #painel-props { transition: transform .3s; }
-    /* Animações de pré-visualização */
-    [data-anim="fade-in"]   { animation: fadeInAnim .6s ease forwards; }
-    [data-anim="slide-up"]  { animation: slideUpAnim .6s ease forwards; }
-    [data-anim="zoom"]      { animation: zoomAnim .5s ease forwards; }
-    @keyframes fadeInAnim  { from { opacity:0 } to { opacity:1 } }
-    @keyframes slideUpAnim { from { opacity:0;transform:translateY(30px) } to { opacity:1;transform:translateY(0) } }
-    @keyframes zoomAnim    { from { opacity:0;transform:scale(.9) } to { opacity:1;transform:scale(1) } }
-    /* Trix customizado */
-    trix-editor { min-height: 120px; border-radius:.5rem; }
+  [x-cloak]{ display:none !important; }
+  [hidden]{ display:none !important; }
+
+  /* =========================================================
+     ESTRUTURA DO EDITOR (ocupa a área sob o header do base: h-16 = 4rem)
+     ========================================================= */
+
+  /*
+     O editor fica PRESO ao ecrã (position:fixed), por baixo do header do base (h-16 = 4rem).
+     Assim não depende da altura/largura do <main> do base.html, que era o que o fazia
+     "passar" do ecrã. O header (z-40) e a sidebar mobile (z-50) continuam por cima.
+     Em desktop, deixa 16rem à esquerda quando a sidebar está aberta
+     (o body recebe a classe .sidebar-open do Alpine do base).
+  */
+  .ed-root{
+    position:fixed;
+    top:4rem;
+    right:0;
+    bottom:0;
+    left:0;
+    z-index:35;
+    display:flex;
+    overflow:hidden;
+    background:#f3f4f6;
+    transition:left .3s ease-in-out;
+  }
+  .dark .ed-root{ background:#030712; }
+  @media (min-width:1024px){
+    body.sidebar-open .ed-root{ left:16rem; }
+  }
+
+  /* ---------- Paleta de blocos (esquerda) ---------- */
+  .ed-palette{
+    display:flex;
+    flex-direction:column;
+    flex-shrink:0;
+    width:16rem;
+    overflow:hidden;
+    background:#fff;
+    border-right:1px solid #e5e7eb;
+  }
+  .dark .ed-palette{ background:#111827; border-right-color:#374151; }
+  .ed-palette-head{ padding:1rem; border-bottom:1px solid #e5e7eb; }
+  .dark .ed-palette-head{ border-bottom-color:#374151; }
+  .ed-palette-list{ flex:1 1 auto; min-height:0; overflow-y:auto; padding:.75rem; display:flex; flex-direction:column; gap:.25rem; }
+  .ed-palette-foot{ padding:.75rem; border-top:1px solid #e5e7eb; }
+  .dark .ed-palette-foot{ border-top-color:#374151; }
+
+  /* ---------- Área central ---------- */
+  .ed-main{
+    flex:1 1 auto;
+    min-width:0;
+    display:flex;
+    flex-direction:column;
+    overflow:hidden;
+    background:#f3f4f6;
+  }
+  .dark .ed-main{ background:#030712; }
+
+  .ed-toolbar{
+    flex-shrink:0;
+    display:flex;
+    align-items:center;
+    gap:.5rem;
+    padding:.5rem .75rem;
+    background:#fff;
+    border-bottom:1px solid #e5e7eb;
+  }
+  .dark .ed-toolbar{ background:#111827; border-bottom-color:#374151; }
+
+  .ed-title{
+    flex:1 1 auto;
+    min-width:0;
+    display:flex;
+    align-items:center;
+    gap:.5rem;
+    font-size:.85rem;
+    font-weight:600;
+    color:#111827;
+  }
+  .dark .ed-title{ color:#f3f4f6; }
+  .ed-title span{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .ed-title small{ font-weight:400; color:#9ca3af; white-space:nowrap; }
+
+  .ed-devices{
+    display:flex;
+    align-items:center;
+    gap:.25rem;
+    padding:.25rem;
+    border-radius:.5rem;
+    background:#f3f4f6;
+  }
+  .dark .ed-devices{ background:#1f2937; }
+  .ed-devices button{
+    padding:.4rem .55rem;
+    border:0;
+    border-radius:.4rem;
+    background:transparent;
+    color:#6b7280;
+    font-size:.75rem;
+    cursor:pointer;
+    transition:background .15s ease;
+  }
+  .ed-devices button.on{ background:#fff; box-shadow:0 1px 3px rgba(15,23,42,.15); }
+  .dark .ed-devices button.on{ background:#374151; color:#f3f4f6; }
+
+  .ed-btn{
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    gap:.4rem;
+    min-height:2.1rem;
+    padding:.4rem .8rem;
+    border-radius:.5rem;
+    border:1px solid #d1d5db;
+    background:#fff;
+    color:#4b5563;
+    font-size:.75rem;
+    font-weight:600;
+    text-decoration:none;
+    white-space:nowrap;
+    cursor:pointer;
+    transition:background .15s ease;
+  }
+  .ed-btn:hover{ background:#f9fafb; }
+  .ed-btn:disabled{ opacity:.5; cursor:not-allowed; }
+  .dark .ed-btn{ background:#1f2937; border-color:#4b5563; color:#e5e7eb; }
+  .dark .ed-btn:hover{ background:#374151; }
+  .ed-btn-primary{ background:#4f46e5; border-color:#4f46e5; color:#fff; }
+  .ed-btn-primary:hover{ background:#4338ca; }
+  .ed-btn-green{ background:#16a34a; border-color:#16a34a; color:#fff; }
+  .ed-btn-green:hover{ background:#15803d; }
+  .ed-btn-purple{ background:#9333ea; border-color:#9333ea; color:#fff; }
+  .ed-btn-purple:hover{ background:#7e22ce; }
+  .dark .ed-btn-primary{ background:#4f46e5; border-color:#4f46e5; color:#fff; }
+  .dark .ed-btn-green{ background:#16a34a; border-color:#16a34a; color:#fff; }
+  .dark .ed-btn-purple{ background:#9333ea; border-color:#9333ea; color:#fff; }
+  .ed-btn-block{ width:100%; }
+
+  .ed-only-mobile{ display:none; }
+
+  .ed-canvas-wrap{
+    flex:1 1 auto;
+    min-height:0;
+    overflow-y:auto;
+    padding:1.5rem;
+    -webkit-overflow-scrolling:touch;
+  }
+  .ed-frame{ margin:0 auto; transition:max-width .3s ease; }
+  #editor-canvas{ min-height:60vh; display:flex; flex-direction:column; gap:.75rem; }
+
+  .secao-card{ transition:box-shadow .2s, transform .15s; }
+  .secao-card:hover{ box-shadow:0 4px 20px rgba(0,0,0,.12); }
+  .secao-card.sortable-ghost{ opacity:.4; transform:scale(.98); }
+  .secao-card.sortable-chosen{ box-shadow:0 8px 30px rgba(99,102,241,.25); }
+  .drag-handle{ cursor:grab; touch-action:none; padding:.25rem; }
+  .drag-handle:active{ cursor:grabbing; }
+
+  /* Animações de pré-visualização */
+  [data-anim="fade-in"]  { animation:fadeInAnim .6s ease forwards; }
+  [data-anim="slide-up"] { animation:slideUpAnim .6s ease forwards; }
+  [data-anim="zoom"]     { animation:zoomAnim .5s ease forwards; }
+  @keyframes fadeInAnim  { from{opacity:0} to{opacity:1} }
+  @keyframes slideUpAnim { from{opacity:0;transform:translateY(30px)} to{opacity:1;transform:translateY(0)} }
+  @keyframes zoomAnim    { from{opacity:0;transform:scale(.9)} to{opacity:1;transform:scale(1)} }
+
+  /* ---------- Painel de propriedades (direita) ---------- */
+  .ed-props{
+    display:none;
+    flex-direction:column;
+    flex-shrink:0;
+    width:20rem;
+    overflow:hidden;
+    background:#fff;
+    border-left:1px solid #e5e7eb;
+  }
+  .dark .ed-props{ background:#111827; border-left-color:#374151; }
+  .ed-props.open{ display:flex; }
+
+  .ed-props-head{
+    flex-shrink:0;
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:.75rem;
+    padding:1rem;
+    border-bottom:1px solid #e5e7eb;
+  }
+  .dark .ed-props-head{ border-bottom-color:#374151; }
+  .ed-props-tabs{ flex-shrink:0; display:flex; border-bottom:1px solid #e5e7eb; }
+  .dark .ed-props-tabs{ border-bottom-color:#374151; }
+  .ed-props-body{
+    flex:1 1 auto;
+    min-height:0;
+    overflow-y:auto;
+    padding:1rem;
+    -webkit-overflow-scrolling:touch;
+  }
+  .ed-props-foot{ flex-shrink:0; padding:1rem; border-top:1px solid #e5e7eb; }
+  .dark .ed-props-foot{ border-top-color:#374151; }
+
+  .ed-icon-btn{
+    min-width:2rem;
+    min-height:2rem;
+    border:0;
+    border-radius:.4rem;
+    background:transparent;
+    color:#9ca3af;
+    cursor:pointer;
+  }
+  .ed-icon-btn:hover{ color:#4b5563; background:rgba(0,0,0,.05); }
+  .dark .ed-icon-btn:hover{ color:#e5e7eb; background:rgba(255,255,255,.08); }
+
+  /* ---------- Fundo escurecido (mobile) ---------- */
+  .ed-backdrop{
+    display:none;
+    position:fixed;
+    top:4rem; right:0; bottom:0; left:0;
+    z-index:1055;
+    background:rgba(15,23,42,.5);
+  }
+
+  /* ---------- Modal Design Global ---------- */
+  .ed-modal{
+    display:none;
+    position:fixed;
+    top:4rem; right:0; bottom:0; left:0;
+    z-index:1050;
+    align-items:center;
+    justify-content:center;
+    padding:1rem;
+    background:rgba(15,23,42,.58);
+    backdrop-filter:blur(3px);
+    -webkit-backdrop-filter:blur(3px);
+  }
+  .ed-modal.open{ display:flex; }
+
+  .ed-modal-panel{
+    display:flex;
+    flex-direction:column;
+    width:100%;
+    max-width:42rem;
+    max-height:calc(100vh - 6rem);
+    max-height:calc(100dvh - 6rem);
+    overflow:hidden;
+    border-radius:1rem;
+    background:#fff;
+    box-shadow:0 25px 60px rgba(15,23,42,.25);
+  }
+  .dark .ed-modal-panel{ background:#1f2937; color:#e5e7eb; }
+  .ed-modal-head{
+    flex-shrink:0;
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:1rem;
+    padding:1rem 1.5rem;
+    border-bottom:1px solid #e5e7eb;
+  }
+  .dark .ed-modal-head{ border-bottom-color:#374151; }
+  .ed-modal-body{
+    flex:1 1 auto;
+    min-height:0;
+    overflow-y:auto;
+    padding:1.5rem;
+    display:grid;
+    grid-template-columns:minmax(0,1fr);
+    gap:1.5rem;
+    -webkit-overflow-scrolling:touch;
+  }
+  @media (min-width:640px){ .ed-modal-body{ grid-template-columns:repeat(2,minmax(0,1fr)); } }
+  .ed-span2{ grid-column:1 / -1; }
+  .ed-modal-foot{
+    flex-shrink:0;
+    display:flex;
+    justify-content:flex-end;
+    gap:.75rem;
+    padding:1rem 1.5rem;
+    border-top:1px solid #e5e7eb;
+  }
+  .dark .ed-modal-foot{ border-top-color:#374151; }
+
+  .ed-temas{ display:grid; grid-template-columns:repeat(auto-fit,minmax(5rem,1fr)); gap:.5rem; }
+
+  .ed-switch-row{ display:flex; align-items:center; justify-content:space-between; gap:.75rem; }
+  .ed-switch{
+    position:relative;
+    flex-shrink:0;
+    width:2.25rem;
+    height:1.25rem;
+    border:0;
+    border-radius:999px;
+    background:#d1d5db;
+    cursor:pointer;
+    transition:background .15s ease;
+  }
+  .dark .ed-switch{ background:#4b5563; }
+  .ed-switch span{
+    position:absolute;
+    top:.2rem;
+    left:.2rem;
+    width:.85rem;
+    height:.85rem;
+    border-radius:50%;
+    background:#fff;
+    transition:transform .15s ease;
+  }
+  .ed-switch.on{ background:#a855f7; }
+  .ed-switch.on span{ transform:translateX(1rem); }
+
+  /* ---------- Toast ---------- */
+  .ed-toast{
+    display:none;
+    position:fixed;
+    bottom:1.25rem;
+    left:50%;
+    transform:translateX(-50%);
+    z-index:1100;
+    max-width:calc(100vw - 2rem);
+    padding:.55rem 1rem;
+    border-radius:.6rem;
+    color:#fff;
+    font-size:.8rem;
+    font-weight:600;
+    box-shadow:0 10px 25px rgba(15,23,42,.25);
+  }
+  .ed-toast.on{ display:block; }
+
+  /* ---------- Trix ---------- */
+  trix-editor{ min-height:120px; border-radius:.5rem; background:#fff; color:#111827; font-size:.8rem; }
+  .dark trix-editor{ background:#1f2937; color:#f3f4f6; border-color:#4b5563; }
+
+  /* =========================================================
+     RESPONSIVO
+     ========================================================= */
+
+  @media (max-width:1023px){
+
+    .ed-only-mobile{ display:inline-flex; }
+
+    /* Paleta e propriedades passam a gavetas sobrepostas */
+    .ed-palette,
+    .ed-props{
+      position:fixed;
+      top:4rem;
+      height:calc(100vh - 4rem);
+      height:calc(100dvh - 4rem);
+      z-index:1060;
+      width:100%;
+      max-width:22rem;
+      visibility:hidden;
+      transition:transform .2s ease, visibility .2s ease;
+      box-shadow:0 0 40px rgba(15,23,42,.3);
+    }
+    .ed-palette{ left:0; transform:translateX(-100%); }
+    .ed-props{ display:flex; right:0; max-width:28rem; transform:translateX(100%); }
+    .ed-palette.open,
+    .ed-props.open{ transform:none; visibility:visible; }
+
+    .ed-backdrop.on{ display:block; }
+  }
+
+  @media (max-width:767px){
+    .ed-devices{ display:none; }
+  }
+
+  @media (max-width:640px){
+
+    .ed-canvas-wrap{ padding:1rem; }
+    .ed-toolbar{ padding:.5rem; gap:.35rem; }
+    .ed-lbl{ display:none; }
+    .ed-title small{ display:none; }
+
+    /* Modal como "bottom sheet" */
+    .ed-modal{ align-items:flex-end; padding:0; }
+    .ed-modal-panel{
+      max-width:none;
+      max-height:calc(100vh - 5rem);
+      max-height:calc(100dvh - 5rem);
+      border-radius:1rem 1rem 0 0;
+    }
+    .ed-modal-head{ padding:.85rem .9rem; }
+    .ed-modal-body{ padding:.9rem; gap:1rem; }
+    .ed-modal-foot{ padding:.8rem .9rem; }
+    .ed-modal-foot .ed-btn{ flex:1 1 0; min-height:2.4rem; }
+  }
+
+
+  
+/* ============================================================
+   CORREÇÃO RESPONSIVA DO EDITOR
+   Ajuste ao ecrã disponível — desktop, tablet e mobile
+   ============================================================ */
+
+/* Evitar que o editor aumente a largura da página */
+.ed-root {
+    box-sizing: border-box;
+    position: relative;
+
+    display: flex;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    min-height: 0;
+
+    height: calc(100vh - 4rem);
+    height: calc(100dvh - 4rem);
+
+    overflow: hidden;
+
+    /* O main do base.html só tem padding vertical */
+    margin-top: -1.5rem;
+    margin-bottom: -1.5rem;
+    margin-left: 0 !important;
+    margin-right: 0 !important;
+}
+
+/* Todos os elementos respeitam os limites do seu contentor */
+.ed-root *,
+.ed-root *::before,
+.ed-root *::after {
+    box-sizing: border-box;
+}
+
+.ed-main {
+    flex: 1 1 0%;
+    width: 0;
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
+}
+
+/* Painel dos blocos: não ocupar demasiado espaço no desktop */
+.ed-palette {
+    flex: 0 0 clamp(12rem, 17vw, 15rem);
+    width: clamp(12rem, 17vw, 15rem);
+    min-width: 0;
+    min-height: 0;
+}
+
+/* Barra de ferramentas: permitir que os controlos se reorganizem */
+.ed-toolbar {
+    flex: 0 0 auto;
+    min-width: 0;
+    flex-wrap: wrap;
+    gap: .4rem;
+    padding: .5rem;
+}
+
+.ed-title {
+    flex: 1 1 10rem;
+    min-width: 0;
+    overflow: hidden;
+}
+
+.ed-title span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.ed-devices,
+.ed-toolbar .ed-btn {
+    flex-shrink: 0;
+}
+
+/* Canvas: o conteúdo pode crescer sem aumentar a página */
+.ed-canvas-wrap {
+    flex: 1 1 auto;
+    min-width: 0;
+    min-height: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    padding: clamp(.75rem, 2vw, 1.5rem);
+}
+
+.ed-frame {
+    width: 100%;
+    min-width: 0;
+    margin: 0 auto;
+}
+
+#editor-canvas {
+    width: 100%;
+    min-width: 0;
+}
+
+/* ============================================================
+   TABLET E TELEMÓVEIS
+   ============================================================ */
+
+@media (max-width: 1023px) {
+    .ed-root {
+        margin-left: 0 !important;
+        margin-right: 0 !important;
+    }
+
+    /* Gavetas laterais limitadas à largura do dispositivo */
+    .ed-palette {
+        width: min(88vw, 22rem);
+        max-width: 88vw;
+        flex: 0 0 auto;
+
+        height: 100vh;
+        height: 100dvh;
+
+        top: 0;
+        bottom: 0;
+    }
+
+    .ed-props {
+        width: min(92vw, 28rem);
+        max-width: 92vw;
+        flex: 0 0 auto;
+
+        height: 100vh;
+        height: 100dvh;
+
+        top: 0;
+        bottom: 0;
+    }
+
+    .ed-main {
+        width: 100%;
+        min-width: 0;
+    }
+
+    .ed-canvas-wrap {
+        padding: 1rem;
+    }
+}
+
+/* ============================================================
+   TELEMÓVEIS
+   ============================================================ */
+
+@media (max-width: 767px) {
+    .ed-toolbar {
+        gap: .35rem;
+        padding: .4rem;
+    }
+
+    .ed-title {
+        flex: 1 1 8rem;
+        font-size: .78rem;
+    }
+
+    .ed-title small {
+        display: none;
+    }
+
+    .ed-devices {
+        display: none;
+    }
+
+    .ed-toolbar .ed-btn {
+        min-height: 2.2rem;
+        padding: .4rem .55rem;
+    }
+
+    .ed-canvas-wrap {
+        padding: .75rem;
+    }
+
+    .ed-modal-body {
+        padding: .9rem;
+        gap: 1rem;
+    }
+}
+
+/* Ecrãs muito estreitos */
+@media (max-width: 380px) {
+    .ed-toolbar {
+        gap: .25rem;
+        padding: .35rem;
+    }
+
+    .ed-title {
+        flex-basis: 6rem;
+        font-size: .72rem;
+    }
+
+    .ed-toolbar .ed-btn {
+        min-height: 2rem;
+        padding: .35rem .45rem;
+        font-size: .7rem;
+    }
+
+    .ed-canvas-wrap {
+        padding: .5rem;
+    }
+
+    .ed-props {
+        width: 94vw;
+        max-width: 94vw;
+    }
+
+    .ed-palette {
+        width: 88vw;
+        max-width: 88vw;
+    }
+}
+
+/* Reduzir o movimento quando solicitado pelo dispositivo */
+@media (prefers-reduced-motion: reduce) {
+    .ed-palette,
+    .ed-props,
+    .ed-frame {
+        transition: none !important;
+    }
+}
 </style>
 {% endblock %}
 
 {% block content %}
-<div x-data="siteEditor()" class="flex h-full overflow-hidden -mx-4 sm:-mx-6 lg:-mx-8 -mt-6">
+<div x-data="siteEditor()"
+     @keydown.escape.window="fecharTudo()"
+     class="ed-root">
+
+    <!-- Fundo escurecido (só mobile, quando há gaveta aberta) -->
+    <div class="ed-backdrop" :class="{ on: painelAberto || paletaAberta }" @click="fecharTudo()"></div>
 
     <!-- ═══════════════════════════════════════════
          PAINEL ESQUERDO — Blocos disponíveis
          ═══════════════════════════════════════════ -->
-    <aside class="w-64 flex-shrink-0 bg-white dark:bg-gray-900 border-r border-gray-200
-                  dark:border-gray-700 flex flex-col overflow-hidden">
-        <div class="px-4 py-4 border-b border-gray-200 dark:border-gray-700">
-            <h2 class="text-sm font-semibold text-gray-900 dark:text-gray-100">
-                <i class="fas fa-puzzle-piece mr-2 text-indigo-500"></i>Blocos
-            </h2>
-            <p class="text-xs text-gray-400 mt-0.5">Arraste para a página</p>
+    <aside class="ed-palette" :class="{ open: paletaAberta }">
+        <div class="ed-palette-head" style="display:flex;align-items:flex-start;justify-content:space-between;gap:.5rem">
+            <div>
+                <h2 class="text-sm font-semibold text-gray-900 dark:text-gray-100" style="margin:0">
+                    <i class="fas fa-puzzle-piece mr-2 text-indigo-500"></i>Blocos
+                </h2>
+                <p class="text-xs text-gray-400 mt-0.5" style="margin:.15rem 0 0">Clique para adicionar à página</p>
+            </div>
+            <button type="button" class="ed-icon-btn ed-only-mobile" @click="paletaAberta=false" aria-label="Fechar">
+                <i class="fas fa-times"></i>
+            </button>
         </div>
-        <div class="overflow-y-auto flex-1 p-3 space-y-1" id="blocos-lista">
+
+        <div class="ed-palette-list" id="blocos-lista">
             {% for bloco in blocos_disponiveis %}
             <div class="bloco-item flex items-center gap-x-3 p-2.5 rounded-lg
                         bg-gray-50 dark:bg-gray-800 hover:bg-indigo-50 dark:hover:bg-indigo-900/20
@@ -61,7 +666,7 @@
                     <i class="fas fa-{{ bloco.icone }} text-{{ bloco.cor }}-600 dark:text-{{ bloco.cor }}-400 text-sm"></i>
                 </div>
                 <div class="min-w-0">
-                    <p class="text-xs font-medium text-gray-900 dark:text-gray-100 truncate">{{ bloco.nome }}</p>
+                    <p class="text-xs font-medium text-gray-900 dark:text-gray-100 truncate" style="margin:0">{{ bloco.nome }}</p>
                 </div>
                 <i class="fas fa-plus text-xs text-gray-300 group-hover:text-indigo-400 ml-auto flex-shrink-0"></i>
             </div>
@@ -69,12 +674,10 @@
         </div>
 
         <!-- Design Global -->
-        <div class="border-t border-gray-200 dark:border-gray-700 p-3">
-            <button @click="abrirDesignGlobal()"
-                    class="w-full flex items-center gap-x-2 px-3 py-2 rounded-lg text-xs font-medium
-                           text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-800
-                           hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors">
-                <i class="fas fa-palette text-purple-500"></i>Design Global
+        <div class="ed-palette-foot">
+            <button type="button" @click="abrirDesignGlobal()"
+                    class="ed-btn ed-btn-block" style="justify-content:flex-start">
+                <i class="fas fa-palette" style="color:#a855f7"></i>Design Global
             </button>
         </div>
     </aside>
@@ -82,77 +685,49 @@
     <!-- ═══════════════════════════════════════════
          ÁREA CENTRAL — Canvas da página
          ═══════════════════════════════════════════ -->
-    <main class="flex-1 flex flex-col overflow-hidden bg-gray-100 dark:bg-gray-950">
+    <main class="ed-main">
 
         <!-- Barra de ferramentas -->
-        <div class="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700
-                    px-4 py-2 flex items-center gap-x-3 flex-shrink-0">
+        <div class="ed-toolbar">
+
+            <button type="button" class="ed-btn ed-only-mobile" @click="paletaAberta=true" title="Blocos">
+                <i class="fas fa-puzzle-piece"></i><span class="ed-lbl">Blocos</span>
+            </button>
 
             <!-- Nome da página -->
-            <div class="flex items-center gap-x-2 flex-1 min-w-0">
+            <div class="ed-title">
                 <i class="fas fa-file-alt text-gray-400 flex-shrink-0"></i>
-                <span class="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
-                    {{ pagina.titulo }}
-                </span>
-                <span class="text-xs text-gray-400">— editor</span>
+                <span>{{ pagina.titulo }}</span>
+                <small>— editor</small>
             </div>
 
             <!-- Dispositivo pré-visualização -->
-            <div class="flex items-center bg-gray-100 dark:bg-gray-800 rounded-lg p-1 gap-x-1">
-                <button @click="dispositivo='desktop'"
-                        :class="dispositivo==='desktop' ? 'bg-white dark:bg-gray-700 shadow' : ''"
-                        class="p-1.5 rounded text-xs text-gray-500 dark:text-gray-400 transition-all"
-                        title="Desktop"><i class="fas fa-desktop"></i></button>
-                <button @click="dispositivo='tablet'"
-                        :class="dispositivo==='tablet' ? 'bg-white dark:bg-gray-700 shadow' : ''"
-                        class="p-1.5 rounded text-xs text-gray-500 dark:text-gray-400 transition-all"
-                        title="Tablet"><i class="fas fa-tablet-alt"></i></button>
-                <button @click="dispositivo='mobile'"
-                        :class="dispositivo==='mobile' ? 'bg-white dark:bg-gray-700 shadow' : ''"
-                        class="p-1.5 rounded text-xs text-gray-500 dark:text-gray-400 transition-all"
-                        title="Mobile"><i class="fas fa-mobile-alt"></i></button>
+            <div class="ed-devices">
+                <button type="button" @click="dispositivo='desktop'" :class="{ on: dispositivo==='desktop' }" title="Desktop"><i class="fas fa-desktop"></i></button>
+                <button type="button" @click="dispositivo='tablet'"  :class="{ on: dispositivo==='tablet' }"  title="Tablet"><i class="fas fa-tablet-alt"></i></button>
+                <button type="button" @click="dispositivo='mobile'"  :class="{ on: dispositivo==='mobile' }"  title="Mobile"><i class="fas fa-mobile-alt"></i></button>
             </div>
 
             <!-- Acções -->
-            <a href="{{ pagina.get_absolute_url|default:'#' }}" target="_blank"
-               class="inline-flex items-center gap-x-1.5 px-3 py-1.5 text-xs font-medium
-                      text-gray-600 dark:text-gray-400 border border-gray-300 dark:border-gray-600
-                      rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
-                <i class="fas fa-eye"></i>Pré-visualizar
+            <a href="{{ pagina.get_absolute_url|default:'#' }}" target="_blank" rel="noopener" class="ed-btn" title="Pré-visualizar">
+                <i class="fas fa-eye"></i><span class="ed-lbl">Pré-visualizar</span>
             </a>
-            <button @click="guardarTudo()" :disabled="salvando"
-                    class="inline-flex items-center gap-x-1.5 px-4 py-1.5 text-xs font-semibold
-                           text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-colors
-                           disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+            <button type="button" @click="guardarTudo()" :disabled="salvando" class="ed-btn ed-btn-primary" title="Guardar">
                 <i class="fas" :class="salvando ? 'fa-spinner fa-spin' : 'fa-save'"></i>
-                <span x-text="salvando ? 'A guardar...' : 'Guardar'"></span>
+                <span class="ed-lbl" x-text="salvando ? 'A guardar...' : 'Guardar'"></span>
             </button>
-            <button @click="publicar()" :disabled="publicando"
-                    class="inline-flex items-center gap-x-1.5 px-4 py-1.5 text-xs font-semibold
-                           text-white bg-green-600 hover:bg-green-700 rounded-lg transition-colors
-                           disabled:opacity-50">
-                <i class="fas fa-globe"></i>Publicar
+            <button type="button" @click="publicar()" :disabled="publicando" class="ed-btn ed-btn-green" title="Publicar">
+                <i class="fas fa-globe"></i><span class="ed-lbl">Publicar</span>
             </button>
-        </div>
-
-        <!-- Toast de feedback -->
-        <div x-show="toast.visivel" x-cloak x-transition
-             :class="toast.tipo === 'sucesso' ? 'bg-green-600' : 'bg-red-600'"
-             class="mx-auto mt-3 px-4 py-2 rounded-lg text-white text-xs font-medium shadow-lg z-50">
-            <i class="fas" :class="toast.tipo === 'sucesso' ? 'fa-check' : 'fa-times'"></i>
-            <span class="ml-2" x-text="toast.mensagem"></span>
         </div>
 
         <!-- Canvas scrollável -->
-        <div class="flex-1 overflow-y-auto p-6">
-            <div :class="{
-                    'max-w-full': dispositivo==='desktop',
-                    'max-w-2xl mx-auto': dispositivo==='tablet',
-                    'max-w-sm mx-auto': dispositivo==='mobile'
-                 }" class="transition-all duration-300">
+        <div class="ed-canvas-wrap">
+            <div class="ed-frame"
+                 :style="'max-width:' + (dispositivo==='desktop' ? '100%' : dispositivo==='tablet' ? '42rem' : '24rem')">
 
                 <!-- Lista de secções (drag-and-drop) -->
-                <div id="editor-canvas" class="space-y-3">
+                <div id="editor-canvas">
                     {% for secao in secoes %}
                     <div class="secao-card bg-white dark:bg-gray-800 rounded-xl shadow-sm
                                 border border-gray-200 dark:border-gray-700 overflow-hidden"
@@ -164,36 +739,36 @@
                             <div class="drag-handle text-gray-400 dark:text-gray-500 hover:text-gray-600 flex-shrink-0">
                                 <i class="fas fa-grip-vertical"></i>
                             </div>
-                            <span class="text-xs font-semibold text-gray-700 dark:text-gray-300 flex-1">
+                            <span class="text-xs font-semibold text-gray-700 dark:text-gray-300 flex-1 min-w-0 truncate">
                                 {{ secao.get_tipo_display }}
                             </span>
-                            <div class="flex items-center gap-x-1">
+                            <div class="flex items-center gap-x-1 flex-shrink-0">
                                 <!-- Toggle visibilidade -->
-                                <button @click="toggleVisibilidade({{ secao.pk }}, $event)"
+                                <button type="button" @click="toggleVisibilidade({{ secao.pk }}, $event)"
                                         class="p-1.5 text-gray-400 hover:text-indigo-500 transition-colors rounded"
                                         title="{% if secao.ativo %}Ocultar{% else %}Mostrar{% endif %}">
                                     <i class="fas fa-{% if secao.ativo %}eye{% else %}eye-slash{% endif %}"></i>
                                 </button>
                                 <!-- Editar -->
-                                <button @click="editarSecao({{ secao.pk }}, '{{ secao.tipo }}', {{ secao|dados_json }})"
+                                <button type="button" @click="editarSecao({{ secao.pk }}, '{{ secao.tipo }}', {{ secao|dados_json }})"
                                         class="p-1.5 text-gray-400 hover:text-indigo-500 transition-colors rounded"
                                         title="Editar conteúdo">
                                     <i class="fas fa-pen"></i>
                                 </button>
                                 <!-- Design da secção -->
-                                <button @click="editarDesignSecao({{ secao.pk }}, {{ secao|secao_design_json }})"
+                                <button type="button" @click="editarDesignSecao({{ secao.pk }}, {{ secao|secao_design_json }})"
                                         class="p-1.5 text-gray-400 hover:text-purple-500 transition-colors rounded"
                                         title="Design desta secção">
                                     <i class="fas fa-paint-brush"></i>
                                 </button>
                                 <!-- Duplicar -->
-                                <button @click="duplicarSecao({{ secao.pk }})"
+                                <button type="button" @click="duplicarSecao({{ secao.pk }})"
                                         class="p-1.5 text-gray-400 hover:text-blue-500 transition-colors rounded"
                                         title="Duplicar">
                                     <i class="fas fa-copy"></i>
                                 </button>
                                 <!-- Eliminar -->
-                                <button @click="eliminarSecao({{ secao.pk }})"
+                                <button type="button" @click="eliminarSecao({{ secao.pk }})"
                                         class="p-1.5 text-gray-400 hover:text-red-500 transition-colors rounded"
                                         title="Eliminar">
                                     <i class="fas fa-trash"></i>
@@ -203,7 +778,7 @@
 
                         <!-- Pré-visualização resumida da secção -->
                         <div class="px-4 py-3 text-sm text-gray-500 dark:text-gray-400 select-none"
-                             :data-anim="'{{ secao.animacao_entrada }}'">
+                             data-anim="{{ secao.animacao_entrada }}">
                             <span class="text-xs">{{ secao.get_tipo_display }}</span>
                             {% if not secao.dados %}
                             <div class="flex items-center justify-center h-16 border-2 border-dashed
@@ -215,23 +790,23 @@
                         </div>
                     </div>
                     {% empty %}
-                    <div id="canvas-vazio" class="flex flex-col items-center justify-center py-24
+                    <div id="canvas-vazio" class="flex flex-col items-center justify-center py-24 px-4 text-center
                                                    border-2 border-dashed border-gray-300 dark:border-gray-700
                                                    rounded-2xl text-gray-400 dark:text-gray-600">
                         <i class="fas fa-layer-group text-5xl mb-4"></i>
                         <p class="text-sm font-medium">A página está vazia</p>
                         <p class="text-xs mt-1">Adicione blocos da barra lateral ou clique num tipo abaixo</p>
                         <div class="flex flex-wrap gap-2 mt-4 justify-center">
-                            <button @click="adicionarSecao('hero')" class="px-3 py-1.5 bg-indigo-100 text-indigo-700 rounded-lg text-xs font-medium hover:bg-indigo-200 transition-colors">
+                            <button type="button" @click="adicionarSecao('hero')" class="px-3 py-1.5 bg-indigo-100 text-indigo-700 rounded-lg text-xs font-medium hover:bg-indigo-200 transition-colors">
                                 <i class="fas fa-image mr-1"></i>Hero
                             </button>
-                            <button @click="adicionarSecao('produtos')" class="px-3 py-1.5 bg-green-100 text-green-700 rounded-lg text-xs font-medium hover:bg-green-200 transition-colors">
+                            <button type="button" @click="adicionarSecao('produtos')" class="px-3 py-1.5 bg-green-100 text-green-700 rounded-lg text-xs font-medium hover:bg-green-200 transition-colors">
                                 <i class="fas fa-store mr-1"></i>Produtos
                             </button>
-                            <button @click="adicionarSecao('texto')" class="px-3 py-1.5 bg-blue-100 text-blue-700 rounded-lg text-xs font-medium hover:bg-blue-200 transition-colors">
+                            <button type="button" @click="adicionarSecao('texto')" class="px-3 py-1.5 bg-blue-100 text-blue-700 rounded-lg text-xs font-medium hover:bg-blue-200 transition-colors">
                                 <i class="fas fa-align-left mr-1"></i>Texto
                             </button>
-                            <button @click="adicionarSecao('carrossel')" class="px-3 py-1.5 bg-yellow-100 text-yellow-700 rounded-lg text-xs font-medium hover:bg-yellow-200 transition-colors">
+                            <button type="button" @click="adicionarSecao('carrossel')" class="px-3 py-1.5 bg-yellow-100 text-yellow-700 rounded-lg text-xs font-medium hover:bg-yellow-200 transition-colors">
                                 <i class="fas fa-images mr-1"></i>Carrossel
                             </button>
                         </div>
@@ -246,145 +821,130 @@
     <!-- ═══════════════════════════════════════════
          PAINEL DIREITO — Propriedades da secção
          ═══════════════════════════════════════════ -->
-    <aside id="painel-props"
-           x-show="painelAberto" x-cloak
-           x-transition:enter="transition ease-out duration-200"
-           x-transition:enter-start="translate-x-full"
-           x-transition:enter-end="translate-x-0"
-           x-transition:leave="transition ease-in duration-150"
-           x-transition:leave-start="translate-x-0"
-           x-transition:leave-end="translate-x-full"
-           class="w-80 flex-shrink-0 bg-white dark:bg-gray-900 border-l border-gray-200
-                  dark:border-gray-700 flex flex-col overflow-hidden">
+    <aside class="ed-props" :class="{ open: painelAberto }" id="painel-props">
 
         <!-- Cabeçalho painel -->
-        <div class="px-4 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
-            <h3 class="text-sm font-semibold text-gray-900 dark:text-gray-100" x-text="painelTitulo"></h3>
-            <button @click="painelAberto=false" class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
+        <div class="ed-props-head">
+            <h3 class="text-sm font-semibold text-gray-900 dark:text-gray-100" style="margin:0;overflow-wrap:anywhere" x-text="painelTitulo"></h3>
+            <button type="button" class="ed-icon-btn" @click="painelAberto=false" aria-label="Fechar painel">
                 <i class="fas fa-times"></i>
             </button>
         </div>
 
         <!-- Tabs: Conteúdo | Design -->
-        <div class="flex border-b border-gray-200 dark:border-gray-700">
-            <button @click="tabActiva='conteudo'"
+        <div class="ed-props-tabs">
+            <button type="button" @click="tabActiva='conteudo'"
                     :class="tabActiva==='conteudo' ? 'border-b-2 border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'text-gray-500'"
                     class="flex-1 py-2.5 text-xs font-medium transition-colors">
                 <i class="fas fa-pen mr-1"></i>Conteúdo
             </button>
-            <button @click="tabActiva='design'"
+            <button type="button" @click="tabActiva='design'"
                     :class="tabActiva==='design' ? 'border-b-2 border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'text-gray-500'"
                     class="flex-1 py-2.5 text-xs font-medium transition-colors">
                 <i class="fas fa-paint-brush mr-1"></i>Design
             </button>
         </div>
 
-        <!-- Conteúdo do painel (dinâmico via Alpine) -->
-        <div class="flex-1 overflow-y-auto p-4 space-y-4">
+        <!-- Conteúdo do painel (x-show mantém o DOM ao trocar de tab) -->
+        <div class="ed-props-body">
 
             <!-- TAB: CONTEÚDO -->
-            <template x-if="tabActiva === 'conteudo'">
-                <div class="space-y-4">
-                    <!-- Campos injectados dinamicamente via JS -->
-                    <div id="campos-conteudo" class="space-y-3"></div>
-                </div>
-            </template>
+            <div x-show="tabActiva === 'conteudo'" class="space-y-4">
+                <!-- Campos injectados dinamicamente via JS -->
+                <div id="campos-conteudo" class="space-y-3"></div>
+            </div>
 
             <!-- TAB: DESIGN DA SECÇÃO -->
-            <template x-if="tabActiva === 'design'">
-                <div class="space-y-4">
+            <div x-show="tabActiva === 'design'" x-cloak class="space-y-4">
 
-                    <!-- Fundo -->
-                    <div>
-                        <label class="block text-xs font-semibold text-gray-600 dark:text-gray-400 mb-2 uppercase tracking-wide">Fundo</label>
-                        <div class="grid grid-cols-4 gap-1.5">
-                            <template x-for="op in fundoOpcoes" :key="op.valor">
-                                <button @click="designSecao.fundo = op.valor"
-                                        :class="designSecao.fundo === op.valor ? 'ring-2 ring-indigo-500' : ''"
-                                        class="h-10 rounded-lg border border-gray-200 dark:border-gray-700 text-xs font-medium transition-all overflow-hidden"
-                                        :style="'background: ' + op.preview"
-                                        :title="op.nome">
-                                </button>
-                            </template>
-                        </div>
-                        <!-- Cor personalizada -->
-                        <div x-show="designSecao.fundo === 'cor_primaria' || designSecao.fundo === 'gradiente'" class="mt-2">
-                            <label class="text-xs text-gray-500 dark:text-gray-400">Cor personalizada</label>
-                            <div class="flex items-center gap-x-2 mt-1">
-                                <input type="color" x-model="designSecao.cor_fundo_custom"
-                                       class="h-8 w-10 rounded border border-gray-300 cursor-pointer">
-                                <input type="text" x-model="designSecao.cor_fundo_custom"
-                                       class="flex-1 rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-800 text-xs px-2 py-1.5 font-mono">
-                            </div>
+                <!-- Fundo -->
+                <div>
+                    <label class="block text-xs font-semibold text-gray-600 dark:text-gray-400 mb-2 uppercase tracking-wide">Fundo</label>
+                    <div class="grid grid-cols-4 gap-1.5">
+                        <template x-for="op in fundoOpcoes" :key="op.valor">
+                            <button type="button" @click="designSecao.fundo = op.valor"
+                                    :class="designSecao.fundo === op.valor ? 'ring-2 ring-indigo-500' : ''"
+                                    class="h-10 rounded-lg border border-gray-200 dark:border-gray-700 text-xs font-medium transition-all overflow-hidden"
+                                    :style="'background: ' + op.preview"
+                                    :title="op.nome">
+                            </button>
+                        </template>
+                    </div>
+                    <!-- Cor personalizada -->
+                    <div x-show="designSecao.fundo === 'cor_primaria' || designSecao.fundo === 'gradiente'" class="mt-2">
+                        <label class="text-xs text-gray-500 dark:text-gray-400">Cor personalizada</label>
+                        <div class="flex items-center gap-x-2 mt-1">
+                            <input type="color" x-model="designSecao.cor_fundo_custom"
+                                   class="h-8 w-10 rounded border border-gray-300 cursor-pointer">
+                            <input type="text" x-model="designSecao.cor_fundo_custom"
+                                   class="flex-1 rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-800 text-xs px-2 py-1.5 font-mono">
                         </div>
                     </div>
-
-                    <!-- Padding vertical -->
-                    <div>
-                        <label class="block text-xs font-semibold text-gray-600 dark:text-gray-400 mb-2 uppercase tracking-wide">Espaçamento Vertical</label>
-                        <div class="grid grid-cols-5 gap-1">
-                            <template x-for="op in paddingOpcoes" :key="op.v">
-                                <button @click="designSecao.padding_vertical = op.v"
-                                        :class="designSecao.padding_vertical === op.v ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900 dark:text-indigo-300 border-indigo-300' : 'bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-400 border-gray-200 dark:border-gray-700'"
-                                        class="py-1.5 rounded-lg border text-xs font-medium transition-colors"
-                                        x-text="op.n"></button>
-                            </template>
-                        </div>
-                    </div>
-
-                    <!-- Largura máxima -->
-                    <div>
-                        <label class="block text-xs font-semibold text-gray-600 dark:text-gray-400 mb-2 uppercase tracking-wide">Largura do Conteúdo</label>
-                        <select x-model="designSecao.largura_maxima"
-                                class="w-full rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 text-xs px-3 py-2">
-                            <option value="sm">Estreito</option>
-                            <option value="3xl">Normal</option>
-                            <option value="5xl">Largo</option>
-                            <option value="7xl">Total</option>
-                            <option value="full">Sem limite</option>
-                        </select>
-                    </div>
-
-                    <!-- Animação de entrada -->
-                    <div>
-                        <label class="block text-xs font-semibold text-gray-600 dark:text-gray-400 mb-2 uppercase tracking-wide">Animação de Entrada</label>
-                        <div class="space-y-1">
-                            <template x-for="anim in animacaoOpcoes" :key="anim.v">
-                                <button @click="designSecao.animacao_entrada = anim.v"
-                                        :class="designSecao.animacao_entrada === anim.v ? 'bg-indigo-50 border-indigo-300 text-indigo-700 dark:bg-indigo-900/30 dark:border-indigo-600 dark:text-indigo-300' : 'border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400'"
-                                        class="w-full flex items-center gap-x-2 px-3 py-2 rounded-lg border text-xs transition-colors">
-                                    <i class="fas fa-play text-xs w-3"></i>
-                                    <span x-text="anim.n"></span>
-                                </button>
-                            </template>
-                        </div>
-                    </div>
-
-                    <!-- Classes extra -->
-                    <div>
-                        <label class="block text-xs font-semibold text-gray-600 dark:text-gray-400 mb-2 uppercase tracking-wide">Classes CSS Adicionais</label>
-                        <input type="text" x-model="designSecao.classe_extra"
-                               placeholder="Ex: my-custom-class"
-                               class="w-full rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 text-xs px-3 py-2 font-mono">
-                        <p class="text-xs text-gray-400 mt-1">Classes Tailwind ou CSS personalizadas</p>
-                    </div>
-
-                    <!-- Botão guardar design -->
-                    <button @click="guardarDesignSecao()"
-                            class="w-full py-2 bg-purple-600 hover:bg-purple-700 text-white text-xs
-                                   font-semibold rounded-lg transition-colors">
-                        <i class="fas fa-save mr-1"></i>Aplicar Design
-                    </button>
                 </div>
-            </template>
+
+                <!-- Padding vertical -->
+                <div>
+                    <label class="block text-xs font-semibold text-gray-600 dark:text-gray-400 mb-2 uppercase tracking-wide">Espaçamento Vertical</label>
+                    <div class="grid grid-cols-5 gap-1">
+                        <template x-for="op in paddingOpcoes" :key="op.v">
+                            <button type="button" @click="designSecao.padding_vertical = op.v"
+                                    :class="designSecao.padding_vertical === op.v ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900 dark:text-indigo-300 border-indigo-300' : 'bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-400 border-gray-200 dark:border-gray-700'"
+                                    class="py-1.5 rounded-lg border text-xs font-medium transition-colors"
+                                    x-text="op.n"></button>
+                        </template>
+                    </div>
+                </div>
+
+                <!-- Largura máxima -->
+                <div>
+                    <label class="block text-xs font-semibold text-gray-600 dark:text-gray-400 mb-2 uppercase tracking-wide">Largura do Conteúdo</label>
+                    <select x-model="designSecao.largura_maxima"
+                            class="w-full rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 text-xs px-3 py-2">
+                        <option value="sm">Estreito</option>
+                        <option value="3xl">Normal</option>
+                        <option value="5xl">Largo</option>
+                        <option value="7xl">Total</option>
+                        <option value="full">Sem limite</option>
+                    </select>
+                </div>
+
+                <!-- Animação de entrada -->
+                <div>
+                    <label class="block text-xs font-semibold text-gray-600 dark:text-gray-400 mb-2 uppercase tracking-wide">Animação de Entrada</label>
+                    <div class="space-y-1">
+                        <template x-for="anim in animacaoOpcoes" :key="anim.v">
+                            <button type="button" @click="designSecao.animacao_entrada = anim.v"
+                                    :class="designSecao.animacao_entrada === anim.v ? 'bg-indigo-50 border-indigo-300 text-indigo-700 dark:bg-indigo-900/30 dark:border-indigo-600 dark:text-indigo-300' : 'border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400'"
+                                    class="w-full flex items-center gap-x-2 px-3 py-2 rounded-lg border text-xs transition-colors">
+                                <i class="fas fa-play text-xs w-3"></i>
+                                <span x-text="anim.n"></span>
+                            </button>
+                        </template>
+                    </div>
+                </div>
+
+                <!-- Classes extra -->
+                <div>
+                    <label class="block text-xs font-semibold text-gray-600 dark:text-gray-400 mb-2 uppercase tracking-wide">Classes CSS Adicionais</label>
+                    <input type="text" x-model="designSecao.classe_extra"
+                           placeholder="Ex: my-custom-class"
+                           class="w-full rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 text-xs px-3 py-2 font-mono">
+                    <p class="text-xs text-gray-400 mt-1">Classes Tailwind ou CSS personalizadas</p>
+                </div>
+            </div>
         </div>
 
-        <!-- Botão guardar conteúdo (só na tab conteúdo) -->
-        <div x-show="tabActiva === 'conteudo'" class="p-4 border-t border-gray-200 dark:border-gray-700">
-            <button @click="guardarConteudoSecao()"
-                    class="w-full py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs
-                           font-semibold rounded-lg transition-colors">
-                <i class="fas fa-check mr-1"></i>Guardar Conteúdo
+        <!-- Rodapé: guardar conteúdo -->
+        <div x-show="tabActiva === 'conteudo'" class="ed-props-foot">
+            <button type="button" @click="guardarConteudoSecao()" class="ed-btn ed-btn-primary ed-btn-block">
+                <i class="fas fa-check"></i>Guardar Conteúdo
+            </button>
+        </div>
+
+        <!-- Rodapé: guardar design -->
+        <div x-show="tabActiva === 'design'" x-cloak class="ed-props-foot">
+            <button type="button" @click="guardarDesignSecao()" class="ed-btn ed-btn-purple ed-btn-block">
+                <i class="fas fa-save"></i>Aplicar Design
             </button>
         </div>
     </aside>
@@ -392,26 +952,25 @@
     <!-- ═══════════════════════════════════════════
          MODAL — Design Global do Site
          ═══════════════════════════════════════════ -->
-    <div x-show="modalDesignGlobal" x-cloak
-         class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
-        <div @click.stop class="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl w-full max-w-2xl
-                                 max-h-[90vh] overflow-hidden flex flex-col">
-            <div class="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
-                <h3 class="text-base font-semibold text-gray-900 dark:text-gray-100">
+    <div class="ed-modal" :class="{ open: modalDesignGlobal }" @mousedown.self="modalDesignGlobal=false">
+        <div class="ed-modal-panel">
+            <div class="ed-modal-head">
+                <h3 class="text-base font-semibold text-gray-900 dark:text-gray-100" style="margin:0">
                     <i class="fas fa-palette mr-2 text-purple-500"></i>Design Global do Site
                 </h3>
-                <button @click="modalDesignGlobal=false" class="text-gray-400 hover:text-gray-600">
+                <button type="button" class="ed-icon-btn" @click="modalDesignGlobal=false" aria-label="Fechar">
                     <i class="fas fa-times"></i>
                 </button>
             </div>
-            <div class="overflow-y-auto flex-1 p-6 grid grid-cols-2 gap-6">
+
+            <div class="ed-modal-body">
 
                 <!-- Tema layout -->
-                <div class="col-span-2">
+                <div class="ed-span2">
                     <label class="block text-xs font-semibold text-gray-600 dark:text-gray-400 mb-2 uppercase tracking-wide">Tema</label>
-                    <div class="grid grid-cols-5 gap-2">
+                    <div class="ed-temas">
                         <template x-for="t in temasDisponiveis" :key="t.v">
-                            <button @click="designGlobal.tema_layout = t.v"
+                            <button type="button" @click="designGlobal.tema_layout = t.v"
                                     :class="designGlobal.tema_layout === t.v ? 'ring-2 ring-purple-500 bg-purple-50 dark:bg-purple-900/20' : 'bg-gray-50 dark:bg-gray-900'"
                                     class="p-3 rounded-xl border border-gray-200 dark:border-gray-700 text-center transition-all">
                                 <i :class="'fas ' + t.icone + ' text-lg mb-1 block'" :style="'color: ' + t.cor"></i>
@@ -428,12 +987,12 @@
                         <input type="color" x-model="designGlobal.cor_primaria"
                                class="h-9 w-12 rounded-lg border border-gray-300 cursor-pointer">
                         <input type="text" x-model="designGlobal.cor_primaria"
-                               class="flex-1 rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-700 text-xs px-2 py-2 font-mono">
+                               class="flex-1 min-w-0 rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-700 text-xs px-2 py-2 font-mono">
                     </div>
                     <!-- Paletas predefinidas -->
                     <div class="flex gap-x-1.5 mt-2 flex-wrap gap-y-1">
                         <template x-for="cor in coresPredefinidas" :key="cor">
-                            <button @click="designGlobal.cor_primaria = cor"
+                            <button type="button" @click="designGlobal.cor_primaria = cor"
                                     :style="'background:' + cor"
                                     :class="designGlobal.cor_primaria === cor ? 'ring-2 ring-offset-1 ring-gray-400' : ''"
                                     class="h-6 w-6 rounded-full border-2 border-white shadow-sm transition-transform hover:scale-110"></button>
@@ -446,7 +1005,7 @@
                         <input type="color" x-model="designGlobal.cor_secundaria"
                                class="h-9 w-12 rounded-lg border border-gray-300 cursor-pointer">
                         <input type="text" x-model="designGlobal.cor_secundaria"
-                               class="flex-1 rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-700 text-xs px-2 py-2 font-mono">
+                               class="flex-1 min-w-0 rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-700 text-xs px-2 py-2 font-mono">
                     </div>
                 </div>
 
@@ -480,7 +1039,7 @@
                     <label class="block text-xs font-semibold text-gray-600 dark:text-gray-400 mb-2 uppercase tracking-wide">Raio dos Cantos</label>
                     <div class="grid grid-cols-5 gap-1">
                         <template x-for="op in raioBordasOpcoes" :key="op.v">
-                            <button @click="designGlobal.raio_bordas = op.v"
+                            <button type="button" @click="designGlobal.raio_bordas = op.v"
                                     :class="designGlobal.raio_bordas === op.v ? 'bg-purple-100 text-purple-700 border-purple-300 dark:bg-purple-900/30 dark:border-purple-600 dark:text-purple-300' : 'bg-gray-50 dark:bg-gray-900 border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400'"
                                     class="py-2 rounded-lg border text-xs font-medium transition-colors"
                                     x-text="op.n"></button>
@@ -491,46 +1050,37 @@
                 <!-- Switches -->
                 <div class="space-y-3">
                     <label class="block text-xs font-semibold text-gray-600 dark:text-gray-400 mb-2 uppercase tracking-wide">Efeitos</label>
-                    <div class="flex items-center justify-between">
+                    <div class="ed-switch-row">
                         <span class="text-xs text-gray-600 dark:text-gray-400">Sombras nos cards</span>
-                        <button @click="designGlobal.sombras_activas = !designGlobal.sombras_activas"
-                                :class="designGlobal.sombras_activas ? 'bg-purple-500' : 'bg-gray-300 dark:bg-gray-600'"
-                                class="relative inline-flex h-5 w-9 items-center rounded-full transition-colors">
-                            <span :class="designGlobal.sombras_activas ? 'translate-x-5' : 'translate-x-1'"
-                                  class="inline-block h-3 w-3 transform rounded-full bg-white transition-transform"></span>
-                        </button>
+                        <button type="button" class="ed-switch" :class="{ on: designGlobal.sombras_activas }"
+                                @click="designGlobal.sombras_activas = !designGlobal.sombras_activas"
+                                role="switch" :aria-checked="designGlobal.sombras_activas"><span></span></button>
                     </div>
-                    <div class="flex items-center justify-between">
+                    <div class="ed-switch-row">
                         <span class="text-xs text-gray-600 dark:text-gray-400">Animações de entrada</span>
-                        <button @click="designGlobal.animacoes_activas = !designGlobal.animacoes_activas"
-                                :class="designGlobal.animacoes_activas ? 'bg-purple-500' : 'bg-gray-300 dark:bg-gray-600'"
-                                class="relative inline-flex h-5 w-9 items-center rounded-full transition-colors">
-                            <span :class="designGlobal.animacoes_activas ? 'translate-x-5' : 'translate-x-1'"
-                                  class="inline-block h-3 w-3 transform rounded-full bg-white transition-transform"></span>
-                        </button>
+                        <button type="button" class="ed-switch" :class="{ on: designGlobal.animacoes_activas }"
+                                @click="designGlobal.animacoes_activas = !designGlobal.animacoes_activas"
+                                role="switch" :aria-checked="designGlobal.animacoes_activas"><span></span></button>
                     </div>
-                    <div class="flex items-center justify-between">
+                    <div class="ed-switch-row">
                         <span class="text-xs text-gray-600 dark:text-gray-400">Header transparente (sobre hero)</span>
-                        <button @click="designGlobal.header_transparente = !designGlobal.header_transparente"
-                                :class="designGlobal.header_transparente ? 'bg-purple-500' : 'bg-gray-300 dark:bg-gray-600'"
-                                class="relative inline-flex h-5 w-9 items-center rounded-full transition-colors">
-                            <span :class="designGlobal.header_transparente ? 'translate-x-5' : 'translate-x-1'"
-                                  class="inline-block h-3 w-3 transform rounded-full bg-white transition-transform"></span>
-                        </button>
+                        <button type="button" class="ed-switch" :class="{ on: designGlobal.header_transparente }"
+                                @click="designGlobal.header_transparente = !designGlobal.header_transparente"
+                                role="switch" :aria-checked="designGlobal.header_transparente"><span></span></button>
                     </div>
                 </div>
 
                 <!-- Rodapé -->
-                <div class="col-span-2">
+                <div class="ed-span2">
                     <label class="block text-xs font-semibold text-gray-600 dark:text-gray-400 mb-2 uppercase tracking-wide">Rodapé</label>
-                    <div class="grid grid-cols-2 gap-3">
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <div>
                             <span class="text-xs text-gray-500">Cor de fundo</span>
                             <div class="flex items-center gap-x-2 mt-1">
                                 <input type="color" x-model="designGlobal.rodape_cor"
                                        class="h-8 w-10 rounded border border-gray-300 cursor-pointer">
                                 <input type="text" x-model="designGlobal.rodape_cor"
-                                       class="flex-1 rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-700 text-xs px-2 py-1.5 font-mono">
+                                       class="flex-1 min-w-0 rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-700 text-xs px-2 py-1.5 font-mono">
                             </div>
                         </div>
                         <div>
@@ -539,37 +1089,53 @@
                                 <input type="color" x-model="designGlobal.rodape_texto_cor"
                                        class="h-8 w-10 rounded border border-gray-300 cursor-pointer">
                                 <input type="text" x-model="designGlobal.rodape_texto_cor"
-                                       class="flex-1 rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-700 text-xs px-2 py-1.5 font-mono">
+                                       class="flex-1 min-w-0 rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-700 text-xs px-2 py-1.5 font-mono">
                             </div>
                         </div>
                     </div>
                 </div>
             </div>
-            <div class="px-6 py-4 border-t border-gray-200 dark:border-gray-700 flex justify-end gap-x-3">
-                <button @click="modalDesignGlobal=false"
-                        class="px-4 py-2 text-xs text-gray-600 dark:text-gray-400 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700">
-                    Cancelar
-                </button>
-                <button @click="guardarDesignGlobal()"
-                        class="px-5 py-2 text-xs font-semibold text-white bg-purple-600 hover:bg-purple-700 rounded-lg transition-colors">
-                    <i class="fas fa-save mr-1"></i>Guardar Design
+
+            <div class="ed-modal-foot">
+                <button type="button" class="ed-btn" @click="modalDesignGlobal=false">Cancelar</button>
+                <button type="button" class="ed-btn ed-btn-purple" @click="guardarDesignGlobal()">
+                    <i class="fas fa-save"></i>Guardar Design
                 </button>
             </div>
         </div>
+    </div>
+
+    <!-- Toast de feedback -->
+    <div class="ed-toast" :class="{ on: toast.visivel }"
+         :style="'background:' + (toast.tipo === 'sucesso' ? '#16a34a' : '#dc2626')">
+        <i class="fas" :class="toast.tipo === 'sucesso' ? 'fa-check' : 'fa-times'"></i>
+        <span class="ml-2" x-text="toast.mensagem"></span>
     </div>
 
 </div>
 {% endblock %}
 
 {% block extra_js %}
+{# Estes scripts estavam num block que o base.html ignorava (extra_head): por isso o Sortable/Trix nunca carregavam. #}
+<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/trix@2.0.8/dist/trix.umd.min.js"></script>
 <script>
 const CSRF = '{{ csrf_token }}';
 const PAGINA_ID = {{ pagina.pk }};
-const URL_ADICIONAR = "{% url 'site:adicionar_secao' pagina.pk %}";
-const URL_EDITAR_BASE = "{% url 'site:editar_secao' 0 %}".replace(/0\/editar\/$/, '');
-const URL_REORDENAR = "{% url 'site:reordenar_secoes' %}";
-const URL_DESIGN_GLOBAL = "{% url 'site:design_global' %}";
-const URL_PUBLICAR = "{% url 'site:publicar' pagina.pk %}";
+const URLS = {
+    adicionar: "{% url 'site:adicionar_secao' pagina.pk %}",
+    reordenar: "{% url 'site:reordenar_secoes' %}",
+    editar:    "{% url 'site:editar_secao' 0 %}",
+    duplicar:  "{% url 'site:duplicar_secao' 0 %}",
+    eliminar:  "{% url 'site:eliminar_secao' 0 %}",
+    design:    "{% url 'site:design_global' %}",
+    publicar:  "{% url 'site:publicar' pagina.pk %}",
+};
+const urlSecao = (base, id) => base.replace('/0/', `/${id}/`);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+// O Trix tentaria enviar anexos para um servidor que não existe: bloqueamos.
+document.addEventListener('trix-file-accept', e => e.preventDefault());
 
 function siteEditor() {
     return {
@@ -579,7 +1145,8 @@ function siteEditor() {
         publicando: false,
         toast: { visivel: false, tipo: 'sucesso', mensagem: '' },
 
-        // Painel lateral
+        // Gavetas (mobile) / painéis
+        paletaAberta: false,
         painelAberto: false,
         painelTitulo: 'Editar Secção',
         tabActiva: 'conteudo',
@@ -657,21 +1224,34 @@ function siteEditor() {
         init() {
             this.$nextTick(() => {
                 const canvas = document.getElementById('editor-canvas');
-                if (canvas) {
-                    Sortable.create(canvas, {
-                        animation: 150,
-                        handle: '.drag-handle',
-                        ghostClass: 'sortable-ghost',
-                        chosenClass: 'sortable-chosen',
-                        onEnd: (evt) => this.reordenarSecoes(),
-                    });
+                if (!canvas) return;
+
+                if (!window.Sortable) {
+                    // Se a CDN falhar, o resto do editor continua a funcionar.
+                    console.warn('SortableJS não carregou: reordenação por arrastar indisponível.');
+                    return;
                 }
+
+                Sortable.create(canvas, {
+                    animation: 150,
+                    handle: '.drag-handle',
+                    draggable: '.secao-card',
+                    ghostClass: 'sortable-ghost',
+                    chosenClass: 'sortable-chosen',
+                    onEnd: () => this.reordenarSecoes(),
+                });
             });
+        },
+
+        fecharTudo() {
+            this.painelAberto = false;
+            this.paletaAberta = false;
+            this.modalDesignGlobal = false;
         },
 
         // ── CRUD de secções ───────────────────────────────────────────────
         async adicionarSecao(tipo) {
-            const resp = await this._post(URL_ADICIONAR, { tipo });
+            const resp = await this._post(URLS.adicionar, { tipo });
             if (resp.ok) {
                 this._toast('sucesso', 'Secção adicionada!');
                 this._reloadCanvas();
@@ -685,62 +1265,71 @@ function siteEditor() {
             this.tipoActivo = tipo;
             this.painelTitulo = `Editar — ${tipo}`;
             this.tabActiva = 'conteudo';
+            this.paletaAberta = false;
             this.painelAberto = true;
-            this.$nextTick(() => this._renderizarCampos(tipo, dados));
+            this.$nextTick(() => this._renderizarCampos(tipo, dados || {}));
         },
 
         editarDesignSecao(pk, design) {
             this.secaoActiva = pk;
-            this.designSecao = { ...this.designSecao, ...design };
+            this.designSecao = { ...this.designSecao, ...(design || {}) };
             this.painelTitulo = 'Design da Secção';
             this.tabActiva = 'design';
+            this.paletaAberta = false;
             this.painelAberto = true;
         },
 
         async toggleVisibilidade(pk, evt) {
             const btn = evt.currentTarget;
             const icon = btn.querySelector('i');
-            const resp = await this._post(
-                URL_EDITAR_BASE + pk + '/editar/',
-                { toggle_ativo: true }
-            );
+            const resp = await this._post(urlSecao(URLS.editar, pk), { toggle_ativo: true });
             if (resp.ok) {
                 icon.classList.toggle('fa-eye');
                 icon.classList.toggle('fa-eye-slash');
+            } else {
+                this._toast('erro', 'Erro ao alterar visibilidade');
             }
         },
 
         async duplicarSecao(pk) {
-            const resp = await this._post(URL_EDITAR_BASE + pk + '/duplicar/', {});
+            const resp = await this._post(urlSecao(URLS.duplicar, pk), {});
             if (resp.ok) {
                 this._toast('sucesso', 'Secção duplicada!');
                 this._reloadCanvas();
+            } else {
+                this._toast('erro', 'Erro ao duplicar');
             }
         },
 
         async eliminarSecao(pk) {
             if (!confirm('Tem a certeza que pretende eliminar esta secção?')) return;
-            const resp = await this._post(URL_EDITAR_BASE + pk + '/eliminar/', {});
+            const resp = await this._post(urlSecao(URLS.eliminar, pk), {});
             if (resp.ok) {
-                document.querySelector(`[data-id="${pk}"]`)?.remove();
+                document.querySelector(`.secao-card[data-id="${pk}"]`)?.remove();
                 this._toast('sucesso', 'Secção eliminada');
                 if (this.secaoActiva === pk) this.painelAberto = false;
+            } else {
+                this._toast('erro', 'Erro ao eliminar');
             }
         },
 
         async guardarConteudoSecao() {
             const campos = document.getElementById('campos-conteudo');
-            if (!campos) return;
+            if (!campos || !this.secaoActiva) return;
+
             const dados = {};
             campos.querySelectorAll('[data-campo]').forEach(el => {
-                dados[el.dataset.campo] = el.value || el.innerHTML || '';
+                // Checkbox: antes enviava sempre "on"; agora envia o estado real.
+                dados[el.dataset.campo] = el.type === 'checkbox' ? el.checked : (el.value ?? '');
             });
+
             this.salvando = true;
             const resp = await this._post(
-                URL_EDITAR_BASE + this.secaoActiva + '/editar/',
+                urlSecao(URLS.editar, this.secaoActiva),
                 { dados: JSON.stringify(dados) }
             );
             this.salvando = false;
+
             if (resp.ok) {
                 this._toast('sucesso', 'Conteúdo guardado!');
             } else {
@@ -749,31 +1338,35 @@ function siteEditor() {
         },
 
         async guardarDesignSecao() {
+            if (!this.secaoActiva) return;
             const resp = await this._post(
-                URL_EDITAR_BASE + this.secaoActiva + '/editar/',
+                urlSecao(URLS.editar, this.secaoActiva),
                 { design: JSON.stringify(this.designSecao) }
             );
             if (resp.ok) {
                 this._toast('sucesso', 'Design aplicado!');
                 this.painelAberto = false;
+            } else {
+                this._toast('erro', 'Erro ao aplicar design');
             }
         },
 
         async reordenarSecoes() {
             const canvas = document.getElementById('editor-canvas');
             if (!canvas) return;
-            const ordem = [...canvas.querySelectorAll('[data-id]')]
+            const ordem = [...canvas.querySelectorAll('.secao-card[data-id]')]
                 .map((el, idx) => ({ id: parseInt(el.dataset.id), ordem: idx }));
-            await this._post(URL_REORDENAR, { ordem: JSON.stringify(ordem) });
+            return this._post(URLS.reordenar, { ordem: JSON.stringify(ordem) });
         },
 
         // ── Design Global ─────────────────────────────────────────────────
         abrirDesignGlobal() {
+            this.paletaAberta = false;
             this.modalDesignGlobal = true;
         },
 
         async guardarDesignGlobal() {
-            const resp = await this._post(URL_DESIGN_GLOBAL, this.designGlobal);
+            const resp = await this._post(URLS.design, this.designGlobal);
             if (resp.ok) {
                 this._toast('sucesso', 'Design global guardado!');
                 this.modalDesignGlobal = false;
@@ -793,7 +1386,7 @@ function siteEditor() {
         async publicar() {
             if (!confirm('Publicar esta página? Ficará visível publicamente.')) return;
             this.publicando = true;
-            const resp = await this._post(URL_PUBLICAR, {});
+            const resp = await this._post(URLS.publicar, {});
             this.publicando = false;
             if (resp.ok) {
                 this._toast('sucesso', 'Página publicada com sucesso!');
@@ -806,6 +1399,7 @@ function siteEditor() {
         _renderizarCampos(tipo, dados) {
             const container = document.getElementById('campos-conteudo');
             if (!container) return;
+
             const esquemas = {
                 hero: [
                     { campo: 'titulo',    label: 'Título',    tipo_campo: 'text',     placeholder: 'O seu título principal' },
@@ -882,46 +1476,68 @@ function siteEditor() {
                       placeholder: '[{"nome":"Ana Silva","cargo":"Directora","foto":"","linkedin":""}]' },
                 ],
             };
+
             const campos = esquemas[tipo] || [
                 { campo: 'dados_json', label: 'Dados (JSON)', tipo_campo: 'json', placeholder: '{}' }
             ];
 
+            const inputCls = 'w-full rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 text-xs px-3 py-2';
+            const lblCls   = 'block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1';
+
             container.innerHTML = campos.map(c => {
-                const val = dados[c.campo] !== undefined
-                    ? (typeof dados[c.campo] === 'object' ? JSON.stringify(dados[c.campo], null, 2) : dados[c.campo])
-                    : '';
+                const bruto = dados[c.campo];
+                // null/undefined passam a vazio (antes apareciam como "null")
+                const val = bruto == null
+                    ? ''
+                    : (typeof bruto === 'object' ? JSON.stringify(bruto, null, 2) : bruto);
+                const ph = esc(c.placeholder || '');
+
                 if (c.tipo_campo === 'text' || c.tipo_campo === 'number') {
                     return `<div>
-                        <label class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">${c.label}</label>
-                        <input type="${c.tipo_campo}" data-campo="${c.campo}" value="${val}"
-                               placeholder="${c.placeholder}"
-                               class="w-full rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 text-xs px-3 py-2">
+                        <label class="${lblCls}">${esc(c.label)}</label>
+                        <input type="${c.tipo_campo}" data-campo="${c.campo}" value="${esc(val)}"
+                               placeholder="${ph}" class="${inputCls}">
                     </div>`;
-                } else if (c.tipo_campo === 'textarea') {
+                }
+                if (c.tipo_campo === 'textarea') {
                     return `<div>
-                        <label class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">${c.label}</label>
-                        <textarea data-campo="${c.campo}" rows="3" placeholder="${c.placeholder}"
-                                  class="w-full rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 text-xs px-3 py-2 resize-y">${val}</textarea>
+                        <label class="${lblCls}">${esc(c.label)}</label>
+                        <textarea data-campo="${c.campo}" rows="3" placeholder="${ph}"
+                                  class="${inputCls} resize-y">${esc(val)}</textarea>
                     </div>`;
-                } else if (c.tipo_campo === 'json') {
+                }
+                if (c.tipo_campo === 'json') {
                     return `<div>
-                        <label class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">${c.label}</label>
-                        <textarea data-campo="${c.campo}" rows="5" placeholder="${c.placeholder}"
-                                  class="w-full rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 text-xs px-3 py-2 resize-y font-mono">${val}</textarea>
+                        <label class="${lblCls}">${esc(c.label)}</label>
+                        <textarea data-campo="${c.campo}" rows="5" placeholder="${ph}"
+                                  class="${inputCls} resize-y font-mono">${esc(val)}</textarea>
                         <p class="text-xs text-gray-400 mt-0.5">Formato JSON</p>
                     </div>`;
-                } else if (c.tipo_campo === 'select') {
-                    const ops = c.opcoes.map(([v,n]) => `<option value="${v}" ${v==val?'selected':''}>${n}</option>`).join('');
+                }
+                if (c.tipo_campo === 'select') {
+                    const ops = c.opcoes.map(([v, n]) =>
+                        `<option value="${esc(v)}" ${String(v) === String(val) ? 'selected' : ''}>${esc(n)}</option>`
+                    ).join('');
                     return `<div>
-                        <label class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">${c.label}</label>
-                        <select data-campo="${c.campo}"
-                                class="w-full rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-100 text-xs px-3 py-2">${ops}</select>
+                        <label class="${lblCls}">${esc(c.label)}</label>
+                        <select data-campo="${c.campo}" class="${inputCls}">${ops}</select>
                     </div>`;
-                } else if (c.tipo_campo === 'checkbox') {
+                }
+                if (c.tipo_campo === 'checkbox') {
                     return `<div class="flex items-center gap-x-2">
-                        <input type="checkbox" data-campo="${c.campo}" ${val?'checked':''} id="cb-${c.campo}"
+                        <input type="checkbox" data-campo="${c.campo}" ${bruto ? 'checked' : ''} id="cb-${c.campo}"
                                class="rounded border-gray-300 text-indigo-600">
-                        <label for="cb-${c.campo}" class="text-xs text-gray-600 dark:text-gray-400">${c.label}</label>
+                        <label for="cb-${c.campo}" class="text-xs text-gray-600 dark:text-gray-400">${esc(c.label)}</label>
+                    </div>`;
+                }
+                if (c.tipo_campo === 'trix') {
+                    // Antes este tipo não era renderizado: o texto do bloco "Texto" não era editável.
+                    // O valor vive num <input hidden> (é este que tem data-campo e é lido ao guardar).
+                    const id = 'trix-' + c.campo;
+                    return `<div>
+                        <label class="${lblCls}">${esc(c.label)}</label>
+                        <input type="hidden" id="${id}" data-campo="${c.campo}" value="${esc(val)}">
+                        <trix-editor input="${id}"></trix-editor>
                     </div>`;
                 }
                 return '';
@@ -949,7 +1565,8 @@ function siteEditor() {
 
         _toast(tipo, mensagem) {
             this.toast = { visivel: true, tipo, mensagem };
-            setTimeout(() => { this.toast.visivel = false; }, 3000);
+            clearTimeout(this._toastTimer);
+            this._toastTimer = setTimeout(() => { this.toast.visivel = false; }, 3000);
         },
 
         _reloadCanvas() {

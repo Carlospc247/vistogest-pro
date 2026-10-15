@@ -1,17 +1,2 @@
-<!-- templates/financeiro/analises/index.html -->
-{% extends 'base.html' %}
-{% load static %}
-
-{% block title %}Análises Financeiras{% endblock %}
-{% block page_title %}Análises Financeiras{% endblock %}
-
-{% block content %}
-<div class="container mx-auto p-4">
-    <h1 class="text-2xl font-bold mb-4">Análises Financeiras</h1>
-    <ul>
-        <li><a href="{% url 'financeiro:analise_liquidez' %}" class="text-blue-600">Liquidez</a></li>
-        <li><a href="{% url 'financeiro:analise_rentabilidade' %}" class="text-blue-600">Rentabilidade</a></li>
-        <li><a href="{% url 'financeiro:analise_endividamento' %}" class="text-blue-600">Endividamento</a></li>
-    </ul>
-</div>
-{% endblock %}
+{% extends "financeiro/base_financeiro.html" %}{% block title %}Análises financeiras{% endblock %}{% block breadcrumb %}Análises financeiras{% endblock %}{% block content %}
+<header class="page-head"><div><h1>Análises financeiras</h1><p>Indicadores para compreender liquidez, rentabilidade e endividamento.</p></div>{% block page_actions %}{% endblock %}</header><section class="panel"><div class="link-grid"><a class="link-card" href="{% url 'financeiro:analise_liquidez' %}"><strong>Liquidez</strong><span>Disponibilidade para cumprir obrigações</span></a><a class="link-card" href="{% url 'financeiro:analise_rentabilidade' %}"><strong>Rentabilidade</strong><span>Resultado e margem</span></a><a class="link-card" href="{% url 'financeiro:analise_endividamento' %}"><strong>Endividamento</strong><span>Exposição e obrigações</span></a></div></section>{% endblock %}

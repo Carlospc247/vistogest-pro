@@ -1,3 +1,4 @@
+{# vendas/nova_proforma.html #}
 {% extends 'base.html' %}
 {% load static %}
 
@@ -342,29 +343,17 @@
             </div>
 
             <div class="content-tabs">
-                {% if regime_empresa == 'COMERCIO' or regime_empresa == 'MISTO' %}
+                {% if regime == 'COMERCIO' or regime == 'MISTO' %}
                 <button id="tabProdutos" class="tab-btn active" onclick="alternarAba('produtos')">
                     <i class="fas fa-box mr-2"></i> Produtos
                 </button>
                 {% endif %}
 
-                {% if regime_empresa == 'SERVICOS' or regime_empresa == 'MISTO' %}
-                <button id="tabServicos" class="tab-btn {% if regime_empresa == 'SERVICOS' %}active{% endif %}" onclick="alternarAba('servicos')">
+                {% if regime == 'SERVICOS' or regime == 'MISTO' %}
+                <button id="tabServicos" class="tab-btn {% if regime == 'SERVICOS' %}active{% endif %}" onclick="alternarAba('servicos')">
                     <i class="fas fa-tools mr-2"></i> Serviços
                 </button>
                 {% endif %}
-            </div>
-
-            <!-- Abas de Produtos/Serviços -->
-            <div class="content-tabs">
-                <button id="tabProdutos" class="tab-btn active" onclick="alternarAba('produtos')">
-                    <i class="fas fa-box mr-2"></i>
-                    Produtos
-                </button>
-                <button id="tabServicos" class="tab-btn" onclick="alternarAba('servicos')">
-                    <i class="fas fa-tools mr-2"></i>
-                    Serviços
-                </button>
             </div>
 
             <div id="produtosContainer" class="mt-6">
@@ -464,7 +453,7 @@
     let proformaAtualId = null;
     let categoriaAtual = 'todos';
     let abaAtual = 'produtos';
-    const regime = "{{ regime_empresa|default:'COMERCIO' }}";
+    const regime = "{{ regime|escapejs }}";
 
     function getCookie(name) {
         let cookieValue = null;

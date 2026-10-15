@@ -132,6 +132,7 @@ TENANT_APPS = [
     "apps.financeiro",
     "apps.relatorios",
     "apps.configuracoes",
+    "apps.integracoes",
     "apps.fiscal",
     "apps.saft",
     "apps.compras",
@@ -337,8 +338,10 @@ TEMPLATES = [
                 "django.contrib.messages.context_processors.messages",
                 # context_processors de tenant — têm guard IS_PUBLIC, seguros em ambos
                 "apps.core_tenants.context_processors.notifications_context",
+                "apps.core_tenants.context_processors.notifications",
                 "apps.core.context_processors.regime_context",
                 "apps.core_tenants.context_processors.dashboard_data",
+                "apps.configuracoes.context_processors.interface_prefs",
                 "apps.core_tenants.context_processors.modules_context",
                 "django.template.context_processors.media",
                 "django.template.context_processors.static",

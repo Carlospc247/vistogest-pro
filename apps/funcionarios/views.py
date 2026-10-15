@@ -13,7 +13,8 @@ from datetime import date, datetime, timedelta
 from decimal import Decimal
 import json
 
-from apps.vendas.models import FaturaCredito, Venda
+from apps.funcionarios.utils import funcionario_tem_turno_aberto
+from apps.vendas.models import FaturaCredito, PagamentoVenda, Venda
 
 from .models import (
     Funcionario, Cargo, Departamento, EscalaTrabalho, RegistroPonto,
@@ -163,84 +164,6 @@ class FuncionariosView(LoginRequiredMixin, PermissaoAcaoMixin, ListView):
 
 
 
-class MeuTurnoView(LoginRequiredMixin, TemplateView):
-    template_name = 'funcionarios/meu_turno.html'
-    
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        funcionario = get_object_or_404(Funcionario, usuario=self.request.user)
-        hoje = timezone.now().date()
-        
-        # ----------------------------------------------------
-        # NOVAS CONSULTAS: MÉTRICAS DE VENDAS (AQUISIÇÃO DE VALOR)
-        # ----------------------------------------------------
-        
-        # 1. Total de Vendas Diretas (Fatura Recibo, Balcão, etc.)
-        # Filtra vendas finalizadas no dia de hoje, realizadas pelo funcionário
-        vendas_diretas = Venda.objects.filter(
-            vendedor=funcionario,
-            data_venda__date=hoje,
-            status='finalizada' # Apenas vendas que geraram receita de imediato
-        )
-        
-        total_venda_direta = vendas_diretas.aggregate(
-            total_vendas=Sum('total')
-        )['total_vendas'] or Decimal('0.00')
-
-        # 2. Total de Faturas de Crédito Emitidas
-        # Filtra faturas (dívidas) emitidas no dia de hoje, realizadas pelo funcionário (se tiver um campo vendedor/emissor)
-        # **ATENÇÃO:** O seu modelo FaturaCredito não tem um campo 'vendedor', o que é uma FALHA EMPRESARIAL.
-        # Assumindo uma correção: FaturaCredito.vendedor = models.ForeignKey('funcionarios.Funcionario', ...)
-        try:
-             faturas_emitidas = FaturaCredito.objects.filter(
-                 vendedor=funcionario, # CAMPO A SER ADICIONADO PARA RASTREABILIDADE
-                 data_emissao__date=hoje
-             )
-             total_faturado_credito = faturas_emitidas.aggregate(
-                 total_faturado=Sum('total_faturado')
-             )['total_faturado'] or Decimal('0.00')
-        except:
-             # Se o campo não existir (na sua implementação atual), defina como zero e alerte.
-             total_faturado_credito = Decimal('0.00')
-
-        # ----------------------------------------------------
-        # ATUALIZAÇÃO DO CONTEXTO (VISÃO PRÁTICA E DE NEGÓCIO)
-        # ----------------------------------------------------
-        
-        context.update({
-            'funcionario': funcionario,
-            'hoje': hoje,
-            # Informação de Ponto e Escala (já existente)
-            'escala_hoje': EscalaTrabalho.objects.filter(
-                funcionario=funcionario,
-                data_trabalho=hoje
-            ).first(),
-            'pontos_hoje': RegistroPonto.objects.filter(
-                funcionario=funcionario,
-                data_registro=hoje
-            ).order_by('hora_registro'),
-            'proximas_escalas': EscalaTrabalho.objects.filter(
-                funcionario=funcionario,
-                data_trabalho__gt=hoje
-            ).order_by('data_trabalho')[:5],
-            
-            # NOVAS MÉTRICAS DE VENDAS
-            'total_venda_direta_hoje': total_venda_direta,
-            'total_faturado_credito_hoje': total_faturado_credito,
-            'total_receita_bruta_hoje': total_venda_direta + total_faturado_credito,
-            'vendas_diretas_count': vendas_diretas.count(),
-            
-            # Verificar se já fechou o turno hoje
-            'fechamento_hoje': FechamentoTurno.objects.filter(
-                funcionario=funcionario,
-                data_fechamento__date=hoje
-            ).first(),
-            
-            # Dados para o gráfico de vendas por hora
-            'sales_chart_data': json.dumps(list(vendas_diretas.extra({'hour': "EXTRACT(hour FROM data_venda)"}).values('hour').annotate(total=Sum('total')).order_by('hour')))
-        })
-        return context
-    
 # =====================================
 # CRUD FUNCIONÁRIOS
 # =====================================
@@ -600,41 +523,18 @@ class RegistrarPontoView(LoginRequiredMixin, TemplateView):
             )
             
             # Lógica de marcação sequencial
-            if not ponto.entrada_manha:
-                ponto.entrada_manha = agora
-                tipo_registro = 'Entrada'
-            elif not ponto.saida_almoco:
-                ponto.saida_almoco = agora
-                tipo_registro = 'Saída para Almoço'
-            elif not ponto.entrada_tarde:
-                ponto.entrada_tarde = agora
-                tipo_registro = 'Volta do Almoço'
-            elif not ponto.saida:
-                ponto.saida = agora
-                tipo_registro = 'Saída'
-            else:
-                return JsonResponse({
-                    'success': False,
-                    'message': 'Todos os pontos do dia já foram registrados'
-                })
-            
+            # em RegistrarPontoView.post — troca as strings por (código, etiqueta)
+            if not ponto.entrada_manha:   ponto.entrada_manha = agora;  tipo = 'entrada'
+            elif not ponto.saida_almoco:  ponto.saida_almoco = agora;   tipo = 'saida_almoco'
+            elif not ponto.entrada_tarde: ponto.entrada_tarde = agora;  tipo = 'volta_almoco'
+            elif not ponto.saida:         ponto.saida = agora;          tipo = 'saida'
+            else: return JsonResponse({'success': False, 'message': 'Todos os pontos do dia já foram registrados'})
             ponto.save()
-            
-            # Criar registro no histórico
-            RegistroPonto.objects.create(
-                funcionario=funcionario,
-                data_registro=hoje,
-                hora_registro=agora,
-                tipo_registro=tipo_registro.lower().replace(' ', '_'),
-                ip_registro=request.META.get('REMOTE_ADDR')
-            )
-            
-            return JsonResponse({
-                'success': True,
-                'message': f'{tipo_registro} registrado com sucesso!',
-                'horario': agora.strftime('%H:%M:%S')
-            })
-            
+            RegistroPonto.objects.create(funcionario=funcionario, data_registro=hoje, hora_registro=agora,
+                                        tipo_registro=tipo, ip_registro=request.META.get('REMOTE_ADDR'))
+            rotulo = dict(RegistroPonto.TIPO_REGISTRO_CHOICES)[tipo]
+            return JsonResponse({'success': True, 'message': f'{rotulo} registrado com sucesso!', 'horario': agora.strftime('%H:%M:%S')})
+                        
         except Funcionario.DoesNotExist:
             return JsonResponse({
                 'success': False,
@@ -1456,6 +1356,90 @@ from django.db.models import Sum
 import logging
 
 
+
+
+class MeuTurnoView(LoginRequiredMixin, PermissaoAcaoMixin, TemplateView):
+    acao_requerida = 'vender'
+    template_name = 'funcionarios/meu_turno.html'
+    
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        funcionario = get_object_or_404(Funcionario, usuario=self.request.user)
+        hoje = timezone.now().date()
+        
+        # ----------------------------------------------------
+        # NOVAS CONSULTAS: MÉTRICAS DE VENDAS (AQUISIÇÃO DE VALOR)
+        # ----------------------------------------------------
+        
+        # 1. Total de Vendas Diretas (Fatura Recibo, Balcão, etc.)
+        # Filtra vendas finalizadas no dia de hoje, realizadas pelo funcionário
+        vendas_diretas = Venda.objects.filter(
+            vendedor=funcionario,
+            data_venda__date=hoje,
+            status='finalizada' # Apenas vendas que geraram receita de imediato
+        )
+        
+        total_venda_direta = vendas_diretas.aggregate(
+            total_vendas=Sum('total')
+        )['total_vendas'] or Decimal('0.00')
+
+        # 2. Total de Faturas de Crédito Emitidas
+        # Filtra faturas (dívidas) emitidas no dia de hoje, realizadas pelo funcionário (se tiver um campo vendedor/emissor)
+        # **ATENÇÃO:** O seu modelo FaturaCredito não tem um campo 'vendedor', o que é uma FALHA EMPRESARIAL.
+        # Assumindo uma correção: FaturaCredito.vendedor = models.ForeignKey('funcionarios.Funcionario', ...)
+        try:
+             faturas_emitidas = FaturaCredito.objects.filter(
+                 vendedor=funcionario, # CAMPO A SER ADICIONADO PARA RASTREABILIDADE
+                 data_emissao__date=hoje
+             )
+             total_faturado_credito = faturas_emitidas.aggregate(
+                 total_faturado=Sum('total_faturado')
+             )['total_faturado'] or Decimal('0.00')
+        except:
+             # Se o campo não existir (na sua implementação atual), defina como zero e alerte.
+             total_faturado_credito = Decimal('0.00')
+
+        # ----------------------------------------------------
+        # ATUALIZAÇÃO DO CONTEXTO (VISÃO PRÁTICA E DE NEGÓCIO)
+        # ----------------------------------------------------
+        
+        context.update({
+            'funcionario': funcionario,
+            'hoje': hoje,
+            'turno_aberto': funcionario_tem_turno_aberto(funcionario),
+            # Informação de Ponto e Escala
+            'escala_hoje': EscalaTrabalho.objects.filter(
+                funcionario=funcionario,
+                data_trabalho=hoje
+            ).first(),
+            'pontos_hoje': RegistroPonto.objects.filter(
+                funcionario=funcionario,
+                data_registro=hoje
+            ).order_by('hora_registro'),
+            'proximas_escalas': EscalaTrabalho.objects.filter(
+                funcionario=funcionario,
+                data_trabalho__gt=hoje
+            ).order_by('data_trabalho')[:5],
+            
+            # NOVAS MÉTRICAS DE VENDAS
+            'total_venda_direta_hoje': total_venda_direta,
+            'total_faturado_credito_hoje': total_faturado_credito,
+            'total_receita_bruta_hoje': total_venda_direta + total_faturado_credito,
+            'vendas_diretas_count': vendas_diretas.count(),
+            
+            # Verificar se já fechou o turno hoje
+            'fechamento_hoje': FechamentoTurno.objects.filter(
+                funcionario=funcionario,
+                data_fechamento__date=hoje
+            ).first(),
+            
+            # Dados para o gráfico de vendas por hora
+            'sales_chart_data': json.dumps(list(vendas_diretas.extra({'hour': "EXTRACT(hour FROM data_venda)"}).values('hour').annotate(total=Sum('total')).order_by('hour')))
+        })
+        return context
+    
+
+
 class FecharTurnoView(LoginRequiredMixin, TemplateView):
     template_name = 'funcionarios/meu_turno.html'
 
@@ -1464,22 +1448,49 @@ class FecharTurnoView(LoginRequiredMixin, TemplateView):
             funcionario = Funcionario.objects.get(usuario=request.user)
             hoje = timezone.now().date()
 
-            # Verificar se já existe fechamento hoje
-            if FechamentoTurno.objects.filter(funcionario=funcionario, data_fechamento__date=hoje).exists():
-                messages.error(request, 'O turno de hoje já foi fechado.')
+            # Impedir o fechamento enquanto houver turno aberto
+            if funcionario_tem_turno_aberto(funcionario):
+                messages.error(
+                    request,
+                    'Não é possível fechar o turno enquanto '
+                    'houver um turno aberto. Registe a saída '
+                    'antes de continuar.'
+                )
                 return redirect('funcionarios:meuturno')
 
-            # Função para converter valor informado pelo usuário
+            # Verificar se já existe fechamento hoje
+            if FechamentoTurno.objects.filter(
+                funcionario=funcionario,
+                data_fechamento__date=hoje
+            ).exists():
+                messages.error(
+                    request,
+                    'O turno de hoje já foi fechado.'
+                )
+                return redirect('funcionarios:meuturno')
+
+            # Converter valores informados pelo usuário
             def parse_decimal(value):
                 try:
-                    return Decimal(value.replace(',', '.')) if value else Decimal('0')
+                    return (
+                        Decimal(value.replace(',', '.'))
+                        if value else Decimal('0')
+                    )
                 except (InvalidOperation, AttributeError):
                     return Decimal('0')
 
-            valor_caixa = parse_decimal(request.POST.get('valor_caixa'))
-            valor_tpa = parse_decimal(request.POST.get('valor_tpa'))
-            valor_transferencia = parse_decimal(request.POST.get('valor_transferencia'))
-            observacoes = (request.POST.get('observacoes') or '').strip()
+            valor_caixa = parse_decimal(
+                request.POST.get('valor_caixa')
+            )
+            valor_tpa = parse_decimal(
+                request.POST.get('valor_tpa')
+            )
+            valor_transferencia = parse_decimal(
+                request.POST.get('valor_transferencia')
+            )
+            observacoes = (
+                request.POST.get('observacoes') or ''
+            ).strip()
 
             # Buscar vendas finalizadas do dia
             vendas_dia = Venda.objects.filter(
@@ -1489,28 +1500,54 @@ class FecharTurnoView(LoginRequiredMixin, TemplateView):
             )
 
             # Buscar pagamentos relacionados
-            pagamentos = PagamentoVenda.objects.filter(venda__in=vendas_dia)
+            pagamentos = PagamentoVenda.objects.filter(
+                venda__in=vendas_dia
+            )
 
-            # Função para somar valores de acordo com a forma de pagamento
+            # Somar valores por forma de pagamento
             def total_por_forma(codigo):
-                result = pagamentos.filter(forma_pagamento__codigo=codigo).aggregate(total=Sum('valor_pago'))['total']
+                result = pagamentos.filter(
+                    forma_pagamento__codigo=codigo
+                ).aggregate(
+                    total=Sum('valor_pago')
+                )['total']
+
                 return Decimal(result or 0)
 
-            sistema_caixa = total_por_forma('numerario')
-            sistema_tpa = total_por_forma('tpa')
-            sistema_transferencia = total_por_forma('transferencia')
+            sistema_caixa = max(
+                total_por_forma('numerario'),
+                Decimal('0')
+            )
+            sistema_tpa = max(
+                total_por_forma('tpa'),
+                Decimal('0')
+            )
+            sistema_transferencia = max(
+                total_por_forma('transferencia'),
+                Decimal('0')
+            )
 
-            # Garantir valores não negativos
-            sistema_caixa = max(sistema_caixa, Decimal('0'))
-            sistema_tpa = max(sistema_tpa, Decimal('0'))
-            sistema_transferencia = max(sistema_transferencia, Decimal('0'))
+            # Validar diferenças entre os valores
+            total_informado = (
+                valor_caixa
+                + valor_tpa
+                + valor_transferencia
+            )
 
-            # Validar se há diferença significativa antes de salvar (opcional)
-            total_informado = valor_caixa + valor_tpa + valor_transferencia
-            total_sistema = sistema_caixa + sistema_tpa + sistema_transferencia
+            total_sistema = (
+                sistema_caixa
+                + sistema_tpa
+                + sistema_transferencia
+            )
+
             diferenca = abs(total_informado - total_sistema)
-            if diferenca > Decimal('0.01'):  # tolerância de 1 centavo
-                messages.warning(request, f'Diferença detectada: {diferenca:.2f}. Fechamento registrado, mas verifique.')
+
+            if diferenca > Decimal('0.01'):
+                messages.warning(
+                    request,
+                    f'Diferença detectada: {diferenca:.2f}. '
+                    'Fechamento registrado, mas verifique.'
+                )
 
             # Criar registro de fechamento
             fechamento = FechamentoTurno.objects.create(
@@ -1524,15 +1561,30 @@ class FecharTurnoView(LoginRequiredMixin, TemplateView):
                 observacoes=observacoes
             )
 
-            messages.success(request, 'Turno fechado com sucesso!')
-            return redirect('funcionarios:relatorio_fechamento', pk=fechamento.pk)
+            messages.success(
+                request,
+                'Turno fechado com sucesso!'
+            )
+
+            return redirect(
+                'funcionarios:relatorio_fechamento',
+                pk=fechamento.pk
+            )
 
         except Funcionario.DoesNotExist:
-            messages.error(request, 'Funcionário não encontrado.')
+            messages.error(
+                request,
+                'Funcionário não encontrado.'
+            )
             return redirect('core_tenants:dashboard')
-        except Exception as e:
+
+        except Exception:
             logging.exception("Erro ao fechar turno")
-            messages.error(request, 'Erro ao fechar turno. Verifique os valores e tente novamente.')
+            messages.error(
+                request,
+                'Erro ao fechar turno. '
+                'Verifique os valores e tente novamente.'
+            )
             return redirect('funcionarios:meuturno')
 
 
@@ -1584,3 +1636,65 @@ class RelatorioFechamentoPDFView(LoginRequiredMixin, DetailView):
         response = HttpResponse(pdf, content_type='application/pdf')
         response['Content-Disposition'] = f'inline; filename="fechamento_turno_{fechamento.pk}.pdf"'
         return response
+
+
+# views.py
+class _BeneficioTipoView(LoginRequiredMixin, PermissaoAcaoMixin, ListView):
+    acao_requerida = 'acessar_rh'
+    context_object_name = 'beneficios'
+    tipo = None
+    titulo = ''
+
+    def get_queryset(self):
+        return Beneficio.objects.filter(tipo=self.tipo).select_related('funcionario')
+
+    def get_context_data(self, **kw):
+        ctx = super().get_context_data(**kw)
+        ctx['titulo'] = self.titulo
+        return ctx
+
+class ValeTransporteView(_BeneficioTipoView):
+    template_name, tipo, titulo = 'beneficios/vale_transporte.html', 'vale_transporte', 'Vale de transporte'
+
+class ValeRefeicaoView(_BeneficioTipoView):
+    template_name, tipo, titulo = 'beneficios/vale_refeicao.html', 'vale_refeicao', 'Vale de refeição'
+
+class PlanoSaudeView(_BeneficioTipoView):
+    template_name, tipo, titulo = 'beneficios/plano_saude.html', 'plano_saude', 'Plano de saúde'
+
+
+def _periodo(request):
+    hoje = timezone.localdate()
+    try: ini = date.fromisoformat(request.GET.get('inicio', ''))
+    except ValueError: ini = hoje.replace(day=1)
+    try: fim = date.fromisoformat(request.GET.get('fim', ''))
+    except ValueError: fim = hoje
+    return ini, fim
+
+class RelatorioAdmissoesView(LoginRequiredMixin, PermissaoAcaoMixin, TemplateView):
+    acao_requerida = 'acessar_rh'
+    template_name = 'relatorios/admissoes.html'
+    def get_context_data(self, **kw):
+        ctx = super().get_context_data(**kw)
+        ini, fim = _periodo(self.request)
+        ctx.update(titulo='Admissões', inicio=ini, fim=fim,
+                   funcionarios=Funcionario.objects.filter(data_admissao__range=(ini, fim)).select_related('cargo', 'departamento').order_by('data_admissao'))
+        return ctx
+
+class RelatorioDemissoesView(RelatorioAdmissoesView):
+    template_name = 'relatorios/demissoes.html'
+    def get_context_data(self, **kw):
+        ctx = TemplateView.get_context_data(self, **kw)
+        ini, fim = _periodo(self.request)
+        ctx.update(titulo='Demissões', inicio=ini, fim=fim,
+                   funcionarios=Funcionario.objects.filter(data_demissao__range=(ini, fim)).select_related('cargo', 'departamento').order_by('data_demissao'))
+        return ctx
+
+class RelatorioFolhaView(LoginRequiredMixin, PermissaoAcaoMixin, TemplateView):
+    acao_requerida = 'acessar_rh'
+    template_name = 'relatorios/folha.html'
+    def get_context_data(self, **kw):
+        ctx = super().get_context_data(**kw)
+        ctx['folhas'] = FolhaPagamento.objects.order_by('-ano', '-mes')[:24]
+        return ctx
+

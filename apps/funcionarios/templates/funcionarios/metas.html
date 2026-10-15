@@ -1,59 +1,12 @@
-<!-- funcionarios/metas.html -->
-{% extends "base.html" %}
-
-{% block title %}Minhas Metas{% endblock %}
-
-{% block content %}
-<div class="container-fluid">
-    <h1 class="h3 mb-4">Minhas Metas</h1>
-    
-    <div class="card shadow mb-4">
-        <div class="card-body">
-            <div class="table-responsive">
-                <table class="table table-bordered">
-                    <thead>
-                        <tr>
-                            <th>Título</th>
-                            <th>Descrição</th>
-                            <th>Data Início</th>
-                            <th>Data Limite</th>
-                            <th>Progresso</th>
-                            <th>Status</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for meta in metas %}
-                        <tr>
-                            <td>{{ meta.titulo }}</td>
-                            <td>{{ meta.descricao|truncatechars:50 }}</td>
-                            <td>{{ meta.data_inicio|date:"d/m/Y" }}</td>
-                            <td>{{ meta.data_fim|date:"d/m/Y" }}</td>
-                            <td>
-                                <div class="progress">
-                                    <div class="progress-bar" role="progressbar" style="width: {{ meta.progresso }}%">
-                                        {{ meta.progresso }}%
-                                    </div>
-                                </div>
-                            </td>
-                            <td>
-                                {% if meta.concluida %}
-                                    <span class="badge badge-success">Concluída</span>
-                                {% elif meta.esta_atrasada %}
-                                    <span class="badge badge-danger">Atrasada</span>
-                                {% else %}
-                                    <span class="badge badge-warning">Em Andamento</span>
-                                {% endif %}
-                            </td>
-                        </tr>
-                        {% empty %}
-                        <tr>
-                            <td colspan="6" class="text-center">Nenhuma meta cadastrada</td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-            </div>
-        </div>
-    </div>
+{% extends "funcionarios/_rh_base.html" %}
+{% block title %}Metas{% endblock %}
+{% block rh_content %}
+<h1 class="text-2xl font-bold mb-4">Minhas metas</h1>
+<div class="grid md:grid-cols-2 gap-4">
+  {% for m in metas %}<div class="rh-card"><div class="flex justify-between"><strong>{{ m.titulo }}</strong>
+    {% if m.concluida %}<span class="rh-badge rh-ok">Concluída</span>{% elif m.esta_atrasada %}<span class="rh-badge rh-bad">Atrasada</span>{% else %}<span class="rh-badge rh-warn">Em curso</span>{% endif %}</div>
+    <p class="text-sm rh-muted">{{ m.data_inicio|date:"d/m/Y" }} → {{ m.data_fim|date:"d/m/Y" }}</p><p class="text-sm mt-1">{{ m.descricao|default:"" }}</p>
+    <div class="w-full bg-gray-100 rounded h-2 mt-3"><div class="bg-indigo-600 h-2 rounded" style="width:{{ m.progresso|stringformat:'d' }}%"></div></div><p class="text-xs rh-muted mt-1">{{ m.progresso }}%</p></div>
+  {% empty %}<p class="rh-muted">Sem metas.</p>{% endfor %}
 </div>
 {% endblock %}

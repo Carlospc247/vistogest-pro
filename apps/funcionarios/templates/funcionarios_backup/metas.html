@@ -1,0 +1,59 @@
+<!-- funcionarios/metas.html -->
+{% extends "base.html" %}
+
+{% block title %}Minhas Metas{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <h1 class="h3 mb-4">Minhas Metas</h1>
+    
+    <div class="card shadow mb-4">
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-bordered">
+                    <thead>
+                        <tr>
+                            <th>Título</th>
+                            <th>Descrição</th>
+                            <th>Data Início</th>
+                            <th>Data Limite</th>
+                            <th>Progresso</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for meta in metas %}
+                        <tr>
+                            <td>{{ meta.titulo }}</td>
+                            <td>{{ meta.descricao|truncatechars:50 }}</td>
+                            <td>{{ meta.data_inicio|date:"d/m/Y" }}</td>
+                            <td>{{ meta.data_fim|date:"d/m/Y" }}</td>
+                            <td>
+                                <div class="progress">
+                                    <div class="progress-bar" role="progressbar" style="width: {{ meta.progresso }}%">
+                                        {{ meta.progresso }}%
+                                    </div>
+                                </div>
+                            </td>
+                            <td>
+                                {% if meta.concluida %}
+                                    <span class="badge badge-success">Concluída</span>
+                                {% elif meta.esta_atrasada %}
+                                    <span class="badge badge-danger">Atrasada</span>
+                                {% else %}
+                                    <span class="badge badge-warning">Em Andamento</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% empty %}
+                        <tr>
+                            <td colspan="6" class="text-center">Nenhuma meta cadastrada</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

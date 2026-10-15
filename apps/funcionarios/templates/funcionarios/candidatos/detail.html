@@ -1,0 +1,12 @@
+{# candidatos/detail.html #}
+{% extends "funcionarios/_rh_base.html" %}
+{% block title %}{{ candidato.nome }}{% endblock %}
+{% block rh_content %}
+<a href="{% url 'funcionarios:candidato_lista' %}" class="text-sm text-indigo-600">&larr; Candidatos</a>
+<div class="rh-card text-sm space-y-1 mt-3 max-w-3xl">
+  <h1 class="text-2xl font-bold">{{ candidato.nome }} <span class="rh-badge">{{ candidato.get_status_display }}</span></h1>
+  <p>{{ candidato.email }} • {{ candidato.telefone|default:"—" }}</p><p>Processo: {{ candidato.processo.titulo }}</p>
+  {% if candidato.curriculo %}<p><a class="text-indigo-600" target="_blank" href="{{ candidato.curriculo.url }}">Ver currículo</a></p>{% endif %}
+  <p class="pt-2"><strong>Experiência:</strong> {{ candidato.experiencia|default:"—"|linebreaksbr }}</p><p><strong>Formação:</strong> {{ candidato.formacao|default:"—"|linebreaksbr }}</p>
+</div>
+{% endblock %}

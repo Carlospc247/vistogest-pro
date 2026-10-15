@@ -1,4 +1,5 @@
-from datetime import date
+# apps/funcionarios/utils.pya
+from django.utils import timezone
 from apps.funcionarios.models import RegistroPonto
 
 def funcionario_tem_turno_aberto(funcionario):
@@ -6,7 +7,7 @@ def funcionario_tem_turno_aberto(funcionario):
 
     ultimo = RegistroPonto.objects.filter(
         funcionario=funcionario,
-        data_registro=date.today()
+        data_registro=timezone.localdate()
     ).order_by('-data_registro', '-hora_registro').first()
 
     if not ultimo:

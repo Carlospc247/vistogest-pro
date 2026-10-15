@@ -1002,59 +1002,53 @@ def listar_categorias_api(request):
 
 
 # Lista de fabricantes
+from django.contrib.auth.mixins import LoginRequiredMixin
+from django.db.models import Q
+from django.urls import reverse_lazy
+from django.views.generic import CreateView, DeleteView, ListView, UpdateView
+
+from .models import Fabricante
+
+CAMPOS = ['nome', 'nif', 'origem', 'cidade', 'provincia', 'telefone', 'email', 'ativo']
+LISTA = reverse_lazy('produtos:fabricante_lista')
+
+
 class FabricanteListView(LoginRequiredMixin, ListView):
     model = Fabricante
-    template_name = 'fabricantes/fabricante_lista.html'
+    template_name = 'produtos/fabricante_list.html'
     context_object_name = 'fabricantes'
     paginate_by = 25
-    ordering = ['nome']
 
     def get_queryset(self):
-        """
-        O schema do tenant atual já garante o isolamento dos fabricantes.
-        """
-        return Fabricante.objects.all()
+        qs = super().get_queryset().order_by('nome')
+        q = self.request.GET.get('q', '').strip()
+        if q:
+            qs = qs.filter(Q(nome__icontains=q) | Q(nif__icontains=q))
+        return qs
 
 
-# Criar fabricante
 class FabricanteCreateView(LoginRequiredMixin, CreateView):
     model = Fabricante
-    form_class = FabricanteForm
-    template_name = 'fabricantes/form.html'
-    success_url = reverse_lazy('fabricantes:fabricante_lista')
+    fields = CAMPOS
+    template_name = 'fornecedores/form_generico.html'
+    success_url = LISTA
+    extra_context = {'titulo': 'Novo Fabricante'}
 
-    def form_valid(self, form):
-        """
-        O fabricante é criado diretamente no schema do tenant atual.
-        """
-        return super().form_valid(form)
 
-    
-# Editar fabricante
 class FabricanteUpdateView(LoginRequiredMixin, UpdateView):
     model = Fabricante
-    form_class = FabricanteForm
-    template_name = 'fabricantes/form.html'
-    success_url = reverse_lazy('fabricantes:fabricante_lista')
+    fields = CAMPOS
+    template_name = 'fornecedores/form_generico.html'
+    success_url = LISTA
+    extra_context = {'titulo': 'Editar Fabricante'}
 
-# Detalhes do fabricante
-class FabricanteDetailView(LoginRequiredMixin, DetailView):
-    model = Fabricante
-    template_name = 'fabricantes/detail.html'
-    context_object_name = 'fabricante'
 
-# Excluir fabricante
 class FabricanteDeleteView(LoginRequiredMixin, DeleteView):
     model = Fabricante
-    template_name = 'fabricantes/confirm_delete.html'
-    success_url = reverse_lazy('fabricantes:fabricante_lista')
+    template_name = 'fornecedores/confirmar_exclusao.html'
+    success_url = LISTA
 
-
-logger = logging.getLogger(__name__)
-
-
-
-
+    
 logger = logging.getLogger(__name__)
 
 

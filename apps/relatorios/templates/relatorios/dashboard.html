@@ -1,519 +1,1288 @@
-<!-- templates/relatorios/dashboard.html -->
-{% extends "base.html" %}
+{% extends "relatorios/pagina.html" %}
 {% load static %}
 
-{% block title %}{{ title }}{% endblock %}
-
-{% block content %}
-<div class="min-h-screen bg-gray-50 dark:bg-gray-900">
-    <!-- Header -->
-    <div class="bg-white dark:bg-gray-800 shadow">
-        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div class="flex justify-between items-center py-6">
-                <div>
-                    <h1 class="text-3xl font-bold text-gray-900 dark:text-white">
-                        <i class="fas fa-chart-bar text-indigo-600 mr-3"></i>
-                        Dashboard de Relatórios
-                    </h1>
-                    <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
-                        Visão geral dos relatórios e análises do sistema
-                    </p>
-                </div>
-                <div class="flex space-x-3">
-                    <a href="{% url 'relatorios:novo_relatorio' %}" 
-                       class="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-colors">
-                        <i class="fas fa-plus mr-2"></i>
-                        Novo Relatório
-                    </a>
-                    <a href="{% url 'relatorios:central' %}" 
-                       class="inline-flex items-center px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors">
-                        <i class="fas fa-th-large mr-2"></i>
-                        Central de Relatórios
-                    </a>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <!-- Estatísticas Principais -->
-        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6 mb-8">
-            <div class="bg-white dark:bg-gray-800 overflow-hidden shadow rounded-lg">
-                <div class="p-5">
-                    <div class="flex items-center">
-                        <div class="flex-shrink-0">
-                            <div class="w-8 h-8 bg-blue-500 rounded-md flex items-center justify-center">
-                                <i class="fas fa-file-alt text-white text-sm"></i>
-                            </div>
-                        </div>
-                        <div class="ml-5 w-0 flex-1">
-                            <dl>
-                                <dt class="text-sm font-medium text-gray-500 dark:text-gray-400 truncate">
-                                    Total de Relatórios
-                                </dt>
-                                <dd class="text-lg font-medium text-gray-900 dark:text-white">
-                                    {{ stats.total_relatorios|default:0 }}
-                                </dd>
-                            </dl>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <div class="bg-white dark:bg-gray-800 overflow-hidden shadow rounded-lg">
-                <div class="p-5">
-                    <div class="flex items-center">
-                        <div class="flex-shrink-0">
-                            <div class="w-8 h-8 bg-green-500 rounded-md flex items-center justify-center">
-                                <i class="fas fa-calendar-day text-white text-sm"></i>
-                            </div>
-                        </div>
-                        <div class="ml-5 w-0 flex-1">
-                            <dl>
-                                <dt class="text-sm font-medium text-gray-500 dark:text-gray-400 truncate">
-                                    Relatórios Hoje
-                                </dt>
-                                <dd class="text-lg font-medium text-gray-900 dark:text-white">
-                                    {{ stats.relatorios_hoje|default:0 }}
-                                </dd>
-                            </dl>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <div class="bg-white dark:bg-gray-800 overflow-hidden shadow rounded-lg">
-                <div class="p-5">
-                    <div class="flex items-center">
-                        <div class="flex-shrink-0">
-                            <div class="w-8 h-8 bg-purple-500 rounded-md flex items-center justify-center">
-                                <i class="fas fa-file-invoice text-white text-sm"></i>
-                            </div>
-                        </div>
-                        <div class="ml-5 w-0 flex-1">
-                            <dl>
-                                <dt class="text-sm font-medium text-gray-500 dark:text-gray-400 truncate">
-                                    Templates Ativos
-                                </dt>
-                                <dd class="text-lg font-medium text-gray-900 dark:text-white">
-                                    {{ stats.templates_ativos|default:0 }}
-                                </dd>
-                            </dl>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <div class="bg-white dark:bg-gray-800 overflow-hidden shadow rounded-lg">
-                <div class="p-5">
-                    <div class="flex items-center">
-                        <div class="flex-shrink-0">
-                            <div class="w-8 h-8 bg-yellow-500 rounded-md flex items-center justify-center">
-                                <i class="fas fa-clock text-white text-sm"></i>
-                            </div>
-                        </div>
-                        <div class="ml-5 w-0 flex-1">
-                            <dl>
-                                <dt class="text-sm font-medium text-gray-500 dark:text-gray-400 truncate">
-                                    Agendamentos
-                                </dt>
-                                <dd class="text-lg font-medium text-gray-900 dark:text-white">
-                                    {{ stats.agendamentos_ativos|default:0 }}
-                                </dd>
-                            </dl>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <div class="bg-white dark:bg-gray-800 overflow-hidden shadow rounded-lg">
-                <div class="p-5">
-                    <div class="flex items-center">
-                        <div class="flex-shrink-0">
-                            <div class="w-8 h-8 bg-red-500 rounded-md flex items-center justify-center">
-                                <i class="fas fa-exclamation-triangle text-white text-sm"></i>
-                            </div>
-                        </div>
-                        <div class="ml-5 w-0 flex-1">
-                            <dl>
-                                <dt class="text-sm font-medium text-gray-500 dark:text-gray-400 truncate">
-                                    Com Erro
-                                </dt>
-                                <dd class="text-lg font-medium text-gray-900 dark:text-white">
-                                    {{ stats.relatorios_erro|default:0 }}
-                                </dd>
-                            </dl>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- KPIs em Destaque -->
-        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-            <div class="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
-                <div class="flex items-center">
-                    <div class="flex-shrink-0">
-                        <div class="w-10 h-10 bg-green-100 dark:bg-green-900 rounded-lg flex items-center justify-center">
-                            <i class="fas fa-shopping-cart text-green-600 dark:text-green-400"></i>
-                        </div>
-                    </div>
-                    <div class="ml-4">
-                        <h3 class="text-sm font-medium text-gray-500 dark:text-gray-400">Vendas Hoje</h3>
-                        <p class="text-2xl font-semibold text-gray-900 dark:text-white">
-                            AKZ {{ kpis_destaque.vendas_hoje.total|floatformat:2|default:"0,00" }}
-                        </p>
-                        <p class="text-sm text-gray-500 dark:text-gray-400">
-                            {{ kpis_destaque.vendas_hoje.quantidade|default:0 }} vendas
-                        </p>
-                    </div>
-                </div>
-            </div>
-
-            <div class="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
-                <div class="flex items-center">
-                    <div class="flex-shrink-0">
-                        <div class="w-10 h-10 bg-yellow-100 dark:bg-yellow-900 rounded-lg flex items-center justify-center">
-                            <i class="fas fa-boxes text-yellow-600 dark:text-yellow-400"></i>
-                        </div>
-                    </div>
-                    <div class="ml-4">
-                        <h3 class="text-sm font-medium text-gray-500 dark:text-gray-400">Estoque Baixo</h3>
-                        <p class="text-2xl font-semibold text-gray-900 dark:text-white">
-                            {{ kpis_destaque.produtos_estoque_baixo|default:0 }}
-                        </p>
-                        <p class="text-sm text-gray-500 dark:text-gray-400">produtos</p>
-                    </div>
-                </div>
-            </div>
-
-            <div class="rounded-lg shadow p-6 
-    {% if kpis_destaque.contas_vencidas_qtd > 0 %}
-        bg-red-50 dark:bg-red-900
-    {% else %}
-        bg-green-50 dark:bg-green-900
-    {% endif %}
-">
-    <div class="flex items-center">
-        <div class="flex-shrink-0">
-            <div class="w-10 h-10 
-                {% if kpis_destaque.contas_vencidas_qtd > 0 %}
-                    bg-red-100 dark:bg-red-800
-                {% else %}
-                    bg-green-100 dark:bg-green-800
-                {% endif %}
-                rounded-lg flex items-center justify-center">
-                <i class="fas fa-exclamation-circle 
-                    {% if kpis_destaque.contas_vencidas_qtd > 0 %}
-                        text-red-600 dark:text-red-300
-                    {% else %}
-                        text-green-600 dark:text-green-300
-                    {% endif %}
-                "></i>
-            </div>
-        </div>
-        <div class="ml-4">
-            <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300">
-                Contas Vencidas
-            </h3>
-            <p class="text-2xl font-semibold 
-                {% if kpis_destaque.contas_vencidas_qtd > 0 %}
-                    text-red-700 dark:text-red-200
-                {% else %}
-                    text-green-700 dark:text-green-200
-                {% endif %}
-            ">
-                AKZ {{ kpis_destaque.contas_vencidas_total|floatformat:2|default:"0,00" }}
-            </p>
-            <p class="text-sm 
-                {% if kpis_destaque.contas_vencidas_qtd > 0 %}
-                    text-red-600 dark:text-red-300
-                {% else %}
-                    text-green-600 dark:text-green-300
-                {% endif %}
-            ">
-                {{ kpis_destaque.contas_vencidas_qtd }} 
-                {% if kpis_destaque.contas_vencidas_qtd == 1 %}
-                    conta em atraso
-                {% else %}
-                    contas em atraso
-                {% endif %}
-            </p>
-        </div>
-    </div>
-</div>
-
-
-            <div class="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
-                <div class="flex items-center">
-                    <div class="flex-shrink-0">
-                        <div class="w-10 h-10 bg-blue-100 dark:bg-blue-900 rounded-lg flex items-center justify-center">
-                            <i class="fas fa-user-plus text-blue-600 dark:text-blue-400"></i>
-                        </div>
-                    </div>
-                    <div class="ml-4">
-                        <h3 class="text-sm font-medium text-gray-500 dark:text-gray-400">Novos Clientes</h3>
-                        <p class="text-2xl font-semibold text-gray-900 dark:text-white">
-                            {{ kpis_destaque.novos_clientes|default:0 }}
-                        </p>
-                        <p class="text-sm text-gray-500 dark:text-gray-400">este mês</p>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
-            <!-- Relatórios Populares -->
-            <div class="lg:col-span-2">
-                <div class="bg-white dark:bg-gray-800 shadow rounded-lg">
-                    <div class="px-4 py-5 sm:p-6">
-                        <div class="flex justify-between items-center mb-4">
-                            <h3 class="text-lg leading-6 font-medium text-gray-900 dark:text-white">
-                                Relatórios Mais Executados
-                            </h3>
-                            <a href="{% url 'relatorios:central' %}" 
-                               class="text-sm text-indigo-600 hover:text-indigo-500">
-                                Ver todos
-                            </a>
-                        </div>
-
-                        <div class="space-y-4">
-                            {% for relatorio in relatorios_populares %}
-                            <div class="flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-700 rounded-lg">
-                                <div class="flex items-center space-x-3">
-                                    <div class="flex-shrink-0">
-                                        <div class="w-10 h-10 bg-indigo-100 dark:bg-indigo-900 rounded-lg flex items-center justify-center">
-                                            <i class="fas fa-chart-pie text-indigo-600 dark:text-indigo-400"></i>
-                                        </div>
-                                    </div>
-                                    <div>
-                                        <p class="text-sm font-medium text-gray-900 dark:text-white">
-                                            {{ relatorio.tipo_relatorio__nome }}
-                                        </p>
-                                        <p class="text-xs text-gray-500 dark:text-gray-400">
-                                            {{ relatorio.tipo_relatorio__categoria|capfirst }}
-                                        </p>
-                                    </div>
-                                </div>
-                                <div class="flex items-center space-x-3">
-                                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800 dark:bg-green-800 dark:text-green-100">
-                                        {{ relatorio.total_execucoes }} execuções
-                                    </span>
-                                    <a href="{% url 'relatorios:novo_relatorio' %}?tipo={{ relatorio.tipo_relatorio__id }}" 
-                                       class="text-indigo-600 hover:text-indigo-500">
-                                        <i class="fas fa-play"></i>
-                                    </a>
-                                </div>
-                            </div>
-                            {% empty %}
-                            <div class="text-center py-8">
-                                <i class="fas fa-chart-bar text-gray-400 text-4xl mb-4"></i>
-                                <p class="text-gray-500 dark:text-gray-400">Nenhum relatório executado ainda</p>
-                            </div>
-                            {% endfor %}
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Sidebar com informações -->
-            <div class="space-y-6">
-                <!-- Relatórios Recentes -->
-                <div class="bg-white dark:bg-gray-800 shadow rounded-lg">
-                    <div class="px-4 py-5 sm:p-6">
-                        <h3 class="text-lg leading-6 font-medium text-gray-900 dark:text-white mb-4">
-                            Meus Relatórios Recentes
-                        </h3>
-                        
-                        <div class="space-y-3">
-                            {% for relatorio in relatorios_recentes %}
-                            <div class="flex items-center space-x-3">
-                                <div class="flex-shrink-0">
-                                    {% if relatorio.status == 'concluido' %}
-                                        <i class="fas fa-check-circle text-green-500"></i>
-                                    {% elif relatorio.status == 'processando' %}
-                                        <i class="fas fa-spinner fa-spin text-yellow-500"></i>
-                                    {% elif relatorio.status == 'erro' %}
-                                        <i class="fas fa-exclamation-circle text-red-500"></i>
-                                    {% endif %}
-                                </div>
-                                <div class="flex-1 min-w-0">
-                                    <p class="text-sm font-medium text-gray-900 dark:text-white truncate">
-                                        {{ relatorio.tipo_relatorio.nome }}
-                                    </p>
-                                    <p class="text-xs text-gray-500 dark:text-gray-400">
-                                        {{ relatorio.data_solicitacao|date:"d/m/Y H:i" }}
-                                    </p>
-                                </div>
-                            </div>
-                            {% empty %}
-                            <p class="text-sm text-gray-500 dark:text-gray-400 text-center">
-                                Nenhum relatório recente
-                            </p>
-                            {% endfor %}
-                        </div>
-
-                        {% if relatorios_recentes %}
-                        <div class="mt-4">
-                            <a href="{% url 'relatorios:recentes' %}" 
-                               class="text-sm text-indigo-600 hover:text-indigo-500">
-                                Ver todos →
-                            </a>
-                        </div>
-                        {% endif %}
-                    </div>
-                </div>
-
-                <!-- Alertas Ativos -->
-                {% if alertas_ativos %}
-                <div class="bg-white dark:bg-gray-800 shadow rounded-lg">
-                    <div class="px-4 py-5 sm:p-6">
-                        <h3 class="text-lg leading-6 font-medium text-gray-900 dark:text-white mb-4">
-                            Alertas Ativos
-                        </h3>
-                        
-                        <div class="space-y-3">
-                            {% for alerta in alertas_ativos %}
-                            <div class="flex items-start space-x-3 p-3 bg-gray-50 dark:bg-gray-700 rounded-md">
-                                <div class="flex-shrink-0">
-                                    <div class="w-2 h-2 mt-2 rounded-full
-                                        {% if alerta.prioridade == 'critica' %}bg-red-500
-                                        {% elif alerta.prioridade == 'alta' %}bg-orange-500
-                                        {% elif alerta.prioridade == 'media' %}bg-yellow-500
-                                        {% else %}bg-blue-500{% endif %}">
-                                    </div>
-                                </div>
-                                <div class="flex-1 min-w-0">
-                                    <p class="text-sm font-medium text-gray-900 dark:text-white">
-                                        {{ alerta.titulo }}
-                                    </p>
-                                    <p class="text-xs text-gray-500 dark:text-gray-400">
-                                        {{ alerta.data_vencimento|date:"d/m/Y" }}
-                                    </p>
-                                </div>
-                            </div>
-                            {% endfor %}
-                        </div>
-                    </div>
-                </div>
-                {% endif %}
-
-                <!-- Agendamentos de Hoje -->
-                {% if agendamentos_hoje %}
-                <div class="bg-white dark:bg-gray-800 shadow rounded-lg">
-                    <div class="px-4 py-5 sm:p-6">
-                        <h3 class="text-lg leading-6 font-medium text-gray-900 dark:text-white mb-4">
-                            Agendamentos de Hoje
-                        </h3>
-                        
-                        <div class="space-y-3">
-                            {% for agendamento in agendamentos_hoje %}
-                            <div class="flex items-center justify-between">
-                                <div>
-                                    <p class="text-sm font-medium text-gray-900 dark:text-white">
-                                        {{ agendamento.nome }}
-                                    </p>
-                                    <p class="text-xs text-gray-500 dark:text-gray-400">
-                                        {{ agendamento.proxima_execucao|time:"H:i" }}
-                                    </p>
-                                </div>
-                                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-800 dark:text-blue-100">
-                                    {{ agendamento.periodicidade|capfirst }}
-                                </span>
-                            </div>
-                            {% endfor %}
-                        </div>
-                    </div>
-                </div>
-                {% endif %}
-            </div>
-        </div>
-
-        <!-- Gráfico de Relatórios por Categoria -->
-        {% if relatorios_por_categoria %}
-        <div class="mt-8">
-            <div class="bg-white dark:bg-gray-800 shadow rounded-lg p-6">
-                <h3 class="text-lg leading-6 font-medium text-gray-900 dark:text-white mb-6">
-                    Relatórios por Categoria (Últimos 30 dias)
-                </h3>
-                
-                <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
-                    {% for categoria in relatorios_por_categoria %}
-                    <div class="text-center">
-                        <div class="w-16 h-16 mx-auto bg-indigo-100 dark:bg-indigo-900 rounded-full flex items-center justify-center mb-2">
-                            <span class="text-2xl font-bold text-indigo-600 dark:text-indigo-400">
-                                {{ categoria.total }}
-                            </span>
-                        </div>
-                        <p class="text-sm font-medium text-gray-900 dark:text-white">
-                            {{ categoria.tipo_relatorio__categoria|capfirst }}
-                        </p>
-                    </div>
-                    {% endfor %}
-                </div>
-            </div>
-        </div>
-        {% endif %}
-
-        <!-- Acesso Rápido -->
-        <div class="mt-8">
-            <h2 class="text-lg font-medium text-gray-900 dark:text-white mb-4">Acesso Rápido</h2>
-            <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
-                <a href="{% url 'relatorios:vendas' %}" 
-                   class="relative group bg-white dark:bg-gray-800 p-6 rounded-lg shadow hover:shadow-md transition-shadow">
-                    <div class="flex items-center justify-center w-10 h-10 bg-blue-100 dark:bg-blue-900 rounded-lg mb-3">
-                        <i class="fas fa-shopping-cart text-blue-600 dark:text-blue-400"></i>
-                    </div>
-                    <h3 class="text-sm font-medium text-gray-900 dark:text-white">Vendas</h3>
-                    <p class="text-xs text-gray-500 dark:text-gray-400">Relatórios de vendas</p>
-                </a>
-
-                <a href="{% url 'relatorios:construtor' %}" 
-                   class="relative group bg-white dark:bg-gray-800 p-6 rounded-lg shadow hover:shadow-md transition-shadow">
-                    <div class="flex items-center justify-center w-10 h-10 bg-green-100 dark:bg-green-900 rounded-lg mb-3">
-                        <i class="fas fa-tools text-green-600 dark:text-green-400"></i>
-                    </div>
-                    <h3 class="text-sm font-medium text-gray-900 dark:text-white">Construtor</h3>
-                    <p class="text-xs text-gray-500 dark:text-gray-400">Criar relatórios</p>
-                </a>
-
-                <a href="{% url 'relatorios:template_lista' %}" 
-                   class="relative group bg-white dark:bg-gray-800 p-6 rounded-lg shadow hover:shadow-md transition-shadow">
-                    <div class="flex items-center justify-center w-10 h-10 bg-purple-100 dark:bg-purple-900 rounded-lg mb-3">
-                        <i class="fas fa-file-invoice text-purple-600 dark:text-purple-400"></i>
-                    </div>
-                    <h3 class="text-sm font-medium text-gray-900 dark:text-white">Templates</h3>
-                    <p class="text-xs text-gray-500 dark:text-gray-400">Gerenciar templates</p>
-                </a>
-
-                <a href="{% url 'relatorios:agendamento_lista' %}" 
-                   class="relative group bg-white dark:bg-gray-800 p-6 rounded-lg shadow hover:shadow-md transition-shadow">
-                    <div class="flex items-center justify-center w-10 h-10 bg-yellow-100 dark:bg-yellow-900 rounded-lg mb-3">
-                        <i class="fas fa-clock text-yellow-600 dark:text-yellow-400"></i>
-                    </div>
-                    <h3 class="text-sm font-medium text-gray-900 dark:text-white">Agendamentos</h3>
-                    <p class="text-xs text-gray-500 dark:text-gray-400">Gerenciar agendamentos</p>
-                </a>
-
-                <a href="{% url 'relatorios:historico' %}" 
-                   class="relative group bg-white dark:bg-gray-800 p-6 rounded-lg shadow hover:shadow-md transition-shadow">
-                    <div class="flex items-center justify-center w-10 h-10 bg-indigo-100 dark:bg-indigo-900 rounded-lg mb-3">
-                        <i class="fas fa-history text-indigo-600 dark:text-indigo-400"></i>
-                    </div>
-                    <h3 class="text-sm font-medium text-gray-900 dark:text-white">Histórico</h3>
-                    <p class="text-xs text-gray-500 dark:text-gray-400">Logs e auditoria</p>
-                </a>
-
-                <a href="{% url 'relatorios:favoritos' %}" 
-                   class="relative group bg-white dark:bg-gray-800 p-6 rounded-lg shadow hover:shadow-md transition-shadow">
-                    <div class="flex items-center justify-center w-10 h-10 bg-red-100 dark:bg-red-900 rounded-lg mb-3">
-                        <i class="fas fa-heart text-red-600 dark:text-red-400"></i>
-                    </div>
-                    <h3 class="text-sm font-medium text-gray-900 dark:text-white">Favoritos</h3>
-                    <p class="text-xs text-gray-500 dark:text-gray-400">Meus favoritos</p>
-                </a>
-            </div>
-        </div>
-    </div>
-</div>
+{% block title %}Painel de Relatórios · VistoGEST{% endblock %}
+{% block report_heading %}Painel de Relatórios{% endblock %}
+{% block extra_head %}
+  {{ block.super }}
+  <style>
+    .report-dashboard-layout{display:grid;grid-template-columns:minmax(0,1.7fr) minmax(310px,1fr);gap:20px;align-items:start}
+    .report-dashboard-main{min-width:0}
+    .report-kpi-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin:0 0 18px}
+    .report-kpi-card{border:1px solid var(--report-line);background:var(--report-surface);color:var(--report-ink);border-radius:13px;padding:16px;min-width:0}
+    .report-kpi-card .report-kpi-label{color:var(--report-muted);font-size:.76rem;font-weight:750}
+    .report-kpi-card .report-kpi-value{font-size:1.65rem;line-height:1.25;margin-top:6px;font-weight:850;color:var(--report-navy);overflow-wrap:anywhere}
+    .report-route-panel{position:sticky;top:18px;min-width:0;max-height:calc(100vh - 140px);display:flex;flex-direction:column}
+    .report-route-panel .panel-head{flex-shrink:0}
+    .report-route-counter{display:inline-flex;align-items:center;justify-content:center;border-radius:999px;padding:4px 9px;background:rgba(36,87,167,.10);color:var(--report-blue);font-size:.72rem;font-weight:850;white-space:nowrap}
+    .report-route-search{padding:12px;border-bottom:1px solid var(--report-line);flex-shrink:0}
+    .report-route-search input{width:100%;border:1px solid var(--report-line);border-radius:9px;padding:9px 11px;background:var(--report-surface);color:var(--report-ink)}
+    .report-route-scroll{overflow:auto;min-height:0;padding:8px 10px 12px}
+    .report-route-group{border:1px solid var(--report-line);border-radius:10px;margin:7px 0;background:var(--report-surface);overflow:hidden}
+    .report-route-group summary{list-style:none;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px 11px;cursor:pointer;font-size:.79rem;font-weight:850;color:var(--report-navy)}
+    .report-route-group summary::-webkit-details-marker{display:none}
+    .report-route-group summary::after{content:'+';font-size:1rem;color:var(--report-muted)}
+    .report-route-group[open] summary::after{content:'−'}
+    .report-route-group summary:hover{background:rgba(148,163,184,.08)}
+    .report-route-group-count{font-size:.68rem;color:var(--report-muted);font-weight:750}
+    .report-route-list{list-style:none;padding:0 8px 8px;margin:0;display:grid;gap:6px}
+    .report-route-item{border:1px solid var(--report-line);border-radius:8px;padding:8px;background:rgba(148,163,184,.035);min-width:0}
+    .report-route-top{display:flex;align-items:flex-start;justify-content:space-between;gap:8px}
+    .report-route-label{font-size:.76rem;font-weight:800;line-height:1.35;color:var(--report-ink);overflow-wrap:anywhere}
+    .report-route-path{display:block;margin-top:4px;color:var(--report-muted);font-size:.66rem;line-height:1.4;overflow-wrap:anywhere;word-break:break-word}
+    .report-route-method{display:inline-flex;align-items:center;flex-shrink:0;border-radius:6px;padding:3px 5px;font-size:.59rem;line-height:1.2;font-weight:900;letter-spacing:.02em;background:#e8f2ff;color:#174f8a}
+    .report-route-method.post{background:#fff2d4;color:#805500}
+    .report-route-method.dynamic{background:#f0eaff;color:#5b3d91}
+    .report-route-bottom{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:7px}
+    .report-route-name{font-size:.63rem;color:var(--report-muted);overflow-wrap:anywhere}
+    .report-route-open{display:inline-flex;align-items:center;gap:4px;border:1px solid var(--report-line);border-radius:6px;padding:4px 7px;font-size:.67rem;font-weight:800;color:var(--report-blue);background:var(--report-surface);white-space:nowrap}
+    .report-route-open:hover{text-decoration:none;border-color:var(--report-blue)}
+    .report-route-open[aria-disabled="true"]{cursor:default;color:var(--report-muted);background:transparent}
+    .report-route-empty{padding:16px;text-align:center;color:var(--report-muted);font-size:.8rem}
+    .report-route-note{font-size:.69rem;color:var(--report-muted);line-height:1.45;margin:10px 3px 2px}
+    .report-popular-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+    .report-popular-item{border:1px solid var(--report-line);border-radius:10px;padding:12px;background:var(--report-surface);min-width:0}
+    .report-popular-item strong{display:block;font-size:.82rem;color:var(--report-navy);overflow-wrap:anywhere}
+    .report-popular-item p{margin:5px 0 0;font-size:.73rem;color:var(--report-muted)}
+    html.dark .report-route-method{background:#1e3a5f;color:#cfe3ff}
+    html.dark .report-route-method.post{background:#4b3815;color:#ffe0a0}
+    html.dark .report-route-method.dynamic{background:#342550;color:#e3d1ff}
+    @media(max-width:1180px){.report-dashboard-layout{grid-template-columns:minmax(0,1fr) minmax(285px,.9fr)}}
+    @media(max-width:900px){.report-dashboard-layout{grid-template-columns:minmax(0,1fr)}.report-route-panel{position:static;max-height:none}.report-route-scroll{max-height:70vh}}
+    @media(max-width:540px){.report-kpi-grid,.report-popular-list{grid-template-columns:1fr}.report-route-panel .panel-head{align-items:flex-start;flex-wrap:wrap}}
+    @media print{.report-route-panel{position:static;max-height:none;overflow:visible}.report-route-scroll{overflow:visible;max-height:none}.report-route-search,.report-route-open{display:none!important}.report-route-group{break-inside:avoid}}
+  </style>
 {% endblock %}
+
+{% block report_body %}
+<div class="report-dashboard-layout">
+  <section class="report-dashboard-main" aria-label="Conteúdo principal do painel de relatórios">
+    {% if kpis %}
+      <div class="report-kpi-grid" aria-label="Indicadores de relatórios">
+        {% for item in kpis %}
+          <article class="report-kpi-card">
+            <div class="report-kpi-label">{% if item.rotulo %}{{ item.rotulo }}{% elif item.label %}{{ item.label }}{% elif item.nome %}{{ item.nome }}{% else %}Indicador{% endif %}</div>
+            <div class="report-kpi-value">{% if item.valor != None %}{{ item.valor }}{% elif item.value != None %}{{ item.value }}{% elif item.total != None %}{{ item.total }}{% else %}—{% endif %}</div>
+            {% if item.descricao %}<p class="report-route-note">{{ item.descricao }}</p>{% endif %}
+          </article>
+        {% endfor %}
+      </div>
+    {% endif %}
+
+    {% if tabelas %}
+      {% for tabela in tabelas %}
+        <section class="panel">
+          <div class="panel-head">
+            <h2>{% if tabela.titulo %}{{ tabela.titulo }}{% else %}Relatórios recentes{% endif %}</h2>
+            {% if tabela.total_limitado != None %}<span class="pill">{{ tabela.total_limitado }} registos</span>{% endif %}
+          </div>
+          {% if tabela.linhas %}
+            <div class="table-wrap">
+              <table>
+                <thead><tr>{% for coluna in tabela.colunas %}<th>{{ coluna }}</th>{% endfor %}</tr></thead>
+                <tbody>
+                  {% for row in tabela.linhas %}
+                    <tr>{% for cell in row %}<td>{% if cell.valor != None %}{{ cell.valor }}{% else %}—{% endif %}</td>{% endfor %}</tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          {% else %}
+            <div class="empty">Ainda não existem relatórios para apresentar.</div>
+          {% endif %}
+        </section>
+      {% endfor %}
+    {% else %}
+      <section class="panel"><div class="panel-head"><h2>Relatórios recentes</h2></div><div class="empty">Ainda não existem relatórios gerados para apresentar.</div></section>
+    {% endif %}
+
+    {% if tipos_populares %}
+      <section class="panel">
+        <div class="panel-head"><h2>Tipos de relatório disponíveis</h2><a class="btn primary" href="{% url 'relatorios:central' %}">Abrir central</a></div>
+        <div class="panel-body report-popular-list">
+          {% for item in tipos_populares %}
+            <article class="report-popular-item">
+              <strong>{{ item.nome }}</strong>
+              {% if item.descricao %}<p>{{ item.descricao }}</p>{% endif %}
+            </article>
+          {% empty %}<p class="muted">Não existem tipos activos.</p>{% endfor %}
+        </div>
+      </section>
+    {% endif %}
+  </section>
+
+  <aside class="panel report-route-panel" aria-label="Directório de URLs da aplicação de relatórios">
+    <div class="panel-head">
+      <div><h2>Directório de URLs</h2></div>
+      <span class="report-route-counter">Todas rotas</span>
+    </div>
+    <div class="report-route-search">
+      <label for="report-url-search">Pesquisar URLs</label>
+      <input id="report-url-search" type="search" placeholder="Nome, caminho ou método…" autocomplete="off">
+      <div class="report-route-note"><span id="report-url-visible">95</span> de 95 rotas visíveis</div>
+    </div>
+    <div class="report-route-scroll" id="report-url-directory">
+      <details class="report-route-group" data-url-group open>
+        <summary><span>▦ &nbsp;Painel e construção</span><span class="report-route-group-count">8 rotas</span></summary>
+        <ul class="report-route-list">
+          <li class="report-route-item" data-url-item data-search="dashboard painel de relatórios /relatorios/ get resumo, indicadores e relatórios recentes.">
+            <div class="report-route-top">
+              <div><div class="report-route-label">Painel de Relatórios</div><code class="report-route-path">/relatorios/</code></div>
+              <span class="report-route-method ">GET</span>
+            </div>
+            <div class="report-route-bottom">
+              <code class="report-route-name">relatorios:dashboard</code>
+              <a class="report-route-open" href="{% url 'relatorios:dashboard' %}" title="Resumo, indicadores e relatórios recentes.">Abrir <span aria-hidden="true">↗</span></a>
+            </div>
+            <p class="report-route-note">Resumo, indicadores e relatórios recentes.</p>
+          </li>
+          <li class="report-route-item" data-url-item data-search="central central de relatórios /relatorios/central/ get biblioteca de tipos e modelos.">
+            <div class="report-route-top">
+              <div><div class="report-route-label">Central de Relatórios</div><code class="report-route-path">/relatorios/central/</code></div>
+              <span class="report-route-method ">GET</span>
+            </div>
+            <div class="report-route-bottom">
+              <code class="report-route-name">relatorios:central</code>
+              <a class="report-route-open" href="{% url 'relatorios:central' %}" title="Biblioteca de tipos e modelos.">Abrir <span aria-hidden="true">↗</span></a>
+            </div>
+            <p class="report-route-note">Biblioteca de tipos e modelos.</p>
+          </li>
+          <li class="report-route-item" data-url-item data-search="favoritos relatórios favoritos /relatorios/favoritos/ get acesso a relatórios recentes/favoritos.">
+            <div class="report-route-top">
+              <div><div class="report-route-label">Relatórios favoritos</div><code class="report-route-path">/relatorios/favoritos/</code></div>
+              <span class="report-route-method ">GET</span>
+            </div>
+            <div class="report-route-bottom">
+              <code class="report-route-name">relatorios:favoritos</code>
+              <a class="report-route-open" href="{% url 'relatorios:favoritos' %}" title="Acesso a relatórios recentes/favoritos.">Abrir <span aria-hidden="true">↗</span></a>
+            </div>
+            <p class="report-route-note">Acesso a relatórios recentes/favoritos.</p>
+          </li>
+          <li class="report-route-item" data-url-item data-search="recentes relatórios recentes /relatorios/recentes/ get histórico recente do utilizador.">
+            <div class="report-route-top">
+              <div><div class="report-route-label">Relatórios recentes</div><code class="report-route-path">/relatorios/recentes/</code></div>
+              <span class="report-route-method ">GET</span>
+            </div>
+            <div class="report-route-bottom">
+              <code class="report-route-name">relatorios:recentes</code>
+              <a class="report-route-open" href="{% url 'relatorios:recentes' %}" title="Histórico recente do utilizador.">Abrir <span aria-hidden="true">↗</span></a>
+            </div>
+            <p class="report-route-note">Histórico recente do utilizador.</p>
+          </li>
+          <li class="report-route-item" data-url-item data-search="construtor construtor de relatórios /relatorios/construtor/ get construção de relatórios personalizados.">
+            <div class="report-route-top">
+              <div><div class="report-route-label">Construtor de relatórios</div><code class="report-route-path">/relatorios/construtor/</code></div>
+              <span class="report-route-method ">GET</span>
+            </div>
+            <div class="report-route-bottom">
+              <code class="report-route-name">relatorios:construtor</code>
+              <a class="report-route-open" href="{% url 'relatorios:construtor' %}" title="Construção de relatórios personalizados.">Abrir <span aria-hidden="true">↗</span></a>
+            </div>
+            <p class="report-route-note">Construção de relatórios personalizados.</p>
+          </li>
+          <li class="report-route-item" data-url-item data-search="novo novo relatório /relatorios/novo/ get / post abre o formulário de criação.">
+            <div class="report-route-top">
+              <div><div class="report-route-label">Novo relatório</div><code class="report-route-path">/relatorios/novo/</code></div>
+              <span class="report-route-method ">GET / POST</span>
+            </div>
+            <div class="report-route-bottom">
+              <code class="report-route-name">relatorios:novo</code>
+              <a class="report-route-open" href="{% url 'relatorios:novo' %}" title="Abre o formulário de criação.">Abrir <span aria-hidden="true">↗</span></a>
+            </div>
+            <p class="report-route-note">Abre o formulário de criação.</p>
+          </li>
+          <li class="report-route-item" data-url-item data-search="editar editar relatório /relatorios/editar/&lt;int:pk&gt;/ get / post requer o id do objecto.">
+            <div class="report-route-top">
+              <div><div class="report-route-label">Editar relatório</div><code class="report-route-path">/relatorios/editar/&lt;int:pk&gt;/</code></div>
+              <span class="report-route-method dynamic">GET / POST</span>
+            </div>
+            <div class="report-route-bottom">
+              <code class="report-route-name">relatorios:editar</code>
+              <button class="report-route-open" type="button" data-route-prefix="/relatorios/editar/" data-route-suffix="/" data-route-prompt="Informe o ID do relatório a editar:">Abrir por ID</button>
+            </div>
+            <p class="report-route-note">Requer o ID do objecto.</p>
+          </li>
+          <li class="report-route-item" data-url-item data-search="campos campos disponíveis /relatorios/campos/ get explora campos disponíveis para relatórios.">
+            <div class="report-route-top">
+              <div><div class="report-route-label">Campos disponíveis</div><code class="report-route-path">/relatorios/campos/</code></div>
+              <span class="report-route-method ">GET</span>
+            </div>
+            <div class="report-route-bottom">
+              <code class="report-route-name">relatorios:campos</code>
+              <a class="report-route-open" href="{% url 'relatorios:campos' %}" title="Explora campos disponíveis para relatórios.">Abrir <span aria-hidden="true">↗</span></a>
+            </div>
+            <p class="report-route-note">Explora campos disponíveis para relatórios.</p>
+          </li>
+        </ul>
+      </details>
+      <details class="report-route-group" data-url-group >
+        <summary><span>▤ &nbsp;Templates de relatórios</span><span class="report-route-group-count">5 rotas</span></summary>
+        <ul class="report-route-list">
+          <li class="report-route-item" data-url-item data-search="templates lista de templates /relatorios/templates/ get lista e pesquisa templates guardados.">
+            <div class="report-route-top">
+              <div><div class="report-route-label">Lista de templates</div><code class="report-route-path">/relatorios/templates/</code></div>
+              <span class="report-route-method ">GET</span>
+            </div>
+            <div class="report-route-bottom">
+              <code class="report-route-name">relatorios:templates</code>
+              <a class="report-route-open" href="{% url 'relatorios:templates' %}" title="Lista e pesquisa templates guardados.">Abrir <span aria-hidden="true">↗</span></a>
+            </div>
+            <p class="report-route-note">Lista e pesquisa templates guardados.</p>
+          </li>
+          <li class="report-route-item" data-url-item data-search="template_novo criar template /relatorios/templates/novo/ get / post cria um novo template reutilizável.">
+            <div class="report-route-top">
+              <div><div class="report-route-label">Criar template</div><code class="report-route-path">/relatorios/templates/novo/</code></div>
+              <span class="report-route-method ">GET / POST</span>
+            </div>
+            <div class="report-route-bottom">
+              <code class="report-route-name">relatorios:template_novo</code>
+              <a class="report-route-open" href="{% url 'relatorios:template_novo' %}" title="Cria um novo template reutilizável.">Abrir <span aria-hidden="true">↗</span></a>
+            </div>
+            <p class="report-route-note">Cria um novo template reutilizável.</p>
+          </li>
+          <li class="report-route-item" data-url-item data-search="template_detail detalhe do template /relatorios/templates/&lt;int:pk&gt;/ get requer o id do template.">
+            <div class="report-route-top">
+              <div><div class="report-route-label">Detalhe do template</div><code class="report-route-path">/relatorios/templates/&lt;int:pk&gt;/</code></div>
+              <span class="report-route-method dynamic">GET</span>
+            </div>
+            <div class="report-route-bottom">
+              <code class="report-route-name">relatorios:template_detail</code>
+              <button class="report-route-open" type="button" data-route-prefix="/relatorios/templates/" data-route-suffix="/" data-route-prompt="Informe o ID do template:">Abrir por ID</button>
+            </div>
+            <p class="report-route-note">Requer o ID do template.</p>
+          </li>
+          <li class="report-route-item" data-url-item data-search="template_duplicar duplicar template /relatorios/templates/&lt;int:pk&gt;/duplicar/ post requer id e formulário post com csrf.">
+            <div class="report-route-top">
+              <div><div class="report-route-label">Duplicar template</div><code class="report-route-path">/relatorios/templates/&lt;int:pk&gt;/duplicar/</code></div>
+              <span class="report-route-method post">POST</span>
+            </div>
+            <div class="report-route-bottom">
+              <code class="report-route-name">relatorios:template_duplicar</code>
+              <span class="report-route-open" aria-disabled="true" title="Requer ID e formulário POST com CSRF.">Requer POST</span>
+            </div>
+            <p class="report-route-note">Requer ID e formulário POST com CSRF.</p>
+          </li>
+          <li class="report-route-item" data-url-item data-search="template_compartilhar partilhar template /relatorios/templates/&lt;int:pk&gt;/compartilhar/ get / post requer o id do template.">
+            <div class="report-route-top">
+              <div><div class="report-route-label">Partilhar template</div><code class="report-route-path">/relatorios/templates/&lt;int:pk&gt;/compartilhar/</code></div>
+              <span class="report-route-method dynamic">GET / POST</span>
+            </div>
+            <div class="report-route-bottom">
+              <code class="report-route-name">relatorios:template_compartilhar</code>
+              <button class="report-route-open" type="button" data-route-prefix="/relatorios/templates/" data-route-suffix="/compartilhar/" data-route-prompt="Informe o ID do template a partilhar:">Abrir por ID</button>
+            </div>
+            <p class="report-route-note">Requer o ID do template.</p>
+          </li>
+        </ul>
+      </details>
+      <details class="report-route-group" data-url-group >
+        <summary><span>↗ &nbsp;Vendas</span><span class="report-route-group-count">9 rotas</span></summary>
+        <ul class="report-route-list">
+          <li class="report-route-item" data-url-item data-search="vendas relatório geral de vendas /relatorios/vendas/ get vendas no período seleccionado.">
+            <div class="report-route-top">
+              <div><div class="report-route-label">Relatório geral de vendas</div><code class="report-route-path">/relatorios/vendas/</code></div>
+              <span class="report-route-method ">GET</span>
+            </div>
+            <div class="report-route-bottom">
+              <code class="report-route-name">relatorios:vendas</code>
+              <a class="report-route-open" href="{% url 'relatorios:vendas' %}" title="Vendas no período seleccionado.">Abrir <span aria-hidden="true">↗</span></a>
+            </div>
+            <p class="report-route-note">Vendas no período seleccionado.</p>
+          </li>
+          <li class="report-route-item" data-url-item data-search="vendas_diario vendas diárias /relatorios/vendas/diario/ get resumo diário e evolução por hora.">
+            <div class="report-route-top">
+              <div><div class="report-route-label">Vendas diárias</div><code class="report-route-path">/relatorios/vendas/diario/</code></div>
+              <span class="report-route-method ">GET</span>
+            </div>
+            <div class="report-route-bottom">
+              <code class="report-route-name">relatorios:vendas_diario</code>
+              <a class="report-route-open" href="{% url 'relatorios:vendas_diario' %}" title="Resumo diário e evolução por hora.">Abrir <span aria-hidden="true">↗</span></a>
+            </div>
+            <p class="report-route-note">Resumo diário e evolução por hora.</p>
+          </li>
+          <li class="report-route-item" data-url-item data-search="vendas_mensal vendas mensais /relatorios/vendas/mensal/ get evolução de vendas por mês.">
+            <div class="report-route-top">
+              <div><div class="report-route-label">Vendas mensais</div><code class="report-route-path">/relatorios/vendas/mensal/</code></div>
+              <span class="report-route-method ">GET</span>
+            </div>
+            <div class="report-route-bottom">
+              <code class="report-route-name">relatorios:vendas_mensal</code>
+              <a class="report-route-open" href="{% url 'relatorios:vendas_mensal' %}" title="Evolução de vendas por mês.">Abrir <span aria-hidden="true">↗</span></a>
+            </div>
+            <p class="report-route-note">Evolução de vendas por mês.</p>
+          </li>
+          <li class="report-route-item" data-url-item data-search="vendas_anual vendas anuais /relatorios/vendas/anual/ get resumo anual de vendas.">
+            <div class="report-route-top">
+              <div><div class="report-route-label">Vendas anuais</div><code class="report-route-path">/relatorios/vendas/anual/</code></div>
+              <span class="report-route-method ">GET</span>
+            </div>
+            <div class="report-route-bottom">
+              <code class="report-route-name">relatorios:vendas_anual</code>
+              <a class="report-route-open" href="{% url 'relatorios:vendas_anual' %}" title="Resumo anual de vendas.">Abrir <span aria-hidden="true">↗</span></a>
+            </div>
+            <p class="report-route-note">Resumo anual de vendas.</p>
+          </li>
+          <li class="report-route-item" data-url-item data-search="vendas_produto vendas por produto /relatorios/vendas/produto/ get ranking de produtos vendidos.">
+            <div class="report-route-top">
+              <div><div class="report-route-label">Vendas por produto</div><code class="report-route-path">/relatorios/vendas/produto/</code></div>
+              <span class="report-route-method ">GET</span>
+            </div>
+            <div class="report-route-bottom">
+              <code class="report-route-name">relatorios:vendas_produto</code>
+              <a class="report-route-open" href="{% url 'relatorios:vendas_produto' %}" title="Ranking de produtos vendidos.">Abrir <span aria-hidden="true">↗</span></a>
+            </div>
+            <p class="report-route-note">Ranking de produtos vendidos.</p>
+          </li>
+          <li class="report-route-item" data-url-item data-search="vendas_categoria vendas por categoria /relatorios/vendas/categoria/ get desempenho por categoria.">
+            <div class="report-route-top">
+              <div><div class="report-route-label">Vendas por categoria</div><code class="report-route-path">/relatorios/vendas/categoria/</code></div>
+              <span class="report-route-method ">GET</span>
+            </div>
+            <div class="report-route-bottom">
+              <code class="report-route-name">relatorios:vendas_categoria</code>
+              <a class="report-route-open" href="{% url 'relatorios:vendas_categoria' %}" title="Desempenho por categoria.">Abrir <span aria-hidden="true">↗</span></a>
+            </div>
+            <p class="report-route-note">Desempenho por categoria.</p>
+          </li>
+          <li class="report-route-item" data-url-item data-search="vendas_vendedor vendas por vendedor /relatorios/vendas/vendedor/ get desempenho comercial por vendedor.">
+            <div class="report-route-top">
+              <div><div class="report-route-label">Vendas por vendedor</div><code class="report-route-path">/relatorios/vendas/vendedor/</code></div>
+              <span class="report-route-method ">GET</span>
+            </div>
+            <div class="report-route-bottom">
+              <code class="report-route-name">relatorios:vendas_vendedor</code>
+              <a class="report-route-open" href="{% url 'relatorios:vendas_vendedor' %}" title="Desempenho comercial por vendedor.">Abrir <span aria-hidden="true">↗</span></a>
+            </div>
+            <p class="report-route-note">Desempenho comercial por vendedor.</p>
+          </li>
+          <li class="report-route-item" data-url-item data-search="vendas_cliente vendas por cliente /relatorios/vendas/cliente/ get compras e totais por cliente.">
+            <div class="report-route-top">
+              <div><div class="report-route-label">Vendas por cliente</div><code class="report-route-path">/relatorios/vendas/cliente/</code></div>
+              <span class="report-route-method ">GET</span>
+            </div>
+            <div class="report-route-bottom">
+              <code class="report-route-name">relatorios:vendas_cliente</code>
+              <a class="report-route-open" href="{% url 'relatorios:vendas_cliente' %}" title="Compras e totais por cliente.">Abrir <span aria-hidden="true">↗</span></a>
+            </div>
+            <p class="report-route-note">Compras e totais por cliente.</p>
+          </li>
+          <li class="report-route-item" data-url-item data-search="vendas_forma_pagamento vendas por forma de pagamento /relatorios/vendas/forma-pagamento/ get vendas agregadas por forma de pagamento.">
+            <div class="report-route-top">
+              <div><div class="report-route-label">Vendas por forma de pagamento</div><code class="report-route-path">/relatorios/vendas/forma-pagamento/</code></div>
+              <span class="report-route-method ">GET</span>
+            </div>
+            <div class="report-route-bottom">
+              <code class="report-route-name">relatorios:vendas_forma_pagamento</code>
+              <a class="report-route-open" href="{% url 'relatorios:vendas_forma_pagamento' %}" title="Vendas agregadas por forma de pagamento.">Abrir <span aria-hidden="true">↗</span></a>
+            </div>
+            <p class="report-route-note">Vendas agregadas por forma de pagamento.</p>
+          </li>
+        </ul>
+      </details>
+      <details class="report-route-group" data-url-group >
+        <summary><span>▦ &nbsp;Stock</span><span class="report-route-group-count">8 rotas</span></summary>
+        <ul class="report-route-list">
+          <li class="report-route-item" data-url-item data-search="estoque painel de stock /relatorios/estoque/ get indicadores e posição do stock.">
+            <div class="report-route-top">
+              <div><div class="report-route-label">Painel de stock</div><code class="report-route-path">/relatorios/estoque/</code></div>
+              <span class="report-route-method ">GET</span>
+            </div>
+            <div class="report-route-bottom">
+              <code class="report-route-name">relatorios:estoque</code>
+              <a class="report-route-open" href="{% url 'relatorios:estoque' %}" title="Indicadores e posição do stock.">Abrir <span aria-hidden="true">↗</span></a>
+            </div>
+            <p class="report-route-note">Indicadores e posição do stock.</p>
+          </li>
+          <li class="report-route-item" data-url-item data-search="estoque_posicao posição de stock /relatorios/estoque/posicao/ get posição actual e filtros de stock.">
+            <div class="report-route-top">
+              <div><div class="report-route-label">Posição de stock</div><code class="report-route-path">/relatorios/estoque/posicao/</code></div>
+              <span class="report-route-method ">GET</span>
+            </div>
+            <div class="report-route-bottom">
+              <code class="report-route-name">relatorios:estoque_posicao</code>
+              <a class="report-route-open" href="{% url 'relatorios:estoque_posicao' %}" title="Posição actual e filtros de stock.">Abrir <span aria-hidden="true">↗</span></a>
+            </div>
+            <p class="report-route-note">Posição actual e filtros de stock.</p>
+          </li>
+          <li class="report-route-item" data-url-item data-search="estoque_movimentacao movimentações de stock /relatorios/estoque/movimentacao/ get entradas, saídas e ajustes.">
+            <div class="report-route-top">
+              <div><div class="report-route-label">Movimentações de stock</div><code class="report-route-path">/relatorios/estoque/movimentacao/</code></div>
+              <span class="report-route-method ">GET</span>
+            </div>
+            <div class="report-route-bottom">
+              <code class="report-route-name">relatorios:estoque_movimentacao</code>
+              <a class="report-route-open" href="{% url 'relatorios:estoque_movimentacao' %}" title="Entradas, saídas e ajustes.">Abrir <span aria-hidden="true">↗</span></a>
+            </div>
+            <p class="report-route-note">Entradas, saídas e ajustes.</p>
+          </li>
+          <li class="report-route-item" data-url-item data-search="estoque_vencimentos vencimentos /relatorios/estoque/vencimentos/ get controlo de validade de produtos.">
+            <div class="report-route-top">
+              <div><div class="report-route-label">Vencimentos</div><code class="report-route-path">/relatorios/estoque/vencimentos/</code></div>
+              <span class="report-route-method ">GET</span>
+            </div>
+            <div class="report-route-bottom">
+              <code class="report-route-name">relatorios:estoque_vencimentos</code>
+              <a class="report-route-open" href="{% url 'relatorios:estoque_vencimentos' %}" title="Controlo de validade de produtos.">Abrir <span aria-hidden="true">↗</span></a>
+            </div>
+            <p class="report-route-note">Controlo de validade de produtos.</p>
+          </li>
+          <li class="report-route-item" data-url-item data-search="estoque_ruptura ruptura de stock /relatorios/estoque/ruptura/ get produtos sem stock.">
+            <div class="report-route-top">
+              <div><div class="report-route-label">Ruptura de stock</div><code class="report-route-path">/relatorios/estoque/ruptura/</code></div>
+              <span class="report-route-method ">GET</span>
+            </div>
+            <div class="report-route-bottom">
+              <code class="report-route-name">relatorios:estoque_ruptura</code>
+              <a class="report-route-open" href="{% url 'relatorios:estoque_ruptura' %}" title="Produtos sem stock.">Abrir <span aria-hidden="true">↗</span></a>
+            </div>
+            <p class="report-route-note">Produtos sem stock.</p>
+          </li>
+          <li class="report-route-item" data-url-item data-search="estoque_giro giro de stock /relatorios/estoque/giro/ get rotação e cobertura estimada.">
+            <div class="report-route-top">
+              <div><div class="report-route-label">Giro de stock</div><code class="report-route-path">/relatorios/estoque/giro/</code></div>
+              <span class="report-route-method ">GET</span>
+            </div>
+            <div class="report-route-bottom">
+              <code class="report-route-name">relatorios:estoque_giro</code>
+              <a class="report-route-open" href="{% url 'relatorios:estoque_giro' %}" title="Rotação e cobertura estimada.">Abrir <span aria-hidden="true">↗</span></a>
+            </div>
+            <p class="report-route-note">Rotação e cobertura estimada.</p>
+          </li>
+          <li class="report-route-item" data-url-item data-search="estoque_abc análise abc de stock /relatorios/estoque/abc/ get classificação abc por critério.">
+            <div class="report-route-top">
+              <div><div class="report-route-label">Análise ABC de stock</div><code class="report-route-path">/relatorios/estoque/abc/</code></div>
+              <span class="report-route-method ">GET</span>
+            </div>
+            <div class="report-route-bottom">
+              <code class="report-route-name">relatorios:estoque_abc</code>
+              <a class="report-route-open" href="{% url 'relatorios:estoque_abc' %}" title="Classificação ABC por critério.">Abrir <span aria-hidden="true">↗</span></a>
+            </div>
+            <p class="report-route-note">Classificação ABC por critério.</p>
+          </li>
+          <li class="report-route-item" data-url-item data-search="estoque_inventario inventários /relatorios/estoque/inventario/ get lista de inventários.">
+            <div class="report-route-top">
+              <div><div class="report-route-label">Inventários</div><code class="report-route-path">/relatorios/estoque/inventario/</code></div>
+              <span class="report-route-method ">GET</span>
+            </div>
+            <div class="report-route-bottom">
+              <code class="report-route-name">relatorios:estoque_inventario</code>
+              <a class="report-route-open" href="{% url 'relatorios:estoque_inventario' %}" title="Lista de inventários.">Abrir <span aria-hidden="true">↗</span></a>
+            </div>
+            <p class="report-route-note">Lista de inventários.</p>
+          </li>
+        </ul>
+      </details>
+      <details class="report-route-group" data-url-group >
+        <summary><span>¤ &nbsp;Financeiro</span><span class="report-route-group-count">6 rotas</span></summary>
+        <ul class="report-route-list">
+          <li class="report-route-item" data-url-item data-search="financeiro painel financeiro /relatorios/financeiro/ get resumo de contas e movimentos.">
+            <div class="report-route-top">
+              <div><div class="report-route-label">Painel financeiro</div><code class="report-route-path">/relatorios/financeiro/</code></div>
+              <span class="report-route-method ">GET</span>
+            </div>
+            <div class="report-route-bottom">
+              <code class="report-route-name">relatorios:financeiro</code>
+              <a class="report-route-open" href="{% url 'relatorios:financeiro' %}" title="Resumo de contas e movimentos.">Abrir <span aria-hidden="true">↗</span></a>
+            </div>
+            <p class="report-route-note">Resumo de contas e movimentos.</p>
+          </li>
+          <li class="report-route-item" data-url-item data-search="fluxo_caixa fluxo de caixa /relatorios/financeiro/fluxo-caixa/ get movimentações financeiras por período.">
+            <div class="report-route-top">
+              <div><div class="report-route-label">Fluxo de caixa</div><code class="report-route-path">/relatorios/financeiro/fluxo-caixa/</code></div>
+              <span class="report-route-method ">GET</span>
+            </div>
+            <div class="report-route-bottom">
+              <code class="report-route-name">relatorios:fluxo_caixa</code>
+              <a class="report-route-open" href="{% url 'relatorios:fluxo_caixa' %}" title="Movimentações financeiras por período.">Abrir <span aria-hidden="true">↗</span></a>
+            </div>
+            <p class="report-route-note">Movimentações financeiras por período.</p>
+          </li>
+          <li class="report-route-item" data-url-item data-search="contas_receber contas a receber /relatorios/financeiro/contas-receber/ get saldos a receber e vencimentos.">
+            <div class="report-route-top">
+              <div><div class="report-route-label">Contas a receber</div><code class="report-route-path">/relatorios/financeiro/contas-receber/</code></div>
+              <span class="report-route-method ">GET</span>
+            </div>
+            <div class="report-route-bottom">
+              <code class="report-route-name">relatorios:contas_receber</code>
+              <a class="report-route-open" href="{% url 'relatorios:contas_receber' %}" title="Saldos a receber e vencimentos.">Abrir <span aria-hidden="true">↗</span></a>
+            </div>
+            <p class="report-route-note">Saldos a receber e vencimentos.</p>
+          </li>
+          <li class="report-route-item" data-url-item data-search="contas_pagar contas a pagar /relatorios/financeiro/contas-pagar/ get saldos a pagar e vencimentos.">
+            <div class="report-route-top">
+              <div><div class="report-route-label">Contas a pagar</div><code class="report-route-path">/relatorios/financeiro/contas-pagar/</code></div>
+              <span class="report-route-method ">GET</span>
+            </div>
+            <div class="report-route-bottom">
+              <code class="report-route-name">relatorios:contas_pagar</code>
+              <a class="report-route-open" href="{% url 'relatorios:contas_pagar' %}" title="Saldos a pagar e vencimentos.">Abrir <span aria-hidden="true">↗</span></a>
+            </div>
+            <p class="report-route-note">Saldos a pagar e vencimentos.</p>
+          </li>
+          <li class="report-route-item" data-url-item data-search="dre demonstração de resultados (dre) /relatorios/financeiro/dre/ get painel dre e limitações de dados.">
+            <div class="report-route-top">
+              <div><div class="report-route-label">Demonstração de Resultados (DRE)</div><code class="report-route-path">/relatorios/financeiro/dre/</code></div>
+              <span class="report-route-method ">GET</span>
+            </div>
+            <div class="report-route-bottom">
+              <code class="report-route-name">relatorios:dre</code>
+              <a class="report-route-open" href="{% url 'relatorios:dre' %}" title="Painel DRE e limitações de dados.">Abrir <span aria-hidden="true">↗</span></a>
+            </div>
+            <p class="report-route-note">Painel DRE e limitações de dados.</p>
+          </li>
+          <li class="report-route-item" data-url-item data-search="inadimplencia inadimplência /relatorios/financeiro/inadimplencia/ get contas vencidas em aberto.">
+            <div class="report-route-top">
+              <div><div class="report-route-label">Inadimplência</div><code class="report-route-path">/relatorios/financeiro/inadimplencia/</code></div>
+              <span class="report-route-method ">GET</span>
+            </div>
+            <div class="report-route-bottom">
+              <code class="report-route-name">relatorios:inadimplencia</code>
+              <a class="report-route-open" href="{% url 'relatorios:inadimplencia' %}" title="Contas vencidas em aberto.">Abrir <span aria-hidden="true">↗</span></a>
+            </div>
+            <p class="report-route-note">Contas vencidas em aberto.</p>
+          </li>
+        </ul>
+      </details>
+      <details class="report-route-group" data-url-group >
+        <summary><span>♙ &nbsp;Clientes</span><span class="report-route-group-count">6 rotas</span></summary>
+        <ul class="report-route-list">
+          <li class="report-route-item" data-url-item data-search="clientes painel de clientes /relatorios/clientes/ get resumo e listagem de clientes.">
+            <div class="report-route-top">
+              <div><div class="report-route-label">Painel de clientes</div><code class="report-route-path">/relatorios/clientes/</code></div>
+              <span class="report-route-method ">GET</span>
+            </div>
+            <div class="report-route-bottom">
+              <code class="report-route-name">relatorios:clientes</code>
+              <a class="report-route-open" href="{% url 'relatorios:clientes' %}" title="Resumo e listagem de clientes.">Abrir <span aria-hidden="true">↗</span></a>
+            </div>
+            <p class="report-route-note">Resumo e listagem de clientes.</p>
+          </li>
+          <li class="report-route-item" data-url-item data-search="clientes_cadastros novos cadastros /relatorios/clientes/cadastros/ get evolução de novos cadastros.">
+            <div class="report-route-top">
+              <div><div class="report-route-label">Novos cadastros</div><code class="report-route-path">/relatorios/clientes/cadastros/</code></div>
+              <span class="report-route-method ">GET</span>
+            </div>
+            <div class="report-route-bottom">
+              <code class="report-route-name">relatorios:clientes_cadastros</code>
+              <a class="report-route-open" href="{% url 'relatorios:clientes_cadastros' %}" title="Evolução de novos cadastros.">Abrir <span aria-hidden="true">↗</span></a>
+            </div>
+            <p class="report-route-note">Evolução de novos cadastros.</p>
+          </li>
+          <li class="report-route-item" data-url-item data-search="clientes_aniversariantes aniversariantes /relatorios/clientes/aniversariantes/ get clientes por mês de aniversário.">
+            <div class="report-route-top">
+              <div><div class="report-route-label">Aniversariantes</div><code class="report-route-path">/relatorios/clientes/aniversariantes/</code></div>
+              <span class="report-route-method ">GET</span>
+            </div>
+            <div class="report-route-bottom">
+              <code class="report-route-name">relatorios:clientes_aniversariantes</code>
+              <a class="report-route-open" href="{% url 'relatorios:clientes_aniversariantes' %}" title="Clientes por mês de aniversário.">Abrir <span aria-hidden="true">↗</span></a>
+            </div>
+            <p class="report-route-note">Clientes por mês de aniversário.</p>
+          </li>
+          <li class="report-route-item" data-url-item data-search="clientes_compras compras por cliente /relatorios/clientes/compras/ get compras agrupadas por cliente.">
+            <div class="report-route-top">
+              <div><div class="report-route-label">Compras por cliente</div><code class="report-route-path">/relatorios/clientes/compras/</code></div>
+              <span class="report-route-method ">GET</span>
+            </div>
+            <div class="report-route-bottom">
+              <code class="report-route-name">relatorios:clientes_compras</code>
+              <a class="report-route-open" href="{% url 'relatorios:clientes_compras' %}" title="Compras agrupadas por cliente.">Abrir <span aria-hidden="true">↗</span></a>
+            </div>
+            <p class="report-route-note">Compras agrupadas por cliente.</p>
+          </li>
+          <li class="report-route-item" data-url-item data-search="clientes_fidelidade fidelidade de clientes /relatorios/clientes/fidelidade/ get consulta de informação de fidelidade.">
+            <div class="report-route-top">
+              <div><div class="report-route-label">Fidelidade de clientes</div><code class="report-route-path">/relatorios/clientes/fidelidade/</code></div>
+              <span class="report-route-method ">GET</span>
+            </div>
+            <div class="report-route-bottom">
+              <code class="report-route-name">relatorios:clientes_fidelidade</code>
+              <a class="report-route-open" href="{% url 'relatorios:clientes_fidelidade' %}" title="Consulta de informação de fidelidade.">Abrir <span aria-hidden="true">↗</span></a>
+            </div>
+            <p class="report-route-note">Consulta de informação de fidelidade.</p>
+          </li>
+          <li class="report-route-item" data-url-item data-search="clientes_segmentacao segmentação de clientes /relatorios/clientes/segmentacao/ get segmentação de clientes.">
+            <div class="report-route-top">
+              <div><div class="report-route-label">Segmentação de clientes</div><code class="report-route-path">/relatorios/clientes/segmentacao/</code></div>
+              <span class="report-route-method ">GET</span>
+            </div>
+            <div class="report-route-bottom">
+              <code class="report-route-name">relatorios:clientes_segmentacao</code>
+              <a class="report-route-open" href="{% url 'relatorios:clientes_segmentacao' %}" title="Segmentação de clientes.">Abrir <span aria-hidden="true">↗</span></a>
+            </div>
+            <p class="report-route-note">Segmentação de clientes.</p>
+          </li>
+        </ul>
+      </details>
+      <details class="report-route-group" data-url-group >
+        <summary><span>♙ &nbsp;Funcionários</span><span class="report-route-group-count">6 rotas</span></summary>
+        <ul class="report-route-list">
+          <li class="report-route-item" data-url-item data-search="funcionarios painel de funcionários /relatorios/funcionarios/ get resumo de recursos humanos.">
+            <div class="report-route-top">
+              <div><div class="report-route-label">Painel de funcionários</div><code class="report-route-path">/relatorios/funcionarios/</code></div>
+              <span class="report-route-method ">GET</span>
+            </div>
+            <div class="report-route-bottom">
+              <code class="report-route-name">relatorios:funcionarios</code>
+              <a class="report-route-open" href="{% url 'relatorios:funcionarios' %}" title="Resumo de recursos humanos.">Abrir <span aria-hidden="true">↗</span></a>
+            </div>
+            <p class="report-route-note">Resumo de recursos humanos.</p>
+          </li>
+          <li class="report-route-item" data-url-item data-search="funcionarios_ponto registo de ponto /relatorios/funcionarios/ponto/ get relatório de assiduidade.">
+            <div class="report-route-top">
+              <div><div class="report-route-label">Registo de ponto</div><code class="report-route-path">/relatorios/funcionarios/ponto/</code></div>
+              <span class="report-route-method ">GET</span>
+            </div>
+            <div class="report-route-bottom">
+              <code class="report-route-name">relatorios:funcionarios_ponto</code>
+              <a class="report-route-open" href="{% url 'relatorios:funcionarios_ponto' %}" title="Relatório de assiduidade.">Abrir <span aria-hidden="true">↗</span></a>
+            </div>
+            <p class="report-route-note">Relatório de assiduidade.</p>
+          </li>
+          <li class="report-route-item" data-url-item data-search="funcionarios_folha folha de pagamento /relatorios/funcionarios/folha/ get folhas e valores salariais.">
+            <div class="report-route-top">
+              <div><div class="report-route-label">Folha de pagamento</div><code class="report-route-path">/relatorios/funcionarios/folha/</code></div>
+              <span class="report-route-method ">GET</span>
+            </div>
+            <div class="report-route-bottom">
+              <code class="report-route-name">relatorios:funcionarios_folha</code>
+              <a class="report-route-open" href="{% url 'relatorios:funcionarios_folha' %}" title="Folhas e valores salariais.">Abrir <span aria-hidden="true">↗</span></a>
+            </div>
+            <p class="report-route-note">Folhas e valores salariais.</p>
+          </li>
+          <li class="report-route-item" data-url-item data-search="funcionarios_ferias controlo de férias /relatorios/funcionarios/ferias/ get férias por funcionário.">
+            <div class="report-route-top">
+              <div><div class="report-route-label">Controlo de férias</div><code class="report-route-path">/relatorios/funcionarios/ferias/</code></div>
+              <span class="report-route-method ">GET</span>
+            </div>
+            <div class="report-route-bottom">
+              <code class="report-route-name">relatorios:funcionarios_ferias</code>
+              <a class="report-route-open" href="{% url 'relatorios:funcionarios_ferias' %}" title="Férias por funcionário.">Abrir <span aria-hidden="true">↗</span></a>
+            </div>
+            <p class="report-route-note">Férias por funcionário.</p>
+          </li>
+          <li class="report-route-item" data-url-item data-search="funcionarios_treinamentos treinamentos /relatorios/funcionarios/treinamentos/ get capacitações e formação.">
+            <div class="report-route-top">
+              <div><div class="report-route-label">Treinamentos</div><code class="report-route-path">/relatorios/funcionarios/treinamentos/</code></div>
+              <span class="report-route-method ">GET</span>
+            </div>
+            <div class="report-route-bottom">
+              <code class="report-route-name">relatorios:funcionarios_treinamentos</code>
+              <a class="report-route-open" href="{% url 'relatorios:funcionarios_treinamentos' %}" title="Capacitações e formação.">Abrir <span aria-hidden="true">↗</span></a>
+            </div>
+            <p class="report-route-note">Capacitações e formação.</p>
+          </li>
+          <li class="report-route-item" data-url-item data-search="funcionarios_performance performance dos funcionários /relatorios/funcionarios/performance/ get avaliações de desempenho.">
+            <div class="report-route-top">
+              <div><div class="report-route-label">Performance dos funcionários</div><code class="report-route-path">/relatorios/funcionarios/performance/</code></div>
+              <span class="report-route-method ">GET</span>
+            </div>
+            <div class="report-route-bottom">
+              <code class="report-route-name">relatorios:funcionarios_performance</code>
+              <a class="report-route-open" href="{% url 'relatorios:funcionarios_performance' %}" title="Avaliações de desempenho.">Abrir <span aria-hidden="true">↗</span></a>
+            </div>
+            <p class="report-route-note">Avaliações de desempenho.</p>
+          </li>
+        </ul>
+      </details>
+      <details class="report-route-group" data-url-group >
+        <summary><span>▣ &nbsp;Fornecedores e compras</span><span class="report-route-group-count">5 rotas</span></summary>
+        <ul class="report-route-list">
+          <li class="report-route-item" data-url-item data-search="fornecedores painel de fornecedores /relatorios/fornecedores/ get resumo de fornecedores.">
+            <div class="report-route-top">
+              <div><div class="report-route-label">Painel de fornecedores</div><code class="report-route-path">/relatorios/fornecedores/</code></div>
+              <span class="report-route-method ">GET</span>
+            </div>
+            <div class="report-route-bottom">
+              <code class="report-route-name">relatorios:fornecedores</code>
+              <a class="report-route-open" href="{% url 'relatorios:fornecedores' %}" title="Resumo de fornecedores.">Abrir <span aria-hidden="true">↗</span></a>
+            </div>
+            <p class="report-route-note">Resumo de fornecedores.</p>
+          </li>
+          <li class="report-route-item" data-url-item data-search="fornecedores_compras compras a fornecedores /relatorios/fornecedores/compras/ get histórico de compras por fornecedor.">
+            <div class="report-route-top">
+              <div><div class="report-route-label">Compras a fornecedores</div><code class="report-route-path">/relatorios/fornecedores/compras/</code></div>
+              <span class="report-route-method ">GET</span>
+            </div>
+            <div class="report-route-bottom">
+              <code class="report-route-name">relatorios:fornecedores_compras</code>
+              <a class="report-route-open" href="{% url 'relatorios:fornecedores_compras' %}" title="Histórico de compras por fornecedor.">Abrir <span aria-hidden="true">↗</span></a>
+            </div>
+            <p class="report-route-note">Histórico de compras por fornecedor.</p>
+          </li>
+          <li class="report-route-item" data-url-item data-search="fornecedores_performance performance de fornecedores /relatorios/fornecedores/performance/ get indicadores disponíveis de fornecedor.">
+            <div class="report-route-top">
+              <div><div class="report-route-label">Performance de fornecedores</div><code class="report-route-path">/relatorios/fornecedores/performance/</code></div>
+              <span class="report-route-method ">GET</span>
+            </div>
+            <div class="report-route-bottom">
+              <code class="report-route-name">relatorios:fornecedores_performance</code>
+              <a class="report-route-open" href="{% url 'relatorios:fornecedores_performance' %}" title="Indicadores disponíveis de fornecedor.">Abrir <span aria-hidden="true">↗</span></a>
+            </div>
+            <p class="report-route-note">Indicadores disponíveis de fornecedor.</p>
+          </li>
+          <li class="report-route-item" data-url-item data-search="fornecedores_prazos prazos de entrega /relatorios/fornecedores/prazos/ get página de análise de prazos.">
+            <div class="report-route-top">
+              <div><div class="report-route-label">Prazos de entrega</div><code class="report-route-path">/relatorios/fornecedores/prazos/</code></div>
+              <span class="report-route-method ">GET</span>
+            </div>
+            <div class="report-route-bottom">
+              <code class="report-route-name">relatorios:fornecedores_prazos</code>
+              <a class="report-route-open" href="{% url 'relatorios:fornecedores_prazos' %}" title="Página de análise de prazos.">Abrir <span aria-hidden="true">↗</span></a>
+            </div>
+            <p class="report-route-note">Página de análise de prazos.</p>
+          </li>
+          <li class="report-route-item" data-url-item data-search="fornecedores_qualidade qualidade de fornecedores /relatorios/fornecedores/qualidade/ get página de análise de qualidade.">
+            <div class="report-route-top">
+              <div><div class="report-route-label">Qualidade de fornecedores</div><code class="report-route-path">/relatorios/fornecedores/qualidade/</code></div>
+              <span class="report-route-method ">GET</span>
+            </div>
+            <div class="report-route-bottom">
+              <code class="report-route-name">relatorios:fornecedores_qualidade</code>
+              <a class="report-route-open" href="{% url 'relatorios:fornecedores_qualidade' %}" title="Página de análise de qualidade.">Abrir <span aria-hidden="true">↗</span></a>
+            </div>
+            <p class="report-route-note">Página de análise de qualidade.</p>
+          </li>
+        </ul>
+      </details>
+      <details class="report-route-group" data-url-group >
+        <summary><span>◫ &nbsp;Análises e KPIs</span><span class="report-route-group-count">8 rotas</span></summary>
+        <ul class="report-route-list">
+          <li class="report-route-item" data-url-item data-search="analises dashboard de análises /relatorios/analises/ get painel de análises.">
+            <div class="report-route-top">
+              <div><div class="report-route-label">Dashboard de análises</div><code class="report-route-path">/relatorios/analises/</code></div>
+              <span class="report-route-method ">GET</span>
+            </div>
+            <div class="report-route-bottom">
+              <code class="report-route-name">relatorios:analises</code>
+              <a class="report-route-open" href="{% url 'relatorios:analises' %}" title="Painel de análises.">Abrir <span aria-hidden="true">↗</span></a>
+            </div>
+            <p class="report-route-note">Painel de análises.</p>
+          </li>
+          <li class="report-route-item" data-url-item data-search="analises_vendas análise de vendas /relatorios/analises/vendas/ get análise de desempenho de vendas.">
+            <div class="report-route-top">
+              <div><div class="report-route-label">Análise de vendas</div><code class="report-route-path">/relatorios/analises/vendas/</code></div>
+              <span class="report-route-method ">GET</span>
+            </div>
+            <div class="report-route-bottom">
+              <code class="report-route-name">relatorios:analises_vendas</code>
+              <a class="report-route-open" href="{% url 'relatorios:analises_vendas' %}" title="Análise de desempenho de vendas.">Abrir <span aria-hidden="true">↗</span></a>
+            </div>
+            <p class="report-route-note">Análise de desempenho de vendas.</p>
+          </li>
+          <li class="report-route-item" data-url-item data-search="analises_lucratividade análise de lucratividade /relatorios/analises/lucratividade/ get margem estimada e lucratividade.">
+            <div class="report-route-top">
+              <div><div class="report-route-label">Análise de lucratividade</div><code class="report-route-path">/relatorios/analises/lucratividade/</code></div>
+              <span class="report-route-method ">GET</span>
+            </div>
+            <div class="report-route-bottom">
+              <code class="report-route-name">relatorios:analises_lucratividade</code>
+              <a class="report-route-open" href="{% url 'relatorios:analises_lucratividade' %}" title="Margem estimada e lucratividade.">Abrir <span aria-hidden="true">↗</span></a>
+            </div>
+            <p class="report-route-note">Margem estimada e lucratividade.</p>
+          </li>
+          <li class="report-route-item" data-url-item data-search="kpis dashboard de kpis /relatorios/kpis/ get indicadores-chave recentes.">
+            <div class="report-route-top">
+              <div><div class="report-route-label">Dashboard de KPIs</div><code class="report-route-path">/relatorios/kpis/</code></div>
+              <span class="report-route-method ">GET</span>
+            </div>
+            <div class="report-route-bottom">
+              <code class="report-route-name">relatorios:kpis</code>
+              <a class="report-route-open" href="{% url 'relatorios:kpis' %}" title="Indicadores-chave recentes.">Abrir <span aria-hidden="true">↗</span></a>
+            </div>
+            <p class="report-route-note">Indicadores-chave recentes.</p>
+          </li>
+          <li class="report-route-item" data-url-item data-search="kpis_vendas kpis de vendas /relatorios/kpis/vendas/ get indicadores comerciais.">
+            <div class="report-route-top">
+              <div><div class="report-route-label">KPIs de vendas</div><code class="report-route-path">/relatorios/kpis/vendas/</code></div>
+              <span class="report-route-method ">GET</span>
+            </div>
+            <div class="report-route-bottom">
+              <code class="report-route-name">relatorios:kpis_vendas</code>
+              <a class="report-route-open" href="{% url 'relatorios:kpis_vendas' %}" title="Indicadores comerciais.">Abrir <span aria-hidden="true">↗</span></a>
+            </div>
+            <p class="report-route-note">Indicadores comerciais.</p>
+          </li>
+          <li class="report-route-item" data-url-item data-search="kpis_financeiros kpis financeiros /relatorios/kpis/financeiros/ get indicadores financeiros.">
+            <div class="report-route-top">
+              <div><div class="report-route-label">KPIs financeiros</div><code class="report-route-path">/relatorios/kpis/financeiros/</code></div>
+              <span class="report-route-method ">GET</span>
+            </div>
+            <div class="report-route-bottom">
+              <code class="report-route-name">relatorios:kpis_financeiros</code>
+              <a class="report-route-open" href="{% url 'relatorios:kpis_financeiros' %}" title="Indicadores financeiros.">Abrir <span aria-hidden="true">↗</span></a>
+            </div>
+            <p class="report-route-note">Indicadores financeiros.</p>
+          </li>
+          <li class="report-route-item" data-url-item data-search="kpis_operacionais kpis operacionais /relatorios/kpis/operacionais/ get indicadores operacionais.">
+            <div class="report-route-top">
+              <div><div class="report-route-label">KPIs operacionais</div><code class="report-route-path">/relatorios/kpis/operacionais/</code></div>
+              <span class="report-route-method ">GET</span>
+            </div>
+            <div class="report-route-bottom">
+              <code class="report-route-name">relatorios:kpis_operacionais</code>
+              <a class="report-route-open" href="{% url 'relatorios:kpis_operacionais' %}" title="Indicadores operacionais.">Abrir <span aria-hidden="true">↗</span></a>
+            </div>
+            <p class="report-route-note">Indicadores operacionais.</p>
+          </li>
+          <li class="report-route-item" data-url-item data-search="kpis_personalizados kpis personalizados /relatorios/kpis/personalizados/ get indicadores personalizados.">
+            <div class="report-route-top">
+              <div><div class="report-route-label">KPIs personalizados</div><code class="report-route-path">/relatorios/kpis/personalizados/</code></div>
+              <span class="report-route-method ">GET</span>
+            </div>
+            <div class="report-route-bottom">
+              <code class="report-route-name">relatorios:kpis_personalizados</code>
+              <a class="report-route-open" href="{% url 'relatorios:kpis_personalizados' %}" title="Indicadores personalizados.">Abrir <span aria-hidden="true">↗</span></a>
+            </div>
+            <p class="report-route-note">Indicadores personalizados.</p>
+          </li>
+        </ul>
+      </details>
+      <details class="report-route-group" data-url-group >
+        <summary><span>◷ &nbsp;Agendamentos</span><span class="report-route-group-count">6 rotas</span></summary>
+        <ul class="report-route-list">
+          <li class="report-route-item" data-url-item data-search="agendamentos lista de agendamentos /relatorios/agendamentos/ get lista de relatórios agendados.">
+            <div class="report-route-top">
+              <div><div class="report-route-label">Lista de agendamentos</div><code class="report-route-path">/relatorios/agendamentos/</code></div>
+              <span class="report-route-method ">GET</span>
+            </div>
+            <div class="report-route-bottom">
+              <code class="report-route-name">relatorios:agendamentos</code>
+              <a class="report-route-open" href="{% url 'relatorios:agendamentos' %}" title="Lista de relatórios agendados.">Abrir <span aria-hidden="true">↗</span></a>
+            </div>
+            <p class="report-route-note">Lista de relatórios agendados.</p>
+          </li>
+          <li class="report-route-item" data-url-item data-search="agendamento_novo novo agendamento /relatorios/agendamentos/novo/ get / post cria um agendamento.">
+            <div class="report-route-top">
+              <div><div class="report-route-label">Novo agendamento</div><code class="report-route-path">/relatorios/agendamentos/novo/</code></div>
+              <span class="report-route-method ">GET / POST</span>
+            </div>
+            <div class="report-route-bottom">
+              <code class="report-route-name">relatorios:agendamento_novo</code>
+              <a class="report-route-open" href="{% url 'relatorios:agendamento_novo' %}" title="Cria um agendamento.">Abrir <span aria-hidden="true">↗</span></a>
+            </div>
+            <p class="report-route-note">Cria um agendamento.</p>
+          </li>
+          <li class="report-route-item" data-url-item data-search="agendamento_detail detalhe do agendamento /relatorios/agendamentos/&lt;int:pk&gt;/ get requer o id do agendamento.">
+            <div class="report-route-top">
+              <div><div class="report-route-label">Detalhe do agendamento</div><code class="report-route-path">/relatorios/agendamentos/&lt;int:pk&gt;/</code></div>
+              <span class="report-route-method dynamic">GET</span>
+            </div>
+            <div class="report-route-bottom">
+              <code class="report-route-name">relatorios:agendamento_detail</code>
+              <button class="report-route-open" type="button" data-route-prefix="/relatorios/agendamentos/" data-route-suffix="/" data-route-prompt="Informe o ID do agendamento:">Abrir por ID</button>
+            </div>
+            <p class="report-route-note">Requer o ID do agendamento.</p>
+          </li>
+          <li class="report-route-item" data-url-item data-search="agendamento_executar executar agendamento /relatorios/agendamentos/&lt;int:pk&gt;/executar/ post requer id, post e csrf.">
+            <div class="report-route-top">
+              <div><div class="report-route-label">Executar agendamento</div><code class="report-route-path">/relatorios/agendamentos/&lt;int:pk&gt;/executar/</code></div>
+              <span class="report-route-method post">POST</span>
+            </div>
+            <div class="report-route-bottom">
+              <code class="report-route-name">relatorios:agendamento_executar</code>
+              <span class="report-route-open" aria-disabled="true" title="Requer ID, POST e CSRF.">Requer POST</span>
+            </div>
+            <p class="report-route-note">Requer ID, POST e CSRF.</p>
+          </li>
+          <li class="report-route-item" data-url-item data-search="agendamento_activar activar agendamento /relatorios/agendamentos/&lt;int:pk&gt;/activar/ post requer id, post e csrf.">
+            <div class="report-route-top">
+              <div><div class="report-route-label">Activar agendamento</div><code class="report-route-path">/relatorios/agendamentos/&lt;int:pk&gt;/activar/</code></div>
+              <span class="report-route-method post">POST</span>
+            </div>
+            <div class="report-route-bottom">
+              <code class="report-route-name">relatorios:agendamento_activar</code>
+              <span class="report-route-open" aria-disabled="true" title="Requer ID, POST e CSRF.">Requer POST</span>
+            </div>
+            <p class="report-route-note">Requer ID, POST e CSRF.</p>
+          </li>
+          <li class="report-route-item" data-url-item data-search="agendamento_desactivar desactivar agendamento /relatorios/agendamentos/&lt;int:pk&gt;/desactivar/ post requer id, post e csrf.">
+            <div class="report-route-top">
+              <div><div class="report-route-label">Desactivar agendamento</div><code class="report-route-path">/relatorios/agendamentos/&lt;int:pk&gt;/desactivar/</code></div>
+              <span class="report-route-method post">POST</span>
+            </div>
+            <div class="report-route-bottom">
+              <code class="report-route-name">relatorios:agendamento_desactivar</code>
+              <span class="report-route-open" aria-disabled="true" title="Requer ID, POST e CSRF.">Requer POST</span>
+            </div>
+            <p class="report-route-note">Requer ID, POST e CSRF.</p>
+          </li>
+        </ul>
+      </details>
+      <details class="report-route-group" data-url-group >
+        <summary><span>↗ &nbsp;Distribuição, histórico e auditoria</span><span class="report-route-group-count">8 rotas</span></summary>
+        <ul class="report-route-list">
+          <li class="report-route-item" data-url-item data-search="distribuicao distribuição de relatórios /relatorios/distribuicao/ get área de distribuição de relatórios.">
+            <div class="report-route-top">
+              <div><div class="report-route-label">Distribuição de relatórios</div><code class="report-route-path">/relatorios/distribuicao/</code></div>
+              <span class="report-route-method ">GET</span>
+            </div>
+            <div class="report-route-bottom">
+              <code class="report-route-name">relatorios:distribuicao</code>
+              <a class="report-route-open" href="{% url 'relatorios:distribuicao' %}" title="Área de distribuição de relatórios.">Abrir <span aria-hidden="true">↗</span></a>
+            </div>
+            <p class="report-route-note">Área de distribuição de relatórios.</p>
+          </li>
+          <li class="report-route-item" data-url-item data-search="envio_email enviar por e-mail /relatorios/distribuicao/email/ get / post formulário para envio por e-mail.">
+            <div class="report-route-top">
+              <div><div class="report-route-label">Enviar por e-mail</div><code class="report-route-path">/relatorios/distribuicao/email/</code></div>
+              <span class="report-route-method ">GET / POST</span>
+            </div>
+            <div class="report-route-bottom">
+              <code class="report-route-name">relatorios:envio_email</code>
+              <a class="report-route-open" href="{% url 'relatorios:envio_email' %}" title="Formulário para envio por e-mail.">Abrir <span aria-hidden="true">↗</span></a>
+            </div>
+            <p class="report-route-note">Formulário para envio por e-mail.</p>
+          </li>
+          <li class="report-route-item" data-url-item data-search="impressao impressão de relatório gerado /relatorios/distribuicao/&lt;int:pk&gt;/imprimir/ get requer o id do relatório gerado.">
+            <div class="report-route-top">
+              <div><div class="report-route-label">Impressão de relatório gerado</div><code class="report-route-path">/relatorios/distribuicao/&lt;int:pk&gt;/imprimir/</code></div>
+              <span class="report-route-method dynamic">GET</span>
+            </div>
+            <div class="report-route-bottom">
+              <code class="report-route-name">relatorios:impressao</code>
+              <button class="report-route-open" type="button" data-route-prefix="/relatorios/distribuicao/" data-route-suffix="/imprimir/" data-route-prompt="Informe o ID do relatório para impressão:">Abrir por ID</button>
+            </div>
+            <p class="report-route-note">Requer o ID do relatório gerado.</p>
+          </li>
+          <li class="report-route-item" data-url-item data-search="compartilhamento partilhar relatório gerado /relatorios/distribuicao/&lt;int:pk&gt;/partilhar/ get requer o id do relatório gerado.">
+            <div class="report-route-top">
+              <div><div class="report-route-label">Partilhar relatório gerado</div><code class="report-route-path">/relatorios/distribuicao/&lt;int:pk&gt;/partilhar/</code></div>
+              <span class="report-route-method dynamic">GET</span>
+            </div>
+            <div class="report-route-bottom">
+              <code class="report-route-name">relatorios:compartilhamento</code>
+              <button class="report-route-open" type="button" data-route-prefix="/relatorios/distribuicao/" data-route-suffix="/partilhar/" data-route-prompt="Informe o ID do relatório a partilhar:">Abrir por ID</button>
+            </div>
+            <p class="report-route-note">Requer o ID do relatório gerado.</p>
+          </li>
+          <li class="report-route-item" data-url-item data-search="historico histórico de relatórios /relatorios/historico/ get histórico de actividade.">
+            <div class="report-route-top">
+              <div><div class="report-route-label">Histórico de relatórios</div><code class="report-route-path">/relatorios/historico/</code></div>
+              <span class="report-route-method ">GET</span>
+            </div>
+            <div class="report-route-bottom">
+              <code class="report-route-name">relatorios:historico</code>
+              <a class="report-route-open" href="{% url 'relatorios:historico' %}" title="Histórico de actividade.">Abrir <span aria-hidden="true">↗</span></a>
+            </div>
+            <p class="report-route-note">Histórico de actividade.</p>
+          </li>
+          <li class="report-route-item" data-url-item data-search="auditoria auditoria de relatórios /relatorios/auditoria/ get entradas de auditoria.">
+            <div class="report-route-top">
+              <div><div class="report-route-label">Auditoria de relatórios</div><code class="report-route-path">/relatorios/auditoria/</code></div>
+              <span class="report-route-method ">GET</span>
+            </div>
+            <div class="report-route-bottom">
+              <code class="report-route-name">relatorios:auditoria</code>
+              <a class="report-route-open" href="{% url 'relatorios:auditoria' %}" title="Entradas de auditoria.">Abrir <span aria-hidden="true">↗</span></a>
+            </div>
+            <p class="report-route-note">Entradas de auditoria.</p>
+          </li>
+          <li class="report-route-item" data-url-item data-search="logs logs de relatórios /relatorios/logs/ get histórico alargado de logs.">
+            <div class="report-route-top">
+              <div><div class="report-route-label">Logs de relatórios</div><code class="report-route-path">/relatorios/logs/</code></div>
+              <span class="report-route-method ">GET</span>
+            </div>
+            <div class="report-route-bottom">
+              <code class="report-route-name">relatorios:logs</code>
+              <a class="report-route-open" href="{% url 'relatorios:logs' %}" title="Histórico alargado de logs.">Abrir <span aria-hidden="true">↗</span></a>
+            </div>
+            <p class="report-route-note">Histórico alargado de logs.</p>
+          </li>
+          <li class="report-route-item" data-url-item data-search="logs_acessos logs de acessos /relatorios/logs/acessos/ get logs de acesso à área de relatórios.">
+            <div class="report-route-top">
+              <div><div class="report-route-label">Logs de acessos</div><code class="report-route-path">/relatorios/logs/acessos/</code></div>
+              <span class="report-route-method ">GET</span>
+            </div>
+            <div class="report-route-bottom">
+              <code class="report-route-name">relatorios:logs_acessos</code>
+              <a class="report-route-open" href="{% url 'relatorios:logs_acessos' %}" title="Logs de acesso à área de relatórios.">Abrir <span aria-hidden="true">↗</span></a>
+            </div>
+            <p class="report-route-note">Logs de acesso à área de relatórios.</p>
+          </li>
+        </ul>
+      </details>
+      <details class="report-route-group" data-url-group >
+        <summary><span>⇩ &nbsp;Exportação de relatórios</span><span class="report-route-group-count">5 rotas</span></summary>
+        <ul class="report-route-list">
+          <li class="report-route-item" data-url-item data-search="exportar_pdf exportar pdf /relatorios/&lt;int:pk&gt;/pdf/ get requer o id do relatório gerado.">
+            <div class="report-route-top">
+              <div><div class="report-route-label">Exportar PDF</div><code class="report-route-path">/relatorios/&lt;int:pk&gt;/pdf/</code></div>
+              <span class="report-route-method dynamic">GET</span>
+            </div>
+            <div class="report-route-bottom">
+              <code class="report-route-name">relatorios:exportar_pdf</code>
+              <button class="report-route-open" type="button" data-route-prefix="/relatorios/" data-route-suffix="/pdf/" data-route-prompt="Informe o ID do relatório a exportar para PDF:">Abrir por ID</button>
+            </div>
+            <p class="report-route-note">Requer o ID do relatório gerado.</p>
+          </li>
+          <li class="report-route-item" data-url-item data-search="exportar_excel exportar excel /relatorios/&lt;int:pk&gt;/excel/ get requer o id do relatório gerado.">
+            <div class="report-route-top">
+              <div><div class="report-route-label">Exportar Excel</div><code class="report-route-path">/relatorios/&lt;int:pk&gt;/excel/</code></div>
+              <span class="report-route-method dynamic">GET</span>
+            </div>
+            <div class="report-route-bottom">
+              <code class="report-route-name">relatorios:exportar_excel</code>
+              <button class="report-route-open" type="button" data-route-prefix="/relatorios/" data-route-suffix="/excel/" data-route-prompt="Informe o ID do relatório a exportar para Excel:">Abrir por ID</button>
+            </div>
+            <p class="report-route-note">Requer o ID do relatório gerado.</p>
+          </li>
+          <li class="report-route-item" data-url-item data-search="exportar_csv exportar csv /relatorios/&lt;int:pk&gt;/csv/ get requer o id do relatório gerado.">
+            <div class="report-route-top">
+              <div><div class="report-route-label">Exportar CSV</div><code class="report-route-path">/relatorios/&lt;int:pk&gt;/csv/</code></div>
+              <span class="report-route-method dynamic">GET</span>
+            </div>
+            <div class="report-route-bottom">
+              <code class="report-route-name">relatorios:exportar_csv</code>
+              <button class="report-route-open" type="button" data-route-prefix="/relatorios/" data-route-suffix="/csv/" data-route-prompt="Informe o ID do relatório a exportar para CSV:">Abrir por ID</button>
+            </div>
+            <p class="report-route-note">Requer o ID do relatório gerado.</p>
+          </li>
+          <li class="report-route-item" data-url-item data-search="exportar_xml exportar xml /relatorios/&lt;int:pk&gt;/xml/ get requer o id do relatório gerado.">
+            <div class="report-route-top">
+              <div><div class="report-route-label">Exportar XML</div><code class="report-route-path">/relatorios/&lt;int:pk&gt;/xml/</code></div>
+              <span class="report-route-method dynamic">GET</span>
+            </div>
+            <div class="report-route-bottom">
+              <code class="report-route-name">relatorios:exportar_xml</code>
+              <button class="report-route-open" type="button" data-route-prefix="/relatorios/" data-route-suffix="/xml/" data-route-prompt="Informe o ID do relatório a exportar para XML:">Abrir por ID</button>
+            </div>
+            <p class="report-route-note">Requer o ID do relatório gerado.</p>
+          </li>
+          <li class="report-route-item" data-url-item data-search="exportar_json exportar json /relatorios/&lt;int:pk&gt;/json/ get requer o id do relatório gerado.">
+            <div class="report-route-top">
+              <div><div class="report-route-label">Exportar JSON</div><code class="report-route-path">/relatorios/&lt;int:pk&gt;/json/</code></div>
+              <span class="report-route-method dynamic">GET</span>
+            </div>
+            <div class="report-route-bottom">
+              <code class="report-route-name">relatorios:exportar_json</code>
+              <button class="report-route-open" type="button" data-route-prefix="/relatorios/" data-route-suffix="/json/" data-route-prompt="Informe o ID do relatório a exportar para JSON:">Abrir por ID</button>
+            </div>
+            <p class="report-route-note">Requer o ID do relatório gerado.</p>
+          </li>
+        </ul>
+      </details>
+      <details class="report-route-group" data-url-group >
+        <summary><span>◩ &nbsp;Business Intelligence</span><span class="report-route-group-count">4 rotas</span></summary>
+        <ul class="report-route-list">
+          <li class="report-route-item" data-url-item data-search="bi business intelligence /relatorios/bi/ get painel de bi.">
+            <div class="report-route-top">
+              <div><div class="report-route-label">Business Intelligence</div><code class="report-route-path">/relatorios/bi/</code></div>
+              <span class="report-route-method ">GET</span>
+            </div>
+            <div class="report-route-bottom">
+              <code class="report-route-name">relatorios:bi</code>
+              <a class="report-route-open" href="{% url 'relatorios:bi' %}" title="Painel de BI.">Abrir <span aria-hidden="true">↗</span></a>
+            </div>
+            <p class="report-route-note">Painel de BI.</p>
+          </li>
+          <li class="report-route-item" data-url-item data-search="bi_cubos_olap cubos olap /relatorios/bi/cubos-olap/ get cubo analítico olap de vendas.">
+            <div class="report-route-top">
+              <div><div class="report-route-label">Cubos OLAP</div><code class="report-route-path">/relatorios/bi/cubos-olap/</code></div>
+              <span class="report-route-method ">GET</span>
+            </div>
+            <div class="report-route-bottom">
+              <code class="report-route-name">relatorios:bi_cubos_olap</code>
+              <a class="report-route-open" href="{% url 'relatorios:bi_cubos_olap' %}" title="Cubo analítico OLAP de vendas.">Abrir <span aria-hidden="true">↗</span></a>
+            </div>
+            <p class="report-route-note">Cubo analítico OLAP de vendas.</p>
+          </li>
+          <li class="report-route-item" data-url-item data-search="bi_data_mining data mining /relatorios/bi/data-mining/ get exploração e segmentação de dados.">
+            <div class="report-route-top">
+              <div><div class="report-route-label">Data mining</div><code class="report-route-path">/relatorios/bi/data-mining/</code></div>
+              <span class="report-route-method ">GET</span>
+            </div>
+            <div class="report-route-bottom">
+              <code class="report-route-name">relatorios:bi_data_mining</code>
+              <a class="report-route-open" href="{% url 'relatorios:bi_data_mining' %}" title="Exploração e segmentação de dados.">Abrir <span aria-hidden="true">↗</span></a>
+            </div>
+            <p class="report-route-note">Exploração e segmentação de dados.</p>
+          </li>
+          <li class="report-route-item" data-url-item data-search="bi_previsoes previsões /relatorios/bi/previsoes/ get área de previsões de vendas.">
+            <div class="report-route-top">
+              <div><div class="report-route-label">Previsões</div><code class="report-route-path">/relatorios/bi/previsoes/</code></div>
+              <span class="report-route-method ">GET</span>
+            </div>
+            <div class="report-route-bottom">
+              <code class="report-route-name">relatorios:bi_previsoes</code>
+              <a class="report-route-open" href="{% url 'relatorios:bi_previsoes' %}" title="Área de previsões de vendas.">Abrir <span aria-hidden="true">↗</span></a>
+            </div>
+            <p class="report-route-note">Área de previsões de vendas.</p>
+          </li>
+        </ul>
+      </details>
+      <details class="report-route-group" data-url-group >
+        <summary><span>⚙ &nbsp;AJAX, API e configurações</span><span class="report-route-group-count">11 rotas</span></summary>
+        <ul class="report-route-list">
+          <li class="report-route-item" data-url-item data-search="ajax_gerar ajax · gerar relatório /relatorios/ajax/gerar/ post endpoint post; requer formulário e csrf.">
+            <div class="report-route-top">
+              <div><div class="report-route-label">AJAX · Gerar relatório</div><code class="report-route-path">/relatorios/ajax/gerar/</code></div>
+              <span class="report-route-method post">POST</span>
+            </div>
+            <div class="report-route-bottom">
+              <code class="report-route-name">relatorios:ajax_gerar</code>
+              <span class="report-route-open" aria-disabled="true" title="Endpoint POST; requer formulário e CSRF.">Requer POST</span>
+            </div>
+            <p class="report-route-note">Endpoint POST; requer formulário e CSRF.</p>
+          </li>
+          <li class="report-route-item" data-url-item data-search="ajax_preview ajax · pré-visualização /relatorios/ajax/preview/ get · json pré-visualização json; aceita parâmetros de modelo.">
+            <div class="report-route-top">
+              <div><div class="report-route-label">AJAX · Pré-visualização</div><code class="report-route-path">/relatorios/ajax/preview/</code></div>
+              <span class="report-route-method ">GET · JSON</span>
+            </div>
+            <div class="report-route-bottom">
+              <code class="report-route-name">relatorios:ajax_preview</code>
+              <a class="report-route-open" href="{% url 'relatorios:ajax_preview' %}" title="Pré-visualização JSON; aceita parâmetros de modelo.">Abrir <span aria-hidden="true">↗</span></a>
+            </div>
+            <p class="report-route-note">Pré-visualização JSON; aceita parâmetros de modelo.</p>
+          </li>
+          <li class="report-route-item" data-url-item data-search="ajax_validar_campos ajax · validar campos /relatorios/ajax/validar-campos/ get · json validação json de dados.">
+            <div class="report-route-top">
+              <div><div class="report-route-label">AJAX · Validar campos</div><code class="report-route-path">/relatorios/ajax/validar-campos/</code></div>
+              <span class="report-route-method ">GET · JSON</span>
+            </div>
+            <div class="report-route-bottom">
+              <code class="report-route-name">relatorios:ajax_validar_campos</code>
+              <a class="report-route-open" href="{% url 'relatorios:ajax_validar_campos' %}" title="Validação JSON de dados.">Abrir <span aria-hidden="true">↗</span></a>
+            </div>
+            <p class="report-route-note">Validação JSON de dados.</p>
+          </li>
+          <li class="report-route-item" data-url-item data-search="ajax_buscar_dados ajax · buscar dados /relatorios/ajax/buscar-dados/ get · json pesquisa json; use o parâmetro q.">
+            <div class="report-route-top">
+              <div><div class="report-route-label">AJAX · Buscar dados</div><code class="report-route-path">/relatorios/ajax/buscar-dados/</code></div>
+              <span class="report-route-method ">GET · JSON</span>
+            </div>
+            <div class="report-route-bottom">
+              <code class="report-route-name">relatorios:ajax_buscar_dados</code>
+              <a class="report-route-open" href="{% url 'relatorios:ajax_buscar_dados' %}" title="Pesquisa JSON; use o parâmetro q.">Abrir <span aria-hidden="true">↗</span></a>
+            </div>
+            <p class="report-route-note">Pesquisa JSON; use o parâmetro q.</p>
+          </li>
+          <li class="report-route-item" data-url-item data-search="configuracoes configurações de relatórios /relatorios/configuracoes/ get configurações gerais da app.">
+            <div class="report-route-top">
+              <div><div class="report-route-label">Configurações de relatórios</div><code class="report-route-path">/relatorios/configuracoes/</code></div>
+              <span class="report-route-method ">GET</span>
+            </div>
+            <div class="report-route-bottom">
+              <code class="report-route-name">relatorios:configuracoes</code>
+              <a class="report-route-open" href="{% url 'relatorios:configuracoes' %}" title="Configurações gerais da app.">Abrir <span aria-hidden="true">↗</span></a>
+            </div>
+            <p class="report-route-note">Configurações gerais da app.</p>
+          </li>
+          <li class="report-route-item" data-url-item data-search="configuracoes_formatos formatos de exportação /relatorios/configuracoes/formatos/ get configurações de formato.">
+            <div class="report-route-top">
+              <div><div class="report-route-label">Formatos de exportação</div><code class="report-route-path">/relatorios/configuracoes/formatos/</code></div>
+              <span class="report-route-method ">GET</span>
+            </div>
+            <div class="report-route-bottom">
+              <code class="report-route-name">relatorios:configuracoes_formatos</code>
+              <a class="report-route-open" href="{% url 'relatorios:configuracoes_formatos' %}" title="Configurações de formato.">Abrir <span aria-hidden="true">↗</span></a>
+            </div>
+            <p class="report-route-note">Configurações de formato.</p>
+          </li>
+          <li class="report-route-item" data-url-item data-search="configuracoes_permissoes permissões de relatórios /relatorios/configuracoes/permissoes/ get área de permissões.">
+            <div class="report-route-top">
+              <div><div class="report-route-label">Permissões de relatórios</div><code class="report-route-path">/relatorios/configuracoes/permissoes/</code></div>
+              <span class="report-route-method ">GET</span>
+            </div>
+            <div class="report-route-bottom">
+              <code class="report-route-name">relatorios:configuracoes_permissoes</code>
+              <a class="report-route-open" href="{% url 'relatorios:configuracoes_permissoes' %}" title="Área de permissões.">Abrir <span aria-hidden="true">↗</span></a>
+            </div>
+            <p class="report-route-note">Área de permissões.</p>
+          </li>
+          <li class="report-route-item" data-url-item data-search="api_gerar api · gerar relatório /relatorios/api/gerar/ post · json endpoint de criação via api; requer post.">
+            <div class="report-route-top">
+              <div><div class="report-route-label">API · Gerar relatório</div><code class="report-route-path">/relatorios/api/gerar/</code></div>
+              <span class="report-route-method post">POST · JSON</span>
+            </div>
+            <div class="report-route-bottom">
+              <code class="report-route-name">relatorios:api_gerar</code>
+              <span class="report-route-open" aria-disabled="true" title="Endpoint de criação via API; requer POST.">Requer POST</span>
+            </div>
+            <p class="report-route-note">Endpoint de criação via API; requer POST.</p>
+          </li>
+          <li class="report-route-item" data-url-item data-search="api_graficos api · dados de gráficos /relatorios/api/graficos/ get · json devolve séries dos gráficos em json.">
+            <div class="report-route-top">
+              <div><div class="report-route-label">API · Dados de gráficos</div><code class="report-route-path">/relatorios/api/graficos/</code></div>
+              <span class="report-route-method ">GET · JSON</span>
+            </div>
+            <div class="report-route-bottom">
+              <code class="report-route-name">relatorios:api_graficos</code>
+              <a class="report-route-open" href="{% url 'relatorios:api_graficos' %}" title="Devolve séries dos gráficos em JSON.">Abrir <span aria-hidden="true">↗</span></a>
+            </div>
+            <p class="report-route-note">Devolve séries dos gráficos em JSON.</p>
+          </li>
+          <li class="report-route-item" data-url-item data-search="api_estatisticas api · estatísticas /relatorios/api/estatisticas/ get · json devolve estatísticas em json.">
+            <div class="report-route-top">
+              <div><div class="report-route-label">API · Estatísticas</div><code class="report-route-path">/relatorios/api/estatisticas/</code></div>
+              <span class="report-route-method ">GET · JSON</span>
+            </div>
+            <div class="report-route-bottom">
+              <code class="report-route-name">relatorios:api_estatisticas</code>
+              <a class="report-route-open" href="{% url 'relatorios:api_estatisticas' %}" title="Devolve estatísticas em JSON.">Abrir <span aria-hidden="true">↗</span></a>
+            </div>
+            <p class="report-route-note">Devolve estatísticas em JSON.</p>
+          </li>
+          <li class="report-route-item" data-url-item data-search="relatorio_corporativo relatório corporativo pdf /relatorios/relatorio-corporativo/ get · pdf gera um pdf corporativo a partir de dados do tenant.">
+            <div class="report-route-top">
+              <div><div class="report-route-label">Relatório corporativo PDF</div><code class="report-route-path">/relatorios/relatorio-corporativo/</code></div>
+              <span class="report-route-method ">GET · PDF</span>
+            </div>
+            <div class="report-route-bottom">
+              <code class="report-route-name">relatorios:relatorio_corporativo</code>
+              <a class="report-route-open" href="{% url 'relatorios:relatorio_corporativo' %}" title="Gera um PDF corporativo a partir de dados do tenant.">Abrir <span aria-hidden="true">↗</span></a>
+            </div>
+            <p class="report-route-note">Gera um PDF corporativo a partir de dados do tenant.</p>
+          </li>
+        </ul>
+      </details>
+      <div class="report-route-empty" id="report-url-empty" hidden>Nenhuma URL corresponde à pesquisa.</div>
+    </div>
+    <div class="panel-body"><p class="report-route-note">As rotas dinâmicas pedem um ID. As operações POST são identificadas, mas não são executadas por links GET; continuam protegidas pelo formulário, método HTTP e token CSRF da aplicação.</p></div>
+  </aside>
+</div>
+<script>
+(function () {
+  "use strict";
+  const search = document.getElementById("report-url-search");
+  const container = document.getElementById("report-url-directory");
+  const visibleCount = document.getElementById("report-url-visible");
+  const empty = document.getElementById("report-url-empty");
+  if (search && container) {
+    const items = Array.from(container.querySelectorAll("[data-url-item]"));
+    const groups = Array.from(container.querySelectorAll("[data-url-group]"));
+    function filterRoutes() {
+      const query = search.value.trim().toLocaleLowerCase();
+      let visible = 0;
+      items.forEach(function (item) {
+        const text = (item.dataset.search || item.textContent || "").toLocaleLowerCase();
+        const match = !query || text.includes(query);
+        item.hidden = !match;
+        if (match) visible += 1;
+      });
+      groups.forEach(function (group) {
+        const hasVisible = Array.from(group.querySelectorAll("[data-url-item]")).some(function (item) { return !item.hidden; });
+        group.hidden = !hasVisible;
+        if (query && hasVisible) group.open = true;
+      });
+      if (visibleCount) visibleCount.textContent = String(visible);
+      if (empty) empty.hidden = visible !== 0;
+    }
+    search.addEventListener("input", filterRoutes);
+  }
+  document.querySelectorAll("[data-route-prefix]").forEach(function (button) {
+    button.addEventListener("click", function () {
+      const value = window.prompt(button.dataset.routePrompt || "Informe o ID:");
+      if (value === null) return;
+      const id = value.trim();
+      if (!/^\d+$/.test(id) || Number(id) < 1) {
+        window.alert("Indique um ID numérico válido, maior que zero.");
+        return;
+      }
+      window.location.href = button.dataset.routePrefix + encodeURIComponent(id) + button.dataset.routeSuffix;
+    });
+  });
+})();
+</script>
+{% endblock report_body %}

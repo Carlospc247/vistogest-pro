@@ -1,0 +1,36 @@
+<!-- funcionarios/foto.html -->
+{% extends "base.html" %}
+
+{% block title %}Alterar Foto - {{ funcionario.nome_completo }}{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row justify-content-center">
+        <div class="col-md-6">
+            <div class="card shadow">
+                <div class="card-header">
+                    <h5 class="m-0 font-weight-bold text-primary">Alterar Foto</h5>
+                </div>
+                <div class="card-body text-center">
+                    {% if funcionario.foto %}
+                        <img src="{{ funcionario.foto.url }}" class="img-fluid rounded-circle mb-3" style="max-width: 200px;">
+                    {% else %}
+                        <i class="fas fa-user-circle fa-5x text-gray-400 mb-3"></i>
+                    {% endif %}
+                    
+                    <form method="post" enctype="multipart/form-data">
+                        {% csrf_token %}
+                        <div class="form-group">
+                            <label for="{{ form.foto.id_for_label }}">Nova Foto</label>
+                            {{ form.foto }}
+                        </div>
+                        
+                        <button type="submit" class="btn btn-primary">Salvar</button>
+                        <a href="{% url 'funcionarios:perfil' funcionario.pk %}" class="btn btn-secondary">Cancelar</a>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

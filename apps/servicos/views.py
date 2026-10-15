@@ -1,567 +1,392 @@
-# Em apps/servicos/views.py
+"""Views tenant-aware para catálogo, agendamentos e notificações."""
+import logging
+from datetime import timedelta
 
-from django.utils import timezone
-from django.views.generic import ListView, DetailView, CreateView, UpdateView, DeleteView, View
+from django.contrib import messages
+from django.contrib.auth.decorators import login_required
 from django.contrib.auth.mixins import LoginRequiredMixin
-from django.utils import timezone
-from django.contrib import messages
-from django.shortcuts import get_object_or_404, redirect
-from django.urls import reverse_lazy
-from apps.clientes.models import Cliente
-from apps.produtos.views import TenantRequeridoMixin
-from .models import Servico, AgendamentoServico
-from .forms import ServicoForm, AgendamentoServicoForm
-from django.shortcuts import render, get_object_or_404, redirect
-from django.contrib.auth.decorators import login_required
-from django.http import JsonResponse, request
-from django.views.decorators.http import require_http_methods
-from .models import NotificacaoAgendamento, ConfiguracaoNotificacao
-from .forms import NotificacaoAgendamentoForm, ConfiguracaoNotificacaoForm
+from django.core.exceptions import ValidationError
 from django.db.models import Q
-from django.shortcuts import get_object_or_404, redirect
-from django.contrib import messages
-from django.urls import reverse
-from django.contrib.auth.decorators import login_required
-from .models import NotificacaoAgendamento
+from django.db.models.deletion import ProtectedError
+from django.http import JsonResponse, Http404
+from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse_lazy, reverse
+from django.utils import timezone
+from django.views import View
+from django.views.decorators.http import require_GET
+from django.views.generic import ListView, CreateView, UpdateView, DeleteView, DetailView
+
+from apps.empresas.models import Empresa
+from .forms import ServicoForm, AgendamentoServicoForm, FinalizarServicoForm, NotificacaoAgendamentoForm, ConfiguracaoNotificacaoForm
+from .models import Servico, AgendamentoServico, NotificacaoAgendamento, ConfiguracaoNotificacao
+
+logger = logging.getLogger(__name__)
 
 
+def empresa_da_requisicao(request):
+    tenant = getattr(request, "tenant", None)
+    if tenant is None or getattr(tenant, "schema_name", "public") == "public":
+        return None
+    return tenant
 
 
+def _sem_empresa_json():
+    return JsonResponse({"success": False, "message": "Empresa/tenant não encontrada para esta requisição."}, status=400)
 
-# --- VIEW BASE (BOA PRÁTICA) ---
+
 class ServicoPermissionMixin(LoginRequiredMixin):
-    def get_queryset(self):
-        empresa_atual = getattr(self.request, 'tenant', None)
-
-        if not empresa_atual or getattr(empresa_atual, 'schema_name', 'public') == 'public':
-            return self.model.objects.none()
-
-        return self.model.objects.filter(empresa_atual=empresa_atual)
-
+    """Aplica o isolamento por empresa às views genéricas."""
     def get_empresa(self):
-        empresa_atual = getattr(self.request, 'tenant', None)
+        return empresa_da_requisicao(self.request)
 
-        if not empresa_atual or getattr(empresa_atual, 'schema_name', 'public') == 'public':
-            return None
+    def dispatch(self, request, *args, **kwargs):
+        # Deixa primeiro o LoginRequiredMixin redireccionar utilizadores anónimos.
+        if not request.user.is_authenticated:
+            return super().dispatch(request, *args, **kwargs)
+        if self.get_empresa() is None:
+            messages.error(request, "Não foi possível identificar a empresa activa.")
+            return redirect("home")
+        return super().dispatch(request, *args, **kwargs)
 
-        return empresa_atual
+    def get_queryset(self):
+        empresa = self.get_empresa()
+        if empresa is None:
+            return self.model.objects.none()
+        fields = {field.name for field in self.model._meta.get_fields() if getattr(field, "concrete", False)}
+        if "empresa" in fields:
+            return self.model.objects.filter(empresa=empresa)
+        # Não retorna dados de outros tenants caso o modelo seja schema-local.
+        return self.model.objects.none()
 
-
-# --- CRUD DO CATÁLOGO DE SERVIÇOS ---
 
 class ServicoDashboard(ServicoPermissionMixin, ListView):
     model = Servico
-    template_name = 'servicos/dashboard_servicos.html'
-    #context_object_name = 'servicos'
+    template_name = "servicos/dashboard_servicos.html"
+    context_object_name = "servicos"
+    paginate_by = 8
+
+    def get_queryset(self):
+        return super().get_queryset().select_related("categoria").order_by("nome")
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        qs = self.get_queryset()
+        ctx["total_servicos"] = qs.count()
+        ctx["servicos_ativos"] = qs.filter(ativo=True).count()
+        ctx["servicos_inativos"] = qs.filter(ativo=False).count()
+        ctx["agendamentos_pendentes"] = AgendamentoServico.objects.filter(empresa=self.get_empresa(), status="agendado").count()
+        ctx["agendamentos_em_andamento"] = AgendamentoServico.objects.filter(empresa=self.get_empresa(), status="em_andamento").count()
+        return ctx
 
 
 class ServicoListView(ServicoPermissionMixin, ListView):
     model = Servico
-    template_name = 'servicos/servico_list.html'
-    context_object_name = 'servicos'
+    template_name = "servicos/servico_list.html"
+    context_object_name = "servicos"
+    paginate_by = 20
+
+    def get_queryset(self):
+        qs = super().get_queryset().select_related("categoria")
+        query = self.request.GET.get("q", "").strip()
+        estado = self.request.GET.get("estado", "")
+        if query: qs = qs.filter(Q(nome__icontains=query) | Q(instrucoes_padrao__icontains=query))
+        if estado == "ativo": qs = qs.filter(ativo=True)
+        elif estado == "inativo": qs = qs.filter(ativo=False)
+        return qs.order_by("nome")
+
 
 class ServicoCreateView(ServicoPermissionMixin, CreateView):
     model = Servico
     form_class = ServicoForm
-    template_name = 'servicos/servico_form.html'
-    success_url = reverse_lazy('servicos:servico_list')
+    template_name = "servicos/servico_form.html"
+    success_url = reverse_lazy("servicos:servico_list")
 
     def get_form_kwargs(self):
-        kwargs = super().get_form_kwargs()
-        kwargs['empresa'] = self.get_empresa()
-        return kwargs
-    
+        kwargs = super().get_form_kwargs(); kwargs["empresa"] = self.get_empresa(); return kwargs
+
     def form_valid(self, form):
-        servico = form.save(commit=False)
-        servico.empresa = self.get_empresa()
-        servico.usuario_criacao = self.request.user
-        # Valores placeholder para campos obrigatórios que não estão no form
-        servico.cliente = Cliente.objects.filter(empresa=self.get_empresa()).first() 
-        servico.data_agendamento = timezone.now()
-        servico.save()
+        form.instance.empresa = self.get_empresa()
+        response = super().form_valid(form)
         messages.success(self.request, "Serviço de catálogo criado com sucesso.")
-        return redirect(self.success_url)
+        return response
+
 
 class ServicoUpdateView(ServicoPermissionMixin, UpdateView):
     model = Servico
     form_class = ServicoForm
-    template_name = 'servicos/servico_form.html'
-    success_url = reverse_lazy('servicos:servico_list')
+    template_name = "servicos/servico_form.html"
+    success_url = reverse_lazy("servicos:servico_list")
 
     def get_form_kwargs(self):
-        kwargs = super().get_form_kwargs()
-        kwargs['empresa'] = self.get_empresa()
-        return kwargs
+        kwargs = super().get_form_kwargs(); kwargs["empresa"] = self.get_empresa(); return kwargs
 
     def form_valid(self, form):
-        messages.success(self.request, "Serviço de catálogo atualizado com sucesso.")
-        return super().form_valid(form)
+        response = super().form_valid(form)
+        messages.success(self.request, "Serviço de catálogo actualizado com sucesso.")
+        return response
+
 
 class ServicoDeleteView(ServicoPermissionMixin, DeleteView):
     model = Servico
-    template_name = 'servicos/servico_confirm_delete.html'
-    success_url = reverse_lazy('servicos:servico_list')
+    template_name = "servicos/servico_confirm_delete.html"
+    success_url = reverse_lazy("servicos:servico_list")
+
+    def post(self, request, *args, **kwargs):
+        self.object = self.get_object()
+        if self.object.agendamentos.exists():
+            messages.error(request, "Este serviço já está associado a agendamentos. Desactive-o em vez de o eliminar, para preservar o histórico.")
+            return redirect(self.success_url)
+        try:
+            return super().post(request, *args, **kwargs)
+        except ProtectedError:
+            messages.error(request, "O serviço está protegido por registos relacionados e não pode ser eliminado.")
+            return redirect(self.success_url)
 
     def form_valid(self, form):
-        messages.success(self.request, f"Serviço '{self.object.nome}' eliminado com sucesso.")
-        return super().form_valid(form)
+        nome = self.object.nome
+        response = super().form_valid(form)
+        messages.success(self.request, f"Serviço '{nome}' eliminado com sucesso.")
+        return response
 
-# --- CRUD DE AGENDAMENTOS ---
+
 class AgendamentoListView(ServicoPermissionMixin, ListView):
     model = AgendamentoServico
-    template_name = 'servicos/agendamento_list.html'
-    context_object_name = 'agendamentos'
+    template_name = "servicos/agendamento_list.html"
+    context_object_name = "agendamentos"
+    paginate_by = 20
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["status_choices"] = AgendamentoServico.STATUS_CHOICES
+        return context
+
+    def get_queryset(self):
+        qs = super().get_queryset().select_related("servico", "cliente", "funcionario")
+        query = self.request.GET.get("q", "").strip()
+        status = self.request.GET.get("status", "")
+        if query: qs = qs.filter(Q(cliente__nome_completo__icontains=query) | Q(servico__nome__icontains=query) | Q(funcionario__nome_completo__icontains=query))
+        if status in dict(AgendamentoServico.STATUS_CHOICES): qs = qs.filter(status=status)
+        return qs
+
 
 class AgendamentoCreateView(ServicoPermissionMixin, CreateView):
     model = AgendamentoServico
     form_class = AgendamentoServicoForm
-    template_name = 'servicos/agendamento_form.html'
-    success_url = reverse_lazy('servicos:agendamento_list')
+    template_name = "servicos/agendamento_form.html"
+    success_url = reverse_lazy("servicos:agendamento_list")
 
     def get_form_kwargs(self):
-        kwargs = super().get_form_kwargs()
-        kwargs['empresa'] = self.get_empresa()
-        return kwargs
+        kwargs = super().get_form_kwargs(); kwargs["empresa"] = self.get_empresa(); return kwargs
 
     def form_valid(self, form):
         form.instance.empresa = self.get_empresa()
+        if not form.instance.valor_cobrado and form.cleaned_data.get("servico"):
+            form.instance.valor_cobrado = form.cleaned_data["servico"].preco_com_desconto
+        response = super().form_valid(form)
         messages.success(self.request, "Agendamento criado com sucesso.")
-        return super().form_valid(form)
+        return response
+
 
 class AgendamentoUpdateView(ServicoPermissionMixin, UpdateView):
     model = AgendamentoServico
     form_class = AgendamentoServicoForm
-    template_name = 'servicos/agendamento_form.html'
-    success_url = reverse_lazy('servicos:agendamento_list')
+    template_name = "servicos/agendamento_form.html"
+    success_url = reverse_lazy("servicos:agendamento_list")
 
     def get_form_kwargs(self):
-        kwargs = super().get_form_kwargs()
-        kwargs['empresa'] = self.get_empresa()
-        return kwargs
+        kwargs = super().get_form_kwargs(); kwargs["empresa"] = self.get_empresa(); return kwargs
 
     def form_valid(self, form):
-        messages.success(self.request, "Agendamento atualizado com sucesso.")
-        return super().form_valid(form)
+        response = super().form_valid(form)
+        messages.success(self.request, "Agendamento actualizado com sucesso.")
+        return response
+
 
 class AgendamentoDeleteView(ServicoPermissionMixin, DeleteView):
     model = AgendamentoServico
-    template_name = 'servicos/agendamento_confirm_delete.html'
-    success_url = reverse_lazy('servicos:agendamento_list')
+    template_name = "servicos/agendamento_confirm_delete.html"
+    success_url = reverse_lazy("servicos:agendamento_list")
+
+    def post(self, request, *args, **kwargs):
+        self.object = self.get_object()
+        if self.object.notificacoes.exists():
+            messages.error(request, "Este agendamento tem notificações associadas. Cancele o agendamento ou preserve o histórico; elimine primeiro as notificações se tiver autorização.")
+            return redirect("servicos:agendamento_detail", pk=self.object.pk)
+        try:
+            return super().post(request, *args, **kwargs)
+        except ProtectedError:
+            messages.error(request, "O agendamento está protegido por registos relacionados.")
+            return redirect("servicos:agendamento_detail", pk=self.object.pk)
 
     def form_valid(self, form):
-        messages.success(self.request, f"Agendamento para '{self.object.cliente.nome_completo}' eliminado com sucesso.")
-        return super().form_valid(form)
-
-
-
-from django.contrib.auth.decorators import login_required
-from django.http import JsonResponse
-from django.views.decorators.http import require_http_methods
-from django.db.models import Q
-from .models import AgendamentoServico
-
-@login_required
-@require_http_methods(["GET"])
-def buscar_agendamento_api(request):
-    """
-    API para buscar agendamentos.
-    Suporta filtragem por cliente, serviço ou funcionário.
-    """
-    try:
-        query = request.GET.get('q', '').strip()
-        status = request.GET.get('status', '').strip()
-
-        # Empresa do usuário
-        empresa_atual = getattr(request, 'tenant', None)
-
-        if not empresa_atual or getattr(empresa_atual, 'schema_name', 'public') == 'public':
-            return JsonResponse({
-                'success': False,
-                'message': 'Empresa não encontrada'
-            }, status=400)
-
-        # Query base
-        agendamentos = AgendamentoServico.objects.filter(
-            empresa=empresa_atual
-        ).select_related('cliente', 'servico', 'funcionario')
-
-        # Filtrar por status
-        if status:
-            agendamentos = agendamentos.filter(status=status)
-
-        # Filtrar por pesquisa (cliente, serviço, funcionário)
-        if query:
-            agendamentos = agendamentos.filter(
-                Q(cliente__nome_completo__icontains=query) |
-                Q(servico__nome__icontains=query) |
-                Q(funcionario__nome_completo__icontains=query)
-            )
-
-        # Limitar resultados para performance
-        agendamentos = agendamentos[:100]
-
-        agendamentos_data = [
-            {
-                'id': a.id,
-                'data_hora': a.data_hora.isoformat(),
-                'servico': a.servico.nome if a.servico else '',
-                'cliente': a.cliente.nome_completo if a.cliente else '',
-                'funcionario': a.funcionario.nome_completo if a.funcionario else '',
-                'status': getattr(a, 'status', ''),
-            }
-            for a in agendamentos
-        ]
-
-        return JsonResponse({'success': True, 'agendamentos': agendamentos_data, 'total_encontrados': len(agendamentos_data)})
-
-    except Exception as e:
-        return JsonResponse({'success': False, 'message': f'Erro interno: {str(e)}'}, status=500)
-
-
-
-from django.views.generic import View, DetailView
-from django.shortcuts import get_object_or_404, redirect
-from django.contrib import messages
-from django.core.exceptions import ValidationError
-from .models import Servico, AgendamentoServico
-from .forms import FinalizarServicoForm
+        description = f"{self.object.servico} — {self.object.cliente}"
+        response = super().form_valid(form)
+        messages.success(self.request, f"Agendamento '{description}' eliminado.")
+        return response
 
 
 class AgendamentoDetailView(ServicoPermissionMixin, DetailView):
     model = AgendamentoServico
-    template_name = 'servicos/agendamento_detail.html'
-    context_object_name = 'agendamento'
+    template_name = "servicos/agendamento_detail.html"
+    context_object_name = "agendamento"
+
+    def get_queryset(self):
+        return super().get_queryset().select_related("servico", "cliente", "funcionario")
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        context['title'] = f"Agendamento #{self.object.id}"
-        # Adiciona o formulário para a ação de finalizar
-        context['finalizar_form'] = FinalizarServicoForm()
+        context["finalizar_form"] = FinalizarServicoForm()
         return context
 
-# --- VIEWS DE AÇÃO ---
 
-class IniciarServicoView(LoginRequiredMixin, TenantRequeridoMixin, View):
-    def post(self, request, *args, **kwargs):
-        agendamento = get_object_or_404(AgendamentoServico, pk=kwargs['pk'])
-        
-        # A lógica para criar/obter o Serviço e iniciar
-        servico, created = Servico.objects.get_or_create(
-            agendamento=agendamento,
-            defaults={
-                'empresa': agendamento.empresa,
-                'nome': agendamento.servico.nome,
-                'categoria': agendamento.servico.categoria,
-                'cliente': agendamento.cliente,
-                'funcionario': agendamento.funcionario,
-                'data_agendamento': agendamento.data_hora,
-                'duracao_minutos': agendamento.duracao_minutos,
-                'preco_servico': agendamento.servico.preco_padrao,
-                'usuario_criacao': request.user,
-                'status': 'agendado' # Status inicial no modelo Servico
-            }
-        )
-
+class IniciarServicoView(ServicoPermissionMixin, View):
+    http_method_names = ["post"]
+    def post(self, request, pk, *args, **kwargs):
+        agendamento = get_object_or_404(AgendamentoServico.objects.filter(empresa=self.get_empresa()), pk=pk)
         try:
-            servico.iniciar_servico()
-            agendamento.status = 'em_andamento'
-            agendamento.save()
-            messages.success(request, f"Serviço '{servico.numero_servico}' iniciado com sucesso.")
-        except ValidationError as e:
-            messages.error(request, e.message)
-            
-        return redirect('servicos:agendamento_detail', pk=agendamento.pk)
+            agendamento.iniciar()
+            messages.success(request, f"O serviço '{agendamento.servico.nome}' foi iniciado.")
+        except ValidationError as exc:
+            messages.error(request, "; ".join(exc.messages))
+        return redirect("servicos:agendamento_detail", pk=agendamento.pk)
 
 
-
-class FinalizarServicoView(LoginRequiredMixin, View):
-    def post(self, request, *args, **kwargs):
-        agendamento = get_object_or_404(AgendamentoServico, pk=kwargs['pk'])
-        servico_realizado = getattr(agendamento, 'servico', None)
-
-        if not servico_realizado:
-            messages.error(request, "Não é possível finalizar um serviço que não foi iniciado.")
-            return redirect('servicos:agendamento_detail', pk=agendamento.pk)
-
+class FinalizarServicoView(ServicoPermissionMixin, View):
+    http_method_names = ["post"]
+    def post(self, request, pk, *args, **kwargs):
+        agendamento = get_object_or_404(AgendamentoServico.objects.filter(empresa=self.get_empresa()), pk=pk)
         form = FinalizarServicoForm(request.POST)
-        if form.is_valid():
-            try:
-                servico_realizado.finalizar_servico(
-                    resultado=form.cleaned_data['resultado_servico'],
-                    recomendacoes=form.cleaned_data['recomendacoes']
-                )
-                agendamento.status = 'finalizado'
-                agendamento.save()
-                messages.success(request, "Serviço finalizado com sucesso.")
-            except ValidationError as e:
-                messages.error(request, e.message)
+        if not form.is_valid():
+            messages.error(request, "Preencha o resultado do serviço antes de finalizar.")
         else:
-            messages.error(request, "Formulário inválido. Por favor, preencha os campos necessários.")
-            
-        return redirect('servicos:agendamento_detail', pk=agendamento.pk)
+            try:
+                agendamento.finalizar(form.cleaned_data["resultado_servico"], form.cleaned_data["recomendacoes"])
+                messages.success(request, "Agendamento finalizado com sucesso.")
+            except ValidationError as exc:
+                messages.error(request, "; ".join(exc.messages))
+        return redirect("servicos:agendamento_detail", pk=agendamento.pk)
 
 
+def _api_tenant(request):
+    empresa = empresa_da_requisicao(request)
+    return empresa
 
-
-from django.http import JsonResponse
-from django.contrib.auth.decorators import login_required
-from django.views.decorators.http import require_http_methods
 
 @login_required
-@require_http_methods(["GET"])
+@require_GET
+def buscar_agendamento_api(request):
+    empresa = _api_tenant(request)
+    if empresa is None: return _sem_empresa_json()
+    qs = AgendamentoServico.objects.filter(empresa=empresa).select_related("cliente", "servico", "funcionario")
+    query, status = request.GET.get("q", "").strip(), request.GET.get("status", "").strip()
+    if status in dict(AgendamentoServico.STATUS_CHOICES): qs = qs.filter(status=status)
+    if query: qs = qs.filter(Q(cliente__nome_completo__icontains=query) | Q(servico__nome__icontains=query) | Q(funcionario__nome_completo__icontains=query))
+    results = [{"id": a.pk, "data_hora": a.data_hora.isoformat(), "servico": a.servico.nome, "cliente": getattr(a.cliente, "nome_completo", str(a.cliente)), "funcionario": getattr(a.funcionario, "nome_completo", "") if a.funcionario_id else "", "status": a.status, "status_display": a.get_status_display()} for a in qs.order_by("data_hora")[:100]]
+    return JsonResponse({"success": True, "agendamentos": results, "total_encontrados": len(results)})
+
+
+@login_required
+@require_GET
 def listar_servicos_api(request):
-    """
-    API para listar serviços no PDV
-    """
-    try:
-        # Tenant/empresa atual definido pelo domínio da requisição
-        empresa_atual = getattr(request, 'tenant', None)
+    empresa = _api_tenant(request)
+    if empresa is None: return _sem_empresa_json()
+    qs = Servico.objects.filter(empresa=empresa, ativo=True).select_related("categoria").order_by("nome")[:500]
+    results = [{"id": s.pk, "nome": s.nome, "categoria": str(s.categoria), "categoria_id": s.categoria_id, "preco": float(s.preco_com_desconto), "preco_padrao": float(s.preco_padrao), "desconto_percentual": float(s.desconto_percentual), "iva_percentual": float(s.iva_percentual), "descricao": s.instrucoes_padrao, "disponivel": s.ativo} for s in qs]
+    return JsonResponse({"success": True, "servicos": results, "total_encontrados": len(results)})
 
-        if not empresa_atual or getattr(empresa_atual, 'schema_name', 'public') == 'public':
-            return JsonResponse({
-                'success': False,
-                'message': 'Empresa não encontrada'
-            }, status=400)
-        
-        servicos = Servico.objects.filter(
-            ativo=True
-        ).select_related('categoria')
-        
-        servicos_data = []
-        for servico in servicos:
-            servicos_data.append({
-                'id': servico.id,
-                'nome': servico.nome,
-                'categoria': servico.categoria.nome if servico.categoria else '',
-                'categoria_id': servico.categoria.id if servico.categoria else None,
-                'preco': float(servico.preco_padrao),
-                'descricao': getattr(servico, 'instrucoes_padrao', ''),
-                'disponivel': True  # Serviços geralmente estão sempre disponíveis
-            })
-        
-        return JsonResponse({
-            'success': True,
-            'servicos': servicos_data
-        })
-        
-    except Exception as e:
-        return JsonResponse({
-            'success': False,
-            'message': f'Erro interno: {str(e)}'
-        }, status=500)
-    
-
-from django.contrib.auth.decorators import login_required
-from django.http import JsonResponse
-from django.views.decorators.http import require_http_methods
-from django.db.models import Q
-from .models import Servico
 
 @login_required
-@require_http_methods(["GET"])
+@require_GET
 def buscar_servicos_api(request):
-    """
-    API para buscar serviços da empresa do usuário.
-    Suporta filtragem por categoria e pesquisa por nome.
-    """
-    try:
-        busca = request.GET.get('q', '').strip()
-        categoria_id = request.GET.get('categoria', '').strip()
-        empresa_atual = getattr(request, 'tenant', None)
+    empresa = _api_tenant(request)
+    if empresa is None: return _sem_empresa_json()
+    qs = Servico.objects.filter(empresa=empresa, ativo=True).select_related("categoria")
+    query, categoria = request.GET.get("q", "").strip(), request.GET.get("categoria", "").strip()
+    if query: qs = qs.filter(nome__icontains=query)
+    if categoria and categoria != "todos":
+        if not categoria.isdigit(): return JsonResponse({"success": False, "message": "Categoria inválida."}, status=400)
+        qs = qs.filter(categoria_id=int(categoria))
+    rows = [{"id": s.pk, "nome": s.nome, "categoria": str(s.categoria), "categoria_id": s.categoria_id, "preco_padrao": float(s.preco_padrao), "preco_com_desconto": float(s.preco_com_desconto), "desconto_percentual": float(s.desconto_percentual), "iva_percentual": float(s.iva_percentual)} for s in qs.order_by("nome")[:100]]
+    return JsonResponse({"success": True, "servicos": rows, "total_encontrados": len(rows)})
 
-        if not empresa_atual or getattr(empresa_atual, 'schema_name', 'public') == 'public':
-            return JsonResponse({
-                'success': False,
-                'message': 'Empresa não encontrada'
-            }, status=400)
-        
-        # Query base
-        servicos = Servico.objects.filter(
-            ativo=True
-        ).select_related('categoria')
-
-        # Filtrar por categoria se especificado
-        if categoria_id and categoria_id != 'todos':
-            servicos = servicos.filter(categoria_id=categoria_id)
-
-        # Filtrar por busca se especificado
-        if busca:
-            servicos = servicos.filter(nome__icontains=busca)
-
-        # Limitar resultados
-        servicos = servicos[:100]
-
-        servicos_data = [
-            {
-                'id': s.id,
-                'nome': s.nome,
-                'categoria': s.categoria.nome if s.categoria else '',
-                'categoria_id': s.categoria.id if s.categoria else None,
-                'preco_padrao': float(s.preco_padrao),
-                'desconto_percentual': float(s.desconto_percentual),
-                'iva_percentual': float(getattr(s, 'iva_percentual', 0)),
-            }
-            for s in servicos
-        ]
-
-        return JsonResponse({'success': True, 'servicos': servicos_data, 'total_encontrados': len(servicos_data)})
-
-    except Exception as e:
-        return JsonResponse({'success': False, 'message': f'Erro interno: {str(e)}'}, status=500)
-
-
-
-
-# -----------------------
-# Notificações CRUD
-# -----------------------
-from django.shortcuts import render, get_object_or_404, redirect
-from django.http import JsonResponse
-from django.contrib.auth.decorators import login_required
-from django.views.decorators.http import require_http_methods
-from .models import NotificacaoAgendamento, ConfiguracaoNotificacao
-from .forms import NotificacaoAgendamentoForm, ConfiguracaoNotificacaoForm
-from django.db.models import Q
-
-
-# ------------------------------
-# Notificação de Agendamento
-# ------------------------------
 
 @login_required
 def notificacao_list(request):
-    """Listagem inicial de notificações (com busca AJAX)"""
-    return render(request, 'servicos/notificacao_list.html')
+    empresa = empresa_da_requisicao(request)
+    if empresa is None:
+        messages.error(request, "Empresa activa não encontrada.")
+        return redirect("home")
+    qs = NotificacaoAgendamento.objects.filter(empresa=empresa).select_related("cliente", "agendamento", "agendamento__servico")
+    query, status = request.GET.get("q", "").strip(), request.GET.get("status", "").strip()
+    if query: qs = qs.filter(Q(titulo__icontains=query) | Q(cliente__nome_completo__icontains=query) | Q(mensagem__icontains=query))
+    if status in dict(NotificacaoAgendamento.STATUS_CHOICES): qs = qs.filter(status=status)
+    return render(request, "servicos/notificacao_list.html", {"notificacoes": qs.order_by("-data_agendada_envio")[:100], "status_choices": NotificacaoAgendamento.STATUS_CHOICES, "query": query, "status_filter": status})
 
 
 @login_required
 def notificacao_create(request):
-    """Criar nova notificação"""
-
-    if request.method == 'POST':
-        form = NotificacaoAgendamentoForm(request.POST)
-
-        if form.is_valid():
-            notif = form.save(commit=False)
-
-            # Tenant/empresa atual definido pelo domínio da requisição
-            empresa = getattr(request, 'tenant', None)
-
-            if not empresa or getattr(empresa, 'schema_name', 'public') == 'public':
-                return JsonResponse({
-                    'success': False,
-                    'message': 'Empresa não encontrada'
-                }, status=400)
-
-            notif.empresa = empresa
-            notif.save()
-
-            return redirect('servicos:notificacao_list')
-
-    else:
-        form = NotificacaoAgendamentoForm()
-
-    return render(
-        request,
-        'servicos/notificacao_form.html',
-        {'form': form}
-    )
+    empresa = empresa_da_requisicao(request)
+    if empresa is None: return redirect("home")
+    form = NotificacaoAgendamentoForm(request.POST or None, empresa=empresa)
+    if request.method == "POST" and form.is_valid():
+        notificacao = form.save(commit=False)
+        notificacao.empresa = empresa
+        if notificacao.agendamento.empresa_id != empresa.pk:
+            form.add_error("agendamento", "O agendamento pertence a outra empresa.")
+        else:
+            notificacao.save()
+            messages.success(request, "Notificação criada com sucesso.")
+            return redirect("servicos:notificacao_list")
+    return render(request, "servicos/notificacao_form.html", {"form": form, "titulo": "Criar notificação"})
 
 
 @login_required
 def notificacao_update(request, pk):
-    """Editar notificação existente"""
-    notif = get_object_or_404(NotificacaoAgendamento, pk=pk)
-    if request.method == 'POST':
-        form = NotificacaoAgendamentoForm(request.POST, instance=notif)
-        if form.is_valid():
-            form.save()
-            return redirect('servicos:notificacao_list')
-    else:
-        form = NotificacaoAgendamentoForm(instance=notif)
-    return render(request, 'servicos/notificacao_form.html', {'form': form})
+    empresa = empresa_da_requisicao(request)
+    if empresa is None: return redirect("home")
+    notificacao = get_object_or_404(NotificacaoAgendamento, pk=pk, empresa=empresa)
+    form = NotificacaoAgendamentoForm(request.POST or None, instance=notificacao, empresa=empresa)
+    if request.method == "POST" and form.is_valid():
+        updated = form.save(commit=False); updated.empresa = empresa; updated.save()
+        messages.success(request, "Notificação actualizada com sucesso.")
+        return redirect("servicos:notificacao_list")
+    return render(request, "servicos/notificacao_form.html", {"form": form, "titulo": "Editar notificação", "notificacao": notificacao})
 
 
 @login_required
 def notificacao_delete(request, pk):
-    notificacao = get_object_or_404(NotificacaoAgendamento, pk=pk)
-    
+    empresa = empresa_da_requisicao(request)
+    if empresa is None: return redirect("home")
+    notificacao = get_object_or_404(NotificacaoAgendamento, pk=pk, empresa=empresa)
     if request.method == "POST":
-        notificacao.delete()
-        messages.success(request, "Notificação deletada com sucesso.")
-        return redirect(reverse("servicos:notificacao_list"))
-    
-    # Se quiser uma página de confirmação
+        notificacao.delete(); messages.success(request, "Notificação eliminada com sucesso.")
+        return redirect("servicos:notificacao_list")
     return render(request, "servicos/notificacao_confirm_delete.html", {"notificacao": notificacao})
 
 
 @login_required
-@require_http_methods(["GET"])
+@require_GET
 def buscar_notificacao_api(request):
-    """Busca AJAX para notificações"""
-    busca = request.GET.get('q', '').strip()
-    status_filter = request.GET.get('status', '').strip()
+    empresa = empresa_da_requisicao(request)
+    if empresa is None: return _sem_empresa_json()
+    qs = NotificacaoAgendamento.objects.filter(empresa=empresa).select_related("cliente", "agendamento", "agendamento__servico")
+    query, status = request.GET.get("q", "").strip(), request.GET.get("status", "").strip()
+    if query: qs = qs.filter(Q(titulo__icontains=query) | Q(cliente__nome_completo__icontains=query) | Q(mensagem__icontains=query))
+    if status in dict(NotificacaoAgendamento.STATUS_CHOICES): qs = qs.filter(status=status)
+    rows = [{"id": n.pk, "titulo": n.titulo, "cliente": getattr(n.cliente, "nome_completo", str(n.cliente)), "tipo_notificacao": n.get_tipo_notificacao_display(), "status": n.get_status_display(), "data_agendada_envio": timezone.localtime(n.data_agendada_envio).strftime("%d/%m/%Y %H:%M")} for n in qs.order_by("-data_agendada_envio")[:50]]
+    return JsonResponse({"success": True, "notificacoes": rows, "total": len(rows)})
 
-    empresa_atual = getattr(request, 'tenant', None)
-
-    if not empresa_atual or getattr(empresa_atual, 'schema_name', 'public') == 'public':
-        return JsonResponse({
-            'success': False,
-            'message': 'Empresa não encontrada'
-        }, status=400)
-
-
-    queryset = NotificacaoAgendamento.objects.filter()
-
-    if busca:
-        queryset = queryset.filter(
-            Q(titulo__icontains=busca) |
-            Q(cliente__nome_completo__icontains=busca) |
-            Q(mensagem__icontains=busca)
-        )
-
-    if status_filter:
-        queryset = queryset.filter(status=status_filter)
-
-    queryset = queryset.select_related('cliente', 'agendamento')[:50]
-
-    data = []
-    for n in queryset:
-        data.append({
-            'id': n.id,
-            'titulo': n.titulo,
-            'cliente': n.cliente.nome_completo,
-            'tipo_notificacao': n.get_tipo_notificacao_display(),
-            'status': n.get_status_display(),
-            'data_agendada_envio': n.data_agendada_envio.strftime("%d/%m/%Y %H:%M"),
-        })
-
-    return JsonResponse({'success': True, 'servicos': data, 'total': len(data)})
-
-
-# ------------------------------
-# Configuração de Notificações
-# ------------------------------
 
 @login_required
 def configuracao_notificacao_update(request):
-    """Criar ou editar configuração da empresa"""
-    # Tenant/empresa atual definido pelo domínio da requisição
-    empresa = getattr(request, 'tenant', None)
-
-    if not empresa or getattr(empresa, 'schema_name', 'public') == 'public':
-        return redirect('home')
-    
-    config, _ = ConfiguracaoNotificacao.objects.get_or_create()
-
-    if request.method == 'POST':
-        form = ConfiguracaoNotificacaoForm(request.POST, instance=config)
-        if form.is_valid():
-            form.save()
-            return redirect('servicos:configuracao_update')
-    else:
-        form = ConfiguracaoNotificacaoForm(instance=config)
-
-    return render(request, 'servicos/configuracao_form.html', {'form': form})
-
-
+    empresa = empresa_da_requisicao(request)
+    if empresa is None:
+        messages.error(request, "Empresa activa não encontrada.")
+        return redirect("home")
+    config, _ = ConfiguracaoNotificacao.objects.get_or_create(empresa=empresa)
+    form = ConfiguracaoNotificacaoForm(request.POST or None, instance=config)
+    if request.method == "POST" and form.is_valid():
+        saved = form.save(commit=False); saved.empresa = empresa; saved.save()
+        messages.success(request, "Configurações de notificação guardadas.")
+        return redirect("servicos:config_notificacao")
+    return render(request, "servicos/configuracao_form.html", {"form": form, "config": config})

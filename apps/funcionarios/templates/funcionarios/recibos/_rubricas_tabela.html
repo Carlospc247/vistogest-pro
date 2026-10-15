@@ -1,0 +1,17 @@
+{# recibos/_rubricas_tabela.html #}
+<h2 class="font-semibold mt-5 mb-2">{{ titulo }}</h2>
+<div class="rh-card p-0 overflow-x-auto"><table class="rh-table"><thead><tr><th>Ordem</th><th>Código</th><th>Nome</th><th>Cálculo</th><th>Incidência</th><th>Âmbito</th><th>Estado</th><th></th></tr></thead>
+<tbody data-rub>
+  {% for r in lista %}<tr data-id="{{ r.pk }}">
+    <td class="whitespace-nowrap"><button type="button" onclick="mover(this,-1)" title="Subir">▲</button> <button type="button" onclick="mover(this,1)" title="Descer">▼</button> {{ r.ordem_calculo }}</td>
+    <td>{{ r.codigo }}</td><td>{{ r.nome }}{% if r.eh_sistema %} <span class="rh-badge">sistema</span>{% endif %}{% if r.obrigatoria_por_lei %} <span class="rh-badge rh-warn">obrigatória</span>{% endif %}</td>
+    <td>{{ r.get_metodo_calculo_display }}{% if r.metodo_calculo == 'PERCENTUAL' %} {{ r.percentagem }}%{% elif r.metodo_calculo == 'VALOR_FIXO' %} {{ r.valor_fixo|floatformat:"2g" }}{% endif %}</td>
+    <td class="text-xs">{% if r.sujeita_irt %}IRT{% endif %} {% if r.sujeita_inss %}INSS{% endif %} {% if r.integra_iliquido %}ilíq.{% endif %}</td>
+    <td>{{ r.get_ambito_display }}</td>
+    <td>{% if r.ativa %}<span class="rh-badge rh-ok">Activa</span>{% else %}<span class="rh-badge">Inactiva</span>{% endif %}</td>
+    <td class="text-right whitespace-nowrap">
+      <a class="text-indigo-600 mr-2" href="{% url 'funcionarios:rubrica_editar' pk=r.pk %}">Editar</a>
+      {% if not r.eh_sistema and not r.obrigatoria_por_lei %}<a class="text-red-600" href="{% url 'funcionarios:rubrica_eliminar' pk=r.pk %}" onclick="return confirm('Tem a certeza que deseja eliminar esta rubrica?')">Eliminar</a>{% endif %}
+    </td></tr>
+  {% empty %}<tr><td colspan="8" class="text-center py-6 rh-muted">Nenhuma rubrica.</td></tr>{% endfor %}</tbody></table></div>
+</tbody>

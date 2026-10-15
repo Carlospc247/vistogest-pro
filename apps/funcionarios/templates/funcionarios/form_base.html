@@ -1,0 +1,30 @@
+{% extends "funcionarios/_rh_base.html" %}
+{% block title %}Recursos Humanos{% endblock %}
+{% block rh_content %}
+<div class="max-w-4xl mx-auto">
+  <h1 class="text-2xl font-bold text-gray-800 mb-4">{% block form_titulo %}Formulário{% endblock %}</h1>
+  <form method="post" enctype="multipart/form-data" class="rh-card space-y-5">
+    {% csrf_token %}
+    {% if form.non_field_errors %}<div class="p-3 rounded bg-red-50 text-red-700 text-sm">{{ form.non_field_errors }}</div>{% endif %}
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
+      {% for field in form.visible_fields %}
+      <div class="rh-campo {% if field.widget_type == 'textarea' %}md:col-span-2{% endif %}">
+        {% if field.widget_type == 'checkbox' %}
+          <label class="inline-flex items-center gap-2 text-sm text-gray-700">{{ field }} {{ field.label }}</label>
+        {% else %}
+          <label for="{{ field.id_for_label }}" class="block text-sm font-medium text-gray-700 mb-1">{{ field.label }}{% if field.field.required %} <span class="text-red-500">*</span>{% endif %}</label>
+          {{ field }}
+        {% endif %}
+        {% if field.help_text %}<p class="text-xs rh-muted mt-1">{{ field.help_text }}</p>{% endif %}
+        {% for e in field.errors %}<p class="text-xs text-red-600 mt-1">{{ e }}</p>{% endfor %}
+      </div>
+      {% endfor %}
+    </div>
+    {% for h in form.hidden_fields %}{{ h }}{% endfor %}
+    <div class="flex justify-end gap-3 pt-4 border-t border-gray-100">
+      <a href="javascript:history.back()" class="rh-btn">Cancelar</a>
+      <button type="submit" class="rh-btn rh-btn-p"><i class="fas fa-save mr-1"></i> Guardar</button>
+    </div>
+  </form>
+</div>
+{% endblock %}

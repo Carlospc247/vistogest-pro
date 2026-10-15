@@ -1,4 +1,4 @@
-# apps/fiscal/services/saft_mapping.py (novo ficheiro)
+# apps/fiscal/services/saft_mapping.py
 """
 Tradução entre o código interno de retenção (9 códigos, Decreto Executivo
 683/25, usado na API de facturação electrónica) e o código aceite pelo

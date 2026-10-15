@@ -1,26 +1,6 @@
-<!-- templates/financeiro/movimentacao/detail.html -->
-{% extends 'base.html' %}
-{% load static %}
-
-{% block title %}Detalhes da Movimentação{% endblock %}
-{% block page_title %}Detalhes da Movimentação Financeira{% endblock %}
-
-{% block content %}
-<div class="bg-white dark:bg-gray-800 shadow rounded-lg p-6">
-    <h1 class="text-2xl font-bold text-gray-900 dark:text-white mb-4">
-        Detalhes da Movimentação
-    </h1>
-
-    <p><strong>Data:</strong> {{ movimentacao.data_movimentacao|date:"d/m/Y" }}</p>
-    <p><strong>Descrição:</strong> {{ movimentacao.descricao }}</p>
-    <p><strong>Tipo:</strong> {{ movimentacao.tipo_movimentacao }}</p>
-    <p><strong>Valor:</strong> {{ movimentacao.valor|floatformat:2 }} Kz</p>
-
-    <div class="mt-6">
-        <form method="POST" action="{% url 'financeiro:estornar_movimentacao' movimentacao.id %}">
-            {% csrf_token %}
-            <button type="submit" class="bg-red-500 text-white px-4 py-2 rounded-lg">Estornar</button>
-        </form>
-    </div>
-</div>
+{% extends "financeiro/base_financeiro.html" %}{% block title %}Detalhes da movimentação{% endblock %}{% block breadcrumb %}Detalhes da movimentação{% endblock %}{% block content %}
+<header class="page-head"><div><h1>Detalhes da movimentação</h1><p>Dados do lançamento, estado de confirmação e auditoria.</p></div>{% block page_actions %}{% endblock %}</header>
+<section class="panel"><div class="page-head"><div><h2>{{ movimentacao.descricao }}</h2><p>{{ movimentacao.numero_documento|default:'Sem número de documento' }}</p></div><div class="actions"><a class="btn secondary" href="{% url 'financeiro:movimentacao_lista' %}">Voltar à lista</a>{% if not movimentacao.confirmada %}<a class="btn" href="{% url 'financeiro:movimentacao_update' movimentacao.pk %}">Editar</a>{% endif %}</div></div>
+<div class="detail-list"><div class="detail-item"><div class="k">Tipo de movimento</div><div class="v">{{ movimentacao.get_tipo_movimentacao_display }}</div></div><div class="detail-item"><div class="k">Estado</div><div class="v">{{ movimentacao.get_status_display }}</div></div><div class="detail-item"><div class="k">Data</div><div class="v">{{ movimentacao.data_movimentacao|date:'d/m/Y' }}</div></div><div class="detail-item"><div class="k">Valor</div><div class="v">{{ movimentacao.valor|floatformat:2 }} AOA</div></div><div class="detail-item"><div class="k">Conta bancária</div><div class="v">{{ movimentacao.conta_bancaria }}</div></div><div class="detail-item"><div class="k">Conta de destino</div><div class="v">{{ movimentacao.conta_destino|default:'—' }}</div></div><div class="detail-item"><div class="k">Categoria</div><div class="v">{{ movimentacao.categoria|default:'—' }}</div></div><div class="detail-item"><div class="k">Responsável</div><div class="v">{{ movimentacao.usuario_responsavel }}</div></div><div class="detail-item"><div class="k">Juros / multa / desconto</div><div class="v">{{ movimentacao.valor_juros|floatformat:2 }} / {{ movimentacao.valor_multa|floatformat:2 }} / {{ movimentacao.valor_desconto|floatformat:2 }} AOA</div></div><div class="detail-item"><div class="k">Total calculado</div><div class="v">{{ movimentacao.total|floatformat:2 }} AOA</div></div></div>{% if movimentacao.observacoes %}<h2 style="margin-top:18px">Observações</h2><p>{{ movimentacao.observacoes|linebreaksbr }}</p>{% endif %}
+<div class="form-actions">{% if not movimentacao.confirmada and movimentacao.status == 'pendente' %}<form method="post" action="{% url 'financeiro:movimentacao_confirmar' movimentacao.pk %}">{% csrf_token %}<button class="btn success" type="submit">Confirmar movimentação</button></form>{% endif %}{% if movimentacao.confirmada and movimentacao.status != 'estornada' %}<form method="post" action="{% url 'financeiro:movimentacao_estornar' movimentacao.pk %}">{% csrf_token %}<label for="motivo">Motivo do estorno</label><input id="motivo" name="motivo" placeholder="Indique o motivo" required><button class="btn danger" type="submit">Estornar</button></form>{% endif %}</div></section>
 {% endblock %}

@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}Contratos{% endblock %}
+{% block content %}
+<div class="container mx-auto px-4 py-8 max-w-6xl">
+  <div class="flex justify-between items-center mb-4">
+    <h1 class="text-2xl font-bold text-gray-800">Contratos de Fornecedores</h1>
+    <a href="{% url 'fornecedores:contrato_create' %}" class="px-4 py-2 rounded-md bg-indigo-600 text-white"><i class="fas fa-plus mr-1"></i> Novo contrato</a>
+  </div>
+  <div class="bg-white rounded-xl border border-gray-100 shadow-sm overflow-x-auto">
+    <table class="w-full text-sm">
+      <thead class="bg-gray-50 text-left text-gray-500"><tr><th class="p-3">Título</th><th>Fornecedor</th><th>Início</th><th>Fim</th><th>Estado</th><th class="text-right pr-3">Valor</th></tr></thead>
+      <tbody>
+      {% for c in contratos %}
+        <tr class="border-t hover:bg-gray-50">
+          <td class="p-3"><a class="text-indigo-600 hover:underline" href="{% url 'fornecedores:contrato_detail' pk=c.pk %}">{{ c.titulo }}</a></td>
+          <td>{{ c.fornecedor.nome_exibicao }}</td><td>{{ c.data_inicio|date:"d/m/Y" }}</td><td>{{ c.data_fim|date:"d/m/Y" }}</td>
+          <td>{% if c.esta_ativo %}<span class="px-2 py-0.5 rounded-full text-xs bg-green-100 text-green-800">Vigente</span>{% else %}<span class="px-2 py-0.5 rounded-full text-xs bg-gray-200">Encerrado</span>{% endif %}</td>
+          <td class="text-right pr-3">{{ c.total|floatformat:2 }} Kz</td></tr>
+      {% empty %}<tr><td colspan="6" class="p-6 text-center text-gray-500">Nenhum contrato.</td></tr>{% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

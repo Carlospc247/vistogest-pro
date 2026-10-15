@@ -16,13 +16,30 @@ urlpatterns = [
     # =====================================
     # DASHBOARD PRINCIPAL
     # =====================================
-    path('', views.AnalyticsDashboardView.as_view(), name='dashboard'),
+    #### NOVO
+    path("", views.AnalyticsDashboardView.as_view(), name="dashboard"),
+    path("eventos/", views.EventoAnalyticsListView.as_view(), name="eventos"),
+    path("auditoria/alteracoes/", views.AuditoriaAlteracaoListView.as_view(), name="auditoria-alteracoes"),
+    path("auditoria/operacional/", views.RegistroAuditoriaOperacionalListView.as_view(), name="auditoria-operacional"),
+    path("alertas/", views.AlertaInteligenteListView.as_view(), name="alertas"),
+    path("alertas/<int:pk>/atualizar/", views.AlertaInteligenteAtualizarView.as_view(), name="alerta-atualizar"),
+    path("notificacoes/", views.NotificacaoAlertaListView.as_view(), name="notificacoes"),
+    path("notificacoes/<int:pk>/lida/", views.NotificacaoAlertaMarcarLidaView.as_view(), name="notificacao-lida"),
+    path("dashboards/", views.DashboardPersonalizadoListView.as_view(), name="dashboards"),
+    path("dashboards/novo/", views.DashboardPersonalizadoCreateView.as_view(), name="dashboard-criar"),
+    path("dashboards/<int:pk>/editar/", views.DashboardPersonalizadoUpdateView.as_view(), name="dashboard-editar"),
+    path("dashboards/<int:pk>/eliminar/", views.DashboardPersonalizadoDeleteView.as_view(), name="dashboard-eliminar"),
+    path("auditoria/investimentos/", views.AuditoriaInvestimentoListView.as_view(), name="auditoria-investimentos"),
+    path("auditoria/investimentos/novo/", views.AuditoriaInvestimentoCreateView.as_view(), name="auditoria-investimento-criar"),
+    path("auditoria/investimentos/<int:pk>/editar/", views.AuditoriaInvestimentoUpdateView.as_view(), name="auditoria-investimento-editar"),
+    path("auditoria/investimentos/<int:pk>/eliminar/", views.AuditoriaInvestimentoDeleteView.as_view(), name="auditoria-investimento-eliminar"),
+    path("api/resumo/", views.AnalyticsResumoAPIView.as_view(), name="api-resumo"),
+    #### NOVO
     path('overview/', views.AnalyticsOverviewView.as_view(), name='overview'),
     
     # =====================================
     # EVENTOS ANALYTICS
     # =====================================
-    path('eventos/', views.EventoAnalyticsListView.as_view(), name='eventos_lista'),
     path('eventos/tempo-real/', views.EventosTempoRealView.as_view(), name='eventos_tempo_real'),
     path('eventos/categoria/<str:categoria>/', views.EventosPorCategoriaView.as_view(), name='eventos_categoria'),
     path('eventos/usuario/<int:usuario_id>/', views.EventosPorUsuarioView.as_view(), name='eventos_usuario'),

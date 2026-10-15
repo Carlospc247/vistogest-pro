@@ -1,0 +1,229 @@
+{% load humanize %}
+{% load static %}
+<!DOCTYPE html>
+<html lang="pt-ao">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Relatório de Fechamento de Turno</title>
+    <style>
+        @page {
+            size: A4;
+            margin: 2cm;
+        }
+
+        body {
+            font-family: 'Helvetica', 'Arial', sans-serif;
+            font-size: 12px;
+            color: #333;
+            line-height: 1.5;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+            border-bottom: 2px solid #eee;
+            padding-bottom: 20px;
+        }
+
+        .header h1 {
+            font-size: 24px;
+            margin: 0 0 10px 0;
+            color: #2c3e50;
+        }
+
+        .header p {
+            margin: 0;
+            color: #7f8c8d;
+        }
+
+        .section {
+            margin-bottom: 30px;
+        }
+
+        .section-title {
+            font-size: 16px;
+            font-weight: bold;
+            color: #2c3e50;
+            border-bottom: 1px solid #eee;
+            padding-bottom: 10px;
+            margin-bottom: 15px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 20px;
+        }
+
+        th,
+        td {
+            padding: 10px;
+            border-bottom: 1px solid #eee;
+            text-align: left;
+        }
+
+        th {
+            background-color: #f9f9f9;
+            font-weight: bold;
+            color: #2c3e50;
+        }
+
+        .text-right {
+            text-align: right;
+        }
+
+        .text-center {
+            text-align: center;
+        }
+
+        .total-row td {
+            font-weight: bold;
+            background-color: #f9f9f9;
+            border-top: 2px solid #ddd;
+        }
+
+        .diff-positive {
+            color: #27ae60;
+        }
+
+        .diff-negative {
+            color: #c0392b;
+        }
+
+        .footer {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            text-align: center;
+            font-size: 10px;
+            color: #95a5a6;
+            border-top: 1px solid #eee;
+            padding-top: 10px;
+        }
+
+        .signature-box {
+            margin-top: 50px;
+            display: flex;
+            justify-content: space-between;
+        }
+
+        .signature-line {
+            width: 40%;
+            border-top: 1px solid #333;
+            text-align: center;
+            padding-top: 10px;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="header">
+        <h1>Relatório de Fechamento de Turno</h1>
+        <p>Gerado em: {% now "d/m/Y H:i" %}</p>
+        <p>Funcionário: <strong>{{ fechamento.funcionario.nome_completo }}</strong></p>
+        <p>Data do Fechamento: {{ fechamento.data_fechamento|date:"d/m/Y H:i" }}</p>
+    </div>
+
+    <div class="section">
+        <div class="section-title">Conferência de Valores</div>
+        <table>
+            <thead>
+                <tr>
+                    <th>Forma de Pagamento</th>
+                    <th class="text-right">Valor Sistema (Kz)</th>
+                    <th class="text-right">Valor Informado (Kz)</th>
+                    <th class="text-right">Diferença (Kz)</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>Dinheiro (Caixa)</td>
+                    <td class="text-right">{{ fechamento.valor_sistema_caixa|floatformat:2|intcomma }}</td>
+                    <td class="text-right">{{ fechamento.valor_informado_caixa|floatformat:2|intcomma }}</td>
+                    <td
+                        class="text-right {% if fechamento.diferenca_caixa < 0 %}diff-negative{% elif fechamento.diferenca_caixa > 0 %}diff-positive{% endif %}">
+                        {{ fechamento.diferenca_caixa|floatformat:2|intcomma }}
+                    </td>
+                </tr>
+                <tr>
+                    <td>TPA (Multicaixa)</td>
+                    <td class="text-right">{{ fechamento.valor_sistema_tpa|floatformat:2|intcomma }}</td>
+                    <td class="text-right">{{ fechamento.valor_informado_tpa|floatformat:2|intcomma }}</td>
+                    <td
+                        class="text-right {% if fechamento.diferenca_tpa < 0 %}diff-negative{% elif fechamento.diferenca_tpa > 0 %}diff-positive{% endif %}">
+                        {{ fechamento.diferenca_tpa|floatformat:2|intcomma }}
+                    </td>
+                </tr>
+                <tr>
+                    <td>Transferência</td>
+                    <td class="text-right">{{ fechamento.valor_sistema_transferencia|floatformat:2|intcomma }}</td>
+                    <td class="text-right">{{ fechamento.valor_informado_transferencia|floatformat:2|intcomma }}</td>
+                    <td
+                        class="text-right {% if fechamento.diferenca_transferencia < 0 %}diff-negative{% elif fechamento.diferenca_transferencia > 0 %}diff-positive{% endif %}">
+                        {{ fechamento.diferenca_transferencia|floatformat:2|intcomma }}
+                    </td>
+                </tr>
+                <tr class="total-row">
+                    <td>TOTAL GERAL</td>
+                    <td class="text-right">{{ fechamento.total_sistema|floatformat:2|intcomma }}</td>
+                    <td class="text-right">{{ fechamento.total_informado|floatformat:2|intcomma }}</td>
+                    <td
+                        class="text-right {% if fechamento.diferenca_total < 0 %}diff-negative{% elif fechamento.diferenca_total > 0 %}diff-positive{% endif %}">
+                        {{ fechamento.diferenca_total|floatformat:2|intcomma }}
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+
+        {% if fechamento.observacoes %}
+        <div style="background-color: #fff3cd; padding: 10px; border: 1px solid #ffeeba; border-radius: 4px;">
+            <strong>Observações:</strong> {{ fechamento.observacoes }}
+        </div>
+        {% endif %}
+    </div>
+
+    <div class="section">
+        <div class="section-title">Detalhamento de Vendas</div>
+        <table>
+            <thead>
+                <tr>
+                    <th>Hora</th>
+                    <th>Nº Venda</th>
+                    <th>Cliente</th>
+                    <th class="text-right">Total (Kz)</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for venda in vendas %}
+                <tr>
+                    <td>{{ venda.data_venda|date:"H:i" }}</td>
+                    <td>#{{ venda.numero_venda }}</td>
+                    <td>{{ venda.cliente.nome_exibicao|default:"Consumidor Final" }}</td>
+                    <td class="text-right">{{ venda.total|floatformat:2|intcomma }}</td>
+                </tr>
+                {% empty %}
+                <tr>
+                    <td colspan="4" class="text-center">Nenhuma venda registrada neste turno.</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <div class="signature-box">
+        <div class="signature-line">
+            Assinatura do Funcionário
+        </div>
+        <div class="signature-line">
+            Assinatura do Supervisor
+        </div>
+    </div>
+
+    <div class="footer">
+        VistoGEST - Sistema de Gestão | Página <span class="pageNumber"></span>
+    </div>
+</body>
+
+</html>

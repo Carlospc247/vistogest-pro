@@ -1,0 +1,20 @@
+{% extends "funcionarios/_rh_base.html" %}
+{% block title %}Rubricas{% endblock %}
+{% block rh_content %}
+{% include "recibos/nav.html" %}
+<div class="flex justify-between items-center mb-4"><h1 class="text-2xl font-bold">Rubricas</h1>
+  <a class="rh-btn rh-btn-p" href="{% url 'funcionarios:rubrica_nova' %}"><i class="fas fa-plus mr-1"></i> Nova rubrica</a></div>
+<p class="text-sm rh-muted mb-3">Use as setas para alterar a ordem de cálculo. As rubricas de sistema (salário-base, INSS e IRT) e as legalmente obrigatórias não podem ser desactivadas.</p>
+{% include "recibos/_rubricas_tabela.html" with titulo="Remunerações e abonos" lista=remuneracoes %}
+{% include "recibos/_rubricas_tabela.html" with titulo="Descontos e deduções" lista=descontos %}
+{% include "recibos/_rubricas_tabela.html" with titulo="Encargos da entidade empregadora" lista=encargos %}
+<script>
+const csrf = '{{ csrf_token }}';
+function mover(btn, d) {
+  const tr = btn.closest('tr'), tb = tr.parentElement, alvo = d < 0 ? tr.previousElementSibling : tr.nextElementSibling;
+  if (!alvo) return; d < 0 ? tb.insertBefore(tr, alvo) : tb.insertBefore(alvo, tr);
+  const ids = [...document.querySelectorAll('tbody[data-rub] tr')].map(r => r.dataset.id);
+  fetch("{% url 'funcionarios:rubrica_ordem' %}", {method:'POST', headers:{'X-CSRFToken':csrf,'Content-Type':'application/json'}, body: JSON.stringify({ids})});
+}
+</script>
+{% endblock %}

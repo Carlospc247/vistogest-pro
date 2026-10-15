@@ -1,0 +1,10 @@
+{# avaliacoes/lista.html #}
+{% extends "funcionarios/_rh_base.html" %}
+{% block title %}Avaliações de desempenho{% endblock %}
+{% block rh_content %}
+<h1 class="text-2xl font-bold mb-4">Avaliações de desempenho</h1>
+<div class="rh-card p-0 overflow-x-auto"><table class="rh-table"><thead><tr><th>Funcionário</th><th>Tipo</th><th>Data</th><th>Avaliador</th><th class="text-right">Nota</th></tr></thead><tbody>
+  {% for a in avaliacoes %}<tr><td><a class="text-indigo-600" href="{% url 'funcionarios:funcionario_avaliacoes' pk=a.funcionario_id %}">{{ a.funcionario.nome_completo }}</a></td><td>{{ a.get_tipo_avaliacao_display }}</td>
+    <td>{{ a.data_avaliacao|date:"d/m/Y" }}</td><td>{{ a.avaliador.nome_completo }}</td><td class="text-right font-semibold">{{ a.nota_geral|floatformat:2 }}</td></tr>
+  {% empty %}<tr><td colspan="5" class="text-center py-6 rh-muted">Sem avaliações.</td></tr>{% endfor %}</tbody></table></div>
+{% endblock %}

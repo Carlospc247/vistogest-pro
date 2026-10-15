@@ -729,3 +729,213 @@ class PDFDocumentoService:
         p.save()
         self.buffer.seek(0)
         return self.buffer
+
+########
+# Recibos de vencimento/Salário — PDF para entrega ao colaborador/funcionário
+########
+# ─────────────────────────────────────────────────────────────────────────────
+# PDFReciboVencimentoService — Recibo de Vencimento (documento laboral, não fiscal AGT)
+# ─────────────────────────────────────────────────────────────────────────────
+from xml.sax.saxutils import escape as _esc
+
+from reportlab.platypus import (
+    HRFlowable, Image as RLImage, KeepTogether, Paragraph, SimpleDocTemplate, Spacer,
+    Table as RLTable, TableStyle as RLTableStyle,
+)
+
+
+def _fmt_valor(v, casas: int = 2) -> str:
+    """Formato 1.234.567,89 com arredondamento meio-para-cima (igual ao motor salarial)."""
+    d = Decimal(str(v or 0)).quantize(Decimal(1).scaleb(-casas), rounding=ROUND_HALF_UP)
+    return f"{d:,.{casas}f}".replace(',', 'X').replace('.', ',').replace('X', '.')
+
+
+class PDFReciboVencimentoService:
+    """Gera o PDF do recibo (A4). Adapta-se ao nº de rubricas (quebra de página automática)."""
+    ESTADO_MARCA = {'ANULADO': 'ANULADO', 'RETIFICADO': 'RETIFICADO', 'RASCUNHO': 'RASCUNHO', 'CALCULADO': 'NÃO EMITIDO'}
+
+    def __init__(self, recibo, mostrar_iban_completo: bool = False, configuracao=None):
+        self.r = recibo
+        self.cfg = configuracao
+        self.iban = recibo.func_iban if mostrar_iban_completo else recibo.func_iban_mascarado
+        base = getSampleStyleSheet()['Normal']
+        self.s = ParagraphStyle('rv', parent=base, fontName='Helvetica', fontSize=7.5, leading=9.5)
+        self.sb = ParagraphStyle('rvb', parent=self.s, fontName='Helvetica-Bold')
+        self.sr = ParagraphStyle('rvr', parent=self.s, alignment=TA_RIGHT)
+        self.sh = ParagraphStyle('rvh', parent=self.sb, textColor=colors.white, fontSize=7)
+        self.shr = ParagraphStyle('rvhr', parent=self.sh, alignment=TA_RIGHT)
+
+    # ── helpers ─────────────────────────────────────────────────────────────
+    def _p(self, txt, estilo=None):
+        return Paragraph(_esc(str(txt if txt not in (None, '') else '—')), estilo or self.s)
+
+    def _logo(self):
+        foto = getattr(connection.tenant, 'foto', None)
+        if not foto:
+            return None
+        try:
+            r = requests.get(foto.url, timeout=5)
+            img = RLImage(io.BytesIO(r.content))
+            img._restrictSize(3.2 * cm, 2.2 * cm)
+            return img
+        except Exception as exc:
+            logger.warning("Logo da empresa indisponível no recibo: %s", exc)
+            return None
+
+    def _estilo_tabela(self, n_cols_dir):
+        return RLTableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), COR_PRIMARIA), ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('GRID', (0, 0), (-1, -1), 0.3, COR_BORDA), ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, COR_CINZA_LINHA]),
+            ('TOPPADDING', (0, 0), (-1, -1), 2.5), ('BOTTOMPADDING', (0, 0), (-1, -1), 2.5),
+            ('LEFTPADDING', (0, 0), (-1, -1), 3), ('RIGHTPADDING', (0, 0), (-1, -1), 3),
+        ])
+
+    # ── blocos ──────────────────────────────────────────────────────────────
+    def _cabecalho(self):
+        r = self.r
+        emp = [self._p(r.empresa_nome, ParagraphStyle('e', parent=self.sb, fontSize=11, leading=13)),
+               self._p(f"NIF: {r.empresa_nif}" + (f"  |  INSS n.º {r.empresa_inss}" if r.empresa_inss else '')),
+               self._p(r.empresa_endereco), self._p(r.empresa_contactos)]
+        esq = [[self._logo() or '', emp]]
+        t_esq = RLTable(esq, colWidths=[3.4 * cm, 7.1 * cm])
+        t_esq.setStyle(RLTableStyle([('VALIGN', (0, 0), (-1, -1), 'TOP'), ('LEFTPADDING', (0, 0), (-1, -1), 0)]))
+        tit = ParagraphStyle('t', parent=self.sb, fontSize=13, leading=15, textColor=colors.white, alignment=TA_CENTER)
+        sub = ParagraphStyle('t2', parent=self.s, textColor=colors.white, alignment=TA_CENTER, fontSize=8)
+        dir_ = RLTable([[Paragraph("RECIBO DE VENCIMENTO", tit)], [Paragraph(_esc(r.numero), ParagraphStyle('n', parent=sub, fontName='Helvetica-Bold', fontSize=9))],
+                        [Paragraph(f"Período: {r.periodo}", sub)]], colWidths=[7.3 * cm])
+        dir_.setStyle(RLTableStyle([('BACKGROUND', (0, 0), (-1, -1), COR_PRIMARIA), ('TOPPADDING', (0, 0), (-1, -1), 3),
+                                    ('BOTTOMPADDING', (0, 0), (-1, -1), 3)]))
+        topo = RLTable([[t_esq, dir_]], colWidths=[10.7 * cm, 7.3 * cm])
+        topo.setStyle(RLTableStyle([('VALIGN', (0, 0), (-1, -1), 'TOP'), ('LEFTPADDING', (0, 0), (-1, -1), 0), ('RIGHTPADDING', (0, 0), (-1, -1), 0)]))
+        emissao = r.data_emissao.strftime('%d/%m/%Y') if r.data_emissao else '—'
+        pag = r.data_pagamento.strftime('%d/%m/%Y') if r.data_pagamento else '—'
+        proc = r.processamento.get_estado_display() if getattr(r, 'processamento_id', None) else '—'
+        meta = RLTable([[self._p(f"Data de emissão: {emissao}"), self._p(f"Data de pagamento: {pag}"),
+                         self._p(f"Moeda: {r.moeda}"), self._p(f"Estado: {r.get_estado_display()}  |  Processamento: {proc}")]],
+                       colWidths=[3.8 * cm, 4 * cm, 2.4 * cm, 7.8 * cm])
+        meta.setStyle(RLTableStyle([('BOX', (0, 0), (-1, -1), 0.3, COR_BORDA), ('BACKGROUND', (0, 0), (-1, -1), COR_CINZA_CABEC)]))
+        return [topo, Spacer(1, 0.25 * cm), meta, Spacer(1, 0.3 * cm)]
+
+    def _funcionario(self):
+        r = self.r
+        adm = r.func_data_admissao.strftime('%d/%m/%Y') if r.func_data_admissao else '—'
+        def par(rotulo, valor):
+            return [self._p(rotulo, self.sb), self._p(valor)]
+        linhas = [
+            par("Nome", r.func_nome) + par("N.º interno", r.func_matricula),
+            par("NIF", r.func_nif) + par("N.º INSS", r.func_inss),
+            par("Cargo / função", r.func_cargo) + par("Categoria", r.func_categoria),
+            par("Departamento", r.func_departamento) + par("Unidade", r.func_unidade),
+            par("Tipo de contrato", r.func_tipo_contrato) + par("Admissão", adm),
+            par("IBAN / conta", self.iban) + par("Período salarial", r.periodo),
+        ]
+        t = RLTable(linhas, colWidths=[2.6 * cm, 6.4 * cm, 2.6 * cm, 6.4 * cm])
+        t.setStyle(RLTableStyle([('BOX', (0, 0), (-1, -1), 0.3, COR_BORDA), ('INNERGRID', (0, 0), (-1, -1), 0.2, COR_BORDA),
+                                 ('TOPPADDING', (0, 0), (-1, -1), 2), ('BOTTOMPADDING', (0, 0), (-1, -1), 2)]))
+        return [Paragraph("Identificação do funcionário", ParagraphStyle('h', parent=self.sb, fontSize=8.5, spaceAfter=2)), t, Spacer(1, 0.3 * cm)]
+
+    def _linhas(self, tipo):
+        return [l for l in self.r.linhas.all().order_by('ordem', 'id') if l.tipo == tipo]
+
+    def _tab_remuneracoes(self):
+        cab = [Paragraph(x, self.sh) for x in ("Cód.", "Designação", "Qtd.")] + \
+              [Paragraph(x, self.shr) for x in ("Base", "%", "V. calculado", "V. final")]
+        dados = [cab]
+        for l in self._linhas('REMUNERACAO'):
+            dados.append([self._p(l.codigo), self._p(l.designacao), self._p(_fmt_valor(l.quantidade) if l.quantidade is not None else ''),
+                          self._p(_fmt_valor(l.base_calculo) if l.base_calculo else '', self.sr),
+                          self._p(_fmt_valor(l.taxa) if l.taxa is not None else '', self.sr),
+                          self._p(_fmt_valor(l.valor_calculado), self.sr), self._p(_fmt_valor(l.valor_final), self.sb if False else self.sr)])
+        t = RLTable(dados, colWidths=[1.6 * cm, 5.4 * cm, 1.6 * cm, 2.6 * cm, 1.6 * cm, 2.6 * cm, 2.6 * cm], repeatRows=1)
+        t.setStyle(self._estilo_tabela(4))
+        return [Paragraph("Remunerações e abonos", ParagraphStyle('h', parent=self.sb, fontSize=8.5, spaceAfter=2)), t, Spacer(1, 0.3 * cm)]
+
+    def _tab_descontos(self):
+        cab = [Paragraph(x, self.sh) for x in ("Cód.", "Designação")] + \
+              [Paragraph(x, self.shr) for x in ("Base", "%", "V. calculado", "V. final")] + [Paragraph("Observação", self.sh)]
+        dados = [cab]
+        for l in self._linhas('DESCONTO'):
+            dados.append([self._p(l.codigo), self._p(l.designacao), self._p(_fmt_valor(l.base_calculo) if l.base_calculo else '', self.sr),
+                          self._p(_fmt_valor(l.taxa) if l.taxa is not None else '', self.sr),
+                          self._p(_fmt_valor(l.valor_calculado), self.sr), self._p(_fmt_valor(l.valor_final), self.sr),
+                          self._p(l.observacao, ParagraphStyle('o', parent=self.s, fontSize=6.5, leading=8))])
+        if len(dados) == 1:
+            dados.append([self._p('—')] * 7)
+        t = RLTable(dados, colWidths=[1.6 * cm, 4.2 * cm, 2.3 * cm, 1.4 * cm, 2.3 * cm, 2.3 * cm, 3.9 * cm], repeatRows=1)
+        t.setStyle(self._estilo_tabela(4))
+        return [Paragraph("Descontos e deduções", ParagraphStyle('h', parent=self.sb, fontSize=8.5, spaceAfter=2)), t, Spacer(1, 0.3 * cm)]
+
+    def _resumo(self):
+        r = self.r
+        linhas = [["Salário-base", _fmt_valor(r.salario_base)],
+                  ["Total de remunerações adicionais", _fmt_valor(r.total_remuneracoes_adicionais)],
+                  ["Salário ilíquido", _fmt_valor(r.salario_iliquido)],
+                  ["Total de descontos", _fmt_valor(r.total_descontos)],
+                  [f"SALÁRIO LÍQUIDO A RECEBER ({r.moeda})", _fmt_valor(r.salario_liquido)]]
+        t = RLTable([[self._p(a, self.sb if i in (2, 4) else self.s), self._p(b, self.sr if i != 4 else ParagraphStyle('l', parent=self.sr, fontName='Helvetica-Bold', fontSize=10, leading=12, textColor=colors.white))]
+                     for i, (a, b) in enumerate(linhas)], colWidths=[11 * cm, 5 * cm], hAlign='RIGHT')
+        t.setStyle(RLTableStyle([('GRID', (0, 0), (-1, -1), 0.3, COR_BORDA), ('BACKGROUND', (0, 2), (-1, 2), COR_CINZA_CABEC),
+                                 ('BACKGROUND', (0, 4), (-1, 4), COR_PRIMARIA), ('TOPPADDING', (0, 0), (-1, -1), 3), ('BOTTOMPADDING', (0, 0), (-1, -1), 3)]))
+        t.setStyle(RLTableStyle([('TEXTCOLOR', (0, 4), (0, 4), colors.white)]))
+        out = [t]
+        enc = self._linhas('ENCARGO')
+        if enc:
+            nota = " | ".join(f"{l.designacao}: {_fmt_valor(l.valor_final)}" for l in enc)
+            out += [Spacer(1, 0.15 * cm), Paragraph(_esc(f"Encargos da entidade empregadora (não descontados ao trabalhador): {nota}"),
+                                                      ParagraphStyle('enc', parent=self.s, fontSize=6.8, textColor=colors.grey, alignment=TA_RIGHT))]
+        return out + [Spacer(1, 0.4 * cm)]
+
+    def _assinaturas(self):
+        r, cfg = self.r, self.cfg
+        blocos = []
+        if cfg is None or cfg.exigir_assinatura_trabalhador:
+            blocos.append(("O trabalhador", r.func_nome))
+        blocos.append(("O responsável pelo processamento", r.nome_responsavel))
+        if cfg is not None and cfg.mostrar_assinatura_contabilista:
+            nome = r.contabilista_nome or cfg.contabilista_nome
+            ordem = r.contabilista_numero_ordem or cfg.contabilista_numero_ordem
+            blocos.append(("O contabilista" + (f" (inscrição n.º {ordem})" if ordem else ''), nome))
+        larg = 18 * cm / len(blocos)
+        linha1 = [Spacer(1, 1.3 * cm)] * len(blocos)
+        linha2 = [Paragraph(_esc(t), ParagraphStyle('a', parent=self.s, alignment=TA_CENTER, fontSize=7)) for t, _ in blocos]
+        linha3 = [Paragraph(_esc(n or ''), ParagraphStyle('a2', parent=self.s, alignment=TA_CENTER, fontSize=6.5, textColor=colors.grey)) for _, n in blocos]
+        t = RLTable([linha1, linha2, linha3], colWidths=[larg] * len(blocos))
+        t.setStyle(RLTableStyle([('LINEABOVE', (0, 1), (-1, 1), 0.5, colors.black), ('LEFTPADDING', (0, 0), (-1, -1), 12), ('RIGHTPADDING', (0, 0), (-1, -1), 12)]))
+        ref = [f"Referência do pagamento: {r.referencia_pagamento}"] if r.referencia_pagamento else []
+        if r.data_assinatura:
+            ref.append(f"Data da assinatura: {r.data_assinatura:%d/%m/%Y}")
+        if r.observacoes:
+            ref.append(f"Observações: {r.observacoes}")
+        extra = [Paragraph(_esc("  |  ".join(ref[:2]) + ("<br/>" if False else '')), self.s)] if ref[:2] else []
+        obs = [Paragraph(_esc(ref[2]), self.s)] if len(ref) > 2 else []
+        return [KeepTogether([HRFlowable(width='100%', color=COR_BORDA), Spacer(1, 0.2 * cm), *extra, *obs, Spacer(1, 0.2 * cm), t])]
+
+    def _decorar(self, c, doc):
+        r = self.r
+        c.saveState()
+        c.setFont('Helvetica', 6.3)
+        c.setFillColor(colors.grey)
+        codigo = (r.hash_integridade or '—')[:16].upper()
+        rodape = (self.cfg.texto_rodape if self.cfg and self.cfg.texto_rodape else "Documento processado por computador")
+        c.drawString(1.5 * cm, 1.0 * cm, f"{rodape} • {r.numero} • Cód. verificação: {codigo}")
+        c.drawRightString(A4[0] - 1.5 * cm, 1.0 * cm, f"Página {doc.page}")
+        marca = self.ESTADO_MARCA.get(r.estado)
+        if marca:
+            c.translate(A4[0] / 2, A4[1] / 2)
+            c.rotate(45)
+            c.setFont('Helvetica-Bold', 70)
+            c.setFillColor(colors.Color(1, 0, 0, alpha=0.12))
+            c.drawCentredString(0, 0, marca)
+        c.restoreState()
+
+    # ── ponto de entrada ────────────────────────────────────────────────────
+    def gerar(self) -> io.BytesIO:
+        r = self.r
+        buf = io.BytesIO()
+        doc = SimpleDocTemplate(buf, pagesize=A4, leftMargin=1.5 * cm, rightMargin=1.5 * cm, topMargin=1.4 * cm,
+                                bottomMargin=1.8 * cm, title=f"Recibo de Vencimento {r.numero}", author=r.empresa_nome)
+        story = (self._cabecalho() + self._funcionario() + self._tab_remuneracoes() + self._tab_descontos()
+                 + self._resumo() + self._assinaturas())
+        doc.build(story, onFirstPage=self._decorar, onLaterPages=self._decorar)
+        buf.seek(0)
+        return buf

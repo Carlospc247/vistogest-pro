@@ -1,0 +1,9 @@
+{% extends "funcionarios/_rh_base.html" %}
+{% block title %}Benefícios — {{ funcionario.nome_completo }}{% endblock %}
+{% block rh_content %}
+<a href="{% url 'funcionarios:detail' pk=funcionario.pk %}" class="text-sm text-indigo-600">&larr; {{ funcionario.nome_completo }}</a>
+<h1 class="text-2xl font-bold my-3">Benefícios</h1>
+<div class="rh-card p-0 overflow-x-auto"><table class="rh-table"><thead><tr><th>Tipo</th><th class="text-right">Valor</th><th>Descrição</th></tr></thead><tbody>
+  {% for b in beneficios %}<tr><td>{{ b.get_tipo_display }}</td><td class="text-right">{{ b.valor|floatformat:2 }}</td><td>{{ b.descricao|default:"—" }}</td></tr>
+  {% empty %}<tr><td colspan="3" class="text-center py-6 rh-muted">Sem benefícios activos.</td></tr>{% endfor %}</tbody></table></div>
+{% endblock %}

@@ -1,29 +1,106 @@
-<!-- carrossel.html -->
-<div id="carousel-{{ secao.id }}" class="carousel slide" data-bs-ride="carousel">
-    <div class="carousel-inner">
-        {% for slide in dados.slides %}
-        <div class="carousel-item {% if forloop.first %}active{% endif %}" style="height: {{ dados.altura_px|default:500 }}px;">
-            <img src="{{ slide.imagem_url }}" class="d-block w-100 h-100" style="object-fit: cover; filter: brightness(0.7);" alt="{{ slide.titulo }}">
-            <div class="carousel-caption d-none d-md-block" style="bottom: 20%;">
-                <div class="container text-{{ slide.alinhamento|default:'center' }}">
-                    <h1 class="display-4 fw-bold animated fadeInDown">{{ slide.titulo }}</h1>
-                    <p class="lead animated fadeInUp">{{ slide.subtitulo }}</p>
-                    {% if slide.link_botao %}
-                    <a href="{{ slide.link_botao }}" class="btn btn-primary btn-lg rounded-pill mt-3 shadow">
-                        {{ slide.texto_botao|default:'Saber Mais' }}
-                    </a>
-                    {% endif %}
-                </div>
-            </div>
-        </div>
-        {% endfor %}
-    </div>
-    {% if dados.slides|length > 1 %}
-    <button class="carousel-control-prev" type="button" data-bs-target="#carousel-{{ secao.id }}" data-bs-slide="prev">
-        <span class="carousel-control-prev-icon"></span>
-    </button>
-    <button class="carousel-control-next" type="button" data-bs-target="#carousel-{{ secao.id }}" data-bs-slide="next">
-        <span class="carousel-control-next-icon"></span>
-    </button>
+<section
+  id="site-carousel-{{ secao.pk }}"
+  class="site-carousel"
+  data-autoplay="{% if dados.autoplay %}true{% else %}false{% endif %}"
+  data-interval="{{ dados.intervalo_ms|default:5000 }}"
+  aria-label="Carrossel de imagens"
+  style="--carousel-height:{{ dados.altura_px|default:450 }}px">
+
+  <style>
+    #site-carousel-{{ secao.pk }}{position:relative;width:100%;height:min(var(--carousel-height),80vh);min-height:300px;overflow:hidden;background:linear-gradient(135deg,#312e81,#0f172a);isolation:isolate}
+    #site-carousel-{{ secao.pk }} .site-carousel-slide{position:absolute;inset:0;opacity:0;visibility:hidden;transition:opacity .55s ease;display:flex;align-items:center;justify-content:center}
+    #site-carousel-{{ secao.pk }} .site-carousel-slide.is-active{opacity:1;visibility:visible;z-index:1}
+    #site-carousel-{{ secao.pk }} .site-carousel-image{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+    #site-carousel-{{ secao.pk }} .site-carousel-shade{position:absolute;inset:0;background:linear-gradient(90deg,rgba(2,6,23,.76),rgba(2,6,23,.26) 70%,rgba(2,6,23,.18));pointer-events:none}
+    #site-carousel-{{ secao.pk }} .site-carousel-caption{position:relative;z-index:2;width:min(1120px,84%);margin:auto;color:#fff;text-align:center;padding:2rem 0}
+    #site-carousel-{{ secao.pk }} .site-carousel-caption.align-left{text-align:left;margin-left:8%;margin-right:auto}
+    #site-carousel-{{ secao.pk }} .site-carousel-caption.align-right{text-align:right;margin-left:auto;margin-right:8%}
+    #site-carousel-{{ secao.pk }} .site-carousel-title{font-size:clamp(2rem,5vw,4.2rem);font-weight:800;line-height:1.08;letter-spacing:-.035em;margin:0 0 1rem;text-shadow:0 3px 15px rgba(0,0,0,.25);overflow-wrap:anywhere}
+    #site-carousel-{{ secao.pk }} .site-carousel-subtitle{font-size:clamp(1rem,1.8vw,1.3rem);line-height:1.6;max-width:760px;margin:0 auto 1.5rem;text-shadow:0 2px 8px rgba(0,0,0,.35)}
+    #site-carousel-{{ secao.pk }} .align-left .site-carousel-subtitle{margin-left:0;margin-right:auto}
+    #site-carousel-{{ secao.pk }} .align-right .site-carousel-subtitle{margin-left:auto;margin-right:0}
+    #site-carousel-{{ secao.pk }} .site-carousel-cta{display:inline-flex;align-items:center;justify-content:center;gap:.5rem;padding:.8rem 1.25rem;border-radius:999px;background:var(--cor-primaria,#4f46e5);color:#fff;text-decoration:none;font-size:.9rem;font-weight:700;box-shadow:0 8px 24px rgba(0,0,0,.2);transition:transform .15s ease,filter .15s ease}
+    #site-carousel-{{ secao.pk }} .site-carousel-cta:hover{filter:brightness(1.08);transform:translateY(-1px);color:#fff}
+    #site-carousel-{{ secao.pk }} .site-carousel-control{position:absolute;z-index:4;top:50%;transform:translateY(-50%);width:2.7rem;height:2.7rem;border:1px solid rgba(255,255,255,.45);border-radius:50%;background:rgba(15,23,42,.35);color:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer;backdrop-filter:blur(5px)}
+    #site-carousel-{{ secao.pk }} .site-carousel-control:hover{background:rgba(15,23,42,.72)}
+    #site-carousel-{{ secao.pk }} .site-carousel-prev{left:1rem}#site-carousel-{{ secao.pk }} .site-carousel-next{right:1rem}
+    #site-carousel-{{ secao.pk }} .site-carousel-dots{position:absolute;z-index:4;bottom:1rem;left:0;right:0;display:flex;justify-content:center;gap:.5rem}
+    #site-carousel-{{ secao.pk }} .site-carousel-dot{width:9px;height:9px;padding:0;border:1px solid #fff;border-radius:50%;background:rgba(255,255,255,.45);cursor:pointer}
+    #site-carousel-{{ secao.pk }} .site-carousel-dot.is-active{width:24px;border-radius:99px;background:#fff}
+    @media(max-width:640px){#site-carousel-{{ secao.pk }}{height:min(var(--carousel-height),68vh);min-height:320px}#site-carousel-{{ secao.pk }} .site-carousel-caption{width:82%;padding:2rem 0}#site-carousel-{{ secao.pk }} .site-carousel-caption.align-left,#site-carousel-{{ secao.pk }} .site-carousel-caption.align-right{margin-left:auto;margin-right:auto;text-align:center}#site-carousel-{{ secao.pk }} .site-carousel-subtitle{font-size:.96rem}#site-carousel-{{ secao.pk }} .site-carousel-control{width:2.2rem;height:2.2rem}#site-carousel-{{ secao.pk }} .site-carousel-prev{left:.45rem}#site-carousel-{{ secao.pk }} .site-carousel-next{right:.45rem}}
+    @media(prefers-reduced-motion:reduce){#site-carousel-{{ secao.pk }} .site-carousel-slide{transition:none}}
+  </style>
+
+  {% for slide in dados.slides %}
+  <article class="site-carousel-slide {% if forloop.first %}is-active{% endif %}" data-slide-index="{{ forloop.counter0 }}" aria-hidden="{% if forloop.first %}false{% else %}true{% endif %}">
+    {% if slide.imagem_url %}
+    <img class="site-carousel-image" src="{{ slide.imagem_url }}" alt="{{ slide.titulo|default:'Imagem do carrossel' }}" loading="{% if forloop.first %}eager{% else %}lazy{% endif %}">
     {% endif %}
-</div>
+    <div class="site-carousel-shade"></div>
+    <div class="site-carousel-caption {% if slide.alinhamento == 'left' or slide.alinhamento == 'esquerda' %}align-left{% elif slide.alinhamento == 'right' or slide.alinhamento == 'direita' %}align-right{% else %}align-center{% endif %}">
+      {% if slide.titulo %}<h2 class="site-carousel-title">{{ slide.titulo }}</h2>{% endif %}
+      {% if slide.subtitulo %}<p class="site-carousel-subtitle">{{ slide.subtitulo }}</p>{% endif %}
+      {% if slide.link_botao and slide.texto_botao %}
+      <a class="site-carousel-cta" href="{{ slide.link_botao }}">{{ slide.texto_botao }} <span aria-hidden="true">→</span></a>
+      {% endif %}
+    </div>
+  </article>
+  {% empty %}
+  <div class="site-carousel-slide is-active" aria-hidden="false"><div class="site-carousel-caption"><h2 class="site-carousel-title">Adiciona os slides no editor visual</h2></div></div>
+  {% endfor %}
+
+  {% if dados.slides|length > 1 %}
+  <button type="button" class="site-carousel-control site-carousel-prev" data-carousel-prev aria-label="Slide anterior">&#10094;</button>
+  <button type="button" class="site-carousel-control site-carousel-next" data-carousel-next aria-label="Slide seguinte">&#10095;</button>
+  <div class="site-carousel-dots" aria-label="Seleccionar slide">
+    {% for slide in dados.slides %}
+    <button type="button" class="site-carousel-dot {% if forloop.first %}is-active{% endif %}" data-carousel-dot="{{ forloop.counter0 }}" aria-label="Ver slide {{ forloop.counter }}"></button>
+    {% endfor %}
+  </div>
+  {% endif %}
+</section>
+
+<script>
+(() => {
+  const root = document.getElementById('site-carousel-{{ secao.pk }}');
+  if (!root || root.dataset.initialized === '1') return;
+  root.dataset.initialized = '1';
+  const slides = Array.from(root.querySelectorAll('.site-carousel-slide'));
+  const dots = Array.from(root.querySelectorAll('[data-carousel-dot]'));
+  if (slides.length < 2) return;
+
+  let current = 0;
+  let timer = null;
+  const shouldPlay = root.dataset.autoplay === 'true';
+  const interval = Math.min(20000, Math.max(2000, Number(root.dataset.interval) || 5000));
+
+  function show(index) {
+    current = (index + slides.length) % slides.length;
+    slides.forEach((slide, i) => {
+      slide.classList.toggle('is-active', i === current);
+      slide.setAttribute('aria-hidden', i === current ? 'false' : 'true');
+    });
+    dots.forEach((dot, i) => {
+      dot.classList.toggle('is-active', i === current);
+      dot.setAttribute('aria-current', i === current ? 'true' : 'false');
+    });
+  }
+  function stop() { if (timer) window.clearInterval(timer); timer = null; }
+  function start() {
+    stop();
+    if (shouldPlay && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      timer = window.setInterval(() => show(current + 1), interval);
+    }
+  }
+
+  root.querySelector('[data-carousel-prev]')?.addEventListener('click', () => { show(current - 1); start(); });
+  root.querySelector('[data-carousel-next]')?.addEventListener('click', () => { show(current + 1); start(); });
+  dots.forEach(dot => dot.addEventListener('click', () => { show(Number(dot.dataset.carouselDot)); start(); }));
+  root.addEventListener('mouseenter', stop);
+  root.addEventListener('mouseleave', start);
+  root.addEventListener('focusin', stop);
+  root.addEventListener('focusout', start);
+  document.addEventListener('visibilitychange', () => document.hidden ? stop() : start());
+  start();
+})();
+</script>

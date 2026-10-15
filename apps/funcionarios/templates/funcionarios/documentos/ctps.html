@@ -1,0 +1,17 @@
+{# documentos/ctps.html #}
+{# A ctps.html é a carteira de trabalho brasileira, que em Angola não existe, por isso fiz uma ficha de registo. Pede revisão jurídica das cláusulas antes de usares os documentos. #}
+{% extends "documentos/_documento_base.html" %}
+{% block doc_title %}Ficha de registo{% endblock %}
+{% block doc_corpo %}
+<h1>Ficha de registo do trabalhador</h1>
+<table>
+ <tr><th>Nome</th><td>{{ funcionario.nome_completo }}</td><th>Matrícula</th><td>{{ funcionario.matricula }}</td></tr>
+ <tr><th>BI</th><td>{{ funcionario.bi }}</td><th>Nascimento</th><td>{{ funcionario.data_nascimento|date:"d/m/Y" }}</td></tr>
+ <tr><th>Nacionalidade</th><td>{{ funcionario.nacionalidade }}</td><th>Estado civil</th><td>{{ funcionario.get_estado_civil_display|default:"—" }}</td></tr>
+ <tr><th>Morada</th><td colspan="3">{{ funcionario.endereco_completo }}</td></tr>
+ <tr><th>Cargo</th><td>{{ funcionario.cargo.nome|default:"—" }}</td><th>Departamento</th><td>{{ funcionario.departamento.nome }}</td></tr>
+ <tr><th>Admissão</th><td>{{ funcionario.data_admissao|date:"d/m/Y" }}</td><th>Contrato</th><td>{{ funcionario.get_tipo_contrato_display }}</td></tr>
+ <tr><th>Salário</th><td>{{ funcionario.salario_atual|floatformat:2 }} Kz</td><th>Demissão</th><td>{{ funcionario.data_demissao|date:"d/m/Y"|default:"—" }}</td></tr>
+</table>
+<div class="assin"><div>A entidade empregadora</div><div>O trabalhador</div></div>
+{% endblock %}

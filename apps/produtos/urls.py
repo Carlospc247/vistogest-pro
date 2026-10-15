@@ -26,7 +26,10 @@ urlpatterns = [
     path('categorias/<int:pk>/eliminar/', views.CategoriaDeleteView.as_view(), name='categoria_delete'),
 
 
-    path('fabricantes/', views.FabricanteListView.as_view(), name='fabricante_list'),
+    path('fabricantes/', views.FabricanteListView.as_view(), name='fabricante_lista'),
+    path('fabricantes/novo/', views.FabricanteCreateView.as_view(), name='fabricante_adicionar'),
+    path('fabricantes/<int:pk>/editar/', views.FabricanteUpdateView.as_view(), name='fabricante_editar'),
+    path('fabricantes/<int:pk>/deletar/', views.FabricanteDeleteView.as_view(), name='fabricante_deletar'),
     
     # --- LOTES ---
     path('lotes/', views.LoteListView.as_view(), name='lote_list'),

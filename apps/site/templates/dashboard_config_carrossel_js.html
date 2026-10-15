@@ -1,0 +1,391 @@
+{# PATCH PARA dashboard_config.html: #}
+{# 1) No objecto URLS, acrescenta: #}
+{# uploadImagem: "{% url 'site:upload_imagem_secao' 0 %}", #}
+{# 2) Substitui o bloco lateral que começa em `let atual = null;` e abrange #}
+{# `campoHtml`, `abrirEditor` e o submit de `form-bloco` por este código. #}
+{# Preserva o restante JS do dashboard (modais, toast, Sortable, acções por bloco). #}
+
+<script>
+/* Este código fica dentro da IIFE (() => { ... }) existente em extra_js. */
+let atual = null;
+let dadosCarrossel = null;
+let dadosEditorAtual = null;
+const painel = $('#panel');
+const fundo = $('#panel-bg');
+
+const REPEATER_DEFAULTS = {
+  itens: {icone: 'fas fa-star', titulo: '', descricao: '', link: ''},
+  imagens_json: {url: '', alt: '', legenda: '', link: ''},
+  depoimentos_json: {nome: '', cargo: '', texto: '', foto: ''},
+  faqs_json: {pergunta: '', resposta: ''},
+  contadores_json: {numero: 0, sufixo: '+', label: '', icone: 'fas fa-users'},
+  membros_json: {nome: '', cargo: '', foto: '', linkedin: ''},
+  logos_json: {url: '', alt: '', link: ''},
+};
+const IMAGE_FIELDS = new Set(['imagem_url', 'imagem_fundo', 'foto']);
+
+function abrirPainel() {
+  fundo.classList.remove('hidden');
+  painel.style.transform = 'translateX(0)';
+}
+function fecharPainel() {
+  fundo.classList.add('hidden');
+  painel.style.transform = 'translateX(100%)';
+}
+fundo.addEventListener('click', fecharPainel);
+$('#panel-fechar').addEventListener('click', fecharPainel);
+
+const rotulo = k => k.replaceAll('_', ' ');
+
+function imageFieldHtml(k, value) {
+  const url = String(value || '');
+  return `<div class="sb-card p-3 space-y-2" data-image-field>
+    <label class="sb-label">${esc(rotulo(k))}</label>
+    <input type="url" class="sb-input" data-key="${esc(k)}" data-kind="text" value="${esc(url)}" placeholder="URL HTTPS da imagem">
+    <label class="sb-btn" style="cursor:pointer;width:max-content">
+      <i class="fas fa-cloud-arrow-up"></i> Carregar imagem
+      <input type="file" data-image-upload="${esc(k)}" accept="image/jpeg,image/png,image/webp,image/gif" class="hidden">
+    </label>
+    <p class="text-xs text-gray-400" data-upload-status></p>
+    <img data-image-preview src="${esc(url)}" alt="Pré-visualização" style="${url ? '' : 'display:none;'}width:100%;height:150px;object-fit:cover;border-radius:.5rem;border:1px solid #e5e7eb" onerror="this.style.display='none'">
+  </div>`;
+}
+
+function repeaterFieldHtml(key, index, field, value) {
+  const val = value == null ? '' : String(value);
+  const isImage = ['url', 'foto', 'imagem_url'].includes(field);
+  const lbl = `<label class="sb-label">${esc(rotulo(field))}</label>`;
+  const control = (field === 'texto' || field === 'descricao' || field === 'resposta' || field === 'legenda')
+    ? `<textarea rows="3" class="sb-input" data-repeat-field="${esc(field)}" data-repeat-kind="text">${esc(val)}</textarea>`
+    : `<input type="${field === 'numero' ? 'number' : (field === 'link' || field === 'linkedin' ? 'url' : 'text')}" class="sb-input" data-repeat-field="${esc(field)}" data-repeat-kind="${field === 'numero' ? 'number' : 'text'}" value="${esc(val)}">`;
+
+  return `<div class="space-y-1 min-w-0" data-repeat-field-wrap="${esc(field)}">
+    ${lbl}${control}
+    ${isImage ? `<label class="sb-btn mt-2" style="cursor:pointer;width:max-content"><i class="fas fa-cloud-arrow-up"></i> Carregar imagem<input type="file" class="hidden" data-repeat-upload="${esc(key)}" data-repeat-index="${index}" data-repeat-field-name="${esc(field)}" accept="image/jpeg,image/png,image/webp,image/gif"></label><img data-repeat-preview src="${esc(val)}" alt="Pré-visualização" style="${val ? '' : 'display:none;'}width:100%;height:100px;object-fit:contain;background:#f9fafb;border-radius:.45rem;margin-top:.4rem" onerror="this.style.display='none'">` : ''}
+  </div>`;
+}
+
+function repeaterHtml(key, list) {
+  const rows = Array.isArray(list) ? list : [];
+  return `<section class="sb-card p-3 space-y-3" data-repeater="${esc(key)}">
+    <div class="flex items-center justify-between gap-3">
+      <div><h4 class="font-semibold text-sm text-gray-900 dark:text-gray-100">${esc(rotulo(key))}</h4><p class="text-xs text-gray-400 mt-1">Adiciona, edita ou remove itens sem escrever JSON.</p></div>
+      <span class="text-xs text-gray-400">${rows.length} item(ns)</span>
+    </div>
+    <div class="space-y-3">
+      ${rows.map((item, index) => {
+        const obj = item && typeof item === 'object' && !Array.isArray(item) ? item : {};
+        return `<article class="border border-gray-200 dark:border-gray-700 rounded-lg p-3 space-y-3" data-repeat-card="${esc(key)}" data-repeat-index="${index}">
+          <div class="flex items-center justify-between"><strong class="text-xs uppercase tracking-wide text-indigo-600">Item ${index + 1}</strong><button type="button" class="sb-icon danger" data-repeat-remove="${esc(key)}" data-repeat-index="${index}" aria-label="Remover item"><i class="fas fa-trash"></i></button></div>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">${Object.entries({...REPEATER_DEFAULTS[key], ...obj}).map(([field, value]) => repeaterFieldHtml(key, index, field, value)).join('')}</div>
+        </article>`;
+      }).join('')}
+      ${rows.length ? '' : '<p class="text-xs text-gray-400 border border-dashed border-gray-300 dark:border-gray-600 rounded-lg p-4 text-center">Ainda não existem itens nesta lista.</p>'}
+    </div>
+    <button type="button" class="sb-btn w-full justify-center" data-repeat-add="${esc(key)}"><i class="fas fa-plus"></i> Adicionar item</button>
+  </section>`;
+}
+
+function campoHtml(k, v) {
+  const lbl = `<label class="sb-label">${esc(rotulo(k))}</label>`;
+  if (IMAGE_FIELDS.has(k)) return imageFieldHtml(k, v);
+  if (Array.isArray(v) && REPEATER_DEFAULTS[k]) return repeaterHtml(k, v);
+  if (typeof v === 'boolean') {
+    return `<label class="flex items-center gap-2 text-sm"><input type="checkbox" data-key="${esc(k)}" data-kind="bool" ${v ? 'checked' : ''}> ${esc(rotulo(k))}</label>`;
+  }
+  if (typeof v === 'number') {
+    return `<div>${lbl}<input type="number" class="sb-input" data-key="${esc(k)}" data-kind="number" value="${esc(v)}"></div>`;
+  }
+  if (v !== null && typeof v === 'object') {
+    return `<div>${lbl}<textarea rows="8" class="sb-input" data-key="${esc(k)}" data-kind="json" style="font-family:monospace">${esc(JSON.stringify(v, null, 2))}</textarea><p class="text-xs text-gray-400 mt-1">JSON avançado.</p></div>`;
+  }
+  const s = String(v ?? '');
+  if (s.length > 70 || /[<\n]/.test(s)) {
+    return `<div>${lbl}<textarea rows="5" class="sb-input" data-key="${esc(k)}" data-kind="text">${esc(s)}</textarea></div>`;
+  }
+  return `<div>${lbl}<input type="text" class="sb-input" data-key="${esc(k)}" data-kind="text" value="${esc(s)}"></div>`;
+}
+
+function renderGenericEditor(dados) {
+  dadosEditorAtual = JSON.parse(JSON.stringify(dados || {}));
+  const entradas = Object.entries(dadosEditorAtual);
+  $('#campos').innerHTML = entradas.length
+    ? entradas.map(([k, v]) => campoHtml(k, v)).join('')
+    : '<p class="text-sm text-gray-500">Este bloco ainda não tem campos editáveis.</p>';
+}
+
+function collectGenericForm() {
+  const dados = JSON.parse(JSON.stringify(dadosEditorAtual || {}));
+  let erro = '';
+
+  $$('[data-key]', $('#campos')).forEach(el => {
+    const k = el.dataset.key;
+    const kind = el.dataset.kind;
+    if (kind === 'bool') dados[k] = el.checked;
+    else if (kind === 'number') dados[k] = el.value === '' ? '' : Number(el.value);
+    else if (kind === 'json') {
+      try { dados[k] = JSON.parse(el.value || 'null'); }
+      catch { erro = `Campo “${rotulo(k)}”: JSON inválido`; }
+    } else dados[k] = el.value;
+  });
+
+  $$('[data-repeat-card]', $('#campos')).forEach(card => {
+    const k = card.dataset.repeatCard;
+    const index = Number(card.dataset.repeatIndex);
+    if (!Array.isArray(dados[k])) dados[k] = [];
+    if (!dados[k][index] || typeof dados[k][index] !== 'object') dados[k][index] = {};
+    $$('[data-repeat-field]', card).forEach(el => {
+      const field = el.dataset.repeatField;
+      dados[k][index][field] = el.dataset.repeatKind === 'number'
+        ? (el.value === '' ? 0 : Number(el.value)) : el.value;
+    });
+  });
+
+  if (erro) {
+    toast(erro, false);
+    return null;
+  }
+  dadosEditorAtual = dados;
+  return dados;
+}
+
+async function uploadImageFile(file) {
+  if (!file) throw new Error('Selecciona uma imagem.');
+  if (file.size > 8 * 1024 * 1024) throw new Error('A imagem não pode exceder 8 MB.');
+  const fd = new FormData();
+  fd.append('imagem', file);
+  const response = await fetch(u(URLS.uploadImagem, atual.id), {
+    method: 'POST',
+    body: fd,
+    headers: {'X-CSRFToken': CSRF, 'X-Requested-With': 'XMLHttpRequest'}
+  });
+  const resultado = await response.json();
+  if (!response.ok || !resultado.ok || !resultado.url) {
+    throw new Error(resultado.error || 'Não foi possível carregar a imagem.');
+  }
+  return resultado.url;
+}
+
+async function carregarImagemSlide(input) {
+  const index = Number(input.dataset.slideUpload);
+  const file = input.files && input.files[0];
+  if (!file) return;
+  const card = input.closest('[data-slide-card]');
+  const estado = card.querySelector('[data-upload-status]');
+  estado.textContent = 'A carregar imagem…';
+  input.disabled = true;
+  try {
+    const url = await uploadImageFile(file);
+    dadosCarrossel.slides[index].imagem_url = url;
+    const campo = card.querySelector('[data-slide-field="imagem_url"]');
+    campo.value = url;
+    const preview = card.querySelector('[data-slide-preview]');
+    preview.src = url;
+    card.querySelector('[data-slide-preview-wrap]').style.display = '';
+    estado.textContent = 'Imagem carregada. Guarda as alterações.';
+    toast('Imagem carregada. Clica em Aplicar alterações para guardar o slide.');
+  } catch (error) {
+    estado.textContent = '';
+    toast(error.message || 'Falha no upload da imagem.', false);
+  } finally {
+    input.disabled = false;
+    input.value = '';
+  }
+}
+
+async function carregarImagemCampo(input) {
+  const file = input.files && input.files[0];
+  if (!file) return;
+  const wrapper = input.closest('[data-image-field]');
+  const status = wrapper.querySelector('[data-upload-status]');
+  const campo = wrapper.querySelector('[data-key]');
+  const preview = wrapper.querySelector('[data-image-preview]');
+  status.textContent = 'A carregar imagem…';
+  input.disabled = true;
+  try {
+    const url = await uploadImageFile(file);
+    campo.value = url;
+    if (dadosEditorAtual) dadosEditorAtual[campo.dataset.key] = url;
+    preview.src = url;
+    preview.style.display = '';
+    status.textContent = 'Imagem carregada. Guarda as alterações do bloco.';
+    toast('Imagem carregada. Guarda as alterações do bloco.');
+  } catch (error) {
+    status.textContent = '';
+    toast(error.message || 'Falha no upload da imagem.', false);
+  } finally {
+    input.disabled = false;
+    input.value = '';
+  }
+}
+
+function renderCarrosselEditor(dados) {
+  dadosCarrossel = JSON.parse(JSON.stringify(dados || {}));
+  if (!Array.isArray(dadosCarrossel.slides)) dadosCarrossel.slides = [];
+  dadosCarrossel.slides = dadosCarrossel.slides.map(slide =>
+    slide && typeof slide === 'object' && !Array.isArray(slide) ? slide : {}
+  );
+  if (!dadosCarrossel.slides.length) {
+    dadosCarrossel.slides.push({imagem_url:'', titulo:'Novo slide', subtitulo:'', texto_botao:'Saber mais', link_botao:'', alinhamento:'center'});
+  }
+  if (typeof dadosCarrossel.altura_px !== 'number') dadosCarrossel.altura_px = 450;
+  if (typeof dadosCarrossel.autoplay !== 'boolean') dadosCarrossel.autoplay = true;
+  if (typeof dadosCarrossel.intervalo_ms !== 'number') dadosCarrossel.intervalo_ms = 5000;
+
+  $('#campos').innerHTML = `
+    <div class="sb-card p-4 space-y-4">
+      <div><h4 class="font-semibold text-sm text-gray-900 dark:text-gray-100">Configuração do carrossel</h4><p class="text-xs text-gray-500 mt-1">Carrega uma imagem por slide. Depois clica em “Aplicar alterações”.</p></div>
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div><label class="sb-label">Altura (px)</label><input type="number" min="280" max="900" class="sb-input" data-carousel-setting="altura_px" value="${esc(dadosCarrossel.altura_px)}"></div>
+        <div><label class="sb-label">Intervalo (ms)</label><input type="number" min="2000" max="20000" step="500" class="sb-input" data-carousel-setting="intervalo_ms" value="${esc(dadosCarrossel.intervalo_ms)}"></div>
+      </div>
+      <label class="flex items-center gap-2 text-sm"><input type="checkbox" data-carousel-setting="autoplay" ${dadosCarrossel.autoplay ? 'checked' : ''}> Reproduzir slides automaticamente</label>
+    </div>
+    <div class="space-y-3" id="slides-editor">${dadosCarrossel.slides.map(renderSlideEditor).join('')}</div>
+    <button type="button" class="sb-btn sb-btn-primary w-full justify-center" data-slide-add><i class="fas fa-plus"></i> Adicionar slide</button>`;
+}
+
+function renderSlideEditor(slide, index) {
+  const val = key => String(slide[key] || '');
+  const alinhamento = val('alinhamento') || 'center';
+  const url = val('imagem_url');
+  return `<article class="sb-card p-4 space-y-3" data-slide-card="${index}">
+    <div class="flex items-center justify-between gap-3"><strong class="text-sm text-gray-900 dark:text-gray-100"><i class="fas fa-images text-indigo-500 mr-2"></i>Slide ${index + 1}</strong><button type="button" class="sb-icon danger" data-slide-remove="${index}" title="Remover slide"><i class="fas fa-trash"></i></button></div>
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+      <div><label class="sb-label">Título</label><input class="sb-input" data-slide-field="titulo" value="${esc(val('titulo'))}" maxlength="180"></div>
+      <div><label class="sb-label">Alinhamento</label><select class="sb-input" data-slide-field="alinhamento"><option value="left" ${['left','esquerda'].includes(alinhamento)?'selected':''}>Esquerda</option><option value="center" ${['center','centro'].includes(alinhamento)?'selected':''}>Centro</option><option value="right" ${['right','direita'].includes(alinhamento)?'selected':''}>Direita</option></select></div>
+    </div>
+    <div><label class="sb-label">Subtítulo</label><textarea class="sb-input" data-slide-field="subtitulo" rows="2" maxlength="500">${esc(val('subtitulo'))}</textarea></div>
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3"><div><label class="sb-label">Texto do botão</label><input class="sb-input" data-slide-field="texto_botao" value="${esc(val('texto_botao') || 'Saber mais')}" maxlength="50"></div><div><label class="sb-label">Link do botão</label><input class="sb-input" data-slide-field="link_botao" value="${esc(val('link_botao'))}" placeholder="/loja/ ou https://…"></div></div>
+    <div><label class="sb-label">URL da imagem</label><input class="sb-input" data-slide-field="imagem_url" value="${esc(url)}" placeholder="Carrega imagem ou cola URL HTTPS"><p class="text-xs text-gray-400 mt-1">JPG, PNG, WEBP ou GIF; máximo 8 MB.</p></div>
+    <div class="flex flex-wrap items-center gap-3"><label class="sb-btn" style="cursor:pointer"><i class="fas fa-cloud-arrow-up"></i> Carregar imagem<input type="file" data-slide-upload="${index}" accept="image/jpeg,image/png,image/webp,image/gif" class="hidden"></label><span class="text-xs text-gray-400" data-upload-status></span></div>
+    <div data-slide-preview-wrap style="${url?'':'display:none'}"><img data-slide-preview src="${esc(url)}" alt="Pré-visualização do slide" style="width:100%;height:145px;object-fit:cover;border-radius:.6rem;border:1px solid #e5e7eb" onerror="this.closest('[data-slide-preview-wrap]').style.display='none'"></div>
+  </article>`;
+}
+
+$('#campos').addEventListener('input', e => {
+  const el = e.target;
+  if (el.dataset.carouselSetting && dadosCarrossel) {
+    const key = el.dataset.carouselSetting;
+    dadosCarrossel[key] = key === 'autoplay' ? el.checked : Number(el.value || 0);
+  }
+  if (el.dataset.slideField && dadosCarrossel) {
+    const card = el.closest('[data-slide-card]');
+    if (!card) return;
+    const index = Number(card.dataset.slideCard);
+    const key = el.dataset.slideField;
+    dadosCarrossel.slides[index][key] = el.value;
+    if (key === 'imagem_url') {
+      const wrap = card.querySelector('[data-slide-preview-wrap]');
+      const img = card.querySelector('[data-slide-preview]');
+      if (el.value.trim()) { img.src = el.value.trim(); wrap.style.display = ''; }
+      else { img.removeAttribute('src'); wrap.style.display = 'none'; }
+    }
+  }
+});
+
+$('#campos').addEventListener('change', e => {
+  const el = e.target;
+  if (el.matches('[data-slide-upload]')) carregarImagemSlide(el);
+  else if (el.matches('[data-image-upload]')) carregarImagemCampo(el);
+  else if (el.matches('[data-repeat-upload]')) carregarImagemRepeater(el);
+  else if (el.matches('[data-carousel-setting="autoplay"]') && dadosCarrossel) dadosCarrossel.autoplay = el.checked;
+  else if (el.matches('[data-carousel-setting="altura_px"], [data-carousel-setting="intervalo_ms"]') && dadosCarrossel) dadosCarrossel[el.dataset.carouselSetting] = Number(el.value || 0);
+});
+
+async function carregarImagemRepeater(input) {
+  const key = input.dataset.repeatUpload;
+  const index = Number(input.dataset.repeatIndex);
+  const field = input.dataset.repeatFieldName;
+  const file = input.files && input.files[0];
+  if (!file) return;
+  try {
+    const url = await uploadImageFile(file);
+    const card = input.closest('[data-repeat-card]');
+    const fieldInput = card.querySelector(`[data-repeat-field="${field}"]`);
+    const preview = input.closest('[data-repeat-field-wrap]').querySelector('[data-repeat-preview]');
+    fieldInput.value = url;
+    if (preview) { preview.src = url; preview.style.display = ''; }
+    const dados = collectGenericForm();
+    if (dados && dados[key] && dados[key][index]) dados[key][index][field] = url;
+    dadosEditorAtual = dados;
+    toast('Imagem carregada. Guarda as alterações do bloco.');
+  } catch (error) {
+    toast(error.message || 'Falha no upload da imagem.', false);
+  } finally {
+    input.value = '';
+  }
+}
+
+$('#campos').addEventListener('click', e => {
+  const addSlide = e.target.closest('[data-slide-add]');
+  const removeSlide = e.target.closest('[data-slide-remove]');
+  const add = e.target.closest('[data-repeat-add]');
+  const remove = e.target.closest('[data-repeat-remove]');
+
+  if (addSlide && dadosCarrossel) {
+    dadosCarrossel.slides.push({imagem_url:'',titulo:'',subtitulo:'',texto_botao:'Saber mais',link_botao:'',alinhamento:'center'});
+    renderCarrosselEditor(dadosCarrossel);
+    return;
+  }
+  if (removeSlide && dadosCarrossel) {
+    if (dadosCarrossel.slides.length <= 1) return toast('O carrossel deve manter pelo menos um slide.', false);
+    dadosCarrossel.slides.splice(Number(removeSlide.dataset.slideRemove), 1);
+    renderCarrosselEditor(dadosCarrossel);
+    return;
+  }
+  if (add) {
+    const dados = collectGenericForm();
+    if (!dados) return;
+    const key = add.dataset.repeatAdd;
+    if (!Array.isArray(dados[key])) dados[key] = [];
+    dados[key].push(JSON.parse(JSON.stringify(REPEATER_DEFAULTS[key])));
+    renderGenericEditor(dados);
+    return;
+  }
+  if (remove) {
+    const dados = collectGenericForm();
+    if (!dados) return;
+    const key = remove.dataset.repeatRemove;
+    dados[key].splice(Number(remove.dataset.repeatIndex), 1);
+    renderGenericEditor(dados);
+  }
+});
+
+async function abrirEditor(id) {
+  const r = await api(u(URLS.dados, id));
+  if (r.status !== 'success') return toast(r.error || 'Não foi possível carregar o bloco.', false);
+  atual = {id, tipo: r.tipo};
+  $('#panel-titulo').textContent = 'Editar — ' + r.tipo;
+  if (r.tipo === 'carrossel') {
+    dadosEditorAtual = null;
+    renderCarrosselEditor(r.dados || {});
+  } else {
+    dadosCarrossel = null;
+    renderGenericEditor(r.dados || {});
+  }
+  abrirPainel();
+}
+
+$('#form-bloco').addEventListener('submit', async e => {
+  e.preventDefault();
+  if (!atual) return;
+
+  if (atual.tipo === 'carrossel') {
+    const altura = Number(dadosCarrossel.altura_px || 450);
+    const intervalo = Number(dadosCarrossel.intervalo_ms || 5000);
+    if (altura < 280 || altura > 900) return toast('A altura deve estar entre 280 e 900 px.', false);
+    if (intervalo < 2000 || intervalo > 20000) return toast('O intervalo deve estar entre 2000 e 20000 ms.', false);
+    const r = await api(u(URLS.editar, atual.id), {dados: dadosCarrossel});
+    if (r.ok) { toast('Carrossel guardado'); fecharPainel(); }
+    else toast(r.error || 'Erro ao guardar o carrossel.', false);
+    return;
+  }
+
+  const dados = collectGenericForm();
+  if (!dados) return;
+  const r = await api(u(URLS.editar, atual.id), {dados});
+  if (r.ok) { toast('Bloco guardado'); fecharPainel(); }
+  else toast(r.error || 'Erro ao guardar.', false);
+});
+</script>

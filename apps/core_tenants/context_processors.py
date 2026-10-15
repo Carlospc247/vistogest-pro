@@ -96,6 +96,55 @@ def notifications_context(request):
     }
 
 
+
+
+def notifications(request):
+    """Idem — só faz sentido em tenant, onde existem NotificacaoAgendamento/AlertaProdutoExpiracao."""
+    if connection.schema_name == 'public':
+        return {}
+
+    user = request.user
+    notifications = []
+
+    if hasattr(user, 'funcionario') and user.funcionario:
+        agend_notifs = NotificacaoAgendamento.objects.filter(
+            status='pendente'
+        ).order_by('-data_agendada_envio')[:10]
+
+        for n in agend_notifs:
+            notifications.append({
+                'title': f"{n.get_tipo_notificacao_display()} - {n.cliente.nome_completo}",
+                'message': n.mensagem,
+                'url': f"/notificacoes/{n.id}/editar/",
+                'icon': 'bell',
+                'type': 'blue',
+                'created_at': n.created_at,
+            })
+
+        alertas = AlertaProdutoExpiracao.objects.filter(
+            enviado=False
+        ).order_by('-created_at')[:20]
+
+        for a in alertas:
+            dias = (a.lote.data_validade - timezone.now().date()).days
+            notifications.append({
+                'title': "Produto prestes a expirar",
+                'message': f"{a.lote.produto.nome_comercial} - Lote {a.lote.numero_lote} vence em {dias} dias",
+                'url': f"/produtos/lotes/{a.lote.id}/",
+                'icon': 'exclamation-triangle',
+                'type': 'red',
+                'created_at': a.created_at,
+            })
+
+    return {
+        'notifications': notifications,
+        'notifications_count': len(notifications)
+    }
+
+
+
+
+
 def modules_context(request):
     """Idem — módulos activos da licença do tenant."""
     if connection.schema_name == 'public':

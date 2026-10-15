@@ -1,0 +1,15 @@
+{% extends "funcionarios/_rh_base.html" %}
+{% block title %}Escalas{% endblock %}
+{% block rh_content %}
+<h1 class="text-2xl font-bold mb-4">Escalas de trabalho</h1>
+<form method="get" class="rh-card mb-4 flex flex-wrap gap-3 items-end">
+  <div><label class="text-xs rh-muted block">Início</label><input type="date" name="data_inicio" value="{{ request.GET.data_inicio }}" class="rh-input"></div>
+  <div><label class="text-xs rh-muted block">Fim</label><input type="date" name="data_fim" value="{{ request.GET.data_fim }}" class="rh-input"></div>
+  <button class="rh-btn rh-btn-p">Aplicar</button>
+</form>
+<div class="rh-card p-0 overflow-x-auto"><table class="rh-table"><thead><tr><th>Data</th><th>Funcionário</th><th>Turno</th><th>Horário</th><th>Departamento</th><th>Estado</th></tr></thead><tbody>
+  {% for e in escalas %}<tr><td>{{ e.data_trabalho|date:"d/m/Y" }}</td><td>{{ e.funcionario.nome_completo }}</td><td>{{ e.get_turno_display }}</td>
+    <td>{{ e.horario_entrada|time:"H:i" }}–{{ e.horario_saida|time:"H:i" }}</td><td>{{ e.departamento.nome|default:"—" }}</td>
+    <td>{% if e.trabalhada %}<span class="rh-badge rh-ok">Trabalhada</span>{% elif e.confirmada %}<span class="rh-badge">Confirmada</span>{% else %}<span class="rh-badge rh-warn">Pendente</span>{% endif %}</td></tr>
+  {% empty %}<tr><td colspan="6" class="text-center py-6 rh-muted">Sem escalas no período.</td></tr>{% endfor %}</tbody></table></div>
+{% endblock %}

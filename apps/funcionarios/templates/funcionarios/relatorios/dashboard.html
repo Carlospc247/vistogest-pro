@@ -1,0 +1,12 @@
+{# relatorios/dashboard.html #}
+{% extends "funcionarios/_rh_base.html" %}
+{% block title %}Relatórios de RH{% endblock %}
+{% block rh_content %}
+<h1 class="text-2xl font-bold mb-4">Relatórios de RH</h1>
+<div class="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
+  <a class="rh-card hover:shadow-md" href="{% url 'funcionarios:relatorio_aniversariantes' %}"><i class="fas fa-birthday-cake text-indigo-600 text-2xl mb-2"></i><h2 class="font-semibold">Aniversariantes</h2></a>
+  <a class="rh-card hover:shadow-md" href="{% url 'funcionarios:relatorio_admissoes' %}"><i class="fas fa-user-plus text-indigo-600 text-2xl mb-2"></i><h2 class="font-semibold">Admissões</h2></a>
+  <a class="rh-card hover:shadow-md" href="{% url 'funcionarios:relatorio_demissoes' %}"><i class="fas fa-user-minus text-indigo-600 text-2xl mb-2"></i><h2 class="font-semibold">Demissões</h2></a>
+  <a class="rh-card hover:shadow-md" href="{% url 'funcionarios:relatorio_folha' %}"><i class="fas fa-money-check-alt text-indigo-600 text-2xl mb-2"></i><h2 class="font-semibold">Folha</h2></a>
+</div>
+{% endblock %}

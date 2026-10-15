@@ -1,0 +1,32 @@
+{# recibos/recibo_list.html #}
+{% extends "funcionarios/_rh_base.html" %}
+{% block title %}Recibos de vencimento{% endblock %}
+{% block rh_content %}
+{% if not somente_proprios %}{% include "recibos/nav.html" %}{% endif %}
+<h1 class="text-2xl font-bold mb-4">{% if somente_proprios %}Os meus recibos de vencimento{% else %}Recibos de vencimento{% endif %}</h1>
+{% if not somente_proprios %}
+<div class="grid lg:grid-cols-2 gap-4 mb-4">
+  <form method="get" class="rh-card grid grid-cols-2 md:grid-cols-5 gap-2 items-end">
+    <input class="rh-input md:col-span-2" name="q" value="{{ request.GET.q }}" placeholder="Nome, nº interno ou nº do recibo">
+    <input class="rh-input" type="number" name="mes" min="1" max="12" value="{{ request.GET.mes }}" placeholder="Mês">
+    <input class="rh-input" type="number" name="ano" value="{{ request.GET.ano }}" placeholder="Ano">
+    <select class="rh-input" name="estado"><option value="">Estado</option>{% for v,l in estados %}<option value="{{ v }}" {% if request.GET.estado == v %}selected{% endif %}>{{ l }}</option>{% endfor %}</select>
+    <button class="rh-btn rh-btn-p">Filtrar</button>
+  </form>
+  <form method="get" action="{% url 'funcionarios:recibo_previa' %}" class="rh-card grid grid-cols-3 gap-2 items-end">
+    <select class="rh-input col-span-3" name="funcionario" required><option value="">Pré-visualizar para…</option>{% for f in funcionarios_ativos %}<option value="{{ f.pk }}">{{ f.nome_completo }}</option>{% endfor %}</select>
+    <input class="rh-input" type="number" name="mes" min="1" max="12" value="{{ hoje.month }}"><input class="rh-input" type="number" name="ano" value="{{ hoje.year }}">
+    <button class="rh-btn">Pré-visualizar</button>
+  </form>
+</div>
+{% endif %}
+<div class="rh-card p-0 overflow-x-auto"><table class="rh-table">
+  <thead><tr><th>Recibo</th><th>Funcionário</th><th>Período</th><th>Estado</th><th class="text-right">Ilíquido</th><th class="text-right">Descontos</th><th class="text-right">Líquido</th><th></th></tr></thead><tbody>
+  {% for r in recibos %}<tr>
+    <td><a class="text-indigo-600" href="{% url 'funcionarios:recibo_detalhe' pk=r.pk %}">{{ r.numero }}</a></td><td>{{ r.func_nome }}</td><td>{{ r.mes|stringformat:"02d" }}/{{ r.ano }}</td>
+    <td><span class="rh-badge {% if r.estado == 'PAGO' %}rh-ok{% elif r.estado == 'ANULADO' or r.estado == 'RETIFICADO' %}rh-bad{% else %}rh-warn{% endif %}">{{ r.get_estado_display }}</span></td>
+    <td class="text-right">{{ r.salario_iliquido|floatformat:"2g" }}</td><td class="text-right">{{ r.total_descontos|floatformat:"2g" }}</td><td class="text-right font-semibold">{{ r.salario_liquido|floatformat:"2g" }}</td>
+    <td class="text-right whitespace-nowrap"><a class="text-indigo-600 mr-2" target="_blank" href="{% url 'funcionarios:recibo_pdf' pk=r.pk %}">PDF</a></td></tr>
+  {% empty %}<tr><td colspan="8" class="text-center py-8 rh-muted">Nenhum recibo.</td></tr>{% endfor %}</tbody></table></div>
+{% include "funcionarios/_paginacao.html" %}
+{% endblock %}

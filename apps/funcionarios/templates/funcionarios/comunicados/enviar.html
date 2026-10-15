@@ -1,0 +1,8 @@
+{# comunicados/enviar.html #}
+{% extends "funcionarios/_rh_base.html" %}
+{% block title %}Enviar comunicado{% endblock %}
+{% block rh_content %}
+<div class="max-w-lg mx-auto rh-card"><h1 class="text-xl font-bold mb-2">Enviar comunicado</h1>
+  <p class="text-sm rh-muted">O envio por email/WhatsApp ainda não está implementado na view. Por agora, publique o comunicado no mural.</p>
+  <div class="mt-4 flex gap-2"><a class="rh-btn rh-btn-p" href="{% url 'funcionarios:comunicado_create' %}">Novo comunicado</a><a class="rh-btn" href="{% url 'funcionarios:mural' %}">Ver mural</a></div></div>
+{% endblock %}

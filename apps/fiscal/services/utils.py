@@ -1088,4 +1088,3 @@ class SAFTExportService:
             except Exception as e:
                 logger.error(f"Erro ao calcular métricas fiscais: {e}", exc_info=True)
                 raise FiscalServiceError(f"Erro no cálculo das métricas fiscais: {e}")
-                

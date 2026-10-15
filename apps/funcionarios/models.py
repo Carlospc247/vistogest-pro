@@ -16,6 +16,9 @@ from django.contrib.auth.models import Permission
 from apps.core.models import TimeStampedModel
 from cloudinary.models import CloudinaryField
 from django.db.models.functions import Cast, Substr
+from django.db import models, transaction, IntegrityError
+
+
 
 
 
@@ -696,6 +699,8 @@ class Ferias(TimeStampedModel):
     def dias_calendario(self):
         """Total de dias de calendário"""
         return (self.data_fim - self.data_inicio).days + 1
+
+
 
 class Capacitacao(TimeStampedModel):
     """Capacitações e treinamentos dos funcionários"""

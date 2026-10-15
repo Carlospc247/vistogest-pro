@@ -1,0 +1,7 @@
+{% extends "fiscal/base_fiscal.html" %}
+{% block title %}{% if object %}Editar retenção{% else %}Nova retenção{% endif %}{% endblock %}
+{% block topbar_title %}Retenção na fonte{% endblock %}
+{% block content %}
+<div class="page-head"><div><p class="eyebrow">Impostos retidos</p><h1>{% if object %}Editar retenção{% else %}Registar retenção{% endif %}</h1><p>Preencha os dados de referência. O valor retido deve ser calculado e validado no servidor.</p></div><a class="btn btn-light" href="{% url 'fiscal:retencoes' %}">← Voltar</a></div>
+<section class="card"><div class="card-head"><h2>Dados da retenção</h2></div><div class="card-body"><form method="post" novalidate>{% csrf_token %}{% if form.non_field_errors %}<div class="form-errors">{{ form.non_field_errors }}</div>{% endif %}<div class="form-grid">{% for field in form %}<div class="form-row{% if field.name == 'referencia_documento' or field.name == 'documento_referencia' %} full{% endif %}"><label for="{{ field.id_for_label }}">{{ field.label }}{% if field.field.required %} *{% endif %}</label>{{ field }}{% if field.help_text %}<span class="helptext">{{ field.help_text }}</span>{% endif %}{% if field.errors %}{{ field.errors }}{% endif %}</div>{% endfor %}</div><div class="form-actions"><a class="btn btn-light" href="{% url 'fiscal:retencoes' %}">Cancelar</a><button class="btn btn-primary" type="submit">Guardar retenção</button></div></form></div></section>
+{% endblock %}

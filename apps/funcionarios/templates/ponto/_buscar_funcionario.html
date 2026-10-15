@@ -1,0 +1,13 @@
+{# ponto/_buscar_funcionario.html #}
+<div class="rh-card">
+  <input id="qfunc" class="rh-input" placeholder="Pesquisar funcionário (mín. 2 letras)…" autocomplete="off">
+  <ul id="resfunc" class="mt-3 divide-y text-sm"></ul>
+</div>
+<script>
+const alvo = "{% url 'funcionarios:historico_ponto' funcionario_pk=0 %}";
+let t; document.getElementById('qfunc').addEventListener('input', e => { clearTimeout(t); t = setTimeout(async () => {
+  const q = e.target.value.trim(); const ul = document.getElementById('resfunc'); if (q.length < 2) { ul.innerHTML = ''; return; }
+  const d = await (await fetch("{% url 'funcionarios:buscar_ajax' %}?q=" + encodeURIComponent(q))).json();
+  ul.innerHTML = d.funcionarios.map(f => `<li class="py-2"><a class="text-indigo-600" href="${alvo.replace('/0/','/'+f.id+'/')}">${f.nome} <span class="rh-muted">(${f.matricula})</span></a></li>`).join('') || '<li class="py-2 rh-muted">Nada encontrado.</li>';
+}, 300); });
+</script>

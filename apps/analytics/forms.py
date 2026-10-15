@@ -6,11 +6,122 @@ from django.contrib.contenttypes.models import ContentType
 from datetime import datetime, date, timedelta
 import json
 
-from .models import AlertaInteligente, DashboardPersonalizado, EventoAnalytics, AuditoriaAlteracao
+from .models import AlertaInteligente, DashboardPersonalizado, EventoAnalytics, AuditoriaAlteracao, AuditoriaInvestimento, RegistroAuditoriaOperacional
 
 
+
+
+import json
+from datetime import date, timedelta
+from django import forms
+from django.core.exceptions import ValidationError
+from django.contrib.auth import get_user_model
+from .models import DashboardPersonalizado, AuditoriaInvestimento, EventoAnalytics, AuditoriaAlteracao, RegistroAuditoriaOperacional
+
+
+
+FORM_CONTROL = "block w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-200 dark:border-gray-600 dark:bg-gray-800 dark:text-white"
+CHECKBOX = "h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
 
 Usuario = get_user_model()
+
+
+class StyledFormMixin:
+    def apply_styles(self):
+        for field in self.fields.values():
+            if isinstance(field.widget, forms.CheckboxInput):
+                field.widget.attrs.setdefault("class", CHECKBOX)
+            else:
+                field.widget.attrs.setdefault("class", FORM_CONTROL)
+
+class EventoAnalyticsFiltroForm(forms.Form, StyledFormMixin):
+    data_inicio = forms.DateField(required=False, widget=forms.DateInput(attrs={"type":"date"}), label="De")
+    data_fim = forms.DateField(required=False, widget=forms.DateInput(attrs={"type":"date"}), label="Até")
+    categoria = forms.ChoiceField(required=False, choices=[("", "Todas as categorias")] + list(EventoAnalytics.CATEGORIA_CHOICES))
+    acao = forms.CharField(required=False, max_length=100, label="Ação contém")
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.apply_styles()
+
+    def clean(self):
+        data = super().clean()
+        inicio, fim = data.get("data_inicio"), data.get("data_fim")
+        if inicio and fim and inicio > fim:
+            raise ValidationError("A data inicial não pode ser posterior à data final.")
+        return data
+
+class AuditoriaAlteracaoFiltroForm(forms.Form, StyledFormMixin):
+    tipo_operacao = forms.ChoiceField(required=False, choices=[("", "Todas as operações")] + list(AuditoriaAlteracao.TIPO_OPERACAO_CHOICES))
+    data_inicio = forms.DateField(required=False, widget=forms.DateInput(attrs={"type":"date"}), label="De")
+    data_fim = forms.DateField(required=False, widget=forms.DateInput(attrs={"type":"date"}), label="Até")
+    utilizador = forms.CharField(required=False, max_length=150)
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs); self.apply_styles()
+    def clean(self):
+        data=super().clean()
+        if data.get('data_inicio') and data.get('data_fim') and data['data_inicio'] > data['data_fim']:
+            raise ValidationError("A data inicial não pode ser posterior à data final.")
+        return data
+
+class DashboardPersonalizadoForm(forms.ModelForm, StyledFormMixin):
+    layout_json = forms.CharField(required=False, widget=forms.Textarea(attrs={"rows":5}), label="Layout (JSON)")
+    widgets_json = forms.CharField(required=False, widget=forms.Textarea(attrs={"rows":6}), label="Widgets (JSON)")
+    filtros_json = forms.CharField(required=False, widget=forms.Textarea(attrs={"rows":5}), label="Filtros padrão (JSON)")
+    class Meta:
+        model = DashboardPersonalizado
+        fields = ["nome", "descricao", "padrao", "publico"]
+        widgets = {"descricao": forms.Textarea(attrs={"rows":3})}
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if self.instance.pk:
+            self.fields['layout_json'].initial=json.dumps(self.instance.layout or {}, indent=2, ensure_ascii=False)
+            self.fields['widgets_json'].initial=json.dumps(self.instance.widgets or [], indent=2, ensure_ascii=False)
+            self.fields['filtros_json'].initial=json.dumps(self.instance.filtros_padrao or {}, indent=2, ensure_ascii=False)
+        else:
+            self.fields['layout_json'].initial='{}'; self.fields['widgets_json'].initial='[]'; self.fields['filtros_json'].initial='{}'
+        self.apply_styles()
+    def _parse(self, name, expected, default):
+        value=self.cleaned_data.get(name, '')
+        if not value.strip(): return default
+        try: parsed=json.loads(value)
+        except json.JSONDecodeError as exc: raise ValidationError(f"JSON inválido: {exc.msg}.")
+        if not isinstance(parsed, expected):
+            label = "objeto" if expected is dict else "lista"
+            raise ValidationError(f"O conteúdo deve ser um {label} JSON válido.")
+        return parsed
+    def clean_layout_json(self): return self._parse('layout_json', dict, {})
+    def clean_widgets_json(self): return self._parse('widgets_json', list, [])
+    def clean_filtros_json(self): return self._parse('filtros_json', dict, {})
+    def save(self, commit=True):
+        obj=super().save(commit=False)
+        obj.layout=self.cleaned_data['layout_json']; obj.widgets=self.cleaned_data['widgets_json']; obj.filtros_padrao=self.cleaned_data['filtros_json']
+        if commit: obj.save()
+        return obj
+
+class AuditoriaInvestimentoForm(forms.ModelForm, StyledFormMixin):
+    usuario = forms.ModelChoiceField(queryset=get_user_model().objects.none(), label="Utilizador / Auditor", required=True)
+    class Meta:
+        model = AuditoriaInvestimento
+        fields = ["usuario", "lotes_vinculados", "fabricantes_vinculados", "pode_auditar_vendas", "pode_auditar_estoque", "pode_auditar_financeiro", "pode_auditar_produtos", "pode_auditar_fiscal", "pode_auditar_tudo"]
+        widgets = {"lotes_vinculados": forms.CheckboxSelectMultiple(), "fabricantes_vinculados": forms.CheckboxSelectMultiple()}
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["usuario"].queryset = get_user_model().objects.filter(is_active=True).order_by("username")
+        self.apply_styles()
+
+class PeriodoFiltroForm(forms.Form, StyledFormMixin):
+    data_inicio = forms.DateField(required=False, widget=forms.DateInput(attrs={"type":"date"}))
+    data_fim = forms.DateField(required=False, widget=forms.DateInput(attrs={"type":"date"}))
+    app_origem = forms.CharField(required=False, max_length=50, label="App")
+    operacao = forms.ChoiceField(required=False, choices=[("", "Todas")] + list(RegistroAuditoriaOperacional.TIPO_OPERACAO_CHOICES))
+    def __init__(self, *args, **kwargs): super().__init__(*args, **kwargs); self.apply_styles()
+    def clean(self):
+        data=super().clean()
+        if data.get('data_inicio') and data.get('data_fim') and data['data_inicio'] > data['data_fim']:
+            raise ValidationError("A data inicial não pode ser posterior à data final.")
+        return data
+
 
 class BaseAnalyticsForm(forms.Form):
     """Form base para analytics com métodos comuns"""

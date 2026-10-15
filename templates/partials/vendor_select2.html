@@ -1,0 +1,5 @@
+{% load static %}
+{# Select2 precisa de jQuery: carregado aqui, sem defer, para que scripts inline da página já o encontrem. #}
+<link rel="stylesheet" href="{% static 'vendor/select2/select2.min.css' %}">
+<script src="{% static 'vendor/jquery/jquery-3.6.0.min.js' %}"></script>
+<script src="{% static 'vendor/select2/select2.min.js' %}"></script>

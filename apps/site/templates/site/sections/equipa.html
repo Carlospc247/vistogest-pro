@@ -1,0 +1,28 @@
+<section style="padding:clamp(2.5rem,6vw,5rem) 1.25rem">
+  <style>
+    #site-equipa-{{ secao.pk }}{width:min(100%,1200px);margin:auto}
+    #site-equipa-{{ secao.pk }} .site-team-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr));gap:1.2rem}
+    #site-equipa-{{ secao.pk }} .site-team-card{overflow:hidden;border:1px solid #e2e8f0;border-radius:16px;background:#fff;text-align:center}
+    #site-equipa-{{ secao.pk }} .site-team-photo{width:100%;height:250px;object-fit:cover;display:block;background:#f1f5f9}
+    #site-equipa-{{ secao.pk }} .site-team-info{padding:1rem}
+    #site-equipa-{{ secao.pk }} .site-team-name{font-weight:800;color:#0f172a}
+    #site-equipa-{{ secao.pk }} .site-team-role{font-size:.85rem;color:#64748b;margin-top:.25rem}
+  </style>
+  <div id="site-equipa-{{ secao.pk }}">
+    {% if dados.titulo %}<h2 style="font-size:clamp(1.5rem,3vw,2.2rem);font-weight:800;text-align:center;margin:0 0 2rem">{{ dados.titulo }}</h2>{% endif %}
+    <div class="site-team-grid">
+      {% for membro in dados.membros_json %}
+      <article class="site-team-card">
+        {% if membro.foto %}<img class="site-team-photo" src="{{ membro.foto }}" alt="{{ membro.nome }}" loading="lazy">{% endif %}
+        <div class="site-team-info">
+          <div class="site-team-name">{{ membro.nome }}</div>
+          {% if membro.cargo %}<div class="site-team-role">{{ membro.cargo }}</div>{% endif %}
+          {% if membro.linkedin %}<a href="{{ membro.linkedin }}" target="_blank" rel="noopener" style="display:inline-block;margin-top:.75rem;color:var(--cor-primaria,#4f46e5)"><i class="fab fa-linkedin"></i> LinkedIn</a>{% endif %}
+        </div>
+      </article>
+      {% empty %}
+        {% if modo_preview %}<p style="grid-column:1/-1;text-align:center;color:#64748b">Adiciona membros em membros_json.</p>{% endif %}
+      {% endfor %}
+    </div>
+  </div>
+</section>

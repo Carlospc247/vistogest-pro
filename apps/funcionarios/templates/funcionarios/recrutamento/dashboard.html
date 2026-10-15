@@ -1,0 +1,13 @@
+{# recrutamento/dashboard.html #}
+{% extends "funcionarios/_rh_base.html" %}
+{% block title %}Recrutamento{% endblock %}
+{% block rh_content %}
+<h1 class="text-2xl font-bold mb-4">Recrutamento e selecção</h1>
+<div class="grid md:grid-cols-3 gap-4 mb-4">
+  {% include "funcionarios/_card.html" with label="Processos activos" valor=processos_ativos icone="fa-briefcase" %}
+  {% include "funcionarios/_card.html" with label="Candidatos em análise" valor=candidatos_analise icone="fa-search" %}
+  {% include "funcionarios/_card.html" with label="Em entrevista" valor=candidatos_entrevista icone="fa-comments" %}
+</div>
+<div class="flex flex-wrap gap-2"><a class="rh-btn" href="{% url 'funcionarios:processo_seletivo' %}">Processos seletivos</a><a class="rh-btn" href="{% url 'funcionarios:candidato_lista' %}">Candidatos</a>
+  <a class="rh-btn rh-btn-p" href="{% url 'funcionarios:painel_candidatura' %}">Candidaturas do site</a></div>
+{% endblock %}

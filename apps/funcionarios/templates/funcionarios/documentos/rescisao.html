@@ -1,0 +1,11 @@
+{# documentos/rescisao.html #}
+{% extends "documentos/_documento_base.html" %}
+{% block doc_title %}Termo de rescisão{% endblock %}
+{% block doc_corpo %}
+<h1>Termo de rescisão do contrato de trabalho</h1>
+<p>A <strong>{{ request.tenant.nome }}</strong> e <strong>{{ funcionario.nome_completo }}</strong> (BI {{ funcionario.bi }}, matrícula {{ funcionario.matricula }}) declaram cessado o contrato de trabalho iniciado em {{ funcionario.data_admissao|date:"d/m/Y" }}, com efeitos a {{ funcionario.data_demissao|date:"d/m/Y"|default:"____/____/______" }}.</p>
+<table><tr><th>Função</th><td>{{ funcionario.cargo.nome|default:"—" }}</td></tr><tr><th>Último salário</th><td>{{ funcionario.salario_atual|floatformat:2 }} Kz</td></tr><tr><th>Antiguidade</th><td>{{ funcionario.tempo_empresa_anos|floatformat:1 }} anos</td></tr><tr><th>Valores a liquidar</th><td>__________________ Kz</td></tr></table>
+<p>O trabalhador declara ter recebido os valores acima indicados e nada mais ter a reclamar.</p>
+<p>Luanda, {% now "d/m/Y" %}.</p>
+<div class="assin"><div>A entidade empregadora</div><div>O trabalhador</div></div>
+{% endblock %}

@@ -1,0 +1,10 @@
+{# afastamentos/funcionario.html #}
+{% extends "funcionarios/_rh_base.html" %}
+{% block title %}Afastamentos — {{ funcionario.nome_completo }}{% endblock %}
+{% block rh_content %}
+<a href="{% url 'funcionarios:detail' pk=funcionario.pk %}" class="text-sm text-indigo-600">&larr; {{ funcionario.nome_completo }}</a>
+<h1 class="text-2xl font-bold my-3">Afastamentos</h1>
+<div class="rh-card p-0 overflow-x-auto"><table class="rh-table"><thead><tr><th>Tipo</th><th>Período</th><th class="text-right">Dias</th><th>Descrição</th></tr></thead><tbody>
+  {% for a in afastamentos %}<tr><td>{{ a.get_tipo_display }}</td><td>{{ a.data_inicio|date:"d/m/Y" }} – {{ a.data_fim|date:"d/m/Y" }}</td><td class="text-right">{{ a.duracao_dias }}</td><td>{{ a.descricao|default:"—" }}</td></tr>
+  {% empty %}<tr><td colspan="4" class="text-center py-6 rh-muted">Sem afastamentos.</td></tr>{% endfor %}</tbody></table></div>
+{% endblock %}

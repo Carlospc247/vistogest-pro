@@ -1,0 +1,85 @@
+<!-- funcionarios/documentos.html -->
+{% extends "base.html" %}
+
+{% block title %}Documentos - {{ funcionario.nome_completo }}{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <h1 class="h3 mb-4">Documentos - {{ funcionario.nome_completo }}</h1>
+    
+    <div class="row">
+        <div class="col-md-6">
+            <div class="card shadow mb-4">
+                <div class="card-header">
+                    <h6 class="m-0 font-weight-bold text-primary">Registros Profissionais</h6>
+                </div>
+                <div class="card-body">
+                   
+                    {% if funcionario.outros_registros %}
+                        <p><strong>Outros Registros:</strong></p>
+                        <p>{{ funcionario.outros_registros|linebreaks }}</p>
+                    {% endif %}
+                    
+                    {% if not funcionario.outros_registros %}
+                        <p class="text-muted">Nenhum registro profissional cadastrado</p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+        
+        <div class="col-md-6">
+            <div class="card shadow mb-4">
+                <div class="card-header">
+                    <h6 class="m-0 font-weight-bold text-primary">Documentos Trabalhistas</h6>
+                </div>
+                <div class="card-body">
+                    <div class="list-group">
+                        <a href="{% url 'funcionarios:ctps' funcionario.pk %}" class="list-group-item list-group-item-action">
+                            <i class="fas fa-id-card mr-2"></i> CTPS
+                        </a>
+                        <a href="{% url 'funcionarios:contrato' funcionario.pk %}" class="list-group-item list-group-item-action">
+                            <i class="fas fa-file-contract mr-2"></i> Contrato de Trabalho
+                        </a>
+                        {% if funcionario.data_demissao %}
+                        <a href="{% url 'funcionarios:termo_rescisao' funcionario.pk %}" class="list-group-item list-group-item-action">
+                            <i class="fas fa-file-alt mr-2"></i> Termo de Rescisão
+                        </a>
+                        {% endif %}
+                        <a href="{% url 'funcionarios:declaracoes' funcionario.pk %}" class="list-group-item list-group-item-action">
+                            <i class="fas fa-certificate mr-2"></i> Declarações
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="row">
+        <div class="col-md-12">
+            <div class="card shadow mb-4">
+                <div class="card-header">
+                    <h6 class="m-0 font-weight-bold text-primary">Formação Acadêmica</h6>
+                </div>
+                <div class="card-body">
+                    {% if funcionario.escolaridade %}
+                        <p><strong>Escolaridade:</strong> {{ funcionario.get_escolaridade_display }}</p>
+                    {% endif %}
+                    {% if funcionario.curso_formacao %}
+                        <p><strong>Curso:</strong> {{ funcionario.curso_formacao }}</p>
+                    {% endif %}
+                    {% if funcionario.instituicao_ensino %}
+                        <p><strong>Instituição:</strong> {{ funcionario.instituicao_ensino }}</p>
+                    {% endif %}
+                    {% if funcionario.ano_conclusao %}
+                        <p><strong>Ano de Conclusão:</strong> {{ funcionario.ano_conclusao }}</p>
+                    {% endif %}
+                    
+                    {% if not funcionario.escolaridade %}
+                        <p class="text-muted">Informações de formação não cadastradas</p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -1,90 +1,136 @@
 <!-- templates/vendas/nota_debito_lista.html -->
 {% extends 'base.html' %}
 
-{% block content %}
+{% block title %}Notas de Débito{% endblock %}
+
+{# O base.html já renderiza um page_header ("Dashboard"); aqui usamos o nosso próprio cabeçalho. #}
+{% block page_header %}{% endblock %}
+
+{# ATENÇÃO: o base.html declara "extra_css" (não "extra_head"). #}
+{% block extra_css %}
+{% include "partials/ui_kit.html" %}
 <style>
-    /* static/css/styles.css */
-    body {
-        font-family: 'Arial', sans-serif;
-        background-color: #f8f9fa;
-    }
-
-    .container {
-        margin-top: 20px;
-    }
-
-    .card {
-        border-radius: 8px;
-        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
-    }
-
-    .card-header {
-        background-color: #007bff;
-        color: white;
-        font-weight: bold;
-    }
-
-    .table {
-        margin-top: 20px;
-    }
-
-    .table th {
-        background-color: #007bff;
-        color: white;
-    }
-
-    .btn {
-        margin: 5px;
-    }
-
-    .pagination {
-        margin-top: 20px;
-    }
-
-    .pagination a {
-        margin: 0 5px;
-        padding: 5px 10px;
-        border-radius: 5px;
-        background-color: #007bff;
-        color: white;
-        text-decoration: none;
-    }
+  /* Acerto local: cantos da tabela acompanham o arredondamento do cartão */
+  .ui .nd-card{ overflow:hidden; }
 </style>
+{% endblock %}
 
+{% block content %}
+<div class="ui">
+  <div class="ui-page">
 
-<div class="container">
-    <h1 class="mt-4">Notas de Débito</h1>
-    <div class="card mb-4">
-        <div class="card-header">
-            <a href="{% url 'vendas:nota_debito_create' %}" class="btn btn-primary">Nova Nota de Débito</a>
-        </div>
-        <div class="card-body">
-            <table class="table table-striped">
-                <thead>
-                    <tr>
-                        <th>Número</th>
-                        <th>Cliente</th>
-                        <th>Total</th>
-                        <th>Status</th>
-                        <th>Ações</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for nota in notas_debito %}
-                    <tr>
-                        <td>{{ nota.numero_nota }}</td>
-                        <td>{{ nota.cliente.nome_completo }}</td>
-                        <td>{{ nota.total }}</td>
-                        <td>{{ nota.get_status_display }}</td>
-                        <td>
-                            <a href="{% url 'vendas:nota_debito_detail' nota.pk %}" class="btn btn-info">Ver</a>
-                            <a href="{% url 'vendas:nota_debito_update' nota.pk %}" class="btn btn-warning">Editar</a>
-                        </td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
+    <!-- ░░ Cabeçalho ░░ -->
+    <div class="ui-head">
+      <div>
+        <nav class="ui-crumb" aria-label="Navegação">
+          <span>Vendas</span><span>/</span><span>Notas de Débito</span>
+        </nav>
+        <h1 class="ui-h1">Notas de Débito</h1>
+        <p class="ui-sub">Consulte e gira as notas de débito emitidas.</p>
+      </div>
+      <div class="ui-acoes">
+        <a class="ui-btn ui-btn-primary" href="{% url 'vendas:nota_debito_create' %}">
+          <i class="fas fa-plus"></i> Nova nota de débito
+        </a>
+      </div>
     </div>
+
+    <!-- ░░ Tabela ░░ -->
+    <div class="ui-card nd-card">
+
+      {% if notas_debito %}
+      <div class="ui-table-wrap">
+        <table class="ui-table">
+          <thead>
+            <tr>
+              <th>Número</th>
+              <th>Cliente</th>
+              <th>Emissão</th>
+              <th>Vencimento</th>
+              <th class="ui-num">Total</th>
+              <th class="ui-num">Pendente</th>
+              <th>Estado</th>
+              <th>Ações</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for nota in notas_debito %}
+            {# URL "opcional": com "as" não dá erro se o nome ainda não existir no urls.py #}
+            {% url 'vendas:nota_debito_pdf' nota.pk as url_pdf %}
+            <tr>
+              <td data-label="Número"><span class="ui-strong">{{ nota.numero_nota }}</span></td>
+              <td data-label="Cliente">{{ nota.cliente.nome_completo|default:"—" }}</td>
+              <td data-label="Emissão">{{ nota.data_nota|date:"d/m/Y"|default:"—" }}</td>
+              <td data-label="Vencimento">{{ nota.data_vencimento|date:"d/m/Y"|default:"—" }}</td>
+              <td data-label="Total" class="ui-num">
+                <span class="ui-strong">{{ nota.total|floatformat:"2g" }}</span> <span class="ui-muted">AOA</span>
+              </td>
+              <td data-label="Pendente" class="ui-num">{{ nota.valor_pendente|floatformat:"2g" }}</td>
+              <td data-label="Estado">
+                {% if nota.status == 'aplicada' or nota.status == 'paga' %}
+                  <span class="ui-badge ui-badge-ok">{{ nota.get_status_display }}</span>
+                {% elif nota.status == 'cancelada' or nota.status == 'vencida' %}
+                  <span class="ui-badge ui-badge-danger">{{ nota.get_status_display }}</span>
+                {% elif nota.status == 'emitida' %}
+                  <span class="ui-badge ui-badge-info">{{ nota.get_status_display }}</span>
+                {% else %}
+                  <span class="ui-badge ui-badge-muted">{{ nota.get_status_display }}</span>
+                {% endif %}
+              </td>
+              <td data-label="Ações" class="ui-sem-label">
+                <div class="ui-linha-acoes">
+                  <a class="ui-btn ui-btn-sm" href="{% url 'vendas:nota_debito_detail' nota.pk %}">
+                    <i class="fas fa-eye"></i> Ver
+                  </a>
+                  {# Só se pode editar enquanto a nota está "Emitida" (mesma regra da página de detalhe) #}
+                  {% if nota.status == 'emitida' %}
+                  <a class="ui-btn ui-btn-sm" href="{% url 'vendas:nota_debito_update' nota.pk %}">
+                    <i class="fas fa-pen"></i> Editar
+                  </a>
+                  {% endif %}
+                  {% if url_pdf %}
+                  <a class="ui-btn ui-btn-sm" href="{{ url_pdf }}" target="_blank" rel="noopener">
+                    <i class="fas fa-file-pdf"></i> PDF
+                  </a>
+                  {% endif %}
+                </div>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      {% if is_paginated %}
+      <div class="ui-pag">
+        <span>Página {{ page_obj.number }} de {{ page_obj.paginator.num_pages }} · {{ page_obj.paginator.count }} nota{{ page_obj.paginator.count|pluralize }}</span>
+        <div class="ui-pag-nav">
+          {% if page_obj.has_previous %}
+            <a href="?page={{ page_obj.previous_page_number }}" aria-label="Página anterior"><i class="fas fa-chevron-left"></i></a>
+          {% endif %}
+          <span class="ativo">{{ page_obj.number }}</span>
+          {% if page_obj.has_next %}
+            <a href="?page={{ page_obj.next_page_number }}" aria-label="Página seguinte"><i class="fas fa-chevron-right"></i></a>
+          {% endif %}
+        </div>
+      </div>
+      {% endif %}
+
+      {% else %}
+
+      <div class="ui-empty">
+        <i class="fas fa-file-invoice"></i>
+        <h3>Ainda não há notas de débito</h3>
+        <p>Quando criar a primeira nota de débito, ela aparecerá aqui.</p>
+        <a class="ui-btn ui-btn-primary" href="{% url 'vendas:nota_debito_create' %}">
+          <i class="fas fa-plus"></i> Nova nota de débito
+        </a>
+      </div>
+
+      {% endif %}
+
+    </div>
+
+  </div>
 </div>
 {% endblock %}

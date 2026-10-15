@@ -1,0 +1,87 @@
+{% extends "site/loja/base_loja.html" %}
+
+{% block titulo %}Pedido {{ pedido.referencia }}{% endblock %}
+
+{% block conteudo %}
+<section class="pagina">
+    <div class="estreito">
+        <div class="painel" style="text-align: center;">
+            <p class="suave">Pedido recebido</p>
+            <h1>Obrigado pela sua encomenda!</h1>
+
+            <p style="margin-top: 14px;">
+                O seu pedido foi registado com sucesso.
+            </p>
+
+            <div class="referencia" style="margin-top: 22px;">
+                {{ pedido.referencia }}
+            </div>
+
+            <p class="suave" style="margin-top: 8px;">
+                Estado: {{ pedido.get_status_display }}
+            </p>
+        </div>
+
+        <div class="painel" style="margin-top: 24px;">
+            <h2>Resumo</h2>
+
+            {% for item in itens %}
+                <div class="resumo-linha">
+                    <span>
+                        {{ item.nome_item }} × {{ item.quantidade }}
+                    </span>
+                    <strong>
+                        {{ item.total_linha|floatformat:2 }}
+                        {{ pedido.moeda|default:config.moeda|default:"AOA" }}
+                    </strong>
+                </div>
+            {% endfor %}
+
+            <div class="resumo-total">
+                <span>Total</span>
+                <span>
+                    {{ pedido.total|floatformat:2 }}
+                    {{ pedido.moeda|default:config.moeda|default:"AOA" }}
+                </span>
+            </div>
+
+            <div style="margin-top: 20px;">
+                <h2>Entrega</h2>
+                <p>{{ pedido.nome_destinatario }}</p>
+                {% if pedido.telefone_entrega %}
+                    <p>{{ pedido.telefone_entrega }}</p>
+                {% endif %}
+                <p>{{ pedido.endereco_entrega|linebreaksbr }}</p>
+            </div>
+
+            {% if pedido.notas %}
+                <div style="margin-top: 20px;">
+                    <h2>Observações</h2>
+                    <p>{{ pedido.notas|linebreaksbr }}</p>
+                </div>
+            {% endif %}
+
+            {% if config.mensagem_confirmacao %}
+                <div class="mensagem success" style="margin-top: 20px;">
+                    {{ config.mensagem_confirmacao|linebreaksbr }}
+                </div>
+            {% endif %}
+
+            {% if url_whatsapp %}
+                <a
+                    class="btn"
+                    href="{{ url_whatsapp }}"
+                    target="_blank"
+                    rel="noopener"
+                >
+                    Acompanhar pelo WhatsApp
+                </a>
+            {% endif %}
+
+            <a class="btn btn-sec" href="{% url 'site:loja' %}">
+                Voltar à loja
+            </a>
+        </div>
+    </div>
+</section>
+{% endblock %}

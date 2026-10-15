@@ -1,0 +1,27 @@
+<section style="padding:clamp(2rem,5vw,5rem) 1.25rem">
+  <style>
+    #site-galeria-{{ secao.pk }}{width:min(100%,1280px);margin:auto}
+    #site-galeria-{{ secao.pk }} .site-gallery-grid{display:grid;grid-template-columns:repeat({{ dados.colunas|default:3 }},minmax(0,1fr));gap:1rem}
+    #site-galeria-{{ secao.pk }} .site-gallery-item{display:block;overflow:hidden;border-radius:14px;background:#f1f5f9;aspect-ratio:4/3}
+    #site-galeria-{{ secao.pk }} img{width:100%;height:100%;object-fit:cover;transition:transform .25s ease}
+    #site-galeria-{{ secao.pk }} a:hover img{transform:scale(1.04)}
+    @media(max-width:850px){#site-galeria-{{ secao.pk }} .site-gallery-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+    @media(max-width:480px){#site-galeria-{{ secao.pk }} .site-gallery-grid{grid-template-columns:1fr}}
+  </style>
+  <div id="site-galeria-{{ secao.pk }}">
+    {% if dados.titulo %}<h2 style="font-size:clamp(1.5rem,3vw,2.2rem);font-weight:800;text-align:center;margin:0 0 1.75rem">{{ dados.titulo }}</h2>{% endif %}
+    <div class="site-gallery-grid">
+      {% for item in dados.imagens_json %}
+        {% with src=item.url|default:item.imagem_url %}
+          {% if src %}
+            {% if item.link %}<a class="site-gallery-item" href="{{ item.link }}" target="_blank" rel="noopener">{% else %}<div class="site-gallery-item">{% endif %}
+              <img src="{{ src }}" alt="{{ item.alt|default:item.legenda|default:'Imagem da galeria' }}" loading="lazy">
+            {% if item.link %}</a>{% else %}</div>{% endif %}
+          {% endif %}
+        {% endwith %}
+      {% empty %}
+        {% if modo_preview %}<p style="grid-column:1/-1;text-align:center;padding:2rem;border:1px dashed #cbd5e1;border-radius:12px;color:#64748b">Adiciona imagens à lista imagens_json no editor.</p>{% endif %}
+      {% endfor %}
+    </div>
+  </div>
+</section>

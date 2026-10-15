@@ -1,0 +1,9 @@
+{# responsabilidade_tecnica.html #}
+{% extends "funcionarios/_rh_base.html" %}
+{% block title %}Responsabilidade técnica{% endblock %}
+{% block rh_content %}
+<h1 class="text-2xl font-bold mb-4">Responsabilidade técnica</h1>
+<div class="rh-card p-0 overflow-x-auto"><table class="rh-table"><thead><tr><th>Estabelecimento</th><th>Cargo</th><th>Início</th><th>Fim</th></tr></thead><tbody>
+  {% for r in responsabilidades %}<tr><td>{{ r.estabelecimento }}</td><td>{{ r.responsabilidade }}</td><td>{{ r.data_inicio|date:"d/m/Y" }}</td><td>{{ r.data_fim|date:"d/m/Y"|default:"Em curso" }}</td></tr>
+  {% empty %}<tr><td colspan="4" class="text-center py-6 rh-muted">Sem registos.</td></tr>{% endfor %}</tbody></table></div>
+{% endblock %}

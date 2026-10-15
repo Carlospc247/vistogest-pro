@@ -1,0 +1,11 @@
+{# treinamentos/lista.html #}
+{% extends "funcionarios/_rh_base.html" %}
+{% block title %}Formação{% endblock %}
+{% block rh_content %}
+<div class="flex justify-between items-center mb-4"><h1 class="text-2xl font-bold">Formações e capacitações</h1>
+  <div class="flex gap-2"><a class="rh-btn" href="{% url 'funcionarios:certificacao_lista' %}">Certificados</a><a class="rh-btn rh-btn-p" href="{% url 'funcionarios:treinamento_create' %}"><i class="fas fa-plus mr-1"></i> Nova</a></div></div>
+<div class="rh-card p-0 overflow-x-auto"><table class="rh-table"><thead><tr><th>Título</th><th>Funcionário</th><th>Tipo</th><th>Período</th><th>Estado</th><th class="text-right">Custo</th></tr></thead><tbody>
+  {% for t in treinamentos %}<tr><td><a class="text-indigo-600" href="{% url 'funcionarios:treinamento_detail' pk=t.pk %}">{{ t.titulo }}</a></td><td>{{ t.funcionario.nome_completo }}</td><td>{{ t.get_tipo_display }}</td>
+    <td>{{ t.data_inicio|date:"d/m/Y" }} – {{ t.data_fim|date:"d/m/Y" }}</td><td>{{ t.get_status_display }}</td><td class="text-right">{{ t.total|floatformat:2 }}</td></tr>
+  {% empty %}<tr><td colspan="6" class="text-center py-6 rh-muted">Sem formações.</td></tr>{% endfor %}</tbody></table></div>
+{% endblock %}

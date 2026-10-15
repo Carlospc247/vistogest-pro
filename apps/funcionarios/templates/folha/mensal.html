@@ -1,0 +1,20 @@
+{% extends "funcionarios/_rh_base.html" %}
+{% block title %}Folha {{ folha.mes_nome }}/{{ folha.ano }}{% endblock %}
+{% block rh_content %}
+<a href="{% url 'funcionarios:folha_pagamento' %}" class="text-sm text-indigo-600">&larr; Folhas</a>
+<div class="flex flex-wrap justify-between items-center gap-3 my-3">
+  <h1 class="text-2xl font-bold">Folha de {{ folha.mes_nome }}/{{ folha.ano }} <span class="rh-badge">{{ folha.get_status_display }}</span></h1>
+  {% if folha.pode_editar %}<form method="post" action="{% url 'funcionarios:calcular_folha' %}">{% csrf_token %}<input type="hidden" name="mes" value="{{ folha.mes }}"><input type="hidden" name="ano" value="{{ folha.ano }}"><button class="rh-btn rh-btn-p">Recalcular</button></form>{% endif %}
+</div>
+<div class="grid sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
+  {% include "funcionarios/_card.html" with label="Funcionários" valor=folha.total_funcionarios icone="fa-users" %}
+  {% include "funcionarios/_card.html" with label="Bruto (Kz)" valor=folha.total_salario_bruto|floatformat:2 icone="fa-money-bill" %}
+  {% include "funcionarios/_card.html" with label="Descontos (Kz)" valor=folha.total_descontos|floatformat:2 icone="fa-minus-circle" %}
+  {% include "funcionarios/_card.html" with label="Líquido (Kz)" valor=folha.total_liquido|floatformat:2 icone="fa-wallet" %}
+</div>
+<div class="rh-card p-0 overflow-x-auto"><table class="rh-table"><thead><tr><th>Funcionário</th><th class="text-right">Bruto</th><th class="text-right">Proventos</th><th class="text-right">Descontos</th><th class="text-right">Líquido</th><th></th></tr></thead><tbody>
+  {% for i in folha.itens.all %}<tr><td>{{ i.funcionario.nome_completo }}</td><td class="text-right">{{ i.salario_bruto|floatformat:2 }}</td><td class="text-right">{{ i.total_proventos|floatformat:2 }}</td>
+    <td class="text-right">{{ i.total_descontos|floatformat:2 }}</td><td class="text-right font-semibold">{{ i.salario_liquido|floatformat:2 }}</td>
+    <td class="text-right"><a class="text-indigo-600" target="_blank" href="{% url 'funcionarios:holerite' pk=i.funcionario_id mes=folha.mes ano=folha.ano %}">Recibo</a></td></tr>
+  {% empty %}<tr><td colspan="6" class="text-center py-6 rh-muted">Sem itens. Calcule a folha.</td></tr>{% endfor %}</tbody></table></div>
+{% endblock %}

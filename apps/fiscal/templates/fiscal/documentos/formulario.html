@@ -1,0 +1,7 @@
+{% extends "fiscal/base_fiscal.html" %}
+{% block title %}{% if object %}Editar documento{% else %}Novo documento{% endif %}{% endblock %}
+{% block topbar_title %}{{ titulo|default:"Documento fiscal" }}{% endblock %}
+{% block content %}
+<div class="page-head"><div><p class="eyebrow">Emissão fiscal</p><h1>{{ titulo|default:"Dados do documento" }}</h1><p>Preencha os dados do rascunho. A confirmação e a submissão devem acontecer apenas depois de validar os dados e as linhas do documento.</p></div><a class="btn btn-light" href="{% url 'fiscal:documentos' %}">Cancelar</a></div>
+<section class="card"><div class="card-head"><h2>Dados principais</h2></div><div class="card-body"><form method="post" novalidate>{% csrf_token %}{% if form.non_field_errors %}<div class="form-errors">{{ form.non_field_errors }}</div>{% endif %}<div class="form-grid">{% for field in form %}<div class="form-row{% if field.name == 'comentarios' or field.name == 'observacoes' %} full{% endif %}"><label for="{{ field.id_for_label }}">{{ field.label }}{% if field.field.required %} <span aria-hidden="true">*</span>{% endif %}</label>{{ field }}{% if field.help_text %}<span class="helptext">{{ field.help_text }}</span>{% endif %}{% if field.errors %}{{ field.errors }}{% endif %}</div>{% endfor %}</div><div class="form-actions"><a class="btn btn-light" href="{% url 'fiscal:documentos' %}">Cancelar</a><button class="btn btn-primary" type="submit">Guardar rascunho</button></div></form></div></section>
+{% endblock %}

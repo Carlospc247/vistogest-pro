@@ -1,21 +1,2 @@
-<!-- templates/financeiro/relatorios/index.html -->
-{% extends 'base.html' %}
-{% load static %}
-
-{% block title %}Relatórios Financeiros{% endblock %}
-{% block page_title %}Relatórios Financeiros{% endblock %}
-
-{% block content %}
-<div class="container mx-auto p-4">
-    <h1 class="text-2xl font-bold mb-4">Relatórios Financeiros</h1>
-    <ul>
-        <li><a href="{% url 'financeiro:relatorio_fluxo_caixa' %}" class="text-blue-600">Fluxo de Caixa</a></li>
-        <li><a href="{% url 'financeiro:relatorio_dre' %}" class="text-blue-600">DRE</a></li>
-        <li><a href="{% url 'financeiro:relatorio_balanco' %}" class="text-blue-600">Balanço</a></li>
-        <li><a href="{% url 'financeiro:relatorio_inadimplencia' %}" class="text-blue-600">Inadimplência</a></li>
-        <li><a href="{% url 'financeiro:relatorio_contas_receber' %}" class="text-blue-600">Contas a Receber</a></li>
-        <li><a href="{% url 'financeiro:relatorio_contas_pagar' %}" class="text-blue-600">Contas a Pagar</a></li>
-        <li><a href="{% url 'financeiro:relatorio_movimento_bancario' %}" class="text-blue-600">Movimento Bancário</a></li>
-    </ul>
-</div>
-{% endblock %}
+{% extends "financeiro/base_financeiro.html" %}{% block title %}Relatórios financeiros{% endblock %}{% block breadcrumb %}Relatórios financeiros{% endblock %}{% block content %}
+<header class="page-head"><div><h1>Relatórios financeiros</h1><p>Escolha um relatório para consultar os dados financeiros.</p></div>{% block page_actions %}{% endblock %}</header><section class="panel"><div class="link-grid"><a class="link-card" href="{% url 'financeiro:relatorio_fluxo_caixa' %}"><strong>Fluxo de caixa</strong><span>Entradas e saídas</span></a><a class="link-card" href="{% url 'financeiro:relatorio_dre' %}"><strong>DRE</strong><span>Resultado operacional</span></a><a class="link-card" href="{% url 'financeiro:relatorio_balanco' %}"><strong>Balanço</strong><span>Posição patrimonial</span></a><a class="link-card" href="{% url 'financeiro:relatorio_inadimplencia' %}"><strong>Inadimplência</strong><span>Contas vencidas</span></a><a class="link-card" href="{% url 'financeiro:relatorio_contas_receber' %}"><strong>Contas a receber</strong><span>Recebíveis</span></a><a class="link-card" href="{% url 'financeiro:relatorio_contas_pagar' %}"><strong>Contas a pagar</strong><span>Pagáveis</span></a><a class="link-card" href="{% url 'financeiro:relatorio_movimento_bancario' %}"><strong>Movimento bancário</strong><span>Extratos financeiros</span></a></div></section>{% endblock %}

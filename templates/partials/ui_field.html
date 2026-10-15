@@ -1,0 +1,59 @@
+{% comment %}
+  templates/partials/ui_field.html — campo de formulário no estilo do ui_kit.
+
+  Uso:
+    {% include "partials/ui_field.html" with field=form.nome %}
+
+  Parâmetros opcionais:
+    label        → substitui o rótulo do campo
+    hint         → texto de ajuda (se ausente, usa field.help_text)
+    span2        → (qualquer valor) o campo ocupa as 2 colunas da grelha
+    as_date      → (qualquer valor) desenha <input type="date">
+    as_textarea  → (qualquer valor) desenha <textarea>
+
+  Se o campo não existir no formulário, não desenha nada.
+{% endcomment %}
+{% if field %}
+<div class="ui-field{% if span2 %} ui-span2{% endif %}{% if field.errors %} tem-erro{% endif %}">
+
+  {% if field.field.widget.input_type == 'checkbox' %}
+
+    <div class="ui-check">
+      {{ field }}
+      <label for="{{ field.id_for_label }}">{{ label|default:field.label }}</label>
+    </div>
+
+  {% else %}
+
+    <label for="{{ field.id_for_label }}">
+      {{ label|default:field.label }}{% if field.field.required %} <span class="ui-req" aria-hidden="true">*</span>{% endif %}
+    </label>
+
+    {% if as_date %}
+      {# value: se for data usa Y-m-d; se vier texto (POST com erro) mantém o texto #}
+      <input type="date"
+             name="{{ field.html_name }}"
+             id="{{ field.id_for_label }}"
+             value="{{ field.value|date:'Y-m-d'|default:field.value|default:'' }}"
+             {% if field.field.required %}required{% endif %}>
+    {% elif as_textarea %}
+      <textarea name="{{ field.html_name }}"
+                id="{{ field.id_for_label }}"
+                rows="4"
+                {% if field.field.required %}required{% endif %}>{{ field.value|default_if_none:'' }}</textarea>
+    {% else %}
+      {{ field }}
+    {% endif %}
+
+  {% endif %}
+
+  {% for e in field.errors %}<p class="ui-err" role="alert">{{ e }}</p>{% endfor %}
+
+  {% if hint %}
+    <span class="ui-help">{{ hint }}</span>
+  {% elif field.help_text %}
+    <span class="ui-help">{{ field.help_text }}</span>
+  {% endif %}
+
+</div>
+{% endif %}

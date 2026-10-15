@@ -1,131 +1,17 @@
-<!-- funcionarios/cargos/detail.html -->
-{% extends "base.html" %}
-
+{% extends "funcionarios/_rh_base.html" %}
 {% block title %}{{ cargo.nome }}{% endblock %}
-
-{% block content %}
-<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-
-    <!-- Cabeçalho -->
-    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-8">
-        <h1 class="text-2xl font-bold text-gray-800">{{ cargo.nome }}</h1>
-        <div class="flex gap-2 mt-4 sm:mt-0">
-            <a href="{% url 'funcionarios:cargo_update' cargo.pk %}" 
-               class="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium text-yellow-700 bg-yellow-100 rounded-md hover:bg-yellow-200">
-                <i class="fas fa-edit"></i> Editar
-            </a>
-            <a href="{% url 'funcionarios:cargo_delete' cargo.pk %}" 
-               class="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium text-red-700 bg-red-100 rounded-md hover:bg-red-200">
-                <i class="fas fa-trash"></i> Excluir
-            </a>
-        </div>
-    </div>
-
-    <!-- Grid de informações -->
-    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-        <!-- Informações do Cargo -->
-        <div class="bg-white shadow rounded-lg p-6">
-            <h2 class="text-lg font-semibold text-indigo-600 mb-4">Informações do Cargo</h2>
-            <dl class="space-y-2 text-sm text-gray-700">
-                <div><span class="font-semibold">Código:</span> {{ cargo.codigo }}</div>
-                <div><span class="font-semibold">Nome:</span> {{ cargo.nome }}</div>
-                <div><span class="font-semibold">Categoria:</span> {{ cargo.get_categoria_display }}</div>
-                <div><span class="font-semibold">Nível Hierárquico:</span> {{ cargo.nivel_hierarquico }}</div>
-                {% if cargo.cargo_superior %}
-                <div><span class="font-semibold">Cargo Superior:</span> {{ cargo.cargo_superior.nome }}</div>
-                {% endif %}
-                {% if cargo.descricao %}
-                <div>
-                    <span class="font-semibold">Descrição:</span>
-                    <p class="mt-1 text-gray-600">{{ cargo.descricao|linebreaks }}</p>
-                </div>
-                {% endif %}
-            </dl>
-        </div>
-
-        <!-- Remuneração e Permissões -->
-        <div class="space-y-6">
-            <div class="bg-white shadow rounded-lg p-6">
-                <h2 class="text-lg font-semibold text-indigo-600 mb-4">Remuneração e Benefícios</h2>
-                <dl class="space-y-2 text-sm text-gray-700">
-                    <div><span class="font-semibold">Salário Base:</span> {{ cargo.salario_base|default:"—" }} Kz</div>
-                    <div><span class="font-semibold">Vale Alimentação:</span> {{ cargo.vale_alimentacao }} Kz</div>
-                    <div><span class="font-semibold">Vale Transporte:</span> {{ cargo.vale_transporte }} Kz</div>
-                </dl>
-            </div>
-
-            <div class="bg-white shadow rounded-lg p-6">
-                <h2 class="text-lg font-semibold text-indigo-600 mb-4">Permissões</h2>
-                <dl class="space-y-3 text-sm text-gray-700">
-                    <div>
-                        <span class="font-semibold">Pode Vender:</span>
-                        {% if cargo.pode_vender %}
-                            <span class="ml-2 inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-700">Sim</span>
-                        {% else %}
-                            <span class="ml-2 inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-red-100 text-red-700">Não</span>
-                        {% endif %}
-                    </div>
-                    <div>
-                        <span class="font-semibold">Pode Fazer Desconto:</span>
-                        {% if cargo.pode_fazer_desconto %}
-                            <span class="ml-2 inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-700">Sim</span>
-                            <small class="ml-2 text-gray-500">(Limite: {{ cargo.limite_desconto_percentual }}%)</small>
-                        {% else %}
-                            <span class="ml-2 inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-red-100 text-red-700">Não</span>
-                        {% endif %}
-                    </div>
-                </dl>
-            </div>
-        </div>
-    </div>
-
-    <!-- Funcionários neste Cargo -->
-    <div class="bg-white shadow rounded-lg">
-        <div class="px-6 py-4 border-b border-gray-200">
-            <h2 class="text-lg font-semibold text-indigo-600">Funcionários neste Cargo</h2>
-        </div>
-        <div class="overflow-x-auto">
-            <table class="min-w-full divide-y divide-gray-200 text-sm">
-                <thead class="bg-gray-50">
-                    <tr>
-                        <th class="px-6 py-3 text-left font-semibold text-gray-600">Matrícula</th>
-                        <th class="px-6 py-3 text-left font-semibold text-gray-600">Nome</th>
-                        <th class="px-6 py-3 text-left font-semibold text-gray-600">Departamento</th>
-                        <th class="px-6 py-3 text-left font-semibold text-gray-600">Status</th>
-                        <th class="px-6 py-3 text-center font-semibold text-gray-600">Ações</th>
-                    </tr>
-                </thead>
-                <tbody class="divide-y divide-gray-200">
-                    {% for funcionario in funcionarios %}
-                    <tr class="hover:bg-gray-50 transition">
-                        <td class="px-6 py-4 whitespace-nowrap">{{ funcionario.matricula }}</td>
-                        <td class="px-6 py-4 whitespace-nowrap">{{ funcionario.nome_completo }}</td>
-                        <td class="px-6 py-4 whitespace-nowrap">{{ funcionario.departamento.nome }}</td>
-                        <td class="px-6 py-4 whitespace-nowrap">
-                            {% if funcionario.ativo %}
-                                <span class="px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-700">Ativo</span>
-                            {% else %}
-                                <span class="px-2 py-1 rounded-full text-xs font-medium bg-red-100 text-red-700">Inativo</span>
-                            {% endif %}
-                        </td>
-                        <td class="px-6 py-4 whitespace-nowrap text-center">
-                            <a href="{% url 'funcionarios:detail' funcionario.pk %}" 
-                               class="inline-flex items-center justify-center p-2 text-blue-600 hover:bg-blue-50 rounded-full" 
-                               title="Ver Detalhes">
-                                <i class="fas fa-eye"></i>
-                            </a>
-                        </td>
-                    </tr>
-                    {% empty %}
-                    <tr>
-                        <td colspan="5" class="px-6 py-6 text-center text-gray-500">
-                            <i class="fas fa-info-circle"></i> Nenhum funcionário neste cargo
-                        </td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
-    </div>
+{% block rh_content %}
+<a href="{% url 'funcionarios:cargo_lista' %}" class="text-sm text-indigo-600">&larr; Cargos</a>
+<div class="flex justify-between items-center my-3"><h1 class="text-2xl font-bold">{{ cargo.nome }} <span class="rh-badge">{{ cargo.get_categoria_display }}</span></h1>
+  <a class="rh-btn" href="{% url 'funcionarios:cargo_update' pk=cargo.pk %}">Editar</a></div>
+<div class="grid md:grid-cols-3 gap-4 text-sm mb-4">
+  <div class="rh-card space-y-1"><h2 class="font-semibold mb-2">Remuneração</h2><p>Salário base: {{ cargo.salario_base|floatformat:2|default:"—" }} Kz</p><p>Alimentação: {{ cargo.vale_alimentacao|floatformat:2 }} Kz</p><p>Transporte: {{ cargo.vale_transporte|floatformat:2 }} Kz</p></div>
+  <div class="rh-card space-y-1"><h2 class="font-semibold mb-2">Hierarquia</h2><p>Nível: {{ cargo.nivel_hierarquico }}</p><p>Superior: {{ cargo.cargo_superior.nome|default:"—" }}</p><p>{{ cargo.descricao|default:"" }}</p></div>
+  <div class="rh-card space-y-1"><h2 class="font-semibold mb-2">Permissões principais</h2>
+    <p>Vender: {{ cargo.pode_vender|yesno:"Sim,Não" }}</p><p>Desconto: {{ cargo.pode_fazer_desconto|yesno:"Sim,Não" }} (até {{ cargo.limite_desconto_percentual }}%)</p>
+    <p>Aceder ao RH: {{ cargo.pode_acessar_rh|yesno:"Sim,Não" }}</p><p>Aceder a fornecedores: {{ cargo.pode_acessar_fornecedores|yesno:"Sim,Não" }}</p><p>Gerir funcionários: {{ cargo.pode_gerenciar_funcionarios|yesno:"Sim,Não" }}</p></div>
 </div>
+<div class="rh-card p-0 overflow-x-auto"><table class="rh-table"><thead><tr><th>Funcionários neste cargo</th><th>Departamento</th></tr></thead><tbody>
+  {% for f in funcionarios %}<tr><td><a class="text-indigo-600" href="{% url 'funcionarios:detail' pk=f.pk %}">{{ f.nome_completo }}</a></td><td>{{ f.departamento.nome }}</td></tr>
+  {% empty %}<tr><td colspan="2" class="text-center py-6 rh-muted">Nenhum funcionário.</td></tr>{% endfor %}</tbody></table></div>
 {% endblock %}

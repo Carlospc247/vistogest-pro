@@ -1,0 +1,7 @@
+{% extends "relatorios/base_relatorios.html" %}
+{% block title %}Agendamento · VistoGEST{% endblock %}
+{% block content %}
+<div class="crumb"><a href="{% url 'relatorios:agendamentos' %}">Agendamentos</a> / Detalhe</div>
+<div class="page-head"><div><h1>Agendamento {{ object.pk }}</h1><p>{{ object.template|default:object }}</p></div><div class="actions"><a class="btn" href="{% url 'relatorios:agendamentos' %}">Voltar</a><form method="post" action="{% url 'relatorios:agendamento_executar' object.pk %}">{% csrf_token %}<button class="btn primary" type="submit">Executar agora</button></form></div></div>
+<section class="panel"><div class="panel-body"><p><strong>Template:</strong> {{ object.template|default:"—" }}</p><p><strong>Frequência:</strong> {{ object.get_frequencia_display|default:object.frequencia|default:"—" }}</p><p><strong>Horário:</strong> {{ object.horario|default:"—" }}</p><p><strong>Destinatários:</strong> {{ object.destinatarios|default:"Não configurados" }}</p><p><strong>Estado:</strong> {% if object.ativo %}Activo{% else %}Inactivo{% endif %}</p></div></section>
+{% endblock %}

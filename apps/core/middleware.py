@@ -2,7 +2,7 @@
 import threading
 from django.conf import settings
 from django.shortcuts import render
-from django.http import HttpResponseRedirect, JsonResponse
+from django.http import HttpResponse, HttpResponseRedirect, JsonResponse
 from django.db import connection
 import logging
 

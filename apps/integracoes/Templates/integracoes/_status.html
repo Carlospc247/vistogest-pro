@@ -1,0 +1,2 @@
+{# _status.html — espera a variável `config` #}
+<span class="ig-badge {% if config.status == 'ativa' %}ig-ok{% elif config.status == 'erro' %}ig-bad{% elif config.status == 'inativa' %}ig-warn{% endif %}">{{ config.status_label }}</span>

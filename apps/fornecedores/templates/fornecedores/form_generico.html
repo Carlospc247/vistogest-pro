@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}{{ titulo }}{% endblock %}
+{% block extra_css %}
+<style>
+  .campo input:not([type=checkbox]):not([type=file]), .campo select, .campo textarea {
+    width:100%; border:1px solid #d1d5db; border-radius:.375rem; padding:.5rem .75rem; background:#fff;
+  }
+  .campo input:focus, .campo select:focus, .campo textarea:focus {
+    outline:none; border-color:#6366f1; box-shadow:0 0 0 3px rgba(99,102,241,.15);
+  }
+</style>
+{% endblock %}
+{% block content %}
+<div class="max-w-4xl mx-auto px-4 py-8">
+  <h1 class="text-2xl font-bold text-gray-800 mb-6">{{ titulo }}</h1>
+  <form method="post" enctype="multipart/form-data"
+        class="bg-white rounded-xl shadow-sm border border-gray-100 p-6 space-y-5">
+    {% csrf_token %}
+    {% if form.non_field_errors %}
+      <div class="p-3 rounded bg-red-50 text-red-700 text-sm">{{ form.non_field_errors }}</div>
+    {% endif %}
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
+      {% for field in form.visible_fields %}
+      <div class="campo {% if field.widget_type == 'textarea' %}md:col-span-2{% endif %}">
+        {% if field.widget_type == 'checkbox' %}
+          <label class="inline-flex items-center gap-2 text-sm text-gray-700">{{ field }} {{ field.label }}</label>
+        {% else %}
+          <label for="{{ field.id_for_label }}" class="block text-sm font-medium text-gray-700 mb-1">
+            {{ field.label }}{% if field.field.required %} <span class="text-red-500">*</span>{% endif %}
+          </label>
+          {{ field }}
+        {% endif %}
+        {% if field.help_text %}<p class="text-xs text-gray-500 mt-1">{{ field.help_text }}</p>{% endif %}
+        {% for e in field.errors %}<p class="text-xs text-red-600 mt-1">{{ e }}</p>{% endfor %}
+      </div>
+      {% endfor %}
+    </div>
+    {% for h in form.hidden_fields %}{{ h }}{% endfor %}
+    <div class="flex justify-end gap-3 pt-4 border-t border-gray-100">
+      <a href="javascript:history.back()" class="px-4 py-2 rounded-md border border-gray-300 text-gray-700 hover:bg-gray-50">Cancelar</a>
+      <button type="submit" class="px-5 py-2 rounded-md bg-indigo-600 text-white font-medium hover:bg-indigo-700">
+        <i class="fas fa-save mr-1"></i> Guardar
+      </button>
+    </div>
+  </form>
+</div>
+{% endblock %}

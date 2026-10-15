@@ -1,91 +1,15 @@
-<!-- funcionarios/salario.html -->
-{% extends "base.html" %}
-
-{% block title %}Salário - {{ funcionario.nome_completo }}{% endblock %}
-
-{% block content %}
-<div class="container-fluid">
-    <h1 class="h3 mb-4">Informações Salariais - {{ funcionario.nome_completo }}</h1>
-    
-    <div class="row">
-        <div class="col-md-6">
-            <div class="card shadow mb-4">
-                <div class="card-header">
-                    <h6 class="m-0 font-weight-bold text-primary">Salário Atual</h6>
-                </div>
-                <div class="card-body">
-                    <p><strong>Salário Base:</strong> {{ funcionario.salario_atual|floatformat:2 }} Kz</p>
-                    <p><strong>Vale Alimentação:</strong> {{ funcionario.vale_alimentacao|floatformat:2 }} Kz</p>
-                    <p><strong>Vale Transporte:</strong> {{ funcionario.vale_transporte|floatformat:2 }} Kz</p>
-                    <p><strong>Outros Benefícios:</strong> {{ funcionario.outros_beneficios|floatformat:2 }} Kz</p>
-                    <hr>
-                    <p><strong>Total:</strong> {{ funcionario.salario_total|floatformat:2 }} Kz</p>
-                    {% if funcionario.comissao_percentual %}
-                    <p><strong>Comissão:</strong> {{ funcionario.comissao_percentual }}% sobre vendas</p>
-                    {% endif %}
-                </div>
-            </div>
-        </div>
-        
-        <div class="col-md-6">
-            <div class="card shadow mb-4">
-                <div class="card-header">
-                    <h6 class="m-0 font-weight-bold text-primary">Dados Bancários</h6>
-                </div>
-                <div class="card-body">
-                    <p><strong>Banco:</strong> {{ funcionario.banco|default:"—" }}</p>
-                    <p><strong>Agência:</strong> {{ funcionario.agencia|default:"—" }}</p>
-                    <p><strong>Conta:</strong> {{ funcionario.conta_corrente|default:"—" }}</p>
-                    <p><strong>Tipo de Conta:</strong> {{ funcionario.get_tipo_conta_display|default:"—" }}</p>
-                </div>
-            </div>
-        </div>
-    </div>
-    
-    <div class="card shadow mb-4">
-        <div class="card-header">
-            <h6 class="m-0 font-weight-bold text-primary">Histórico Salarial</h6>
-        </div>
-        <div class="card-body">
-            <div class="table-responsive">
-                <table class="table table-bordered">
-                    <thead>
-                        <tr>
-                            <th>Data Vigência</th>
-                            <th>Salário Anterior</th>
-                            <th>Salário Novo</th>
-                            <th>Aumento (%)</th>
-                            <th>Motivo</th>
-                            <th>Alterado Por</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for historico in historico_salarial %}
-                        <tr>
-                            <td>{{ historico.data_vigencia|date:"d/m/Y" }}</td>
-                            <td>{{ historico.salario_anterior|floatformat:2 }} Kz</td>
-                            <td>{{ historico.salario_novo|floatformat:2 }} Kz</td>
-                            <td>
-                                {% if historico.percentual_aumento > 0 %}
-                                    <span class="text-success">+{{ historico.percentual_aumento|floatformat:1 }}%</span>
-                                {% elif historico.percentual_aumento < 0 %}
-                                    <span class="text-danger">{{ historico.percentual_aumento|floatformat:1 }}%</span>
-                                {% else %}
-                                    0%
-                                {% endif %}
-                            </td>
-                            <td>{{ historico.motivo }}</td>
-                            <td>{{ historico.alterado_por.get_full_name|default:historico.alterado_por.username }}</td>
-                        </tr>
-                        {% empty %}
-                        <tr>
-                            <td colspan="6" class="text-center">Nenhum histórico salarial registrado</td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-            </div>
-        </div>
-    </div>
+{% extends "funcionarios/_rh_base.html" %}
+{% block title %}Salário — {{ funcionario.nome_completo }}{% endblock %}
+{% block rh_content %}
+<a href="{% url 'funcionarios:detail' pk=funcionario.pk %}" class="text-sm text-indigo-600">&larr; {{ funcionario.nome_completo }}</a>
+<h1 class="text-2xl font-bold my-3">Salário</h1>
+<div class="grid md:grid-cols-3 gap-4 mb-4">
+  {% include "funcionarios/_card.html" with label="Salário base" valor=funcionario.salario_atual|floatformat:2 icone="fa-money-bill" %}
+  {% include "funcionarios/_card.html" with label="Total com subsídios" valor=funcionario.salario_total|floatformat:2 icone="fa-wallet" %}
+  {% include "funcionarios/_card.html" with label="Comissão (%)" valor=funcionario.comissao_percentual icone="fa-percent" %}
 </div>
+<div class="rh-card p-0 overflow-x-auto"><table class="rh-table">
+  <thead><tr><th>Vigência</th><th class="text-right">Anterior</th><th class="text-right">Novo</th><th class="text-right">Variação</th><th>Motivo</th></tr></thead><tbody>
+  {% for h in historico_salarial %}<tr><td>{{ h.data_vigencia|date:"d/m/Y" }}</td><td class="text-right">{{ h.salario_anterior|floatformat:2 }}</td><td class="text-right">{{ h.salario_novo|floatformat:2 }}</td><td class="text-right">{{ h.percentual_aumento|floatformat:1 }}%</td><td>{{ h.motivo }}</td></tr>
+  {% empty %}<tr><td colspan="5" class="text-center py-6 rh-muted">Sem alterações salariais registadas.</td></tr>{% endfor %}</tbody></table></div>
 {% endblock %}

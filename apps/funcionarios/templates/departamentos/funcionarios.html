@@ -1,0 +1,11 @@
+{# departamentos/funcionarios.html #}
+{% extends "funcionarios/_rh_base.html" %}
+{% block title %}Equipa — {{ departamento.nome }}{% endblock %}
+{% block rh_content %}
+<a href="{% url 'funcionarios:departamento_detail' pk=departamento.pk %}" class="text-sm text-indigo-600">&larr; {{ departamento.nome }}</a>
+<h1 class="text-2xl font-bold my-3">Equipa de {{ departamento.nome }}</h1>
+<div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+  {% for f in funcionarios %}<a class="rh-card hover:shadow-md" href="{% url 'funcionarios:detail' pk=f.pk %}"><p class="font-medium">{{ f.nome_completo }}</p><p class="text-sm rh-muted">{{ f.cargo.nome|default:"—" }} • {{ f.matricula }}</p></a>
+  {% empty %}<p class="rh-muted">Sem funcionários activos.</p>{% endfor %}
+</div>
+{% endblock %}

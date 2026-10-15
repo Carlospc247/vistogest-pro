@@ -1,0 +1,114 @@
+{% extends "site/loja/base_loja.html" %}
+
+{% block titulo %}Checkout{% endblock %}
+
+{% block conteudo %}
+<section class="pagina">
+    <div class="migalhas">
+        <a href="{% url 'site:loja' %}">Loja</a>
+        <span> / </span>
+        <a href="{% url 'site:carrinho' %}">Carrinho</a>
+        <span> / </span>
+        <span>Checkout</span>
+    </div>
+
+    <h1>Finalizar pedido</h1>
+
+    <div class="layout-resumo">
+        <div class="painel">
+            <h2>Dados para entrega</h2>
+
+            <form method="post">
+                {% csrf_token %}
+
+                <div class="campo">
+                    <label for="id_nome">Nome completo</label>
+                    <input
+                        id="id_nome"
+                        type="text"
+                        name="nome"
+                        value="{{ cliente_logado.nome|default:"" }}"
+                        required
+                        autocomplete="name"
+                    >
+                </div>
+
+                <div class="campo">
+                    <label for="id_email">Email</label>
+                    <input
+                        id="id_email"
+                        type="email"
+                        name="email"
+                        value="{{ cliente_logado.email|default:"" }}"
+                        required
+                        autocomplete="email"
+                    >
+                </div>
+
+                <div class="campo">
+                    <label for="id_telefone">Telefone</label>
+                    <input
+                        id="id_telefone"
+                        type="tel"
+                        name="telefone"
+                        value="{{ cliente_logado.telefone|default:"" }}"
+                        autocomplete="tel"
+                    >
+                </div>
+
+                <div class="campo">
+                    <label for="id_endereco_entrega">Endereço de entrega</label>
+                    <textarea
+                        id="id_endereco_entrega"
+                        name="endereco_entrega"
+                        required
+                        autocomplete="street-address"
+                        placeholder="Rua, número, bairro, cidade e outros detalhes"
+                    ></textarea>
+                </div>
+
+                <div class="campo">
+                    <label for="id_notas">Observações do pedido</label>
+                    <textarea
+                        id="id_notas"
+                        name="notas"
+                        placeholder="Informações adicionais para a entrega (opcional)"
+                    ></textarea>
+                </div>
+
+                <button type="submit" class="btn">
+                    Confirmar pedido
+                </button>
+            </form>
+        </div>
+
+        <aside class="painel">
+            <h2>Resumo do pedido</h2>
+
+            {% for item in itens %}
+                <div class="resumo-linha">
+                    <span>
+                        {{ item.nome }} × {{ item.quantidade }}
+                    </span>
+                    <strong>
+                        {{ item.total_linha|floatformat:2 }}
+                        {{ config.moeda|default:"AOA" }}
+                    </strong>
+                </div>
+            {% endfor %}
+
+            <div class="resumo-total">
+                <span>Total</span>
+                <span>
+                    {{ carrinho_obj.total|floatformat:2 }}
+                    {{ config.moeda|default:"AOA" }}
+                </span>
+            </div>
+
+            <a class="btn btn-sec" href="{% url 'site:carrinho' %}">
+                Voltar ao carrinho
+            </a>
+        </aside>
+    </div>
+</section>
+{% endblock %}

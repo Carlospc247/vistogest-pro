@@ -11,7 +11,7 @@ from django.db.models import Sum, Count, Q, Avg, F
 from django.utils import timezone
 from django.urls import reverse_lazy
 from datetime import date, timedelta, datetime
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 import json
 import csv
 from rest_framework import viewsets
@@ -47,31 +47,51 @@ from django.shortcuts import redirect
 from django.urls import reverse_lazy
 from django.http import HttpResponseForbidden
 from django.views.decorators.http import require_POST
+from datetime import date
+from django.views.generic import TemplateView
+from django.contrib.auth.mixins import LoginRequiredMixin
+from django.db.models import Sum
+from django.db.models import Sum, Count, Q
+from django.db.models.functions import TruncMonth, TruncWeek
+from django.utils import timezone
+from datetime import date, timedelta
+import json
+from decimal import Decimal
+from django.views.generic import ListView, CreateView
+from django.contrib.auth.mixins import LoginRequiredMixin
+from django.db.models import Sum
+from .models import FluxoCaixa
+from .forms import FluxoCaixaForm
+from datetime import datetime, date
 
 
 
-class PermissaoAcaoMixin(AccessMixin):
-    # CRÍTICO: Definir esta variável na View
-    acao_requerida = None 
+
+
+
+
+class PermissaoAcaoMixin:
+    """Usa o reverse relation real: Funcionario.usuario -> funcionario_relacionado."""
+    acao_requerida = None
 
     def dispatch(self, request, *args, **kwargs):
         if not request.user.is_authenticated:
             return self.handle_no_permission()
-
-        try:
-            # Tenta obter o Funcionario (ligação fundamental)
-            funcionario = request.user.funcionario 
-        except Exception:
-            messages.error(request, "Acesso negado. O seu usuário não está ligado a um registro de funcionário.")
-            return self.handle_no_permission()
-
-        if self.acao_requerida:
-            # Usa a lógica dinâmica do modelo Funcionario (que já criámos)
-            if not funcionario.pode_realizar_acao(self.acao_requerida):
-                messages.error(request, f"Acesso negado. O seu cargo não permite realizar a ação de '{self.acao_requerida}'.")
-                return redirect(reverse_lazy('core_tenants:dashboard'))
-
+        funcionario = getattr(request.user, "funcionario_relacionado", None)
+        if funcionario is None:
+            # Compatibilidade com instalações antigas que usavam related_name='funcionario'.
+            funcionario = getattr(request.user, "funcionario", None)
+        if funcionario is None:
+            messages.error(request, "O utilizador não está associado a um funcionário.")
+            return HttpResponseForbidden("Acesso reservado a funcionários autorizados.")
+        if self.acao_requerida and not funcionario.pode_realizar_acao(self.acao_requerida):
+            messages.error(request, "O seu cargo não tem permissão para esta operação.")
+            return HttpResponseForbidden("Permissão insuficiente.")
         return super().dispatch(request, *args, **kwargs)
+
+    def handle_no_permission(self):
+        from django.contrib.auth.views import redirect_to_login
+        return redirect_to_login(self.request.get_full_path())
 
 
 
@@ -112,6 +132,37 @@ def permissao_acao_required(acao_requerida=None):
 
 
 
+def _decimal_post(request, name, default=None):
+    raw = request.POST.get(name)
+    if raw in (None, ""):
+        if default is not None:
+            return Decimal(default)
+        raise ValidationError(f"O campo {name} é obrigatório.")
+    try:
+        value = Decimal(raw)
+    except (InvalidOperation, TypeError):
+        raise ValidationError(f"O campo {name} tem um valor inválido.")
+    if not value.is_finite():
+        raise ValidationError(f"O campo {name} tem um valor inválido.")
+    return value
+
+
+def _date_post(request, name, default=None):
+    raw = request.POST.get(name)
+    if not raw:
+        return default or timezone.localdate()
+    try:
+        return date.fromisoformat(raw)
+    except (TypeError, ValueError):
+        raise ValidationError(f"A data indicada em {name} é inválida.")
+
+
+def _tipo_documento(request):
+    value = request.POST.get("tipo_documento", "transferencia")
+    valid = {choice[0] for choice in MovimentacaoFinanceira.TIPO_DOCUMENTO_CHOICES}
+    if value not in valid:
+        raise ValidationError("Forma de pagamento inválida.")
+    return value
 
 
 class FinanceiroView(BaseMPAView, PermissaoAcaoMixin):
@@ -742,219 +793,57 @@ class ContaBancariaUpdateView(LoginRequiredMixin, PermissaoAcaoMixin, UpdateView
 # =====================================
 # DASHBOARD FINANCEIRO
 # =====================================
-from datetime import date
-from django.views.generic import TemplateView
-from django.contrib.auth.mixins import LoginRequiredMixin
-from django.db.models import Sum
 
 
-
-
-
-
-
-from django.db.models import Sum, Count, Q
-from django.db.models.functions import TruncMonth, TruncWeek
-from django.utils import timezone
-from datetime import date, timedelta
-import json
-from decimal import Decimal
 
 class FinanceiroDashboardView(LoginRequiredMixin, PermissaoAcaoMixin, TemplateView):
-    acao_requerida = 'acessar_financeiro'
-    template_name = 'financeiro/dashboard.html'
-    module_name = 'financeiro'
-    
+    acao_requerida = "acessar_financeiro"
+    template_name = "financeiro/dashboard.html"
+
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        hoje = date.today()
+        hoje = timezone.localdate()
         inicio_mes = hoje.replace(day=1)
-        
-        # ====== RESUMO FINANCEIRO ======
-        context['total_receber'] = ContaReceber.objects.filter(
-            status__in=['aberta', 'vencida']
-        ).aggregate(total=Sum('valor_saldo'))['total'] or Decimal('0.00')
-        
-        context['total_pagar'] = ContaPagar.objects.filter(
-            status__in=['aberta', 'vencida']
-        ).aggregate(total=Sum('valor_saldo'))['total'] or Decimal('0.00')
-        
-        context['saldo_caixa'] = self._calcular_saldo_caixa()
-        context['saldo_bancos'] = self._calcular_saldo_bancos()
-        
-        # ====== CONTAS VENCIDAS ======
-        context['contas_receber_vencidas'] = ContaReceber.objects.filter(
-            status__in=['aberta', 'vencida'],
-            data_vencimento__lt=hoje
-        ).count()
-        
-        context['contas_pagar_vencidas'] = ContaPagar.objects.filter(
-            status__in=['aberta', 'vencida'],
-            data_vencimento__lt=hoje
-        ).count()
-        
-
-        # ====== CONTAS VENCENDO (próximos 7 dias) ======
-        proximos_7_dias = hoje + timedelta(days=7)
-        
-        context['contas_receber_vencendo'] = ContaReceber.objects.filter(
-            status='aberta',
-            data_vencimento__gte=hoje,
-            data_vencimento__lte=proximos_7_dias
-        ).count()
-        
-        context['contas_pagar_vencendo'] = ContaPagar.objects.filter(
-            status='aberta',
-            data_vencimento__gte=hoje,
-            data_vencimento__lte=proximos_7_dias
-        ).count()
-        
-        # ====== IMPOSTOS ======
-        context['impostos_pendentes'] = ImpostoTributo.objects.filter(
-            situacao__in=['pendente', 'calculado', 'vencido']
-        ).count()
-        
-        context['impostos_valor_devido'] = ImpostoTributo.objects.filter(
-            situacao__in=['calculado', 'vencido']
-        ).aggregate(total=Sum('valor_devido'))['total'] or Decimal('0.00')
-
-        # ====== VENDAS DO MÊS ======
-        context['total_vendas_mes'] = Venda.objects.filter(
-            data_venda__gte=inicio_mes,
-            data_venda__lte=hoje,
-            status='finalizada'
-        ).aggregate(total=Sum('total'))['total'] or Decimal('0.00')
-
-        # ====== CÁLCULOS ======
-        context['lucro_mes'] = context['total_vendas_mes'] - context['despesas_mes']
-        context['liquidez'] = context['saldo_caixa'] + context['saldo_bancos']
-        context['saldo_liquido'] = context['total_receber'] - context['total_pagar']
-
-        
-        # ====== CÁLCULOS ======
-        context['lucro_mes'] = context['receitas_mes'] - context['despesas_mes']
-        context['liquidez'] = context['saldo_caixa'] + context['saldo_bancos']
-        context['saldo_liquido'] = context['total_receber'] - context['total_pagar']
-        
-        # ====== DADOS PARA GRÁFICOS ======
-        context['dados_fluxo_caixa'] = json.dumps(self._get_dados_fluxo_caixa(empresa))
-        context['receitas_por_categoria'] = json.dumps(self._get_receitas_por_categoria(empresa))
-        context['despesas_por_categoria'] = json.dumps(self._get_despesas_por_categoria(empresa))
-        context['evolucao_saldos'] = json.dumps(self._get_evolucao_saldos(empresa))
-        context['contas_vencimento'] = json.dumps(self._get_contas_por_vencimento(empresa))
-        
+        fim = hoje
+        movimentos_mes = MovimentacaoFinanceira.objects.filter(
+            data_movimentacao__range=(inicio_mes, fim), confirmada=True
+        )
+        receitas_mes = movimentos_mes.filter(tipo_movimentacao="entrada").aggregate(v=Sum("valor"))["v"] or Decimal("0.00")
+        despesas_mes = movimentos_mes.filter(tipo_movimentacao="saida").aggregate(v=Sum("valor"))["v"] or Decimal("0.00")
+        total_vendas_mes = Venda.objects.filter(
+            data_venda__range=(inicio_mes, fim), status="finalizada"
+        ).aggregate(v=Sum("total"))["v"] or Decimal("0.00")
+        total_receber = ContaReceber.objects.filter(status__in=["aberta", "vencida"]).aggregate(v=Sum("valor_saldo"))["v"] or Decimal("0.00")
+        total_pagar = ContaPagar.objects.filter(status__in=["aberta", "vencida"]).aggregate(v=Sum("valor_saldo"))["v"] or Decimal("0.00")
+        saldo_caixa = MovimentoCaixa.objects.filter(confirmado=True).aggregate(v=Sum("valor"))["v"] or Decimal("0.00")
+        saldo_bancos = ContaBancaria.objects.filter(ativa=True).aggregate(v=Sum("saldo_atual"))["v"] or Decimal("0.00")
+        context.update({
+            "receitas_mes": receitas_mes,
+            "despesas_mes": despesas_mes,
+            "total_vendas_mes": total_vendas_mes,
+            "total_receber": total_receber,
+            "total_pagar": total_pagar,
+            "saldo_caixa": saldo_caixa,
+            "saldo_bancos": saldo_bancos,
+            "lucro_mes": receitas_mes - despesas_mes,
+            "liquidez": saldo_caixa + saldo_bancos,
+            "saldo_liquido": total_receber - total_pagar,
+            "contas_receber_vencidas": ContaReceber.objects.filter(status__in=["aberta", "vencida"], data_vencimento__lt=hoje).count(),
+            "contas_pagar_vencidas": ContaPagar.objects.filter(status__in=["aberta", "vencida"], data_vencimento__lt=hoje).count(),
+            "contas_receber_vencendo": ContaReceber.objects.filter(status="aberta", data_vencimento__range=(hoje, hoje + timedelta(days=7))).count(),
+            "contas_pagar_vencendo": ContaPagar.objects.filter(status="aberta", data_vencimento__range=(hoje, hoje + timedelta(days=7))).count(),
+            "impostos_pendentes": ImpostoTributo.objects.filter(situacao__in=["pendente", "calculado", "vencido"]).count(),
+            "impostos_valor_devido": ImpostoTributo.objects.filter(situacao__in=["calculado", "vencido"]).aggregate(v=Sum("valor_devido"))["v"] or Decimal("0.00"),
+            "dados_fluxo_caixa": json.dumps({"labels": [], "entradas": [], "saidas": [], "saldo_acumulado": []}),
+            "receitas_por_categoria": json.dumps([]),
+            "despesas_por_categoria": json.dumps([]),
+            "evolucao_saldos": json.dumps({"labels": [], "valores": []}),
+            "contas_vencimento": json.dumps({"labels": [], "valores": []}),
+        })
         return context
-    
-    def _calcular_saldo_caixa(self, empresa):
-        """Calcula saldo atual do caixa"""
-        return MovimentoCaixa.objects.filter(
-            confirmado=True
-        ).aggregate(total=Sum('valor'))['total'] or Decimal('0.00')
-    
-    def _calcular_saldo_bancos(self, empresa):
-        """Calcula saldo total das contas bancárias"""
-        return ContaBancaria.objects.filter(
-            ativa=True
-        ).aggregate(total=Sum('saldo_atual'))['total'] or Decimal('0.00')
-    
-    def _get_dados_fluxo_caixa(self, empresa):
-        """Dados para gráfico de fluxo de caixa (próximos 30 dias)"""
-        hoje = date.today()
-        dados = {'labels': [], 'entradas': [], 'saidas': [], 'saldo_acumulado': []}
-        
-        saldo_atual = self._calcular_saldo_caixa(empresa) + self._calcular_saldo_bancos(empresa)
-        
-        for i in range(30):
-            data_ref = hoje + timedelta(days=i)
-            
-            # Entradas previstas (contas a receber)
-            entradas = ContaReceber.objects.filter(
-                data_vencimento=data_ref,
-                status='aberta'
-            ).aggregate(total=Sum('valor_saldo'))['total'] or Decimal('0.00')
-            
-            # Saídas previstas (contas a pagar)
-            saidas = ContaPagar.objects.filter(
-                data_vencimento=data_ref,
-                status='aberta'
-            ).aggregate(total=Sum('valor_saldo'))['total'] or Decimal('0.00')
-            
-            saldo_atual = saldo_atual + entradas - saidas
-            
-            dados['labels'].append(data_ref.strftime('%d/%m'))
-            dados['entradas'].append(float(entradas))
-            dados['saidas'].append(float(saidas))
-            dados['saldo_acumulado'].append(float(saldo_atual))
-        
-        return dados
-    
-   
-    def _get_evolucao_saldos(self, empresa):
-        """Evolução dos saldos bancários (últimos 12 meses)"""
-        dados = {'labels': [], 'valores': []}
-        
-        for i in range(12):
-            if i == 0:
-                mes_ref = date.today().replace(day=1)
-            else:
-                mes_anterior = mes_ref - timedelta(days=1)
-                mes_ref = mes_anterior.replace(day=1)
-            
-            fim_mes = mes_ref.replace(day=28)  # Aproximação
-            
-            # Calcular saldo no final do mês
-            movimentacoes = MovimentacaoFinanceira.objects.filter(
-                data_movimentacao__lte=fim_mes,
-                confirmada=True
-            )
-            
-            entradas = movimentacoes.filter(tipo_movimentacao='entrada').aggregate(
-                total=Sum('valor')
-            )['total'] or Decimal('0.00')
-            
-            saidas = movimentacoes.filter(tipo_movimentacao='saida').aggregate(
-                total=Sum('valor')
-            )['total'] or Decimal('0.00')
-            
-            saldo_mes = entradas - saidas
-            
-            dados['labels'].insert(0, mes_ref.strftime('%b/%Y'))
-            dados['valores'].insert(0, float(saldo_mes))
-        
-        return dados
-    
-    def _get_contas_por_vencimento(self, empresa):
-        """Distribuição de contas por status de vencimento"""
-        hoje = date.today()
-        
-        # Contas a receber
-        receber_aberta = ContaReceber.objects.filter( status='aberta', data_vencimento__gte=hoje
-        ).aggregate(total=Sum('valor_saldo'))['total'] or Decimal('0.00')
-        
-        receber_vencida = ContaReceber.objects.filter( status='vencida'
-        ).aggregate(total=Sum('valor_saldo'))['total'] or Decimal('0.00')
-        
-        # Contas a pagar
-        pagar_aberta = ContaPagar.objects.filter( status='aberta', data_vencimento__gte=hoje
-        ).aggregate(total=Sum('valor_saldo'))['total'] or Decimal('0.00')
-        
-        pagar_vencida = ContaPagar.objects.filter( status='vencida'
-        ).aggregate(total=Sum('valor_saldo'))['total'] or Decimal('0.00')
-        
-        return {
-            'labels': ['A Receber em Dia', 'A Receber Vencidas', 'A Pagar em Dia', 'A Pagar Vencidas'],
-            'valores': [float(receber_aberta), float(receber_vencida), float(pagar_aberta), float(pagar_vencida)],
-            'cores': ['#10B981', '#EF4444', '#F59E0B', '#DC2626']
-        }
 
 
-# views.py
-from django.views.generic import ListView, CreateView
-from django.contrib.auth.mixins import LoginRequiredMixin
-from django.db.models import Sum
-from .models import FluxoCaixa
-from .forms import FluxoCaixaForm
-from datetime import datetime, date
+
 
 class FluxoCaixaView(LoginRequiredMixin, ListView):
     model = FluxoCaixa
@@ -1015,37 +904,41 @@ class FluxoCaixaUpdateView(LoginRequiredMixin, PermissaoAcaoMixin, UpdateView):
 
 
 
+
 class DREView(LoginRequiredMixin, PermissaoAcaoMixin, TemplateView):
-   acao_requerida = 'acessar_financeiro'
-   template_name = 'financeiro/dre.html'
-    
-   def get_context_data(self, **kwargs):
+    acao_requerida = "acessar_financeiro"
+    template_name = "financeiro/dre.html"
+
+    def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        
-        # Período
-        mes = int(self.request.GET.get('mes', date.today().month))
-        ano = int(self.request.GET.get('ano', date.today().year))
-        
-        inicio_periodo = date(ano, mes, 1)
-        if mes == 12:
-            fim_periodo = date(ano + 1, 1, 1) - timedelta(days=1)
-        else:
-            fim_periodo = date(ano, mes + 1, 1) - timedelta(days=1)
-        
-        
-        
-        
-        
-        
+        hoje = timezone.localdate()
+        try:
+            mes = int(self.request.GET.get("mes", hoje.month))
+            ano = int(self.request.GET.get("ano", hoje.year))
+            if not 1 <= mes <= 12 or not 2000 <= ano <= 2100:
+                raise ValueError
+        except (TypeError, ValueError):
+            mes, ano = hoje.month, hoje.year
+            messages.warning(self.request, "Mês ou ano inválido; foi seleccionado o período actual.")
+        inicio = date(ano, mes, 1)
+        fim = date(ano + 1, 1, 1) - timedelta(days=1) if mes == 12 else date(ano, mes + 1, 1) - timedelta(days=1)
+        movimentos = MovimentacaoFinanceira.objects.filter(
+            data_movimentacao__range=(inicio, fim), confirmada=True
+        )
+        receitas = movimentos.filter(tipo_movimentacao="entrada").aggregate(v=Sum("valor"))["v"] or Decimal("0.00")
+        despesas = movimentos.filter(tipo_movimentacao="saida").aggregate(v=Sum("valor"))["v"] or Decimal("0.00")
+        nomes = [(1,"Janeiro"),(2,"Fevereiro"),(3,"Março"),(4,"Abril"),(5,"Maio"),(6,"Junho"),(7,"Julho"),(8,"Agosto"),(9,"Setembro"),(10,"Outubro"),(11,"Novembro"),(12,"Dezembro")]
+        total = receitas + despesas
         context.update({
-            'mes': mes,
-            'ano': ano,
-            'total_receitas': total_receitas,
-            'total_despesas': total_despesas,
-            'resultado': total_receitas - total_despesas
+            "mes": mes, "ano": ano, "inicio_periodo": inicio, "fim_periodo": fim,
+            "total_receitas": receitas, "total_despesas": despesas,
+            "resultado": receitas - despesas, "meses_choices": nomes,
+            "receitas_percentual": float(receitas / total * 100) if total else 0,
+            "despesas_percentual": float(despesas / total * 100) if total else 0,
         })
-        
         return context
+
+
 
 class BalancoPatrimonialView(LoginRequiredMixin, PermissaoAcaoMixin, TemplateView):
     acao_requerida = 'acessar_financeiro'
@@ -1121,11 +1014,22 @@ class ContaReceberListView(LoginRequiredMixin, PermissaoAcaoMixin, ListView):
         
         return queryset.select_related('cliente').order_by('data_vencimento')
 
-class ContaReceberDetailView(LoginRequiredMixin, PermissaoAcaoMixin, DetailView):
-    acao_requerida = 'acessar_financeiro'
+
+
+class ContaReceberDetailView(DetailView):
+    """Integre get_context_data desta classe na ContaReceberDetailView existente."""
     model = ContaReceber
-    template_name = 'financeiro/conta_receber/detail.html'
-    context_object_name = 'conta'
+    context_object_name = "conta"
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["contas_bancarias"] = ContaBancaria.objects.filter(ativa=True)
+        return context
+
+
+
+
+
 
 class ContaReceberCreateView(LoginRequiredMixin, PermissaoAcaoMixin,  CreateView):
     acao_requerida = 'acessar_financeiro'
@@ -1149,25 +1053,50 @@ class ContaReceberUpdateView(LoginRequiredMixin, PermissaoAcaoMixin, UpdateView)
         messages.success(self.request, 'Conta a receber atualizada com sucesso!')
         return super().form_valid(form)
 
+
+
 class ReceberContaView(LoginRequiredMixin, PermissaoAcaoMixin, View):
-    acao_requerida = 'acessar_financeiro'
+    acao_requerida = "acessar_financeiro"
+
     def post(self, request, pk):
-        conta = get_object_or_404(ContaReceber, pk=pk)
-        
-        valor_recebido = Decimal(request.POST.get('valor_recebido', conta.valor))
-        data_recebimento = request.POST.get('data_recebimento', date.today())
-        forma_pagamento = request.POST.get('forma_pagamento')
-        
-        # Atualizar conta
-        conta.valor_pago = valor_recebido
-        conta.data_pagamento = data_recebimento
-        conta.forma_pagamento = forma_pagamento
-        conta.status = 'paga'
-        conta.save()
-        
-        
-        messages.success(request, 'Conta recebida com sucesso!')
-        return redirect('financeiro:conta_receber_detail', pk=pk)
+        try:
+            with transaction.atomic():
+                conta = get_object_or_404(ContaReceber.objects.select_for_update(), pk=pk)
+                if conta.status not in ("aberta", "vencida"):
+                    raise ValidationError("Só é possível receber contas abertas ou vencidas.")
+                valor = _decimal_post(request, "valor_recebido")
+                if valor <= 0 or valor > conta.valor_saldo:
+                    raise ValidationError("O valor deve ser positivo e não pode ultrapassar o saldo em aberto.")
+                banco = get_object_or_404(ContaBancaria, pk=request.POST.get("conta_bancaria"), ativa=True)
+                dia = _date_post(request, "data_recebimento")
+                movimento = MovimentacaoFinanceira.objects.create(
+                    tipo_movimentacao="entrada",
+                    tipo_documento=_tipo_documento(request),
+                    numero_documento=conta.numero_documento,
+                    data_movimentacao=dia,
+                    valor=valor,
+                    conta_bancaria=banco,
+                    centro_custo=conta.centro_custo,
+                    cliente=conta.cliente,
+                    venda_relacionada=conta.venda,
+                    descricao=f"Recebimento: {conta.descricao}",
+                    observacoes=f"Conta a receber {conta.numero_documento}. {request.POST.get('observacoes', '')}".strip(),
+                    status="confirmada",
+                    confirmada=True,
+                    data_confirmacao=timezone.now(),
+                    usuario_responsavel=request.user,
+                )
+                conta.valor_recebido += valor
+                if conta.valor_recebido >= (conta.valor_original + conta.valor_juros + conta.valor_multa - conta.valor_desconto):
+                    conta.data_recebimento = dia
+                conta.save()
+            messages.success(request, "Recebimento registado com sucesso.")
+        except (ValidationError, ValueError) as exc:
+            messages.error(request, str(exc))
+        return redirect("financeiro:conta_receber_detail", pk=pk)
+
+
+
 
 class ParcelarContaView(LoginRequiredMixin, PermissaoAcaoMixin, FormView):
     acao_requerida = 'acessar_financeiro'
@@ -1274,10 +1203,20 @@ class ContaPagarListView(LoginRequiredMixin, PermissaoAcaoMixin, ListView):
         
         return queryset.select_related('fornecedor').order_by('data_vencimento')
 
-class ContaPagarDetailView(LoginRequiredMixin, DetailView):
+
+
+class ContaPagarDetailView(DetailView):
+    """Integre get_context_data desta classe na ContaPagarDetailView existente."""
     model = ContaPagar
-    template_name = 'financeiro/conta_pagar/detail.html'
-    context_object_name = 'conta'
+    context_object_name = "conta"
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["contas_bancarias"] = ContaBancaria.objects.filter(ativa=True)
+        return context
+
+
+
 
 class ContaPagarCreateView(LoginRequiredMixin, PermissaoAcaoMixin, CreateView):
     acao_requerida = 'acessar_financeiro'
@@ -1293,25 +1232,49 @@ class ContaPagarUpdateView(LoginRequiredMixin, PermissaoAcaoMixin, UpdateView):
     template_name = 'financeiro/conta_pagar/form.html'
     success_url = reverse_lazy('financeiro:conta_pagar_lista')
 
+
+
+
 class PagarContaView(LoginRequiredMixin, PermissaoAcaoMixin, View):
-    acao_requerida = 'acessar_financeiro'
+    acao_requerida = "acessar_financeiro"
+
     def post(self, request, pk):
-        conta = get_object_or_404(ContaPagar, pk=pk)
-        
-        valor_pago = Decimal(request.POST.get('valor_pago', conta.valor))
-        data_pagamento = request.POST.get('data_pagamento', date.today())
-        forma_pagamento = request.POST.get('forma_pagamento')
-        
-        # Atualizar conta
-        conta.valor_pago = valor_pago
-        conta.data_pagamento = data_pagamento
-        conta.forma_pagamento = forma_pagamento
-        conta.status = 'paga'
-        conta.save()
-        
-        
-        messages.success(request, 'Conta paga com sucesso!')
-        return redirect('financeiro:conta_pagar_detail', pk=pk)
+        try:
+            with transaction.atomic():
+                conta = get_object_or_404(ContaPagar.objects.select_for_update(), pk=pk)
+                if conta.status not in ("aberta", "vencida"):
+                    raise ValidationError("Só é possível pagar contas abertas ou vencidas.")
+                valor = _decimal_post(request, "valor_pago")
+                if valor <= 0 or valor > conta.valor_saldo:
+                    raise ValidationError("O valor deve ser positivo e não pode ultrapassar o saldo a pagar.")
+                banco = get_object_or_404(ContaBancaria, pk=request.POST.get("conta_bancaria"), ativa=True)
+                dia = _date_post(request, "data_pagamento")
+                MovimentacaoFinanceira.objects.create(
+                    tipo_movimentacao="saida",
+                    tipo_documento=_tipo_documento(request),
+                    numero_documento=conta.numero_documento,
+                    data_movimentacao=dia,
+                    valor=valor,
+                    conta_bancaria=banco,
+                    centro_custo=conta.centro_custo,
+                    fornecedor=conta.fornecedor,
+                    descricao=f"Pagamento: {conta.descricao}",
+                    observacoes=f"Conta a pagar {conta.numero_documento}. {request.POST.get('observacoes', '')}".strip(),
+                    status="confirmada",
+                    confirmada=True,
+                    data_confirmacao=timezone.now(),
+                    usuario_responsavel=request.user,
+                )
+                conta.valor_pago += valor
+                if conta.valor_pago >= (conta.valor_original + conta.valor_juros + conta.valor_multa - conta.valor_desconto):
+                    conta.data_pagamento = dia
+                conta.save()
+            messages.success(request, "Pagamento registado com sucesso.")
+        except (ValidationError, ValueError) as exc:
+            messages.error(request, str(exc))
+        return redirect("financeiro:conta_pagar_detail", pk=pk)
+
+
 
 class AgendarPagamentoView(LoginRequiredMixin, PermissaoAcaoMixin, View):
     acao_requerida = 'acessar_financeiro'
@@ -1449,74 +1412,113 @@ class ConciliacaoBancariaView(LoginRequiredMixin, PermissaoAcaoMixin, DetailView
     template_name = 'financeiro/banco/conciliacao.html'
     context_object_name = 'conta'
 
+
+
+
+
 class DepositoBancarioView(LoginRequiredMixin, PermissaoAcaoMixin, View):
-    acao_requerida = 'acessar_financeiro'
+    acao_requerida = "acessar_financeiro"
+
     def post(self, request, pk):
-        conta = get_object_or_404(ContaBancaria, pk=pk)
-        valor = Decimal(request.POST.get('valor'))
-        descricao = request.POST.get('descricao')
-        
-        # Criar movimento bancário
-        MovimentacaoFinanceira.objects.create(
-            conta_bancaria=conta,
-            tipo_movimento='credito',
-            valor=valor,
-            descricao=descricao,
-            data_movimento=date.today()
-        )
-        
-        messages.success(request, 'Depósito realizado com sucesso!')
-        return redirect('financeiro:detail', pk=pk)
+        try:
+            with transaction.atomic():
+                conta = get_object_or_404(ContaBancaria.objects.select_for_update(), pk=pk, ativa=True)
+                valor = _decimal_post(request, "valor")
+                if valor <= 0:
+                    raise ValidationError("O valor do depósito deve ser maior que zero.")
+                MovimentacaoFinanceira.objects.create(
+                    tipo_movimentacao="entrada", tipo_documento=_tipo_documento(request),
+                    data_movimentacao=timezone.localdate(), valor=valor, conta_bancaria=conta,
+                    descricao=(request.POST.get("descricao") or "Depósito bancário")[:255],
+                    status="confirmada", confirmada=True, data_confirmacao=timezone.now(),
+                    usuario_responsavel=request.user,
+                )
+            messages.success(request, "Depósito registado com sucesso.")
+        except (ValidationError, ValueError) as exc:
+            messages.error(request, str(exc))
+        return redirect("financeiro:banco_detail", pk=pk)
+
+
+
+
+
 
 class SaqueBancarioView(LoginRequiredMixin, PermissaoAcaoMixin, View):
-    acao_requerida = 'acessar_financeiro'
+    acao_requerida = "acessar_financeiro"
+
     def post(self, request, pk):
-        conta = get_object_or_404(ContaBancaria, pk=pk)
-        valor = Decimal(request.POST.get('valor'))
-        descricao = request.POST.get('descricao')
-        
-        # Criar movimento bancário
-        MovimentacaoFinanceira.objects.create(
-            conta_bancaria=conta,
-            tipo_movimento='debito',
-            valor=valor,
-            descricao=descricao,
-            data_movimento=date.today()
-        )
-        
-        messages.success(request, 'Saque realizado com sucesso!')
-        return redirect('financeiro:banco_detail', pk=pk)
+        try:
+            with transaction.atomic():
+                conta = get_object_or_404(ContaBancaria.objects.select_for_update(), pk=pk, ativa=True)
+                valor = _decimal_post(request, "valor")
+                if valor <= 0:
+                    raise ValidationError("O valor do saque deve ser maior que zero.")
+                if not conta.permite_saldo_negativo and valor > conta.saldo_atual:
+                    raise ValidationError("Saldo insuficiente para efectuar o saque.")
+                MovimentacaoFinanceira.objects.create(
+                    tipo_movimentacao="saida", tipo_documento=_tipo_documento(request),
+                    data_movimentacao=timezone.localdate(), valor=valor, conta_bancaria=conta,
+                    descricao=(request.POST.get("descricao") or "Saque bancário")[:255],
+                    status="confirmada", confirmada=True, data_confirmacao=timezone.now(),
+                    usuario_responsavel=request.user,
+                )
+            messages.success(request, "Saque registado com sucesso.")
+        except (ValidationError, ValueError) as exc:
+            messages.error(request, str(exc))
+        return redirect("financeiro:banco_detail", pk=pk)
+
+
+
+
 
 class TransferenciaBancariaView(LoginRequiredMixin, PermissaoAcaoMixin, FormView):
-    acao_requerida = 'acessar_financeiro'
-    template_name = 'financeiro/banco/transferencia.html'
-    
+    acao_requerida = "acessar_financeiro"
+    template_name = "financeiro/banco/transferencia.html"
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        self.conta_origem = get_object_or_404(ContaBancaria, pk=self.kwargs["pk"], ativa=True)
+        context["conta_origem"] = self.conta_origem
+        context["contas_bancarias"] = ContaBancaria.objects.filter(ativa=True).exclude(pk=self.conta_origem.pk)
+        return context
+
     def post(self, request, pk):
-        conta_origem = get_object_or_404(ContaBancaria, pk=pk)
-        conta_destino_id = request.POST.get('conta_destino')
-        conta_destino = get_object_or_404(ContaBancaria, pk=conta_destino_id)
-        valor = Decimal(request.POST.get('valor'))
-        
-        # Débito na conta origem
-        MovimentacaoFinanceira.objects.create(
-            conta_bancaria=conta_origem,
-            tipo_movimento='debito',
-            valor=valor,
-            descricao=f'Transferência para {conta_destino.nome}',
-            data_movimento=date.today()
-        )
-        
-        # Crédito na conta destino
-        MovimentacaoFinanceira.objects.create(
-            conta_bancaria=conta_destino,
-            tipo_movimento='credito',
-            valor=valor,
-            descricao=f'Transferência de {conta_origem.nome}',
-            data_movimento=date.today()
-        )
-        
-        messages.success(request, 'Transferência realizada com sucesso!')
-        return redirect('financeiro:banco_detail', pk=pk)
+        try:
+            with transaction.atomic():
+                origem = get_object_or_404(ContaBancaria.objects.select_for_update(), pk=pk, ativa=True)
+                destino = get_object_or_404(ContaBancaria.objects.select_for_update(), pk=request.POST.get("conta_destino"), ativa=True)
+                if origem.pk == destino.pk:
+                    raise ValidationError("A conta de origem e de destino têm de ser diferentes.")
+                valor = _decimal_post(request, "valor")
+                if valor <= 0:
+                    raise ValidationError("O valor da transferência deve ser maior que zero.")
+                if not origem.permite_saldo_negativo and valor > origem.saldo_atual:
+                    raise ValidationError("Saldo insuficiente na conta de origem.")
+                dia = timezone.localdate()
+                descricao = (request.POST.get("descricao") or "Transferência bancária")[:255]
+                MovimentacaoFinanceira.objects.create(
+                    tipo_movimentacao="transferencia", tipo_documento="transferencia",
+                    data_movimentacao=dia, valor=valor, conta_bancaria=origem,
+                    conta_destino=destino, descricao=descricao,
+                    observacoes=f"Transferência para {destino.nome}", status="confirmada",
+                    confirmada=True, data_confirmacao=timezone.now(), usuario_responsavel=request.user,
+                )
+                MovimentacaoFinanceira.objects.create(
+                    tipo_movimentacao="entrada", tipo_documento="transferencia",
+                    data_movimentacao=dia, valor=valor, conta_bancaria=destino,
+                    descricao=f"Transferência recebida de {origem.nome}",
+                    observacoes=f"Transferência originada na conta {origem.pk}", status="confirmada",
+                    confirmada=True, data_confirmacao=timezone.now(), usuario_responsavel=request.user,
+                )
+            messages.success(request, "Transferência registada com sucesso.")
+            return redirect("financeiro:banco_detail", pk=origem.pk)
+        except (ValidationError, ValueError) as exc:
+            messages.error(request, str(exc))
+            return redirect("financeiro:transferencia_bancaria", pk=pk)
+
+
+
+
 
 # =====================================
 # CAIXA
@@ -1792,11 +1794,16 @@ class ImpostoTributoListView(LoginRequiredMixin, PermissaoAcaoMixin, ListView):
         return ImpostoTributo.objects.filter().order_by('-ano_referencia', '-mes_referencia')
 
 
-class ImpostoTributoDetailView(LoginRequiredMixin, PermissaoAcaoMixin, DetailView):
-    acao_requerida = 'acessar_financeiro'
+
+class ImpostoTributoDetailView(DetailView):
+    """Integre get_context_data desta classe na ImpostoTributoDetailView existente."""
     model = ImpostoTributo
-    template_name = 'tributacao/imposto_detail.html'
-    context_object_name = 'imposto'
+    context_object_name = "imposto"
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["contas_bancarias"] = ContaBancaria.objects.filter(ativa=True)
+        return context
 
 
 class ImpostoTributoCreateView(LoginRequiredMixin, PermissaoAcaoMixin, CreateView):
@@ -1852,36 +1859,56 @@ class ImpostoCalcularView(LoginRequiredMixin, PermissaoAcaoMixin, View):
 logger = logging.getLogger(__name__)
 
 
+
 class ImpostoPagarView(LoginRequiredMixin, PermissaoAcaoMixin, View):
-    """
-    View para efetuar o pagamento de um imposto via função pagar_imposto_agt().
-    Integra com o módulo financeiro (movimentação de caixa ou pagamentos).
-    """
-    acao_requerida = 'acessar_financeiro'
+    acao_requerida = "acessar_financeiro"
+
+    def post(self, request, pk):
+        try:
+            with transaction.atomic():
+                imposto = get_object_or_404(ImpostoTributo.objects.select_for_update(), pk=pk)
+                if imposto.situacao == "pago":
+                    raise ValidationError("Este imposto já está marcado como pago.")
+                conta = get_object_or_404(ContaBancaria.objects.select_for_update(), pk=request.POST.get("conta_bancaria"), ativa=True)
+                pendente = (imposto.total_agt or imposto.valor_devido) - imposto.valor_pago
+                if pendente <= 0:
+                    raise ValidationError("Não existe saldo fiscal pendente para pagar.")
+                movimento = MovimentacaoFinanceira.objects.create(
+                    tipo_movimentacao="saida", tipo_documento="transferencia",
+                    data_movimentacao=timezone.localdate(), valor=pendente,
+                    conta_bancaria=conta, centro_custo=imposto.centro_custo,
+                    descricao=f"Pagamento do imposto {imposto.nome}",
+                    observacoes=f"Imposto {imposto.codigo_imposto_interno}",
+                    status="confirmada", confirmada=True, data_confirmacao=timezone.now(),
+                    usuario_responsavel=request.user,
+                )
+                imposto.valor_pago += pendente
+                imposto.data_pagamento = timezone.localdate()
+                imposto.conta_bancaria_pagamento = conta
+                imposto.movimentacao_pagamento = movimento
+                imposto.usuario_responsavel = request.user
+                imposto.situacao = "pago"
+                imposto.save()
+            messages.success(request, "Pagamento do imposto registado com sucesso.")
+        except (ValidationError, ValueError) as exc:
+            messages.error(request, str(exc))
+        return redirect("financeiro:imposto_detail", pk=pk)
+
+
+
+
+
+class ImpostoCalcularView(LoginRequiredMixin, PermissaoAcaoMixin, View):
+    acao_requerida = "acessar_financeiro"
+
     def post(self, request, pk):
         imposto = get_object_or_404(ImpostoTributo, pk=pk)
         try:
-            with transaction.atomic():
-                resultado = imposto.pagar_imposto_agt()
-                # Aqui você pode adicionar integração real com o módulo financeiro:
-                # exemplo:
-                MovimentacaoFinanceira.objects.create(
-                    
-                    valor=imposto.valor_devido,
-                    descricao=f"Pagamento do imposto {imposto.nome}",
-                    tipo='saída',
-                    categoria='imposto',
-                    usuario=request.user,
-                )
-
-                messages.success(request, resultado["mensagem"])
-                logger.info(f"Pagamento AGT concluído: {imposto.nome} ({imposto.id}) - {resultado['mensagem']}")
-        except Exception as e:
-            logger.error(f"Erro ao pagar imposto {imposto.id}: {str(e)}", exc_info=True)
-            messages.error(request, f"Falha ao pagar imposto: {e}")
-
-        return redirect('tributacao:imposto_detail', pk=imposto.pk)
-    
+            imposto.calcular_imposto_angola(forcar_recalculo=True)
+            messages.success(request, "Cálculo do imposto concluído.")
+        except Exception:
+            messages.error(request, "Não foi possível calcular este imposto. Consulte os logs técnicos.")
+        return redirect("financeiro:imposto_detail", pk=pk)
 
 
 

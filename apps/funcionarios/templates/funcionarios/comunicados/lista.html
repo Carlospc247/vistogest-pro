@@ -1,0 +1,8 @@
+{# comunicados/lista.html #}
+{% extends "funcionarios/_rh_base.html" %}
+{% block title %}Comunicados{% endblock %}
+{% block rh_content %}
+<div class="flex justify-between items-center mb-4"><h1 class="text-2xl font-bold">Comunicados</h1><div class="flex gap-2"><a class="rh-btn" href="{% url 'funcionarios:mural' %}">Mural</a><a class="rh-btn rh-btn-p" href="{% url 'funcionarios:comunicado_create' %}"><i class="fas fa-plus mr-1"></i> Novo</a></div></div>
+{% for c in comunicados %}<div class="rh-card mb-3"><div class="flex justify-between"><strong>{{ c.titulo }}</strong><span class="text-xs rh-muted">{{ c.created_at|date:"d/m/Y H:i" }} • {{ c.autor|default:"—" }}</span></div><p class="text-sm mt-2">{{ c.mensagem|linebreaksbr }}</p></div>
+{% empty %}<p class="rh-muted">Sem comunicados.</p>{% endfor %}
+{% endblock %}

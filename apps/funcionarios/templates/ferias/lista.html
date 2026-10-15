@@ -1,0 +1,12 @@
+{# ferias/lista.html #}
+{% extends "funcionarios/_rh_base.html" %}
+{% block title %}Férias{% endblock %}
+{% block rh_content %}
+<div class="flex justify-between items-center mb-4"><h1 class="text-2xl font-bold">Férias</h1><a class="rh-btn rh-btn-p" href="{% url 'funcionarios:planejar_ferias' %}"><i class="fas fa-plus mr-1"></i> Planear férias</a></div>
+<div class="rh-card p-0 overflow-x-auto"><table class="rh-table"><thead><tr><th>Funcionário</th><th>Período</th><th class="text-right">Dias</th><th class="text-right">Total (Kz)</th><th>Estado</th></tr></thead><tbody>
+  {% for f in ferias %}<tr><td><a class="text-indigo-600" href="{% url 'funcionarios:funcionario_ferias' pk=f.funcionario_id %}">{{ f.funcionario.nome_completo }}</a></td>
+    <td>{{ f.data_inicio|date:"d/m/Y" }} – {{ f.data_fim|date:"d/m/Y" }}</td><td class="text-right">{{ f.dias_ferias }}</td><td class="text-right">{{ f.total|floatformat:2 }}</td>
+    <td><span class="rh-badge {% if f.status == 'aprovada' or f.status == 'concluida' %}rh-ok{% elif f.status == 'cancelada' %}rh-bad{% else %}rh-warn{% endif %}">{{ f.get_status_display }}</span></td></tr>
+  {% empty %}<tr><td colspan="5" class="text-center py-6 rh-muted">Sem férias registadas.</td></tr>{% endfor %}</tbody></table></div>
+{% include "funcionarios/_paginacao.html" %}
+{% endblock %}

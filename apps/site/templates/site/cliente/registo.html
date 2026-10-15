@@ -1,0 +1,78 @@
+{% extends "site/loja/base_loja.html" %}
+
+{% block titulo %}Criar conta{% endblock %}
+
+{% block conteudo %}
+<section class="pagina">
+    <div class="estreito">
+        <div class="migalhas">
+            <a href="{% url 'site:pagina_home' %}">Início</a>
+            <span> / </span>
+            <span>Criar conta</span>
+        </div>
+
+        <div class="painel">
+            <h1>Criar conta</h1>
+            <p class="suave">
+                Crie a sua conta para acompanhar os seus pedidos com facilidade.
+            </p>
+
+            <form method="post">
+                {% csrf_token %}
+
+                <div class="campo">
+                    <label for="id_nome">Nome completo</label>
+                    <input
+                        id="id_nome"
+                        type="text"
+                        name="nome"
+                        required
+                        autocomplete="name"
+                    >
+                </div>
+
+                <div class="campo">
+                    <label for="id_email">Email</label>
+                    <input
+                        id="id_email"
+                        type="email"
+                        name="email"
+                        required
+                        autocomplete="email"
+                    >
+                </div>
+
+                <div class="campo">
+                    <label for="id_telefone">Telefone</label>
+                    <input
+                        id="id_telefone"
+                        type="tel"
+                        name="telefone"
+                        autocomplete="tel"
+                    >
+                </div>
+
+                <div class="campo">
+                    <label for="id_senha">Senha</label>
+                    <input
+                        id="id_senha"
+                        type="password"
+                        name="senha"
+                        required
+                        autocomplete="new-password"
+                    >
+                </div>
+
+                <button type="submit" class="btn">
+                    Criar conta
+                </button>
+            </form>
+
+            <p class="rodape-form">
+                Já tem uma conta?
+                <a href="{% url 'site:cliente_login' %}">Entrar</a>
+            </p>
+        </div>
+    </div>
+</section>
+{% endblock %}

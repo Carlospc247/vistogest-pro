@@ -1,0 +1,33 @@
+{# recibos/processamento_detail.html #}
+{% extends "funcionarios/_rh_base.html" %}
+{% block title %}{{ p }}{% endblock %}
+{% block rh_content %}
+{% include "recibos/nav.html" %}
+<a href="{% url 'funcionarios:processamento_lista' %}" class="text-sm text-indigo-600">&larr; Processamentos</a>
+<div class="flex flex-wrap justify-between items-center gap-3 my-3">
+  <h1 class="text-2xl font-bold">{{ p.mes_nome }}/{{ p.ano }} <span class="rh-badge">{{ p.get_estado_display }}</span></h1>
+  {% if pode_processar and p.estado != 'CANCELADO' %}
+  <div class="flex flex-wrap gap-2">
+    {% if p.aberto %}<form method="post" action="{% url 'funcionarios:processamento_gerar' pk=p.pk %}">{% csrf_token %}<button class="rh-btn rh-btn-p"><i class="fas fa-calculator mr-1"></i> Gerar / recalcular recibos</button></form>{% endif %}
+    {% if por_emitir %}<form method="post" action="{% url 'funcionarios:processamento_emitir' pk=p.pk %}" onsubmit="return confirm('Emitir {{ por_emitir }} recibo(s)?')">{% csrf_token %}<button class="rh-btn rh-btn-ok">Emitir {{ por_emitir }} recibo(s)</button></form>{% endif %}
+    {% if p.aberto and not p.recibos.count %}<form method="post" action="{% url 'funcionarios:processamento_cancelar' pk=p.pk %}" onsubmit="return confirm('Cancelar?')">{% csrf_token %}<button class="rh-btn rh-btn-d">Cancelar</button></form>{% endif %}
+  </div>{% endif %}
+</div>
+<div class="grid sm:grid-cols-2 lg:grid-cols-5 gap-4 mb-4">
+  {% include "funcionarios/_card.html" with label="Recibos" valor=totais.n icone="fa-file-invoice" %}
+  {% include "funcionarios/_card.html" with label="Ilíquido (Kz)" valor=totais.iliq|floatformat:"2g" icone="fa-money-bill" %}
+  {% include "funcionarios/_card.html" with label="Descontos (Kz)" valor=totais.desc|floatformat:"2g" icone="fa-minus-circle" %}
+  {% include "funcionarios/_card.html" with label="Líquido (Kz)" valor=totais.liq|floatformat:"2g" icone="fa-wallet" %}
+  {% include "funcionarios/_card.html" with label="INSS patronal (Kz)" valor=totais.pat|floatformat:"2g" icone="fa-building" %}
+</div>
+{% if pode_processar and por_pagar %}
+<div class="rh-card mb-4"><h2 class="font-semibold mb-2">Registar pagamento de {{ por_pagar }} recibo(s) emitido(s)</h2>
+  <form method="post" action="{% url 'funcionarios:processamento_pagar' pk=p.pk %}" class="flex flex-wrap gap-3 items-end">{% csrf_token %}
+    <div class="rh-campo">{{ form_pagamento.data_pagamento }}</div><div class="rh-campo">{{ form_pagamento.referencia_pagamento }}</div><button class="rh-btn rh-btn-ok">Marcar como pagos</button></form></div>{% endif %}
+<div class="rh-card p-0 overflow-x-auto"><table class="rh-table"><thead><tr><th>Recibo</th><th>Funcionário</th><th>Estado</th><th class="text-right">Ilíquido</th><th class="text-right">Descontos</th><th class="text-right">Líquido</th><th></th></tr></thead><tbody>
+  {% for r in recibos %}<tr><td><a class="text-indigo-600" href="{% url 'funcionarios:recibo_detalhe' pk=r.pk %}">{{ r.numero }}</a></td><td>{{ r.func_nome }}</td>
+    <td><span class="rh-badge {% if r.estado == 'PAGO' %}rh-ok{% elif r.estado == 'ANULADO' or r.estado == 'RETIFICADO' %}rh-bad{% else %}rh-warn{% endif %}">{{ r.get_estado_display }}</span>{% if r.erros %} <i class="fas fa-exclamation-triangle text-red-500" title="{{ r.erros|join:'; ' }}"></i>{% endif %}</td>
+    <td class="text-right">{{ r.salario_iliquido|floatformat:"2g" }}</td><td class="text-right">{{ r.total_descontos|floatformat:"2g" }}</td><td class="text-right font-semibold">{{ r.salario_liquido|floatformat:"2g" }}</td>
+    <td class="text-right"><a class="text-indigo-600" target="_blank" href="{% url 'funcionarios:recibo_pdf' pk=r.pk %}">PDF</a></td></tr>
+  {% empty %}<tr><td colspan="7" class="text-center py-8 rh-muted">Sem recibos. Clique em «Gerar / recalcular recibos».</td></tr>{% endfor %}</tbody></table></div>
+{% endblock %}

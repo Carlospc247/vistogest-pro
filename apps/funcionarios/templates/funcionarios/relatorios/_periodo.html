@@ -1,0 +1,14 @@
+{# relatorios/_periodo.html #}
+{% extends "funcionarios/_rh_base.html" %}
+{% block title %}{{ titulo }}{% endblock %}
+{% block rh_content %}
+<a href="{% url 'funcionarios:relatorios' %}" class="text-sm text-indigo-600">&larr; Relatórios</a>
+<h1 class="text-2xl font-bold my-3">{{ titulo }}</h1>
+<form method="get" class="rh-card mb-4 flex flex-wrap gap-3 items-end">
+  <div><label class="text-xs rh-muted block">Início</label><input type="date" name="inicio" value="{{ inicio|date:'Y-m-d' }}" class="rh-input"></div>
+  <div><label class="text-xs rh-muted block">Fim</label><input type="date" name="fim" value="{{ fim|date:'Y-m-d' }}" class="rh-input"></div>
+  <button class="rh-btn rh-btn-p">Aplicar</button><button type="button" class="rh-btn" onclick="print()">Imprimir</button></form>
+<div class="rh-card p-0 overflow-x-auto"><table class="rh-table"><thead><tr><th>Funcionário</th><th>Cargo</th><th>Departamento</th><th>{% block col_data %}Data{% endblock %}</th></tr></thead><tbody>
+  {% for f in funcionarios %}<tr><td>{{ f.nome_completo }}</td><td>{{ f.cargo.nome|default:"—" }}</td><td>{{ f.departamento.nome }}</td><td>{% block valor_data %}{{ f.data_admissao|date:"d/m/Y" }}{% endblock %}</td></tr>
+  {% empty %}<tr><td colspan="4" class="text-center py-6 rh-muted">Sem resultados no período.</td></tr>{% endfor %}</tbody></table></div>
+{% endblock %}

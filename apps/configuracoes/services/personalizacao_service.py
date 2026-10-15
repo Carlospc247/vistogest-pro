@@ -1,3 +1,4 @@
+# apps/configuracoes/services/personalizacao_service.py
 from django_tenants.utils import schema_context
 from apps.configuracoes.models import PersonalizacaoInterface
 

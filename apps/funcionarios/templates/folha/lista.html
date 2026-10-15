@@ -1,60 +1,13 @@
-<!-- funcionarios/folha/lista.html -->
-{% extends "base.html" %}
-
-{% block title %}Folha de Pagamento{% endblock %}
-
-{% block content %}
-<div class="container-fluid">
-    <div class="d-sm-flex align-items-center justify-content-between mb-4">
-        <h1 class="h3 mb-0 text-gray-800">Folha de Pagamento</h1>
-        <a href="{% url 'funcionarios:calcular_folha' %}" class="btn btn-primary btn-sm">
-            <i class="fas fa-calculator fa-sm text-white-50"></i> Calcular Nova Folha
-        </a>
-    </div>
-    
-    <div class="card shadow mb-4">
-        <div class="card-body">
-            <div class="table-responsive">
-                <table class="table table-bordered">
-                    <thead>
-                        <tr>
-                            <th>Mês/Ano</th>
-                            <th>Descrição</th>
-                            <th>Funcionários</th>
-                            <th>Total Bruto</th>
-                            <th>Total Líquido</th>
-                            <th>Status</th>
-                            <th>Ações</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for folha in folhas %}
-                        <tr>
-                            <td>{{ folha.mes|stringformat:"02d" }}/{{ folha.ano }}</td>
-                            <td>{{ folha.descricao }}</td>
-                            <td>{{ folha.total_funcionarios }}</td>
-                            <td>{{ folha.total_salario_bruto|floatformat:2 }} Kz</td>
-                            <td>{{ folha.total_liquido|floatformat:2 }} Kz</td>
-                            <td>
-                                <span class="badge badge-{% if folha.status == 'paga' %}success{% elif folha.status == 'fechada' %}info{% elif folha.status == 'aprovada' %}warning{% else %}secondary{% endif %}">
-                                    {{ folha.get_status_display }}
-                                </span>
-                            </td>
-                            <td>
-                                <a href="{% url 'funcionarios:folha_mensal' folha.mes folha.ano %}" class="btn btn-sm btn-info">
-                                    <i class="fas fa-eye"></i>
-                                </a>
-                            </td>
-                        </tr>
-                        {% empty %}
-                        <tr>
-                            <td colspan="7" class="text-center">Nenhuma folha de pagamento encontrada</td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-            </div>
-        </div>
-    </div>
-</div>
+{% extends "funcionarios/_rh_base.html" %}
+{% block title %}Folha de pagamento{% endblock %}
+{% block rh_content %}
+<div class="flex justify-between items-center mb-4"><h1 class="text-2xl font-bold">Folhas de pagamento</h1>
+  <a class="rh-btn rh-btn-p" href="{% url 'funcionarios:calcular_folha' %}"><i class="fas fa-calculator mr-1"></i> Calcular folha</a></div>
+<div class="rh-card p-0 overflow-x-auto"><table class="rh-table"><thead><tr><th>Período</th><th>Descrição</th><th>Estado</th><th class="text-right">Funcionários</th><th class="text-right">Bruto</th><th class="text-right">Líquido</th><th></th></tr></thead><tbody>
+  {% for f in folhas %}<tr><td>{{ f.mes_nome }}/{{ f.ano }}</td><td>{{ f.descricao }}</td>
+    <td><span class="rh-badge {% if f.status == 'paga' %}rh-ok{% elif f.status == 'cancelada' %}rh-bad{% else %}rh-warn{% endif %}">{{ f.get_status_display }}</span></td>
+    <td class="text-right">{{ f.total_funcionarios }}</td><td class="text-right">{{ f.total_salario_bruto|floatformat:2 }}</td><td class="text-right">{{ f.total_liquido|floatformat:2 }}</td>
+    <td class="text-right"><a class="text-indigo-600" href="{% url 'funcionarios:folha_mensal' mes=f.mes ano=f.ano %}">Abrir</a></td></tr>
+  {% empty %}<tr><td colspan="7" class="text-center py-6 rh-muted">Nenhuma folha.</td></tr>{% endfor %}</tbody></table></div>
+{% include "funcionarios/_paginacao.html" %}
 {% endblock %}

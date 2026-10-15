@@ -1,0 +1,11 @@
+{# recibos/nav.html #}
+<div class="flex flex-wrap gap-2 mb-5">
+  <a class="rh-btn" href="{% url 'funcionarios:recibo_lista' %}"><i class="fas fa-file-invoice-dollar mr-1"></i> Recibos</a>
+  <a class="rh-btn" href="{% url 'funcionarios:processamento_lista' %}">Processamentos</a>
+  <a class="rh-btn" href="{% url 'funcionarios:rubrica_lista' %}">Rubricas</a>
+  <a class="rh-btn" href="{% url 'funcionarios:parametro_lista' %}">Parâmetros fiscais</a>
+  <a class="rh-btn" href="{% url 'funcionarios:tabela_irt_lista' %}">Tabelas IRT</a>
+  <a class="rh-btn" href="{% url 'funcionarios:recibo_configuracao' %}">Configuração</a>
+  <a class="rh-btn" href="{% url 'funcionarios:auditoria_lista' %}">Auditoria</a>
+  <a class="rh-btn" href="{% url 'funcionarios:meus_recibos' %}">Os meus recibos</a>
+</div>

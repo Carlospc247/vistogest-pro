@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<relatorio>
+{% for row in dados %}
+  <registo>
+  {% for key, value in row.items %}
+    <campo nome="{{ key|escape }}">{{ value|escape }}</campo>
+  {% endfor %}
+  </registo>
+{% endfor %}
+</relatorio>

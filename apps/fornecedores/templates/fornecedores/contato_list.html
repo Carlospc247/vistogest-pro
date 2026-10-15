@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}Contactos — {{ fornecedor.nome_exibicao }}{% endblock %}
+{% block content %}
+<div class="container mx-auto px-4 py-8 max-w-5xl">
+  <a href="{% url 'fornecedores:detail' pk=fornecedor.pk %}" class="text-sm text-indigo-600 hover:underline">&larr; {{ fornecedor.nome_exibicao }}</a>
+  <div class="flex justify-between items-center my-4">
+    <h1 class="text-2xl font-bold text-gray-800">Contactos</h1>
+    <a href="{% url 'fornecedores:contato_create' fornecedor_pk=fornecedor.pk %}" class="px-4 py-2 rounded-md bg-indigo-600 text-white"><i class="fas fa-plus mr-1"></i> Novo contacto</a>
+  </div>
+  <div class="bg-white rounded-xl border border-gray-100 shadow-sm overflow-x-auto">
+    <table class="w-full text-sm">
+      <thead class="bg-gray-50 text-left text-gray-500"><tr><th class="p-3">Nome</th><th>Tipo</th><th>Telefone</th><th>Email</th><th>Principal</th><th></th></tr></thead>
+      <tbody>
+      {% for c in contatos %}
+        <tr class="border-t"><td class="p-3 font-medium">{{ c.nome }}<div class="text-xs text-gray-500">{{ c.cargo }}</div></td>
+        <td>{{ c.get_tipo_contato_display }}</td><td>{{ c.telefone|default:c.celular|default:"—" }}</td><td>{{ c.email|default:"—" }}</td>
+        <td>{% if c.contato_principal %}<i class="fas fa-check text-green-600"></i>{% endif %}</td>
+        <td class="text-right pr-3 whitespace-nowrap">
+          <a href="{% url 'fornecedores:contato_update' pk=c.pk %}" class="text-indigo-600 mr-3">Editar</a>
+          <a href="{% url 'fornecedores:contato_delete' pk=c.pk %}" class="text-red-600">Eliminar</a></td></tr>
+      {% empty %}<tr><td colspan="6" class="p-6 text-center text-gray-500">Sem contactos registados.</td></tr>{% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

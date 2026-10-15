@@ -1,0 +1,11 @@
+{# relatorios/folha.html #}
+{% extends "funcionarios/_rh_base.html" %}
+{% block title %}Relatório de folhas{% endblock %}
+{% block rh_content %}
+<a href="{% url 'funcionarios:relatorios' %}" class="text-sm text-indigo-600">&larr; Relatórios</a>
+<h1 class="text-2xl font-bold my-3">Evolução da folha</h1>
+<div class="rh-card p-0 overflow-x-auto"><table class="rh-table"><thead><tr><th>Período</th><th>Estado</th><th class="text-right">Funcionários</th><th class="text-right">Bruto</th><th class="text-right">Descontos</th><th class="text-right">Líquido</th></tr></thead><tbody>
+  {% for f in folhas %}<tr><td><a class="text-indigo-600" href="{% url 'funcionarios:folha_mensal' mes=f.mes ano=f.ano %}">{{ f.mes_nome }}/{{ f.ano }}</a></td><td>{{ f.get_status_display }}</td><td class="text-right">{{ f.total_funcionarios }}</td>
+    <td class="text-right">{{ f.total_salario_bruto|floatformat:2 }}</td><td class="text-right">{{ f.total_descontos|floatformat:2 }}</td><td class="text-right">{{ f.total_liquido|floatformat:2 }}</td></tr>
+  {% empty %}<tr><td colspan="6" class="text-center py-6 rh-muted">Sem folhas.</td></tr>{% endfor %}</tbody></table></div>
+{% endblock %}

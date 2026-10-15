@@ -1,0 +1,19 @@
+{% extends "integracoes/_base.html" %}
+{% block title %}Webhooks recebidos{% endblock %}
+{% block ig_content %}
+<h1 class="text-2xl font-bold mb-4">Webhooks recebidos</h1>
+<form method="get" class="ig-card mb-4 flex flex-wrap gap-3 items-end">
+  <select name="config" class="ig-input" style="max-width:16rem"><option value="">Todas as integrações</option>{% for c in configs %}<option value="{{ c.pk }}" {% if request.GET.config == c.pk|stringformat:"s" %}selected{% endif %}>{{ c.tipo_integracao.nome }}</option>{% endfor %}</select>
+  <select name="estado" class="ig-input" style="max-width:12rem"><option value="">Todos</option><option value="pendentes" {% if request.GET.estado == 'pendentes' %}selected{% endif %}>Pendentes / com erro</option><option value="processados" {% if request.GET.estado == 'processados' %}selected{% endif %}>Processados</option></select>
+  <button class="ig-btn ig-btn-p">Filtrar</button>
+</form>
+<div class="ig-card p-0 overflow-x-auto"><table class="ig-table">
+  <thead><tr><th>Recebido</th><th>Integração</th><th>Evento</th><th>IP</th><th>Estado</th><th></th></tr></thead><tbody>
+  {% for w in webhooks %}<tr><td class="whitespace-nowrap">{{ w.recebido_em|date:"d/m/Y H:i:s" }}</td><td>{{ w.configuracao.tipo_integracao.nome }}</td><td>{{ w.evento|default:"—" }}</td><td>{{ w.ip_origem|default:"—" }}</td>
+    <td>{% if w.processado %}<span class="ig-badge ig-ok">Processado</span>{% elif w.erro_processamento %}<span class="ig-badge ig-bad">Erro</span>{% else %}<span class="ig-badge ig-warn">Pendente</span>{% endif %}</td>
+    <td><a class="text-indigo-600" href="{% url 'integracoes:webhook_detalhe' pk=w.pk %}">Ver</a></td></tr>
+  {% empty %}<tr><td colspan="6" class="text-center py-8 ig-muted">Nenhum webhook recebido.</td></tr>{% endfor %}</tbody></table></div>
+{% if is_paginated %}<div class="mt-4 flex justify-between text-sm"><span class="ig-muted">Página {{ page_obj.number }} de {{ paginator.num_pages }}</span><div class="flex gap-2">
+  {% if page_obj.has_previous %}<a class="ig-btn" href="?page={{ page_obj.previous_page_number }}{% for k,v in request.GET.items %}{% if k != 'page' %}&{{ k }}={{ v|urlencode }}{% endif %}{% endfor %}">Anterior</a>{% endif %}
+  {% if page_obj.has_next %}<a class="ig-btn" href="?page={{ page_obj.next_page_number }}{% for k,v in request.GET.items %}{% if k != 'page' %}&{{ k }}={{ v|urlencode }}{% endif %}{% endfor %}">Seguinte</a>{% endif %}</div></div>{% endif %}
+{% endblock %}

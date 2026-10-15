@@ -1,0 +1,10 @@
+{# afastamentos/lista.html #}
+{% extends "funcionarios/_rh_base.html" %}
+{% block title %}Afastamentos{% endblock %}
+{% block rh_content %}
+<h1 class="text-2xl font-bold mb-4">Afastamentos</h1>
+<div class="rh-card p-0 overflow-x-auto"><table class="rh-table"><thead><tr><th>Funcionário</th><th>Tipo</th><th>Período</th><th class="text-right">Dias</th><th>Aprovado</th></tr></thead><tbody>
+  {% for a in afastamentos %}<tr><td>{{ a.funcionario.nome_completo }}</td><td>{{ a.get_tipo_display }}</td><td>{{ a.data_inicio|date:"d/m/Y" }} – {{ a.data_fim|date:"d/m/Y" }}</td><td class="text-right">{{ a.duracao_dias }}</td>
+    <td>{% if a.aprovado %}<span class="rh-badge rh-ok">Sim</span>{% else %}<span class="rh-badge rh-warn">Pendente</span>{% endif %}</td></tr>
+  {% empty %}<tr><td colspan="5" class="text-center py-6 rh-muted">Sem afastamentos.</td></tr>{% endfor %}</tbody></table></div>
+{% endblock %}

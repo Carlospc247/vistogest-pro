@@ -1,0 +1,19 @@
+<section style="padding:clamp(2.5rem,6vw,5rem) 1.25rem">
+  <style>
+    #site-faq-{{ secao.pk }}{width:min(100%,900px);margin:auto}
+    #site-faq-{{ secao.pk }} details{border:1px solid #e2e8f0;border-radius:12px;padding:1rem 1.1rem;background:#fff;margin:.7rem 0}
+    #site-faq-{{ secao.pk }} summary{cursor:pointer;list-style:none;display:flex;align-items:center;justify-content:space-between;gap:1rem;font-weight:750;color:#0f172a}
+    #site-faq-{{ secao.pk }} summary::-webkit-details-marker{display:none}
+    #site-faq-{{ secao.pk }} summary:after{content:'+';font-size:1.3rem;color:var(--cor-primaria,#4f46e5)}
+    #site-faq-{{ secao.pk }} details[open] summary:after{content:'−'}
+    #site-faq-{{ secao.pk }} .site-faq-answer{padding-top:.85rem;color:#475569;line-height:1.75}
+  </style>
+  <div id="site-faq-{{ secao.pk }}">
+    {% if dados.titulo %}<h2 style="font-size:clamp(1.5rem,3vw,2.2rem);font-weight:800;text-align:center;margin:0 0 1.75rem">{{ dados.titulo }}</h2>{% endif %}
+    {% for item in dados.faqs_json %}
+    <details><summary>{{ item.pergunta }}</summary><div class="site-faq-answer">{{ item.resposta|linebreaksbr }}</div></details>
+    {% empty %}
+      {% if modo_preview %}<p style="text-align:center;color:#64748b">Adiciona perguntas e respostas em faqs_json.</p>{% endif %}
+    {% endfor %}
+  </div>
+</section>

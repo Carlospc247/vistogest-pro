@@ -1,22 +1,4 @@
-<!-- templates/financeiro/conta_receber/parcelar.html -->
-{% extends 'base.html' %}
-{% load static %}
-
-{% block title %}Parcelar Conta a Receber{% endblock %}
-{% block page_title %}Parcelar Conta a Receber{% endblock %}
-
-{% block content %}
-<div class="bg-white dark:bg-gray-800 shadow rounded-lg p-6">
-    <h1 class="text-2xl font-bold text-gray-900 dark:text-white mb-4">
-        Parcelar Conta a Receber: {{ conta.numero }}
-    </h1>
-
-    <form method="POST">
-        {% csrf_token %}
-        <label for="numero_parcelas" class="block text-sm font-medium text-gray-700">Número de Parcelas:</label>
-        <input type="number" name="numero_parcelas" id="numero_parcelas" min="1" required class="border p-2 rounded mb-4" />
-
-        <button type="submit" class="bg-blue-500 text-white px-4 py-2 rounded-lg">Parcelar</button>
-    </form>
-</div>
+{% extends "financeiro/base_financeiro.html" %}{% block title %}Parcelar conta a receber{% endblock %}{% block breadcrumb %}Parcelar conta a receber{% endblock %}{% block content %}
+<header class="page-head"><div><h1>Parcelar conta a receber</h1><p>Defina o número de parcelas. A operação deve ser validada pela view antes da gravação.</p></div>{% block page_actions %}{% endblock %}</header>
+<section class="panel"><div class="notice">Conta seleccionada: <strong>{{ conta.numero_documento }}</strong> — {{ conta.descricao }}. Saldo actual: <strong>{{ conta.valor_saldo|floatformat:2 }} AOA</strong>.</div><form method="post">{% csrf_token %}<p><label for="numero_parcelas">Número de parcelas</label><input type="number" id="numero_parcelas" name="numero_parcelas" min="2" max="120" value="2" required></p><p><label for="primeiro_vencimento">Data da primeira parcela</label><input type="date" id="primeiro_vencimento" name="primeiro_vencimento" value="{{ conta.data_vencimento|date:'Y-m-d' }}" required></p><p><label for="intervalo_dias">Intervalo entre parcelas (dias)</label><input type="number" id="intervalo_dias" name="intervalo_dias" min="1" max="366" value="30" required></p><div class="form-actions"><button class="btn" type="submit">Criar parcelamento</button><a class="btn secondary" href="{% url 'financeiro:conta_receber_detail' conta.pk %}">Cancelar</a></div></form></section>
 {% endblock %}

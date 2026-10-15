@@ -1,0 +1,27 @@
+<section style="padding:clamp(2.5rem,6vw,5rem) 1.25rem;background:#f8fafc">
+  <style>
+    #site-depoimentos-{{ secao.pk }}{width:min(100%,1200px);margin:auto}
+    #site-depoimentos-{{ secao.pk }} .site-testimonial-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr));gap:1rem}
+    #site-depoimentos-{{ secao.pk }} .site-testimonial{height:100%;padding:1.5rem;border:1px solid #e2e8f0;border-radius:16px;background:#fff;box-shadow:0 5px 18px rgba(15,23,42,.04)}
+    #site-depoimentos-{{ secao.pk }} .site-testimonial-quote{font-size:2rem;line-height:1;color:var(--cor-primaria,#4f46e5)}
+    #site-depoimentos-{{ secao.pk }} .site-testimonial-person{display:flex;align-items:center;gap:.8rem;margin-top:1.25rem}
+    #site-depoimentos-{{ secao.pk }} .site-testimonial-person img{width:48px;height:48px;border-radius:50%;object-fit:cover}
+  </style>
+  <div id="site-depoimentos-{{ secao.pk }}">
+    {% if dados.titulo %}<h2 style="font-size:clamp(1.5rem,3vw,2.2rem);font-weight:800;text-align:center;margin:0 0 2rem">{{ dados.titulo }}</h2>{% endif %}
+    <div class="site-testimonial-grid">
+      {% for item in dados.depoimentos_json %}
+      <article class="site-testimonial">
+        <div class="site-testimonial-quote" aria-hidden="true">“</div>
+        <p style="font-size:.95rem;line-height:1.8;color:#475569;margin:.6rem 0 0">{{ item.texto }}</p>
+        <div class="site-testimonial-person">
+          {% if item.foto %}<img src="{{ item.foto }}" alt="Fotografia de {{ item.nome }}" loading="lazy">{% endif %}
+          <div><p style="font-weight:800;color:#0f172a;margin:0">{{ item.nome }}</p>{% if item.cargo %}<p style="font-size:.8rem;color:#64748b;margin:.15rem 0 0">{{ item.cargo }}</p>{% endif %}</div>
+        </div>
+      </article>
+      {% empty %}
+        {% if modo_preview %}<p style="grid-column:1/-1;text-align:center;color:#64748b">Adiciona testemunhos em depoimentos_json.</p>{% endif %}
+      {% endfor %}
+    </div>
+  </div>
+</section>

@@ -1,0 +1,3 @@
+{% extends "relatorios/base_relatorios.html" %}
+{% block title %}Partilha de Relatório · VistoGEST{% endblock %}
+{% block content %}<div class="page-head"><div><h1>Partilha de relatório</h1><p>Relatório: {{ object.codigo_relatorio|default:relatoriogerado.codigo_relatorio }}</p></div></div><div class="alert warning">Os links públicos temporários não estão activos. O relatório continua restrito ao utilizador que o gerou até existir um mecanismo de assinatura e expiração configurado.</div>{% endblock %}

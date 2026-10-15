@@ -5,6 +5,11 @@ from . import views
 app_name = 'site'
 
 urlpatterns = [
+    path(
+        'admin/secao/<int:secao_id>/upload-imagem/',
+        views.UploadImagemSecaoView.as_view(),
+        name='upload_imagem_secao',
+    ),
     # ── Site Institucional ────────────────────────────────────────────────────
     path('', views.PaginaDetailView.as_view(), name='pagina_home'),
     path('p/<slug:slug>/', views.PaginaDetailView.as_view(), name='pagina_detalhe'),
@@ -40,6 +45,8 @@ urlpatterns = [
     path('cliente/registo/', views.ClienteRegistoView.as_view(), name='cliente_registo'),
     path('cliente/login/', views.ClienteLoginView.as_view(), name='cliente_login'),
     path('cliente/logout/', views.ClienteLogoutView.as_view(), name='cliente_logout'),
+    path('cliente/recuperar-senha/', views.ClienteRecuperarSenhaView.as_view(), name='cliente_recuperar_senha'),
+    path('cliente/redefinir-senha/<str:token>/', views.ClienteRedefinirSenhaView.as_view(), name='cliente_redefinir_senha'),
     path('cliente/perfil/', views.ClientePerfilView.as_view(), name='cliente_perfil'),
     path('cliente/pedidos/', views.MeusPedidosView.as_view(), name='cliente_pedidos'),
 

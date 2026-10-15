@@ -1,0 +1,363 @@
+{% extends "relatorios/base_relatorios.html" %}
+
+{% block title %}
+  {% if title %}{{ title }}{% else %}Relatórios{% endif %} · VistoGEST
+{% endblock %}
+
+{% block content %}
+<div class="crumb">
+  <a href="/relatorios/">Relatórios</a>
+  <span aria-hidden="true"> / </span>
+  <span>{% if title %}{{ title }}{% else %}Visão geral{% endif %}</span>
+</div>
+
+<div class="page-head">
+  <div>
+    <h1>{% block report_heading %}{% if page_title %}{{ page_title }}{% elif title %}{{ title }}{% else %}Relatórios{% endif %}{% endblock %}</h1>
+    {% if descricao %}
+      <p>{{ descricao }}</p>
+    {% elif data_inicio and data_fim %}
+      <p>Período: {{ data_inicio|date:"d/m/Y" }} – {{ data_fim|date:"d/m/Y" }}</p>
+    {% endif %}
+  </div>
+  <div class="actions">
+    <button class="btn" type="button" onclick="window.print()">Imprimir</button>
+    <a class="btn subtle" href="/relatorios/">Voltar ao painel</a>
+  </div>
+</div>
+
+{% if aviso %}<div class="alert warning">{{ aviso }}</div>{% endif %}
+{% if erro %}<div class="alert error">{{ erro }}</div>{% endif %}
+{% if error %}<div class="alert warning">{{ error }}</div>{% endif %}
+{% if form.errors %}<div class="alert error">Revise os campos assinalados e tente novamente.</div>{% endif %}
+
+{% if show_date_filters or show_single_date_filter or show_month_filter or show_year_filter or show_period_filter or criterio or filtros or categorias_disponiveis or produtos_disponiveis %}
+<form method="get" class="filters">
+  {% if show_date_filters %}
+    <div class="field">
+      <label for="id_data_inicio">Data inicial</label>
+      <input id="id_data_inicio" name="data_inicio" type="date" value="{{ data_inicio|date:'Y-m-d' }}">
+    </div>
+    <div class="field">
+      <label for="id_data_fim">Data final</label>
+      <input id="id_data_fim" name="data_fim" type="date" value="{{ data_fim|date:'Y-m-d' }}">
+    </div>
+  {% endif %}
+
+  {% if show_single_date_filter %}
+    <div class="field">
+      <label for="id_data">Dia</label>
+      <input id="id_data" name="data" type="date" value="{{ data_selecionada|date:'Y-m-d' }}">
+    </div>
+  {% endif %}
+
+  {% if show_month_filter %}
+    <div class="field">
+      <label for="id_mes">Mês</label>
+      <select id="id_mes" name="mes">
+        {% for month_num, month_name in meses_disponiveis %}
+          <option value="{{ month_num }}" {% if mes == month_num %}selected{% endif %}>{{ month_name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="field">
+      <label for="id_ano">Ano</label>
+      <input id="id_ano" name="ano" type="number" min="2000" max="2200" value="{{ ano }}">
+    </div>
+  {% endif %}
+
+  {% if show_year_filter and not show_month_filter %}
+    <div class="field">
+      <label for="id_ano">Ano</label>
+      <input id="id_ano" name="ano" type="number" min="2000" max="2200" value="{{ ano }}">
+    </div>
+  {% endif %}
+
+  {% if show_period_filter %}
+    <div class="field">
+      <label for="id_periodo">Período (dias)</label>
+      <input id="id_periodo" name="periodo" type="number" min="1" max="3650" value="{{ periodo|default:90 }}">
+    </div>
+  {% endif %}
+
+  {% if criterio %}
+    <div class="field">
+      <label for="id_criterio">Critério ABC</label>
+      <select id="id_criterio" name="criterio">
+        <option value="faturamento" {% if criterio == 'faturamento' %}selected{% endif %}>Faturamento</option>
+        <option value="quantidade" {% if criterio == 'quantidade' %}selected{% endif %}>Quantidade</option>
+        <option value="margem" {% if criterio == 'margem' %}selected{% endif %}>Margem estimada</option>
+      </select>
+    </div>
+  {% endif %}
+
+  {% if categorias_disponiveis %}
+    <div class="field">
+      <label for="id_categoria_id">Categoria</label>
+      <select id="id_categoria_id" name="categoria_id">
+        <option value="">Todas</option>
+        {% for categoria in categorias_disponiveis %}
+          <option value="{{ categoria.pk }}" {% if categoria_selecionada == categoria.pk|stringformat:'s' or filtros.categoria_id == categoria.pk|stringformat:'s' %}selected{% endif %}>{{ categoria.nome }}</option>
+        {% endfor %}
+      </select>
+    </div>
+  {% endif %}
+
+  {% if produtos_disponiveis %}
+    <div class="field">
+      <label for="id_produto_id">Produto</label>
+      <select id="id_produto_id" name="produto_id">
+        <option value="">Todos</option>
+        {% for produto in produtos_disponiveis %}
+          <option value="{{ produto.pk }}" {% if produto_selecionado == produto.pk|stringformat:'s' %}selected{% endif %}>
+            {% if produto.nome_comercial %}{{ produto.nome_comercial }}{% elif produto.nome_produto %}{{ produto.nome_produto }}{% else %}Produto {{ produto.pk }}{% endif %}
+          </option>
+        {% endfor %}
+      </select>
+    </div>
+  {% endif %}
+
+  {% if filtros.situacao != None %}
+    <div class="field">
+      <label for="id_situacao">Situação</label>
+      <select id="id_situacao" name="situacao">
+        <option value="">Todas</option>
+        <option value="todos" {% if filtros.situacao == 'todos' %}selected{% endif %}>Todas</option>
+        <option value="baixo" {% if filtros.situacao == 'baixo' %}selected{% endif %}>Stock baixo</option>
+        <option value="zerado" {% if filtros.situacao == 'zerado' %}selected{% endif %}>Sem stock</option>
+        <option value="vencidos" {% if filtros.situacao == 'vencidos' %}selected{% endif %}>Vencidos</option>
+        <option value="vencendo" {% if filtros.situacao == 'vencendo' %}selected{% endif %}>A vencer</option>
+        <option value="validos" {% if filtros.situacao == 'validos' %}selected{% endif %}>Válidos</option>
+      </select>
+    </div>
+  {% endif %}
+
+  {% if filtros.dias_vencimento != None %}
+    <div class="field">
+      <label for="id_dias_vencimento">Dias de previsão</label>
+      <input id="id_dias_vencimento" name="dias_vencimento" type="number" min="0" max="3650" value="{{ filtros.dias_vencimento|default:30 }}">
+    </div>
+  {% endif %}
+
+  {% if filtros.busca != None %}
+    <div class="field">
+      <label for="id_busca">Pesquisar</label>
+      <input id="id_busca" name="busca" value="{{ filtros.busca|default:'' }}">
+    </div>
+  {% endif %}
+
+  {% if filtros.tipo_movimentacao != None %}
+    <div class="field">
+      <label for="id_tipo_movimentacao">Tipo de movimentação</label>
+      <select id="id_tipo_movimentacao" name="tipo_movimentacao">
+        <option value="">Todos</option>
+        <option value="entrada" {% if filtros.tipo_movimentacao == 'entrada' %}selected{% endif %}>Entrada</option>
+        <option value="saida" {% if filtros.tipo_movimentacao == 'saida' %}selected{% endif %}>Saída</option>
+        <option value="ajuste" {% if filtros.tipo_movimentacao == 'ajuste' %}selected{% endif %}>Ajuste</option>
+      </select>
+    </div>
+  {% endif %}
+
+  {% if filtros.produto_id != None %}
+    <div class="field">
+      <label for="id_produto_movimentacao">ID do produto</label>
+      <input id="id_produto_movimentacao" name="produto_id" type="number" min="1" value="{{ filtros.produto_id }}">
+    </div>
+  {% endif %}
+
+  <button class="btn primary" type="submit">Aplicar filtros</button>
+  <a class="btn" href="{{ request.path }}">Limpar</a>
+</form>
+{% endif %}
+
+{% block report_body %}
+
+{% if kpis %}
+<section class="grid" aria-label="Indicadores">
+  {% for item in kpis %}
+    <article class="kpi">
+      <div class="label">
+        {% if item.rotulo %}{{ item.rotulo }}{% elif item.label %}{{ item.label }}{% elif item.nome %}{{ item.nome }}{% else %}Indicador{% endif %}
+      </div>
+      <div class="value">
+        {% if item.valor != None %}{{ item.valor }}{% elif item.value != None %}{{ item.value }}{% elif item.total != None %}{{ item.total }}{% else %}—{% endif %}
+      </div>
+      {% if item.descricao %}<div class="label">{{ item.descricao }}</div>{% endif %}
+    </article>
+  {% endfor %}
+</section>
+{% endif %}
+
+{% if stats %}
+<section class="grid" aria-label="Estatísticas">
+  {% for label, value in stats.items %}
+    <article class="kpi">
+      <div class="label">{{ label|capfirst }}</div>
+      <div class="value">{{ value|default_if_none:"—" }}</div>
+    </article>
+  {% endfor %}
+</section>
+{% endif %}
+
+{% if tabelas %}
+  {% for tabela in tabelas %}
+    <section class="panel">
+      <div class="panel-head">
+        <h2>{% if tabela.titulo %}{{ tabela.titulo }}{% else %}Registos{% endif %}</h2>
+        {% if tabela.total_limitado != None %}<span class="pill">{{ tabela.total_limitado }} apresentados</span>{% endif %}
+      </div>
+      {% if tabela.linhas %}
+        <div class="table-wrap">
+          <table>
+            <thead><tr>{% for coluna in tabela.colunas %}<th>{{ coluna }}</th>{% endfor %}</tr></thead>
+            <tbody>
+              {% for row in tabela.linhas %}
+                <tr>{% for cell in row %}<td>{% if cell.valor != None %}{{ cell.valor }}{% else %}—{% endif %}</td>{% endfor %}</tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% else %}
+        <div class="empty">Não existem registos para os filtros seleccionados.</div>
+      {% endif %}
+    </section>
+  {% endfor %}
+{% endif %}
+
+{% if tipos_relatorio %}
+<section class="panel">
+  <div class="panel-head"><h2>Tipos de relatório disponíveis</h2></div>
+  <div class="panel-body cards-list">
+    {% for item in tipos_relatorio %}
+      <article class="item-card">
+        <h3>{{ item.nome }}</h3>
+        <p>{% if item.descricao %}{{ item.descricao }}{% else %}Sem descrição.{% endif %}</p>
+        <p><span class="pill">{% if item.get_categoria_display %}{{ item.get_categoria_display }}{% elif item.categoria %}{{ item.categoria }}{% else %}Sem categoria{% endif %}</span></p>
+      </article>
+    {% empty %}<div class="empty">Não existem tipos activos.</div>{% endfor %}
+  </div>
+</section>
+{% endif %}
+
+{% if templates_relatorio %}
+<section class="panel">
+  <div class="panel-head"><h2>Templates de relatório</h2><a class="btn primary" href="/relatorios/templates/novo/">Novo template</a></div>
+  <div class="panel-body cards-list">
+    {% for item in templates_relatorio %}
+      <article class="item-card">
+        <h3><a href="/relatorios/templates/{{ item.pk }}/">{{ item.nome }}</a></h3>
+        <p>{% if item.descricao %}{{ item.descricao }}{% else %}Sem descrição.{% endif %}</p>
+        <p><span class="pill">{% if item.ativo %}Activo{% else %}Inactivo{% endif %}</span></p>
+      </article>
+    {% empty %}<div class="empty">Nenhum template encontrado.</div>{% endfor %}
+  </div>
+</section>
+{% endif %}
+
+{% if modelos_disponiveis %}
+<section class="panel">
+  <div class="panel-head"><h2>Fontes disponíveis</h2></div>
+  <div class="panel-body cards-list">
+    {% for item in modelos_disponiveis %}
+      <article class="item-card">
+        <h3>{% if item.label %}{{ item.label }}{% elif item.nome %}{{ item.nome }}{% else %}{{ item }}{% endif %}</h3>
+        {% if item.app_label %}<p>{{ item.app_label }}.{{ item.model }}</p>{% endif %}
+      </article>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+
+{% if campos_disponiveis %}
+<section class="panel">
+  <div class="panel-head"><h2>Campos do modelo</h2></div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Campo</th><th>Tipo</th><th>Obrigatório</th></tr></thead>
+      <tbody>
+        {% for item in campos_disponiveis %}
+          <tr><td>{{ item.nome }}</td><td>{{ item.tipo }}</td><td>{{ item.obrigatorio|yesno:"Sim,Não" }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endif %}
+
+{% if form %}
+<section class="panel">
+  <div class="panel-head"><h2>{% if form_title %}{{ form_title }}{% else %}Dados{% endif %}</h2></div>
+  <div class="panel-body form-area">
+    <form method="post" enctype="multipart/form-data">
+      {% csrf_token %}
+      {{ form.as_p }}
+      <div class="actions"><button class="btn primary" type="submit">Guardar</button><a class="btn" href="javascript:history.back()">Cancelar</a></div>
+    </form>
+  </div>
+</section>
+{% endif %}
+
+{% if object and not tabelas %}
+<section class="panel">
+  <div class="panel-head"><h2>Detalhes</h2></div>
+  <div class="panel-body"><p>{{ object }}</p>{% if object.descricao %}<p>{{ object.descricao }}</p>{% endif %}</div>
+</section>
+{% endif %}
+
+{% if page_obj %}
+<section class="panel">
+  <div class="panel-head"><h2>Registos</h2><span class="pill">{{ page_obj.paginator.count }} no total</span></div>
+  <div class="panel-body">
+    {% for item in page_obj.object_list %}<div class="item-card" style="margin-bottom:8px">{{ item }}</div>{% empty %}<div class="empty">Não existem registos.</div>{% endfor %}
+  </div>
+  <div class="pagination">
+    <span>Página {{ page_obj.number }} de {{ page_obj.paginator.num_pages }}</span>
+    <span>{% if page_obj.has_previous %}<a class="btn" href="?page={{ page_obj.previous_page_number }}">Anterior</a>{% endif %} {% if page_obj.has_next %}<a class="btn" href="?page={{ page_obj.next_page_number }}">Seguinte</a>{% endif %}</span>
+  </div>
+</section>
+{% endif %}
+
+{% if agendamentos %}
+<section class="panel">
+  <div class="panel-head"><h2>Agendamentos</h2></div>
+  <div class="panel-body">
+    {% for item in agendamentos %}
+      <article class="item-card" style="margin-bottom:8px"><h3>{{ item }}</h3><p>{{ item.horario }} · {% if item.ativo %}Activo{% else %}Inactivo{% endif %}</p></article>
+    {% empty %}<div class="empty">Ainda não existem agendamentos.</div>{% endfor %}
+  </div>
+</section>
+{% endif %}
+
+{% if object_list and not page_obj %}
+<section class="panel">
+  <div class="panel-head"><h2>Registos</h2></div>
+  <div class="panel-body">
+    {% for item in object_list %}<article class="item-card" style="margin-bottom:8px"><h3>{{ item }}</h3>{% if item.descricao %}<p>{{ item.descricao }}</p>{% endif %}</article>{% empty %}<div class="empty">Não existem registos.</div>{% endfor %}
+  </div>
+</section>
+{% endif %}
+
+{% if logs %}
+<section class="panel">
+  <div class="panel-head"><h2>Histórico e auditoria</h2></div>
+  <div class="panel-body">
+    {% for log in logs %}<article class="item-card" style="margin-bottom:8px"><h3>{{ log }}</h3>{% if log.detalhes %}<p>{{ log.detalhes }}</p>{% endif %}</article>{% empty %}<div class="empty">Não existem entradas de histórico.</div>{% endfor %}
+  </div>
+</section>
+{% endif %}
+
+{% if relatorio %}
+<section class="panel">
+  <div class="panel-head"><h2>Relatório gerado</h2></div>
+  <div class="panel-body">
+    <p><strong>Código:</strong> {{ relatorio.codigo_relatorio }}</p>
+    <p><strong>Estado:</strong> {% if relatorio.get_status_display %}{{ relatorio.get_status_display }}{% elif relatorio.status %}{{ relatorio.status }}{% else %}—{% endif %}</p>
+    <p><strong>Formato:</strong> {{ relatorio.formato }}</p>
+    <p><strong>Registos:</strong> {{ relatorio.total_registros }}</p>
+    {% if relatorio.arquivo_resultado %}<a class="btn primary" href="{{ relatorio.arquivo_resultado.url }}">Abrir ficheiro</a>{% endif %}
+  </div>
+</section>
+{% endif %}
+
+{% endblock report_body %}
+{% endblock content %}

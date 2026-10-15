@@ -1,60 +1,7 @@
-<!-- templates/financeiro/movimentacao/lista.html -->
-{% extends 'base.html' %}
-{% load static %}
-
-{% block title %}Movimentações Financeiras{% endblock %}
-{% block page_title %}Lista de Movimentações Financeiras{% endblock %}
-
-{% block content %}
-<div class="bg-white dark:bg-gray-800 shadow rounded-lg p-6">
-    <h1 class="text-2xl font-bold text-gray-900 dark:text-white mb-4">
-        Movimentações Financeiras
-    </h1>
-
-    <form method="GET" class="flex space-x-4 mb-4">
-        <select name="tipo" class="border p-2 rounded">
-            <option value="">Todos os Tipos</option>
-            <option value="entrada">Entradas</option>
-            <option value="saida">Saídas</option>
-        </select>
-        <input type="date" name="data_inicio" class="border p-2 rounded" />
-        <input type="date" name="data_fim" class="border p-2 rounded" />
-        <input type="submit" value="Filtrar" class="bg-blue-500 text-white px-4 py-2 rounded" />
-    </form>
-
-    <div class="overflow-x-auto">
-        <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-            <thead class="bg-gray-50 dark:bg-gray-900">
-                <tr>
-                    <th class="px-6 py-3 text-left">Data</th>
-                    <th class="px-6 py-3 text-left">Descrição</th>
-                    <th class="px-6 py-3 text-left">Tipo</th>
-                    <th class="px-6 py-3 text-left">Valor</th>
-                    <th class="px-6 py-3 text-left">Ações</th>
-                </tr>
-            </thead>
-            <tbody class="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
-                {% for movimentacao in movimentacoes %}
-                <tr class="hover:bg-gray-50 dark:hover:bg-gray-700">
-                    <td class="px-6 py-4">{{ movimentacao.data_movimentacao|date:"d/m/Y" }}</td>
-                    <td class="px-6 py-4">{{ movimentacao.descricao }}</td>
-                    <td class="px-6 py-4">{{ movimentacao.tipo_movimentacao }}</td>
-                    <td class="px-6 py-4">{{ movimentacao.valor|floatformat:2 }} Kz</td>
-                    <td class="px-6 py-4">
-                        <a href="{% url 'financeiro:movimentacao_update' movimentacao.id %}" class="text-yellow-600 hover:text-yellow-900">Editar</a>
-                        <form method="POST" action="{% url 'financeiro:confirmar_movimentacao' movimentacao.id %}" class="inline">
-                            {% csrf_token %}
-                            <button type="submit" class="text-green-600 hover:text-green-900">Confirmar</button>
-                        </form>
-                    </td>
-                </tr>
-                {% empty %}
-                <tr>
-                    <td colspan="5" class="px-6 py-4 text-center text-gray-500 dark:text-gray-400">Nenhuma movimentação encontrada.</td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-    </div>
-</div>
+{% extends "financeiro/base_financeiro.html" %}{% block title %}Movimentações financeiras{% endblock %}{% block breadcrumb %}Movimentações financeiras{% endblock %}{% block content %}
+<header class="page-head"><div><h1>Movimentações financeiras</h1><p>Consulte as entradas, saídas e transferências registadas.</p></div>{% block page_actions %}{% endblock %}</header>
+<div class="page-head"><div></div><div class="actions"><a class="btn" href="{% url 'financeiro:movimentacao_create' %}">+ Nova movimentação</a></div></div>
+<section class="panel"><form class="filters" method="get"><div class="field"><label for="tipo">Tipo</label><select id="tipo" name="tipo"><option value="">Todos</option><option value="entrada" {% if request.GET.tipo == 'entrada' %}selected{% endif %}>Entrada</option><option value="saida" {% if request.GET.tipo == 'saida' %}selected{% endif %}>Saída</option><option value="transferencia" {% if request.GET.tipo == 'transferencia' %}selected{% endif %}>Transferência</option></select></div><div class="field"><label for="status">Estado</label><select id="status" name="status"><option value="">Todos</option><option value="pendente" {% if request.GET.status == 'pendente' %}selected{% endif %}>Pendente</option><option value="confirmada" {% if request.GET.status == 'confirmada' %}selected{% endif %}>Confirmada</option><option value="cancelada" {% if request.GET.status == 'cancelada' %}selected{% endif %}>Cancelada</option><option value="estornada" {% if request.GET.status == 'estornada' %}selected{% endif %}>Estornada</option></select></div><div class="field"><label for="conta">Conta bancária</label><select name="conta" id="conta"><option value="">Todas</option>{% for c in contas_bancarias %}<option value="{{ c.pk }}" {% if request.GET.conta == c.pk|stringformat:'s' %}selected{% endif %}>{{ c.nome }} · {{ c.banco }}</option>{% endfor %}</select></div><div class="field"><label>De</label><input type="date" name="data_inicio" value="{{ request.GET.data_inicio }}"></div><div class="field"><label>Até</label><input type="date" name="data_fim" value="{{ request.GET.data_fim }}"></div><button class="btn" type="submit">Filtrar</button><a class="btn secondary" href="{% url 'financeiro:movimentacao_lista' %}">Limpar</a></form>
+<div class="grid"><div class="metric"><div class="label">Entradas confirmadas</div><div class="value">{{ total_entradas|floatformat:2 }} AOA</div></div><div class="metric"><div class="label">Saídas confirmadas</div><div class="value">{{ total_saidas|floatformat:2 }} AOA</div></div><div class="metric"><div class="label">Saldo do período</div><div class="value">{{ saldo_periodo|floatformat:2 }} AOA</div></div></div>
+<div class="table-wrap"><table><thead><tr><th>Data</th><th>Documento</th><th>Tipo</th><th>Descrição</th><th>Conta</th><th>Valor</th><th>Estado</th><th></th></tr></thead><tbody>{% for m in movimentacoes %}<tr><td>{{ m.data_movimentacao|date:'d/m/Y' }}</td><td>{{ m.numero_documento|default:'—' }}</td><td>{{ m.get_tipo_movimentacao_display }}</td><td>{{ m.descricao }}</td><td>{{ m.conta_bancaria.nome }}</td><td>{{ m.valor|floatformat:2 }} AOA</td><td><span class="badge {% if m.confirmada %}green{% elif m.status == 'cancelada' or m.status == 'estornada' %}red{% else %}amber{% endif %}">{{ m.get_status_display }}</span></td><td><a href="{% url 'financeiro:movimentacao_detail' m.pk %}">Detalhes</a></td></tr>{% empty %}<tr><td colspan="8" class="empty">Não existem movimentações para os filtros seleccionados.</td></tr>{% endfor %}</tbody></table></div>{% include 'financeiro/includes/pagination.html' %}</section>
 {% endblock %}

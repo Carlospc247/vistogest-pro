@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="container-fluid py-4">
+    <div class="card shadow border-0">
+        <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center">
+            <h5 class="mb-0 text-white">Gestão de Candidaturas (Site)</h5>
+            <span class="badge bg-primary">{{ candidatos.count }} Candidatos Registados</span>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-hover align-items-center mb-0">
+                <thead>
+                    <tr>
+                        <th class="text-uppercase text-secondary text-xxs font-weight-bolder opacity-7">Candidato</th>
+                        <th class="text-uppercase text-secondary text-xxs font-weight-bolder opacity-7 ps-2">Vaga / Concurso</th>
+                        <th class="text-uppercase text-secondary text-xxs font-weight-bolder opacity-7 ps-2">Data</th>
+                        <th class="text-uppercase text-secondary text-xxs font-weight-bolder opacity-7 ps-2">CV</th>
+                        <th class="text-uppercase text-secondary text-xxs font-weight-bolder opacity-7 ps-2">Status</th>
+                        <th class="text-center text-uppercase text-secondary text-xxs font-weight-bolder opacity-7">Ações</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for c in candidatos %}
+                    <tr>
+                        <td>
+                            <div class="d-flex px-2 py-1">
+                                <div class="d-flex flex-column justify-content-center">
+                                    <h6 class="mb-0 text-sm">{{ c.nome }}</h6>
+                                    <p class="text-xs text-muted mb-0">{{ c.email }}</p>
+                                </div>
+                            </div>
+                        </td>
+                        <td><span class="text-xs font-weight-bold">{{ c.concurso.titulo }}</span></td>
+                        <td><span class="text-xs">{{ c.created_at|date:"d/m/Y" }}</span></td>
+                        <td>
+                            <a href="{{ c.cv.url }}" target="_blank" class="btn btn-link text-info p-0 mb-0">
+                                <i class="fas fa-file-pdf fa-lg"></i> <span class="text-xs">Ver CV</span>
+                            </a>
+                        </td>
+                        <td>
+                            <span class="badge badge-sm 
+                                {% if c.status == 'pendente' %}bg-warning
+                                {% elif c.status == 'aceita' %}bg-success
+                                {% else %}bg-secondary{% endif %}">
+                                {{ c.get_status_display }}
+                            </span>
+                        </td>
+                        <td class="text-center">
+                            <div class="btn-group shadow-none">
+                                <a href="mailto:{{ c.email }}?subject=Candidatura: {{ c.concurso.titulo }}" class="btn btn-sm btn-outline-dark" title="Enviar E-mail Direto">
+                                    <i class="fas fa-envelope"></i>
+                                </a>
+
+                                {% if c.status != 'aceita' %}
+                                <form method="POST" action="{% url 'funcionarios:admitir_candidato' c.id %}" style="display:inline;">
+                                    {% csrf_token %}
+                                    <button type="submit" class="btn btn-sm btn-success" title="Admitir no ERP">
+                                        <i class="fas fa-user-plus"></i> Admitir
+                                    </button>
+                                </form>
+
+                                <form method="POST" action="{% url 'funcionarios:rejeitar_candidato' c.id %}" style="display:inline;" onsubmit="return confirm('Tem certeza que deseja rejeitar este candidato? Um e-mail de feedback será enviado.')">
+                                    {% csrf_token %}
+                                    <button type="submit" class="btn btn-sm btn-outline-danger" title="Rejeitar Candidato">
+                                        <i class="fas fa-user-times"></i> Rejeitar
+                                    </button>
+                                </form>
+                                {% endif %}
+                            </div>
+                        </td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="6" class="text-center py-5">
+                            <i class="fas fa-user-slash fa-3x text-muted mb-3"></i>
+                            <p class="text-muted">Ainda não foram recebidas candidaturas através do site.</p>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

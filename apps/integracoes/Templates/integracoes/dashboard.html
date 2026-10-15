@@ -1,0 +1,44 @@
+{% extends "integracoes/_base.html" %}
+{% block title %}Integrações{% endblock %}
+{% block ig_content %}
+{% if not chave_ok %}
+<div class="ig-alert ig-bad"><strong>ENCRYPTION_KEY não configurada.</strong> Sem ela não é possível guardar credenciais. Consulte o <a class="underline" href="{% url 'integracoes:guia' %}#pre-requisitos">guia</a>.</div>
+{% endif %}
+<div class="flex flex-wrap justify-between items-center gap-3 mb-4">
+  <h1 class="text-2xl font-bold text-gray-800">Centro de integrações</h1>
+  <a class="ig-btn ig-btn-p" href="{% url 'integracoes:guia' %}"><i class="fas fa-book-open mr-1"></i> Como integrar</a>
+</div>
+<div class="grid sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+  <div class="ig-card"><p class="text-xs ig-muted">Activas</p><p class="text-2xl font-bold">{{ total_ativas }}</p></div>
+  <div class="ig-card"><p class="text-xs ig-muted">Com erro</p><p class="text-2xl font-bold {% if total_erro %}text-red-600{% endif %}">{{ total_erro }}</p></div>
+  <div class="ig-card"><p class="text-xs ig-muted">Pedidos hoje</p><p class="text-2xl font-bold">{{ pedidos_hoje }}</p></div>
+  <div class="ig-card"><p class="text-xs ig-muted">Webhooks por processar</p><p class="text-2xl font-bold">{{ webhooks_pendentes }}</p></div>
+</div>
+
+<div class="grid md:grid-cols-2 xl:grid-cols-3 gap-4 mb-8">
+{% for item in itens %}{% with t=item.tipo config=item.config %}
+  <div class="ig-card flex flex-col">
+    <div class="flex items-start justify-between gap-2">
+      <div class="flex items-center gap-3"><div class="ig-ico"><i class="{{ t.icone }}"></i></div>
+        <div><h3 class="font-semibold">{{ t.nome }}</h3><p class="text-xs ig-muted">{{ t.get_categoria_display }}</p></div></div>
+      {% if config %}{% include "integracoes/_status.html" %}{% else %}<span class="ig-badge">Não configurada</span>{% endif %}
+    </div>
+    <p class="text-sm ig-muted mt-3 flex-1">{{ t.descricao }}</p>
+    <div class="flex flex-wrap gap-2 mt-4">
+      {% if config %}<a class="ig-btn ig-btn-p" href="{% url 'integracoes:detalhe' pk=config.pk %}">Gerir</a>
+      {% else %}<a class="ig-btn ig-btn-p" href="{% url 'integracoes:configurar' codigo=t.codigo %}">Configurar</a>{% endif %}
+      <a class="ig-btn" href="{% url 'integracoes:guia' %}#tipo-{{ t.codigo }}">Instruções</a>
+      {% if t.url_documentacao %}<a class="ig-btn" target="_blank" rel="noopener" href="{{ t.url_documentacao }}">Docs</a>{% endif %}
+    </div>
+  </div>
+{% endwith %}{% endfor %}
+</div>
+
+<h2 class="font-semibold mb-2">Actividade recente</h2>
+<div class="ig-card p-0 overflow-x-auto"><table class="ig-table">
+  <thead><tr><th>Quando</th><th>Integração</th><th>Direcção</th><th>Estado</th><th>HTTP</th><th></th></tr></thead><tbody>
+  {% for l in logs_recentes %}<tr><td>{{ l.timestamp|date:"d/m H:i:s" }}</td><td>{{ l.configuracao.tipo_integracao.nome }}</td><td>{{ l.get_direcao_display }}</td>
+    <td><span class="ig-badge {% if l.status == 'sucesso' %}ig-ok{% else %}ig-bad{% endif %}">{{ l.get_status_display }}</span></td><td>{{ l.status_code|default:"—" }}</td>
+    <td><a class="text-indigo-600" href="{% url 'integracoes:log_detalhe' pk=l.pk %}">Ver</a></td></tr>
+  {% empty %}<tr><td colspan="6" class="text-center py-6 ig-muted">Sem actividade.</td></tr>{% endfor %}</tbody></table></div>
+{% endblock %}

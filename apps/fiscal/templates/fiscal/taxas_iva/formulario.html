@@ -1,0 +1,7 @@
+{% extends "fiscal/base_fiscal.html" %}
+{% block title %}{% if object %}Editar taxa{% else %}Nova taxa{% endif %}{% endblock %}
+{% block topbar_title %}Configuração de imposto{% endblock %}
+{% block content %}
+<div class="page-head"><div><p class="eyebrow">Tabela fiscal</p><h1>{% if object %}Editar taxa de imposto{% else %}Adicionar taxa de imposto{% endif %}</h1><p>Use os códigos e percentagens permitidos pelo modelo fiscal configurado para a empresa.</p></div><a class="btn btn-light" href="{% url 'fiscal:taxas_iva' %}">← Voltar</a></div>
+<section class="card"><div class="card-head"><h2>Dados da taxa</h2></div><div class="card-body"><form method="post" novalidate>{% csrf_token %}{% if form.non_field_errors %}<div class="form-errors">{{ form.non_field_errors }}</div>{% endif %}<div class="form-grid">{% for field in form %}<div class="form-row{% if field.name == 'exemption_reason' %} full{% endif %}"><label for="{{ field.id_for_label }}">{{ field.label }}{% if field.field.required %} *{% endif %}</label>{{ field }}{% if field.help_text %}<span class="helptext">{{ field.help_text }}</span>{% endif %}{% if field.errors %}{{ field.errors }}{% endif %}</div>{% endfor %}</div><div class="notice" style="margin-top:18px">Para taxas isentas, confirme se o código de isenção corresponde ao fundamento legal aplicável.</div><div class="form-actions"><a class="btn btn-light" href="{% url 'fiscal:taxas_iva' %}">Cancelar</a><button class="btn btn-primary" type="submit">Guardar taxa</button></div></form></div></section>
+{% endblock %}

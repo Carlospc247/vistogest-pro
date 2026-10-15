@@ -1,986 +1,849 @@
 # apps/fornecedores/views.py
+import csv
+import xml.etree.ElementTree as ET
 from datetime import date, timedelta
+from decimal import Decimal, InvalidOperation
+from urllib.parse import quote
 
-from django.db.models import Q, Avg, Count, Sum
-from django.shortcuts import get_object_or_404, redirect
-from django.urls import reverse_lazy
-from django.views.generic import ListView, DetailView, CreateView, UpdateView, DeleteView, View, TemplateView
-from django.http import JsonResponse, HttpResponse
+from django.conf import settings
 from django.contrib import messages
-
-from rest_framework import viewsets, filters, status
-from rest_framework.decorators import action
-from rest_framework.response import Response
+from django.contrib.auth.mixins import AccessMixin
+from django.core.exceptions import ValidationError
+from django.core.mail import send_mail
+from django.db.models import Avg, Count, Q, Sum, ProtectedError
+from django.http import HttpResponse, JsonResponse
+from django.shortcuts import get_object_or_404, redirect
+from django.urls import reverse, reverse_lazy
+from django.utils import timezone
+from django.views import View
+from django.views.generic import (
+    CreateView, DeleteView, DetailView, ListView, TemplateView, UpdateView,
+)
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.units import cm
+from reportlab.pdfgen import canvas
+from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from django_filters.rest_framework import DjangoFilterBackend
-
-from apps.fornecedores.serializers import PedidoCompraSerializer
-from apps.produtos.serializers import ProdutoSerializer
-
-from .models import (
-    ContatoFornecedor, ContratoFornecedor, CotacaoFornecedor, Fornecedor, Pedido, AvaliacaoFornecedor
+from apps.produtos.models import Produto
+from .forms import (
+    AvaliacaoForm, ContatoForm, ContratoForm, CotacaoForm, FornecedorForm, PedidoCompraForm,
 )
-from .forms import AvaliacaoForm, ContatoForm, ContratoForm, CotacaoForm, FornecedorForm, PedidoCompraForm
-from .filters import FornecedorFilter, PedidoCompraFilter
-from django.contrib.auth.mixins import AccessMixin
+from .models import (
+    AvaliacaoFornecedor, ContatoFornecedor, ContratoFornecedor, CotacaoFornecedor,
+    Fornecedor, HistoricoPedido, Pedido,
+)
+
+ESTADOS_COMPRA = ['aprovado', 'recebido', 'finalizado']
 
 
-class EmpresaQuerysetMixin:
-    """
-    Filtra automaticamente queryset pelo usuário logado e sua empresa.
-    """
-    def get_queryset(self):
-        qs = super().get_queryset()  # super() deve ser ListView com model definido
-        return qs.all()
+def kz(valor):
+    v = Decimal(valor or 0)
+    return f"{v:,.2f} Kz".replace(',', 'X').replace('.', ',').replace('X', '.')
 
 
+# ==============================================================================
+# MIXINS
+# ==============================================================================
 class PermissaoAcaoMixin(AccessMixin):
-    # CRÍTICO: Definir esta variável na View
-    acao_requerida = None 
+    acao_requerida = None
 
     def dispatch(self, request, *args, **kwargs):
         if not request.user.is_authenticated:
             return self.handle_no_permission()
-
         try:
-            # Tenta obter o Funcionario (ligação fundamental)
-            funcionario = request.user.funcionario 
+            funcionario = request.user.funcionario
         except Exception:
-            messages.error(request, "Acesso negado. O seu usuário não está ligado a um registro de funcionário.")
+            messages.error(request, "Acesso negado. O seu utilizador não está ligado a um funcionário.")
             return self.handle_no_permission()
-
-        if self.acao_requerida:
-            # Usa a lógica dinâmica do modelo Funcionario (que já criámos)
-            if not funcionario.pode_realizar_acao(self.acao_requerida):
-                messages.error(request, f"Acesso negado. O seu cargo não permite realizar a ação de '{self.acao_requerida}'.")
-                return redirect(reverse_lazy('core_tenants:dashboard'))
-
+        if self.acao_requerida and not funcionario.pode_realizar_acao(self.acao_requerida):
+            messages.error(request, f"O seu cargo não permite a acção '{self.acao_requerida}'.")
+            return redirect(reverse_lazy('core_tenants:dashboard'))
         return super().dispatch(request, *args, **kwargs)
 
 
-
-
-class FornecedorViewSet(viewsets.ModelViewSet):
-    permission_classes = [IsAuthenticated]
-    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
-    filterset_class = FornecedorFilter
-    search_fields = ['nome_fantasia', 'razao_social', 'nif', 'email_principal']
-    ordering_fields = ['nome_fantasia', 'avaliacao', 'total_comprado', 'created_at']
-    ordering = ['nome_fantasia']
-    
-    def get_queryset(self):
-        return Fornecedor.objects.filter(
-            empresa=self.request.user.empresa
-        ).select_related('empresa').prefetch_related('contatos', 'documentos')
-    
-    def perform_create(self, serializer):
-        serializer.save()
-    
-    @action(detail=False, methods=['get'])
-    def dashboard_stats(self, request):
-        """Estatísticas para o dashboard de fornecedores"""
-        queryset = self.get_queryset()
-        
-        stats = {
-            'total_fornecedores': queryset.count(),
-            'fornecedores_ativos': queryset.filter(status='ativo').count(),
-            'fornecedores_inativos': queryset.filter(status='inativo').count(),
-            'fornecedores_bloqueados': queryset.filter(status='bloqueado').count(),
-            'avaliacao_media': queryset.aggregate(Avg('avaliacao'))['avaliacao__avg'] or 0,
-            'total_comprado_mes': self.get_total_comprado_mes(),
-            'pedidos_pendentes': self.get_pedidos_pendentes(),
-        }
-        
-        return Response(stats)
-    
-    def get_total_comprado_mes(self):
-        """Total comprado no mês atual"""
-        inicio_mes = date.today().replace(day=1)
-        return Pedido.objects.filter(
-            data_pedido__gte=inicio_mes,
-            status='finalizado'
-        ).aggregate(Sum('total'))['total__sum'] or 0
-    
-    def get_pedidos_pendentes(self):
-        """Número de pedidos pendentes"""
-        return Pedido.objects.filter(
-            status__in=['enviado', 'confirmado', 'entregue_parcial']
-        ).count()
-    
-    @action(detail=True, methods=['get'])
-    def pedidos(self, request, pk=None):
-        """Lista pedidos de um fornecedor específico"""
-        fornecedor = self.get_object()
-        pedidos = PedidoCompra.objects.filter(
-            fornecedor=fornecedor
-        ).order_by('-data_pedido')
-        
-        serializer = PedidoCompraSerializer(pedidos, many=True)
-        return Response(serializer.data)
-    
-    @action(detail=True, methods=['get'])
-    def avaliacoes(self, request, pk=None):
-        """Lista avaliações de um fornecedor específico"""
-        fornecedor = self.get_object()
-        avaliacoes = AvaliacaoFornecedor.objects.filter(
-            fornecedor=fornecedor
-        ).order_by('-created_at')
-        
-        serializer = AvaliacaoFornecedorSerializer(avaliacoes, many=True)
-        return Response(serializer.data)
-    
-    @action(detail=True, methods=['post'])
-    def avaliar(self, request, pk=None):
-        """Avalia um fornecedor"""
-        fornecedor = self.get_object()
-        
-        data = request.data.copy()
-        data['fornecedor'] = fornecedor.id
-        data['usuario'] = request.user.id
-        
-        serializer = AvaliacaoFornecedorSerializer(data=data)
-        if serializer.is_valid():
-            serializer.save()
-            
-            # Recalcular avaliação média do fornecedor
-            media = AvaliacaoFornecedor.objects.filter(
-                fornecedor=fornecedor
-            ).aggregate(Avg('nota'))['nota__avg']
-            
-            fornecedor.avaliacao = round(media, 2) if media else 0
-            fornecedor.save()
-            
-            return Response(serializer.data, status=status.HTTP_201_CREATED)
-        
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-    
-    @action(detail=False, methods=['get'])
-    def melhores_avaliados(self, request):
-        """Fornecedores com melhor avaliação"""
-        fornecedores = self.get_queryset().filter(
-            status='ativo',
-            avaliacao__gt=0
-        ).order_by('-avaliacao')[:10]
-        
-        serializer = self.get_serializer(fornecedores, many=True)
-        return Response(serializer.data)
-    
-    @action(detail=False, methods=['get'])
-    def com_pedidos_atrasados(self, request):
-        """Fornecedores com pedidos atrasados"""
-        hoje = date.today()
-        fornecedores_ids = Pedido.objects.filter(
-            status__in=['enviado', 'confirmado', 'entregue_parcial'],
-            data_prevista_entrega__lt=hoje
-        ).values_list('fornecedor_id', flat=True).distinct()
-        
-        fornecedores = self.get_queryset().filter(id__in=fornecedores_ids)
-        serializer = self.get_serializer(fornecedores, many=True)
-        return Response(serializer.data)
-
-
-
-class PedidoCompraViewSet(viewsets.ModelViewSet):
-    serializer_class = PedidoCompraSerializer
-    permission_classes = [IsAuthenticated]
-    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
-    filterset_class = PedidoCompraFilter
-    search_fields = ['numero_pedido', 'fornecedor__nome_fantasia', 'observacoes']
-    ordering_fields = ['data_pedido', 'data_prevista_entrega', 'total', 'status']
-    ordering = ['-data_pedido']
-    
-    def get_queryset(self):
-        return Pedido.objects.filter(
-            
-        ).select_related('fornecedor', 'usuario_criacao').prefetch_related('itens')
-    
-    def perform_create(self, serializer):
-        serializer.save(
-            usuario_criacao=self.request.user
-        )
-    
-    @action(detail=True, methods=['post'])
-    def confirmar(self, request, pk=None):
-        """Confirma um pedido de compra"""
-        pedido = self.get_object()
-        
-        if pedido.status != 'enviado':
-            return Response(
-                {'error': 'Pedido deve estar com status "enviado" para ser confirmado'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        
-        pedido.status = 'confirmado'
-        pedido.usuario_aprovacao = request.user
-        pedido.data_aprovacao = timezone.now()
-        pedido.save()
-        
-        return Response({'message': 'Pedido confirmado com sucesso'})
-    
-    @action(detail=True, methods=['post'])
-    def cancelar(self, request, pk=None):
-        """Cancela um pedido de compra"""
-        pedido = self.get_object()
-        
-        if pedido.status in ['finalizado', 'cancelado']:
-            return Response(
-                {'error': 'Não é possível cancelar pedido finalizado ou já cancelado'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        
-        motivo = request.data.get('motivo', '')
-        pedido.status = 'cancelado'
-        pedido.observacoes += f"\nCancelado em {date.today()}: {motivo}"
-        pedido.save()
-        
-        return Response({'message': 'Pedido cancelado com sucesso'})
-    
-    @action(detail=False, methods=['get'])
-    def dashboard_stats(self, request):
-        """Estatísticas de pedidos para dashboard"""
-        queryset = self.get_queryset()
-        hoje = date.today()
-        
-        stats = {
-            'total_pedidos': queryset.count(),
-            'pedidos_pendentes': queryset.filter(
-                status__in=['enviado', 'confirmado', 'entregue_parcial']
-            ).count(),
-            'pedidos_atrasados': queryset.filter(
-                status__in=['enviado', 'confirmado', 'entregue_parcial'],
-                data_prevista_entrega__lt=hoje
-            ).count(),
-            'total_pendente': queryset.filter(
-                status__in=['enviado', 'confirmado', 'entregue_parcial']
-            ).aggregate(Sum('total'))['total__sum'] or 0,
-            'pedidos_mes': queryset.filter(
-                data_pedido__month=hoje.month,
-                data_pedido__year=hoje.year
-            ).count(),
-        }
-        
-        return Response(stats)
-
-
-from django.views.generic import (
-    ListView, 
-    DetailView, 
-    CreateView, 
-    UpdateView, 
-    DeleteView
-)
-from django.urls import reverse_lazy
-from django.contrib.auth.mixins import LoginRequiredMixin, PermissionRequiredMixin
-from .models import Fornecedor
-# from .forms import FornecedorForm # Crie este formulário para as views de edição
-
-# Defina a URL de sucesso centralizada (muda se usar o Django 5.0 com success_url)
-SUCCESS_URL = reverse_lazy('fornecedores:lista') 
-
-# --- MIXINS CRÍTICOS (Garantir Segurança e Filtro por Empresa) ---
-
-class BaseFornecedorMixin(LoginRequiredMixin):
-    """Mixins base para garantir autenticação."""
-    model = Fornecedor
-    context_object_name = 'fornecedor' # Nome do objeto singular no template (para Detail)
-    
-    def get_queryset(self):
-        """Filtra objetos apenas para a empresa do utilizador logado."""
-        # Assume que request.user.empresa existe
-        return self.model.objects.all()
-
-
-class FornecedorListView(EmpresaQuerysetMixin, PermissaoAcaoMixin, ListView):
+class FornecedoresMixin(PermissaoAcaoMixin):
+    """Todas as views do módulo exigem login + permissão do cargo."""
     acao_requerida = 'acessar_fornecedores'
+
+
+FORM_TPL = 'fornecedores/form_generico.html'
+DEL_TPL = 'fornecedores/confirmar_exclusao.html'
+
+
+# ==============================================================================
+# FORNECEDORES
+# ==============================================================================
+class FornecedorListView(FornecedoresMixin, ListView):
     model = Fornecedor
-    paginate_by = 25
+    paginate_by = 24
     template_name = 'fornecedores/fornecedor_list.html'
-    module_name = 'fornecedores'
     context_object_name = 'fornecedores'
 
+    def get_queryset(self):
+        qs = super().get_queryset()
+        q = self.request.GET.get('q', '').strip()
+        estado = self.request.GET.get('estado', '')
+        if q:
+            qs = qs.filter(
+                Q(razao_social__icontains=q) | Q(nome_fantasia__icontains=q)
+                | Q(nif_bi__icontains=q) | Q(codigo_fornecedor__icontains=q)
+            )
+        if estado == 'ativos':
+            qs = qs.filter(ativo=True, bloqueado=False)
+        elif estado == 'inativos':
+            qs = qs.filter(ativo=False, bloqueado=False)
+        elif estado == 'bloqueados':
+            qs = qs.filter(bloqueado=True)
+        return qs
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        ctx['q'] = self.request.GET.get('q', '')
+        ctx['estado'] = self.request.GET.get('estado', '')
+        return ctx
 
 
-class FornecedorDetailView(EmpresaQuerysetMixin, DetailView):
-    """
-    Exibe os detalhes de um fornecedor específico.
-    Procura por template: fornecedores/fornecedor_detail.html
-    """
+class FornecedorDetailView(FornecedoresMixin, DetailView):
+    model = Fornecedor
     template_name = 'fornecedores/fornecedor_detail.html'
-    
-    # Não precisa de get_queryset se usar BaseFornecedorMixin
+    context_object_name = 'fornecedor'
 
-class FornecedorCreateView(EmpresaQuerysetMixin, CreateView):
+
+class FornecedorCreateView(FornecedoresMixin, CreateView):
     model = Fornecedor
     form_class = FornecedorForm
-    template_name = 'fornecedores/fornecedor_form.html'
+    template_name = FORM_TPL
     success_url = reverse_lazy('fornecedores:lista')
+    extra_context = {'titulo': 'Novo Fornecedor'}
 
     def form_valid(self, form):
-        # Associa o fornecedor à empresa do usuário logado
-        form.instance.empresa = self.request.user.empresa
+        messages.success(self.request, "Fornecedor criado com sucesso.")
         return super().form_valid(form)
 
-from django.views.generic.edit import UpdateView
-from .models import Fornecedor
 
-class FornecedorUpdateView(EmpresaQuerysetMixin, UpdateView):
-    model = Fornecedor  # informa o modelo
-    template_name = 'fornecedores/fornecedor_form.html'
-    fields = [
-        'codigo_fornecedor', 'razao_social', 'nome_fantasia', 'tipo_pessoa',
-        'categoria', 'porte', 'foto', 'nif_bi', 'endereco', 'numero',
-        'bairro', 'cidade', 'provincia', 'postal', 'pais',
-        'telefone_principal', 'telefone_secundario', 'whatsapp', 'email_principal',
-        'email_financeiro', 'email_comercial', 'site', 'condicao_pagamento_padrao',
-        'prazo_entrega_dias', 'valor_minimo_pedido', 'banco_principal', 'agencia',
-        'conta_corrente', 'permite_devolucao', 'prazo_devolucao_dias',
-        'trabalha_consignacao', 'aceita_cartao', 'entrega_proprio', 'nota_avaliacao',
-        'pontualidade_entrega', 'qualidade_produtos', 'ativo', 'bloqueado',
-        'motivo_bloqueio', 'observacoes', 'observacoes_internas'
-    ]
-    success_url = '/fornecedores/'  # ou reverse_lazy('fornecedores:list')
-   
+class FornecedorUpdateView(FornecedoresMixin, UpdateView):
+    model = Fornecedor
+    form_class = FornecedorForm
+    template_name = FORM_TPL
+    extra_context = {'titulo': 'Editar Fornecedor'}
 
-class FornecedorDeleteView(EmpresaQuerysetMixin, PermissaoAcaoMixin, DeleteView):
-    acao_requerida = 'acessar_fornecedores'
-    
-    template_name = 'fornecedores/fornecedor_confirm_delete.html'
-    success_url = SUCCESS_URL
-# =====================================
-# FORNECEDORES CRUD
-# =====================================
+    def get_success_url(self):
+        return reverse('fornecedores:detail', kwargs={'pk': self.object.pk})
 
 
+class FornecedorDeleteView(FornecedoresMixin, DeleteView):
+    model = Fornecedor
+    template_name = DEL_TPL
+    success_url = reverse_lazy('fornecedores:lista')
+    extra_context = {'titulo': 'Eliminar Fornecedor'}
+
+    def form_valid(self, form):
+        try:
+            response = super().form_valid(form)
+            messages.success(self.request, "Fornecedor eliminado.")
+            return response
+        except ProtectedError:
+            messages.error(self.request, "Este fornecedor tem pedidos associados. Bloqueie-o em vez de eliminar.")
+            return redirect('fornecedores:detail', pk=self.kwargs['pk'])
 
 
-# =====================================
-# AÇÕES ESPECIAIS FORNECEDORES
-# =====================================
-class AtivarFornecedorView(View):
+class AtivarFornecedorView(FornecedoresMixin, View):
     def post(self, request, pk):
-        fornecedor = get_object_or_404(Fornecedor, pk=pk)
-        fornecedor.ativo = True
-        fornecedor.save()
-        messages.success(request, "Fornecedor ativado com sucesso.")
-        return redirect("fornecedores:detail", pk=pk)
+        f = get_object_or_404(Fornecedor, pk=pk)
+        f.ativo, f.bloqueado, f.motivo_bloqueio = True, False, ''
+        f.save(update_fields=['ativo', 'bloqueado', 'motivo_bloqueio'])
+        messages.success(request, "Fornecedor activado.")
+        return redirect('fornecedores:detail', pk=pk)
 
-class BloquearFornecedorView(View):
+
+class BloquearFornecedorView(FornecedoresMixin, View):
     def post(self, request, pk):
-        fornecedor = get_object_or_404(Fornecedor, pk=pk)
-        fornecedor.ativo = False
-        fornecedor.save()
-        messages.success(request, "Fornecedor bloqueado com sucesso.")
-        return redirect("fornecedores:detail", pk=pk)
+        f = get_object_or_404(Fornecedor, pk=pk)
+        f.bloqueado = True
+        f.motivo_bloqueio = request.POST.get('motivo', '').strip()
+        f.save(update_fields=['bloqueado', 'motivo_bloqueio'])
+        messages.success(request, "Fornecedor bloqueado.")
+        return redirect('fornecedores:detail', pk=pk)
 
-class AvaliarFornecedorView(CreateView):
+
+# ==============================================================================
+# AVALIAÇÕES
+# ==============================================================================
+class AvaliacaoCreateView(FornecedoresMixin, CreateView):
     model = AvaliacaoFornecedor
     form_class = AvaliacaoForm
-    template_name = "fornecedores/avaliar.html"
+    template_name = FORM_TPL
+
+    def dispatch(self, request, *args, **kwargs):
+        pk = kwargs.get('fornecedor_pk') or kwargs.get('pk')
+        self.fornecedor = get_object_or_404(Fornecedor, pk=pk)
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        ctx['titulo'] = f"Avaliar {self.fornecedor.nome_exibicao}"
+        return ctx
+
+    def get_form(self, form_class=None):
+        form = super().get_form(form_class)
+        if 'pedido' in form.fields:  # só pedidos deste fornecedor ainda sem avaliação
+            form.fields['pedido'].queryset = Pedido.objects.filter(
+                fornecedor=self.fornecedor, avaliacao__isnull=True)
+        return form
 
     def form_valid(self, form):
-        fornecedor = get_object_or_404(Fornecedor, pk=self.kwargs['pk'])
-        form.instance.fornecedor = fornecedor
+        form.instance.fornecedor = self.fornecedor
+        form.instance.avaliador = self.request.user
+        messages.success(self.request, "Avaliação registada.")
         return super().form_valid(form)
 
     def get_success_url(self):
-        return reverse_lazy("fornecedores:detail", kwargs={"pk": self.kwargs["pk"]})
+        return reverse('fornecedores:detail', kwargs={'pk': self.fornecedor.pk})
 
-class HistoricoFornecedorView(ListView):
+
+class AvaliarFornecedorView(AvaliacaoCreateView):
+    """URL /<pk>/avaliar/ — mesma lógica, o kwarg chama-se pk."""
+
+
+class HistoricoFornecedorView(FornecedoresMixin, ListView):
+    template_name = 'fornecedores/avaliacao_list.html'
+    context_object_name = 'avaliacoes'
+
+    def get_queryset(self):
+        self.fornecedor = get_object_or_404(Fornecedor, pk=self.kwargs['pk'])
+        return self.fornecedor.avaliacoes.select_related('pedido', 'avaliador')
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        ctx.update(fornecedor=self.fornecedor, titulo=f"Histórico — {self.fornecedor.nome_exibicao}")
+        return ctx
+
+
+class AvaliacaoListView(FornecedoresMixin, ListView):
     model = AvaliacaoFornecedor
-    template_name = "fornecedores/historico.html"
-    context_object_name = "historico"
+    template_name = 'fornecedores/avaliacao_list.html'
+    context_object_name = 'avaliacoes'
+    extra_context = {'titulo': 'Avaliações de Fornecedores'}
 
     def get_queryset(self):
-        fornecedor = get_object_or_404(Fornecedor, pk=self.kwargs['pk'])
-        return AvaliacaoFornecedor.objects.filter(fornecedor=fornecedor)
+        return super().get_queryset().select_related('fornecedor', 'pedido', 'avaliador')
 
-# =====================================
-# CONTATOS
-# =====================================
-class ContatoListView(ListView):
-    model = ContatoFornecedor
-    template_name = "contatos/lista.html"
-    context_object_name = "contatos"
+
+# ==============================================================================
+# CONTACTOS
+# ==============================================================================
+class ContatoListView(FornecedoresMixin, ListView):
+    template_name = 'fornecedores/contato_list.html'
+    context_object_name = 'contatos'
 
     def get_queryset(self):
-        return ContatoFornecedor.objects.filter(fornecedor_id=self.kwargs['fornecedor_pk'])
+        self.fornecedor = get_object_or_404(Fornecedor, pk=self.kwargs['fornecedor_pk'])
+        return self.fornecedor.contatos.all()
 
-class ContatoCreateView(CreateView):
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        ctx['fornecedor'] = self.fornecedor
+        return ctx
+
+
+class ContatoCreateView(FornecedoresMixin, CreateView):
     model = ContatoFornecedor
     form_class = ContatoForm
-    template_name = "contatos/form.html"
+    template_name = FORM_TPL
+    extra_context = {'titulo': 'Novo Contacto'}
 
     def form_valid(self, form):
-        fornecedor = get_object_or_404(Fornecedor, pk=self.kwargs['fornecedor_pk'])
-        form.instance.fornecedor = fornecedor
+        form.instance.fornecedor = get_object_or_404(Fornecedor, pk=self.kwargs['fornecedor_pk'])
         return super().form_valid(form)
 
     def get_success_url(self):
-        return reverse_lazy("fornecedores:contato_lista", kwargs={"fornecedor_pk": self.kwargs["fornecedor_pk"]})
+        return reverse('fornecedores:contato_lista', kwargs={'fornecedor_pk': self.kwargs['fornecedor_pk']})
 
-class ContatoUpdateView(UpdateView):
+
+class ContatoUpdateView(FornecedoresMixin, UpdateView):
     model = ContatoFornecedor
     form_class = ContatoForm
-    template_name = "contatos/form.html"
+    template_name = FORM_TPL
+    extra_context = {'titulo': 'Editar Contacto'}
 
     def get_success_url(self):
-        return reverse_lazy("fornecedores:contato_lista", kwargs={"fornecedor_pk": self.object.fornecedor.pk})
+        return reverse('fornecedores:contato_lista', kwargs={'fornecedor_pk': self.object.fornecedor_id})
 
-class ContatoDeleteView(DeleteView):
+
+class ContatoDeleteView(FornecedoresMixin, DeleteView):
     model = ContatoFornecedor
-    template_name = "contatos/confirm_delete.html"
+    template_name = DEL_TPL
+    extra_context = {'titulo': 'Eliminar Contacto'}
 
     def get_success_url(self):
-        return reverse_lazy("fornecedores:contato_lista", kwargs={"fornecedor_pk": self.object.fornecedor.pk})
+        return reverse('fornecedores:contato_lista', kwargs={'fornecedor_pk': self.object.fornecedor_id})
 
-# =====================================
-# PEDIDOS DE COMPRA CRUD E STATUS
-# =====================================
-class PedidoCompraListView(EmpresaQuerysetMixin, ListView):
+
+# ==============================================================================
+# PEDIDOS DE COMPRA
+# ==============================================================================
+class PedidoCompraListView(FornecedoresMixin, ListView):
     model = Pedido
-    template_name = "pedidos/lista.html"
-    context_object_name = "pedidos"
+    template_name = 'fornecedores/pedido_list.html'
+    context_object_name = 'pedidos'
+    paginate_by = 25
 
-class PedidoCompraCreateView(CreateView):
+    def get_queryset(self):
+        qs = super().get_queryset().select_related('fornecedor')
+        estado = self.request.GET.get('estado', '')
+        q = self.request.GET.get('q', '').strip()
+        if estado:
+            qs = qs.filter(status=estado)
+        if q:
+            qs = qs.filter(Q(numero_pedido__icontains=q) | Q(fornecedor__razao_social__icontains=q))
+        return qs
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        ctx.update(estados=Pedido.STATUS_CHOICES, estado=self.request.GET.get('estado', ''),
+                   q=self.request.GET.get('q', ''))
+        return ctx
+
+
+class PedidoCompraCreateView(FornecedoresMixin, CreateView):
     model = Pedido
     form_class = PedidoCompraForm
-    template_name = "pedidos/form.html"
-    success_url = reverse_lazy("fornecedores:pedido_lista")
+    template_name = FORM_TPL
+    extra_context = {'titulo': 'Novo Pedido de Compra'}
 
-class PedidoCompraDetailView(DetailView):
+    def get_initial(self):
+        initial = super().get_initial()
+        if self.request.GET.get('fornecedor'):
+            initial['fornecedor'] = self.request.GET['fornecedor']
+        return initial
+
+    def form_valid(self, form):
+        form.instance.solicitante = self.request.user
+        messages.success(self.request, "Pedido criado como rascunho.")
+        return super().form_valid(form)
+
+    def get_success_url(self):
+        return reverse('fornecedores:pedido_detail', kwargs={'pk': self.object.pk})
+
+
+class PedidoCompraDetailView(FornecedoresMixin, DetailView):
     model = Pedido
-    template_name = "pedidos/detail.html"
-    context_object_name = "pedido"
+    template_name = 'fornecedores/pedido_detail.html'
+    context_object_name = 'pedido'
 
-class PedidoCompraUpdateView(UpdateView):
+
+class PedidoCompraUpdateView(FornecedoresMixin, UpdateView):
     model = Pedido
     form_class = PedidoCompraForm
-    template_name = "pedidos/form.html"
-    success_url = reverse_lazy("fornecedores:pedido_lista")
+    template_name = FORM_TPL
+    extra_context = {'titulo': 'Editar Pedido'}
 
-class PedidoCompraDeleteView(DeleteView):
+    def get_success_url(self):
+        return reverse('fornecedores:pedido_detail', kwargs={'pk': self.object.pk})
+
+
+class PedidoCompraDeleteView(FornecedoresMixin, DeleteView):
     model = Pedido
-    template_name = "pedidos/confirm_delete.html"
-    success_url = reverse_lazy("fornecedores:pedido_lista")
+    template_name = DEL_TPL
+    success_url = reverse_lazy('fornecedores:pedido_lista')
+    extra_context = {'titulo': 'Eliminar Pedido'}
 
-# Status actions
-class AprovarPedidoView(View):
+
+def _mudar_status(request, pedido, novo, permitidos, msg, **extra):
+    if pedido.status not in permitidos:
+        messages.error(request, f"Não é possível fazer isto com um pedido '{pedido.get_status_display()}'.")
+        return False
+    anterior = pedido.status
+    pedido.status = novo
+    for campo, valor in extra.items():
+        setattr(pedido, campo, valor)
+    pedido.save()
+    HistoricoPedido.objects.create(
+        pedido=pedido, status_anterior=anterior, status_novo=novo,
+        usuario=request.user, observacoes=msg)
+    messages.success(request, msg)
+    return True
+
+
+class EnviarPedidoView(FornecedoresMixin, View):
     def post(self, request, pk):
         pedido = get_object_or_404(Pedido, pk=pk)
-        pedido.status = "APROVADO"
-        pedido.save()
-        messages.success(request, "Pedido aprovado.")
-        return redirect("fornecedores:pedido_detail", pk=pk)
+        try:
+            pedido.enviar_pedido(request.user)
+            messages.success(request, "Pedido enviado.")
+        except ValidationError as e:
+            messages.error(request, "; ".join(e.messages))
+        return redirect('fornecedores:pedido_detail', pk=pk)
 
-class EnviarPedidoView(View):
+
+class AprovarPedidoView(FornecedoresMixin, View):
     def post(self, request, pk):
         pedido = get_object_or_404(Pedido, pk=pk)
-        pedido.status = "ENVIADO"
-        pedido.save()
-        messages.success(request, "Pedido enviado.")
-        return redirect("fornecedores:pedido_detail", pk=pk)
+        _mudar_status(request, pedido, 'aprovado', ['enviado', 'confirmado'], "Pedido aprovado.",
+                      aprovador=request.user, data_aprovacao=timezone.now())
+        return redirect('fornecedores:pedido_detail', pk=pk)
 
-class CancelarPedidoView(View):
+
+class CancelarPedidoView(FornecedoresMixin, View):
     def post(self, request, pk):
         pedido = get_object_or_404(Pedido, pk=pk)
-        pedido.status = "CANCELADO"
-        pedido.save()
-        messages.success(request, "Pedido cancelado.")
-        return redirect("fornecedores:pedido_detail", pk=pk)
+        _mudar_status(request, pedido, 'cancelado',
+                      [s for s, _ in Pedido.STATUS_CHOICES if s not in ('finalizado', 'cancelado')],
+                      "Pedido cancelado.", motivo_cancelamento=request.POST.get('motivo', '').strip())
+        return redirect('fornecedores:pedido_detail', pk=pk)
 
-class ReceberPedidoView(View):
+
+class ReceberPedidoView(FornecedoresMixin, View):
     def post(self, request, pk):
         pedido = get_object_or_404(Pedido, pk=pk)
-        pedido.status = "RECEBIDO"
-        pedido.save()
-        messages.success(request, "Pedido recebido.")
-        return redirect("fornecedores:pedido_detail", pk=pk)
+        _mudar_status(request, pedido, 'recebido',
+                      ['aprovado', 'confirmado', 'em_producao', 'em_transito', 'recebido_parcial'],
+                      "Pedido recebido.", data_entrega_real=date.today())
+        return redirect('fornecedores:pedido_detail', pk=pk)
 
-# Documentos
-class ImprimirPedidoView(DetailView):
+
+class ImprimirPedidoView(FornecedoresMixin, DetailView):
     model = Pedido
-    template_name = "pedidos/imprimir.html"
+    template_name = 'fornecedores/pedido_imprimir.html'
+    context_object_name = 'pedido'
 
-class PedidoPDFView(DetailView):
+
+class PedidoPDFView(FornecedoresMixin, DetailView):
     model = Pedido
-    template_name = "pedidos/pdf.html"  # depois integre com WeasyPrint ou ReportLab
 
-class PedidoXMLView(DetailView):
+    def render_to_response(self, context, **kwargs):
+        p = self.object
+        resp = HttpResponse(content_type='application/pdf')
+        resp['Content-Disposition'] = f'inline; filename="{p.numero_pedido}.pdf"'
+        c = canvas.Canvas(resp, pagesize=A4)
+        w, h = A4
+        y = h - 2 * cm
+        c.setFont('Helvetica-Bold', 14)
+        c.drawString(2 * cm, y, f"PEDIDO DE COMPRA {p.numero_pedido}")
+        y -= 1 * cm
+        c.setFont('Helvetica', 10)
+        for linha in (f"Fornecedor: {p.fornecedor.razao_social}", f"NIF/BI: {p.fornecedor.nif_bi}",
+                      f"Data: {p.data_pedido:%d/%m/%Y}", f"Estado: {p.get_status_display()}"):
+            c.drawString(2 * cm, y, linha)
+            y -= 0.6 * cm
+        y -= 0.4 * cm
+        c.setFont('Helvetica-Bold', 9)
+        c.drawString(2 * cm, y, "Produto")
+        c.drawRightString(12 * cm, y, "Qtd")
+        c.drawRightString(15.5 * cm, y, "P.Unit.")
+        c.drawRightString(w - 2 * cm, y, "Total")
+        y -= 0.6 * cm
+        c.setFont('Helvetica', 9)
+        for it in p.itens.select_related('produto'):
+            if y < 4 * cm:
+                c.showPage()
+                y = h - 2 * cm
+                c.setFont('Helvetica', 9)
+            c.drawString(2 * cm, y, it.produto.nome_comercial[:45])
+            c.drawRightString(12 * cm, y, str(it.quantidade))
+            c.drawRightString(15.5 * cm, y, kz(it.preco_unitario))
+            c.drawRightString(w - 2 * cm, y, kz(it.total))
+            y -= 0.5 * cm
+        y -= 0.5 * cm
+        c.setFont('Helvetica-Bold', 11)
+        c.drawRightString(w - 2 * cm, y, f"TOTAL: {kz(p.total)}")
+        c.showPage()
+        c.save()
+        return resp
+
+
+class PedidoXMLView(FornecedoresMixin, DetailView):
     model = Pedido
-    template_name = "pedidos/xml.html"  # gere XML no template ou Response
 
-# =====================================
-# CONTRATOS CRUD E STATUS
-# =====================================
-class ContratoListView(ListView):
+    def render_to_response(self, context, **kwargs):
+        p = self.object
+        root = ET.Element('PedidoCompra', numero=p.numero_pedido, estado=p.status)
+        ET.SubElement(root, 'Fornecedor', nif=p.fornecedor.nif_bi).text = p.fornecedor.razao_social
+        ET.SubElement(root, 'Data').text = p.data_pedido.isoformat()
+        itens = ET.SubElement(root, 'Itens')
+        for it in p.itens.select_related('produto'):
+            ET.SubElement(itens, 'Item', codigo=it.produto.codigo_interno,
+                          quantidade=str(it.quantidade), precoUnitario=str(it.preco_unitario),
+                          total=str(it.total)).text = it.produto.nome_comercial
+        ET.SubElement(root, 'Total').text = str(p.total)
+        resp = HttpResponse(ET.tostring(root, encoding='utf-8', xml_declaration=True),
+                            content_type='application/xml')
+        resp['Content-Disposition'] = f'attachment; filename="{p.numero_pedido}.xml"'
+        return resp
+
+
+# ==============================================================================
+# CONTRATOS
+# ==============================================================================
+class ContratoListView(FornecedoresMixin, ListView):
     model = ContratoFornecedor
-    template_name = "contratos/lista.html"
-    context_object_name = "contratos"
+    template_name = 'fornecedores/contrato_list.html'
+    context_object_name = 'contratos'
 
-class ContratoCreateView(CreateView):
+    def get_queryset(self):
+        return super().get_queryset().select_related('fornecedor')
+
+
+class ContratoCreateView(FornecedoresMixin, CreateView):
     model = ContratoFornecedor
     form_class = ContratoForm
-    template_name = "contratos/form.html"
-    success_url = reverse_lazy("fornecedores:contrato_lista")
+    template_name = FORM_TPL
+    success_url = reverse_lazy('fornecedores:contrato_lista')
+    extra_context = {'titulo': 'Novo Contrato'}
 
-class ContratoDetailView(DetailView):
+    def form_valid(self, form):
+        form.instance.usuario_criador = self.request.user
+        return super().form_valid(form)
+
+
+class ContratoDetailView(FornecedoresMixin, DetailView):
     model = ContratoFornecedor
-    template_name = "contratos/detail.html"
-    context_object_name = "contrato"
+    template_name = 'fornecedores/contrato_detail.html'
+    context_object_name = 'contrato'
 
-class ContratoUpdateView(UpdateView):
+
+class ContratoUpdateView(FornecedoresMixin, UpdateView):
     model = ContratoFornecedor
     form_class = ContratoForm
-    template_name = "contratos/form.html"
-    success_url = reverse_lazy("fornecedores:contrato_lista")
+    template_name = FORM_TPL
+    success_url = reverse_lazy('fornecedores:contrato_lista')
+    extra_context = {'titulo': 'Editar Contrato'}
 
-class RenovarContratoView(View):
-    def post(self, request, pk):
-        contrato = get_object_or_404(ContratoFornecedor, pk=pk)
-        contrato.renovar()
-        messages.success(request, "Contrato renovado.")
-        return redirect("fornecedores:contrato_detail", pk=pk)
 
-class EncerrarContratoView(View):
+class RenovarContratoView(FornecedoresMixin, View):
     def post(self, request, pk):
-        contrato = get_object_or_404(ContratoFornecedor, pk=pk)
-        contrato.encerrar()
+        c = get_object_or_404(ContratoFornecedor, pk=pk)
+        try:
+            meses = max(1, int(request.POST.get('meses', 12)))
+        except ValueError:
+            meses = 12
+        base = max(c.data_fim, date.today())
+        c.data_fim = base + timedelta(days=30 * meses)
+        c.ativo = True
+        c.save(update_fields=['data_fim', 'ativo'])
+        messages.success(request, f"Contrato renovado até {c.data_fim:%d/%m/%Y}.")
+        return redirect('fornecedores:contrato_detail', pk=pk)
+
+
+class EncerrarContratoView(FornecedoresMixin, View):
+    def post(self, request, pk):
+        c = get_object_or_404(ContratoFornecedor, pk=pk)
+        c.ativo = False
+        c.data_fim = min(c.data_fim, date.today())
+        c.save(update_fields=['ativo', 'data_fim'])
         messages.success(request, "Contrato encerrado.")
-        return redirect("fornecedores:contrato_detail", pk=pk)
+        return redirect('fornecedores:contrato_detail', pk=pk)
 
-# =====================================
-# AVALIAÇÕES E QUALIFICAÇÃO
-# =====================================
-class AvaliacaoListView(ListView):
-    model = AvaliacaoFornecedor
-    template_name = "avaliacoes/lista.html"
-    context_object_name = "avaliacoes"
 
-class AvaliacaoCreateView(CreateView):
-    model = AvaliacaoFornecedor
-    form_class = AvaliacaoForm
-    template_name = "avaliacoes/form.html"
-
-    def form_valid(self, form):
-        fornecedor = get_object_or_404(Fornecedor, pk=self.kwargs['fornecedor_pk'])
-        form.instance.fornecedor = fornecedor
-        return super().form_valid(form)
-
-    def get_success_url(self):
-        return reverse_lazy("fornecedores:detail", kwargs={"pk": self.kwargs["fornecedor_pk"]})
-
-class QualificacaoFornecedorView(TemplateView):
-    template_name = "avaliacoes/qualificacao.html"
-
-class RankingFornecedorView(TemplateView):
-    template_name = "avaliacoes/ranking.html"
-
-# =====================================
-# COTAÇÕES CRUD
-# =====================================
-class CotacaoListView(ListView):
+# ==============================================================================
+# COTAÇÕES
+# ==============================================================================
+class CotacaoListView(FornecedoresMixin, ListView):
     model = CotacaoFornecedor
-    template_name = "cotacoes/lista.html"
-    context_object_name = "cotacoes"
+    template_name = 'fornecedores/cotacao_list.html'
+    context_object_name = 'cotacoes'
 
-class CotacaoCreateView(CreateView):
+    def get_queryset(self):
+        return super().get_queryset().select_related('fornecedor')
+
+
+class CotacaoCreateView(FornecedoresMixin, CreateView):
     model = CotacaoFornecedor
     form_class = CotacaoForm
-    template_name = "cotacoes/form.html"
-    success_url = reverse_lazy("fornecedores:cotacao_lista")
+    template_name = FORM_TPL
+    success_url = reverse_lazy('fornecedores:cotacao_lista')
+    extra_context = {'titulo': 'Nova Cotação'}
 
-class CotacaoDetailView(DetailView):
+    def form_valid(self, form):
+        form.instance.usuario_criador = self.request.user
+        return super().form_valid(form)
+
+
+class CotacaoDetailView(FornecedoresMixin, DetailView):
     model = CotacaoFornecedor
-    template_name = "cotacoes/detail.html"
+    template_name = 'fornecedores/cotacao_detail.html'
+    context_object_name = 'cotacao'
 
-class CompararCotacaoView(DetailView):
+
+class CompararCotacaoView(FornecedoresMixin, DetailView):
     model = CotacaoFornecedor
-    template_name = "cotacoes/comparar.html"
+    template_name = 'fornecedores/cotacao_comparar.html'
+    context_object_name = 'cotacao'
 
-# =====================================
-# RELATÓRIOS
-# =====================================
-class FornecedorRelatoriosView(TemplateView):
-    template_name = "relatorios/fornecedores.html"
-
-class RelatorioComprasView(TemplateView):
-    template_name = "relatorios/compras.html"
-
-class RelatorioPerformanceView(TemplateView):
-    template_name = "relatorios/performance.html"
-
-class RelatorioPagamentosView(TemplateView):
-    template_name = "relatorios/pagamentos.html"
-
-# =====================================
-# IMPORTAÇÃO E EXPORTAÇÃO
-# =====================================
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        ctx['outras'] = (CotacaoFornecedor.objects
+                         .filter(ativo=True, data_validade__gte=date.today())
+                         .exclude(pk=self.object.pk).select_related('fornecedor').order_by('total'))
+        return ctx
 
 
-# =====================================
-# AJAX
-# =====================================
-class BuscarFornecedorAjaxView(View):
-    def get(self, request):
-        term = request.GET.get("q", "")
-        resultados = list(Fornecedor.objects.filter(nome__icontains=term).values("id", "nome"))
-        return JsonResponse(resultados, safe=False)
+# ==============================================================================
+# QUALIFICAÇÃO, RANKING E RELATÓRIOS (todos usam relatorio.html)
+# ==============================================================================
+class RelatorioBase(FornecedoresMixin, TemplateView):
+    template_name = 'fornecedores/relatorio.html'
+    titulo = ''
+    com_periodo = False
 
-class ValidarNifView(View):
-    def get(self, request):
-        nif = request.GET.get("nif", "")
-        valido = True  # lógica de validação
-        return JsonResponse({"valido": valido})
+    def periodo(self):
+        hoje = date.today()
+        try:
+            ini = date.fromisoformat(self.request.GET.get('inicio', ''))
+        except ValueError:
+            ini = hoje.replace(day=1)
+        try:
+            fim = date.fromisoformat(self.request.GET.get('fim', ''))
+        except ValueError:
+            fim = hoje
+        return ini, fim
 
+    def dados(self):
+        raise NotImplementedError
 
-class CalcularPrazoEntregaView(View):
-    def get(self, request):
-        dias = 5  # placeholder cálculo
-        return JsonResponse({"prazo_dias": dias})
-
-# =====================================
-# COMUNICAÇÃO
-# =====================================
-class EnviarEmailView(View):
-    def post(self, request, pk):
-        # lógica de envio
-        messages.success(request, "Email enviado.")
-        return redirect("fornecedores:detail", pk=pk)
-
-class EnviarWhatsAppView(View):
-    def post(self, request, pk):
-        # lógica de envio
-        messages.success(request, "WhatsApp enviado.")
-        return redirect("fornecedores:detail", pk=pk)
-
-class ComunicacaoListView(ListView):
-    model = Fornecedor
-    template_name = "comunicacoes/lista.html"
-
-# =====================================
-# API REST
-# =====================================
-class BuscarProdutosFornecedorAPIView(APIView):
-    def get(self, request):
-        fornecedor_id = request.GET.get("fornecedor")
-        produtos = []  # obter produtos do fornecedor
-        serializer = ProdutoSerializer(produtos, many=True)
-        return Response(serializer.data)
-
-class CalcularFreteAPIView(APIView):
-    def get(self, request):
-        frete = 10.0  # placeholder
-        return Response({"frete": frete})
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        ctx.update(titulo=self.titulo, com_periodo=self.com_periodo, **self.dados())
+        if self.com_periodo:
+            ctx['inicio'], ctx['fim'] = self.periodo()
+        return ctx
 
 
+class QualificacaoFornecedorView(RelatorioBase):
+    titulo = 'Qualificação de Fornecedores'
 
-##################################################
-import csv
-import json
-from datetime import date, timedelta
-from decimal import Decimal
-
-from django.db.models import F
-from django.http import HttpResponse, JsonResponse
-from django.shortcuts import redirect, get_object_or_404
-from django.contrib import messages
-from django.views import View
-from django.views.generic import ListView
-from django.core.serializers.json import DjangoJSONEncoder
-
-# Módulos para REST API (assumindo Django REST Framework)
-from rest_framework.views import APIView
-from rest_framework.response import Response
-from rest_framework import status
-
-# Modelos do seu sistema
-from .models import Fornecedor, ContatoFornecedor, AvaliacaoFornecedor, Pedido, ItemPedido
-# Assumindo a existência de um Serializer para Produto
-# from apps.produtos.serializers import ProdutoSerializer 
-# Assumindo a existência do modelo Produto
-# from apps.produtos.models import Produto 
+    def dados(self):
+        hoje = date.today()
+        linhas = []
+        for f in Fornecedor.objects.filter(ativo=True).prefetch_related('documentos'):
+            vencidos = sum(1 for d in f.documentos.all() if d.data_validade and d.data_validade < hoje)
+            linhas.append([f.nome_exibicao, f.nota_avaliacao or '—', f"{f.pontualidade_entrega}%",
+                           vencidos, 'Bloqueado' if f.bloqueado else 'Qualificado' if (f.nota_avaliacao or 0) >= 7 and not vencidos else 'Atenção'])
+        return {'cabecalho': ['Fornecedor', 'Nota', 'Pontualidade', 'Docs vencidos', 'Situação'], 'linhas': linhas}
 
 
-# =====================================
-# IMPORTAÇÃO E EXPORTAÇÃO (EFICIÊNCIA DE DADOS)
-# =====================================
+class RankingFornecedorView(RelatorioBase):
+    titulo = 'Ranking de Fornecedores'
 
-class ImportarFornecedoresView(View):
-    """
-    Processa a importação de fornecedores via arquivo (CSV/Excel).
-    A lógica real de parse e validação deve ser implementada aqui.
-    """
+    def dados(self):
+        qs = (Fornecedor.objects.annotate(media=Avg('avaliacoes__nota_geral'),
+                                          n_pedidos=Count('pedidos', distinct=True))
+              .filter(media__isnull=False).order_by('-media')[:20])
+        linhas = [[i, f.nome_exibicao, f"{f.media:.2f}", f.n_pedidos] for i, f in enumerate(qs, 1)]
+        return {'cabecalho': ['#', 'Fornecedor', 'Nota média', 'Pedidos'], 'linhas': linhas}
+
+
+class FornecedorRelatoriosView(FornecedoresMixin, TemplateView):
+    template_name = 'fornecedores/relatorios_index.html'
+
+
+class RelatorioComprasView(RelatorioBase):
+    titulo = 'Relatório de Compras'
+    com_periodo = True
+
+    def dados(self):
+        ini, fim = self.periodo()
+        qs = (Fornecedor.objects.annotate(
+            total=Sum('pedidos__total', filter=Q(pedidos__status__in=ESTADOS_COMPRA,
+                                                 pedidos__data_pedido__range=(ini, fim))),
+            n=Count('pedidos', filter=Q(pedidos__status__in=ESTADOS_COMPRA,
+                                        pedidos__data_pedido__range=(ini, fim)), distinct=True))
+            .filter(n__gt=0).order_by('-total'))
+        total_geral = sum((f.total or 0) for f in qs)
+        return {'cards': [('Total comprado', kz(total_geral)), ('Fornecedores', qs.count())],
+                'cabecalho': ['Fornecedor', 'Pedidos', 'Total'],
+                'linhas': [[f.nome_exibicao, f.n, kz(f.total)] for f in qs]}
+
+
+class RelatorioPerformanceView(RelatorioBase):
+    titulo = 'Performance de Fornecedores'
+
+    def dados(self):
+        hoje = date.today()
+        abertos = ['enviado', 'confirmado', 'aprovado', 'em_producao', 'em_transito', 'recebido_parcial']
+        qs = Fornecedor.objects.annotate(
+            atrasados=Count('pedidos', filter=Q(pedidos__status__in=abertos,
+                                                pedidos__data_entrega_prevista__lt=hoje), distinct=True),
+            media=Avg('avaliacoes__nota_geral')).order_by('-atrasados', 'razao_social')
+        return {'cards': [('Pedidos atrasados', sum(f.atrasados for f in qs))],
+                'cabecalho': ['Fornecedor', 'Pontualidade', 'Nota média', 'Pedidos atrasados'],
+                'linhas': [[f.nome_exibicao, f"{f.pontualidade_entrega}%",
+                            f"{f.media:.2f}" if f.media else '—', f.atrasados] for f in qs]}
+
+
+class RelatorioPagamentosView(RelatorioBase):
+    titulo = 'Pagamentos a Fornecedores (por liquidar)'
+
+    def dados(self):
+        pedidos = (Pedido.objects.filter(status__in=['aprovado', 'recebido'])
+                   .select_related('fornecedor', 'condicao_pagamento').order_by('data_pedido'))
+        linhas, total = [], Decimal('0')
+        for p in pedidos:
+            prazo = p.condicao_pagamento.prazo_dias if p.condicao_pagamento else 0
+            venc = p.data_pedido + timedelta(days=prazo)
+            total += p.total
+            linhas.append([p.numero_pedido, p.fornecedor.nome_exibicao,
+                           p.condicao_pagamento.nome if p.condicao_pagamento else '—',
+                           venc.strftime('%d/%m/%Y'), kz(p.total)])
+        return {'cards': [('Total por liquidar', kz(total))],
+                'cabecalho': ['Pedido', 'Fornecedor', 'Condição', 'Vencimento', 'Valor'], 'linhas': linhas}
+
+
+# ==============================================================================
+# IMPORTAR / EXPORTAR
+# ==============================================================================
+class ImportarFornecedoresView(FornecedoresMixin, View):
+    """CSV com colunas: razao_social, nif_bi, email_principal, telefone_principal,
+    endereco, cidade, provincia (as restantes recebem valores por defeito)."""
+
     def post(self, request):
-        if 'arquivo_fornecedores' not in request.FILES:
-            messages.error(request, "Nenhum arquivo de importação foi selecionado.")
-            return redirect("fornecedores:lista")
-        
-        arquivo = request.FILES['arquivo_fornecedores']
-        
-        # Validação básica de tipo de arquivo (Simplificado)
-        if not arquivo.name.endswith(('.csv', '.xlsx')):
-            messages.error(request, "Formato de arquivo inválido. Use CSV ou XLSX.")
-            return redirect("fornecedores:lista")
-        
-        # Placeholder da Lógica de Importação Real
-        # Deve usar uma biblioteca como 'pandas' ou 'openpyxl' para XLSX, ou 'csv' para CSV
-        
-        # Exemplo Simples para CSV:
-        if arquivo.name.endswith('.csv'):
+        arquivo = request.FILES.get('arquivo_fornecedores')
+        if not arquivo or not arquivo.name.lower().endswith('.csv'):
+            messages.error(request, "Seleccione um ficheiro .csv.")
+            return redirect('fornecedores:lista')
+
+        texto = arquivo.read().decode('utf-8-sig').splitlines()
+        delim = ';' if texto and texto[0].count(';') > texto[0].count(',') else ','
+        criados = erros = 0
+        for row in csv.DictReader(texto, delimiter=delim):
             try:
-                # Lê o arquivo e ignora o cabeçalho
-                reader = csv.DictReader(arquivo.read().decode('utf-8').splitlines())
-                novos_fornecedores = 0
-                for row in reader:
-                    # Lógica para criar ou atualizar Fornecedor
-                    # Fornecedor.objects.update_or_create(nif_bi=row['NIF'], defaults={'razao_social': row['RazaoSocial'], ...})
-                    novos_fornecedores += 1 # Apenas para contagem
-                
-                if novos_fornecedores > 0:
-                    messages.success(request, f"{novos_fornecedores} fornecedores importados/atualizados com sucesso.")
-                else:
-                    messages.warning(request, "O arquivo foi processado, mas nenhum novo fornecedor foi encontrado/criado.")
-            except Exception as e:
-                messages.error(request, f"Erro crítico na importação: {e}")
-        
-        # A URL de retorno deve ser a lista de fornecedores.
-        return redirect("fornecedores:lista")
+                Fornecedor.objects.update_or_create(
+                    nif_bi=row['nif_bi'].strip(),
+                    defaults={
+                        'razao_social': row['razao_social'].strip(),
+                        'email_principal': row.get('email_principal', '').strip(),
+                        'telefone_principal': row.get('telefone_principal', '').strip(),
+                        'endereco': row.get('endereco', '-').strip() or '-',
+                        'cidade': row.get('cidade', '-').strip() or '-',
+                        'provincia': row.get('provincia', 'LUA').strip() or 'LUA',
+                        'numero': 'S/N', 'bairro': '-', 'postal': '00000-000',
+                    })
+                criados += 1
+            except Exception:
+                erros += 1
+        messages.success(request, f"{criados} fornecedor(es) importado(s)/actualizado(s).")
+        if erros:
+            messages.warning(request, f"{erros} linha(s) ignorada(s) por dados inválidos.")
+        return redirect('fornecedores:lista')
 
-class ExportarFornecedoresView(View):
-    """
-    Exporta a lista completa de fornecedores para um arquivo CSV.
-    """
+
+class ExportarFornecedoresView(FornecedoresMixin, View):
     def get(self, request):
-        # Nome do arquivo de exportação
-        response = HttpResponse(content_type='text/csv')
-        response['Content-Disposition'] = f'attachment; filename="fornecedores_export_{date.today()}.csv"'
-
-        writer = csv.writer(response)
-        
-        # Cabeçalho do CSV
-        writer.writerow([
-            'Código', 'Razão Social', 'NIF/BI', 'Categoria', 'Telefone', 'Email Principal', 'Status Ativo', 'Nota Média'
-        ])
-
-        # Dados
-        fornecedores = Fornecedor.objects.all().select_related('condicao_pagamento_padrao')
-        for f in fornecedores:
-            writer.writerow([
-                f.codigo_fornecedor,
-                f.razao_social,
-                f.nif_bi,
-                f.get_categoria_display(),
-                f.telefone_principal,
-                f.email_principal,
-                'Ativo' if f.ativo else 'Inativo',
-                f.nota_avaliacao if f.nota_avaliacao is not None else 'N/A'
-            ])
-
-        return response
+        resp = HttpResponse(content_type='text/csv; charset=utf-8')
+        resp['Content-Disposition'] = f'attachment; filename="fornecedores_{date.today()}.csv"'
+        resp.write('\ufeff')  # Excel reconhece UTF-8
+        w = csv.writer(resp, delimiter=';')
+        w.writerow(['Código', 'Razão Social', 'NIF/BI', 'Categoria', 'Telefone', 'Email', 'Estado', 'Nota'])
+        for f in Fornecedor.objects.all():
+            w.writerow([f.codigo_fornecedor, f.razao_social, f.nif_bi, f.get_categoria_display(),
+                        f.telefone_principal, f.email_principal,
+                        'Bloqueado' if f.bloqueado else 'Activo' if f.ativo else 'Inactivo',
+                        f.nota_avaliacao if f.nota_avaliacao is not None else ''])
+        return resp
 
 
-# =====================================
-# AJAX E UTILITÁRIOS (INTERATIVIDADE)
-# =====================================
-
-class BuscarFornecedorAjaxView(View):
-    """
-    Retorna uma lista de fornecedores em JSON para uso em campos de autocomplete (Select2/TomSelect).
-    """
+# ==============================================================================
+# AJAX
+# ==============================================================================
+class BuscarFornecedorAjaxView(FornecedoresMixin, View):
     def get(self, request):
-        term = request.GET.get("q", "")
-        # Usando 'razao_social' e 'nome_fantasia' para uma busca mais abrangente
-        resultados = Fornecedor.objects.filter(
-            razao_social__icontains=term,
-            empresa=self.request.user.empresa
-        ).annotate(
-            nome=F('razao_social') 
-        ).values("id", "nome", "nif_bi")[:10] # Limitar a 10 resultados para performance
-        
-        # Formata o resultado para o padrão que o Select2 geralmente espera
-        data = [{'id': item['id'], 'text': f"{item['nome']} (NIF: {item['nif_bi']})" } for item in resultados]
-        
-        return JsonResponse({'results': data}, safe=False)
+        term = request.GET.get('q', '').strip()
+        qs = Fornecedor.objects.filter(ativo=True, bloqueado=False).filter(
+            Q(razao_social__icontains=term) | Q(nome_fantasia__icontains=term) | Q(nif_bi__icontains=term)
+        )[:10]
+        return JsonResponse({'results': [{'id': f.id, 'text': f"{f.nome_exibicao} (NIF: {f.nif_bi})"} for f in qs]})
 
-class ValidarNifView(View):
-    """
-    Validação de formato e unicidade do NIF/BI (via AJAX).
-    """
+
+class ValidarNifView(FornecedoresMixin, View):
     def get(self, request):
-        nif = request.GET.get("nif", "").strip()
-        
+        nif = request.GET.get('nif', '').strip()
         if not nif:
-            return JsonResponse({"valido": False, "mensagem": "NIF/BI é obrigatório."}, status=400)
-        
-        valido = True
-        mensagem = "NIF/BI válido."
-        
-        # 1. Validação de Formato (Simplificada)
-        if len(nif) not in [10, 14]: # 10 digitos para NIF, 14 para BI (ex. 008693558LA042)
-            valido = False
-            mensagem = "Formato inválido. NIF (10 digitos) ou BI (14 caracteres esperado)."
-        
-        # 2. Validação de Unicidade (Crítica)
-        if valido and Fornecedor.objects.filter(nif_bi=nif).exists():
-            valido = False
-            mensagem = f"NIF/BI {nif} já está registrado no sistema."
-            
-        return JsonResponse({"valido": valido, "mensagem": mensagem})
+            return JsonResponse({'valido': False, 'mensagem': 'NIF/BI é obrigatório.'}, status=400)
+        if len(nif) not in (10, 14):
+            return JsonResponse({'valido': False, 'mensagem': 'NIF: 10 dígitos. BI: 14 caracteres.'})
+        qs = Fornecedor.objects.filter(nif_bi=nif)
+        if request.GET.get('excluir'):
+            qs = qs.exclude(pk=request.GET['excluir'])
+        if qs.exists():
+            return JsonResponse({'valido': False, 'mensagem': f'NIF/BI {nif} já está registado.'})
+        return JsonResponse({'valido': True, 'mensagem': 'NIF/BI válido.'})
 
 
-class CalcularPrazoEntregaView(View):
-    """
-    Calcula dinamicamente o prazo de entrega esperado (Data Prevista) com base na política do Fornecedor.
-    """
+class CalcularPrazoEntregaView(FornecedoresMixin, View):
     def get(self, request):
-        fornecedor_id = request.GET.get("fornecedor_id")
-        
-        try:
-            fornecedor = Fornecedor.objects.get(pk=fornecedor_id)
-            dias_prazo = fornecedor.prazo_entrega_dias
-            
-            # Cálculo da data: hoje + prazo (desconsiderando feriados/fins de semana para simplificar)
-            data_prevista = date.today() + timedelta(days=dias_prazo)
-            
-            return JsonResponse({
-                "prazo_dias": dias_prazo,
-                "data_prevista": data_prevista.strftime('%Y-%m-%d') # Formato ISO para JS
-            })
-        except Fornecedor.DoesNotExist:
-            return JsonResponse({"prazo_dias": 7, "data_prevista": (date.today() + timedelta(days=7)).strftime('%Y-%m-%d'), "mensagem": "Fornecedor não encontrado. Usando prazo padrão."}, status=404)
+        f = Fornecedor.objects.filter(pk=request.GET.get('fornecedor_id') or 0).first()
+        dias = f.prazo_entrega_dias if f else 7
+        return JsonResponse({'prazo_dias': dias,
+                             'data_prevista': (date.today() + timedelta(days=dias)).isoformat(),
+                             'padrao': f is None})
 
 
-# =====================================
-# COMUNICAÇÃO (FLUXO DE TRABALHO)
-# =====================================
-
-class EnviarEmailView(View):
-    """
-    Envia email para o contato principal (ou comercial/financeiro) do fornecedor.
-    """
-    def post(self, request, pk):
-        fornecedor = get_object_or_404(Fornecedor, pk=pk)
-        
-        # Obter dados do formulário POST (assunto, corpo, destinatário)
-        assunto = request.POST.get('assunto', 'Comunicação Importante')
-        corpo = request.POST.get('corpo', 'Prezado fornecedor, ...')
-        
-        destinatario = fornecedor.email_principal
-        if not destinatario:
-             messages.error(request, "Email principal do fornecedor não cadastrado.")
-             return redirect("fornecedores:detail", pk=pk)
-        
-        # Placeholder da Lógica de Envio de Email Real (exige django.core.mail.send_mail)
-        # from django.core.mail import send_mail
-        # send_mail(assunto, corpo, 'seu_email@empresa.com', [destinatario], fail_silently=False)
-        
-        messages.success(request, f"Email '{assunto}' enviado com sucesso para {destinatario}.")
-        return redirect("fornecedores:detail", pk=pk)
-
-class EnviarWhatsAppView(View):
-    """
-    Simula o envio de mensagem via API do WhatsApp.
-    O uso prático normalmente requer integração com Twilio ou outra API de mensagens.
-    """
-    def post(self, request, pk):
-        fornecedor = get_object_or_404(Fornecedor, pk=pk)
-        
-        telefone_whatsapp = fornecedor.whatsapp
-        if not telefone_whatsapp:
-             messages.error(request, "Número de WhatsApp do fornecedor não cadastrado.")
-             return redirect("fornecedores:detail", pk=pk)
-        
-        # Placeholder: Construção de link para API Web (pode ser substituído por chamada API)
-        mensagem = request.POST.get('mensagem', 'Prezado fornecedor, favor verificar o pedido em anexo.')
-        mensagem_encoded = mensagem.replace(' ', '%20')
-        link_whatsapp = f"https://api.whatsapp.com/send?phone={telefone_whatsapp}&text={mensagem_encoded}"
-        
-        # Em produção, você faria uma requisição POST à API do WhatsApp/Twilio aqui.
-        
-        messages.success(request, f"Link de WhatsApp gerado para {fornecedor.nome_exibicao}. Clique para enviar.")
-        
-        # Redirecionar para o link do WhatsApp (mais prático em sistemas web)
-        return redirect(link_whatsapp) 
-
-class ComunicacaoListView(ListView):
-    """
-    Lista de histórico de comunicações (Emails, WhatsApps, etc.).
-    A lógica desta View exigiria um modelo `HistoricoComunicacao`. Aqui, apenas retornamos a lista de fornecedores.
-    """
+# ==============================================================================
+# COMUNICAÇÃO
+# ==============================================================================
+class ComunicacaoListView(FornecedoresMixin, ListView):
     model = Fornecedor
-    template_name = "comunicacoes/lista.html"
-    context_object_name = "fornecedores"
+    template_name = 'fornecedores/comunicacao_list.html'
+    context_object_name = 'fornecedores'
+    paginate_by = 30
+
+    def get_queryset(self):
+        return super().get_queryset().filter(ativo=True)
 
 
-# =====================================
-# API REST (INTEGRAÇÃO COM OUTROS MÓDULOS/SISTEMAS)
-# =====================================
+class EnviarEmailView(FornecedoresMixin, View):
+    def post(self, request, pk):
+        f = get_object_or_404(Fornecedor, pk=pk)
+        if not f.email_principal:
+            messages.error(request, "Este fornecedor não tem email principal.")
+        else:
+            try:
+                send_mail(request.POST.get('assunto', 'Comunicação'), request.POST.get('corpo', ''),
+                          getattr(settings, 'DEFAULT_FROM_EMAIL', None), [f.email_principal])
+                messages.success(request, f"Email enviado para {f.email_principal}.")
+            except Exception as e:
+                messages.error(request, f"Falha ao enviar email: {e}")
+        return redirect(request.POST.get('next') or reverse('fornecedores:detail', kwargs={'pk': pk}))
 
 
+class EnviarWhatsAppView(FornecedoresMixin, View):
+    def post(self, request, pk):
+        f = get_object_or_404(Fornecedor, pk=pk)
+        numero = ''.join(c for c in f.whatsapp if c.isdigit())
+        if not numero:
+            messages.error(request, "Este fornecedor não tem WhatsApp registado.")
+            return redirect('fornecedores:detail', pk=pk)
+        texto = request.POST.get('mensagem', 'Olá, gostaríamos de falar sobre o nosso pedido.')
+        return redirect(f"https://api.whatsapp.com/send?phone={numero}&text={quote(texto)}")
 
+
+# ==============================================================================
+# API
+# ==============================================================================
 class BuscarProdutosFornecedorAPIView(APIView):
-    """
-    API para buscar a lista de produtos fornecidos por um determinado fornecedor.
-    Usado por módulos de Compras/Estoque.
-    """
-    def get(self, request):
-        fornecedor_id = request.GET.get("fornecedor")
-        
-        if not fornecedor_id:
-            return Response({"detail": "O parâmetro 'fornecedor' é obrigatório."}, status=status.HTTP_400_BAD_REQUEST)
-        
-        try:
-            # Lógica: Obter produtos que o fornecedor fornece (exigiria um modelo ProdutoFornecedor)
-            # produtos = Produto.objects.filter(fornecedor__id=fornecedor_id)
-            
-            # SIMULAÇÃO
-            if fornecedor_id == "1":
-                produtos = [{"id": 101, "nome": "Paracetamol 500mg", "preco_base": 1.50}]
-            elif fornecedor_id == "2":
-                produtos = [{"id": 201, "nome": "Band-Aid", "preco_base": 0.50}]
-            else:
-                produtos = []
-            
-            # O ProdutoSerializer serializaria os objetos Produto em formato JSON
-            # serializer = ProdutoSerializer(produtos, many=True)
-            # return Response(serializer.data)
-            
-            return Response(produtos, status=status.HTTP_200_OK) # Retornando a simulação
+    permission_classes = [IsAuthenticated]
 
-        except Exception as e:
-            return Response({"detail": f"Erro interno: {e}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    def get(self, request):
+        fid = request.GET.get('fornecedor')
+        if not fid:
+            return Response({'detail': "O parâmetro 'fornecedor' é obrigatório."}, status=status.HTTP_400_BAD_REQUEST)
+        produtos = Produto.objects.filter(fornecedor_id=fid, ativo=True).values(
+            'id', 'codigo_interno', 'nome_comercial', 'preco_custo')
+        return Response(list(produtos))
+
 
 class CalcularFreteAPIView(APIView):
-    """
-    API para calcular frete e custo de envio em tempo real, baseando-se no fornecedor e localização.
-    """
-    def get(self, request):
-        fornecedor_id = request.GET.get("fornecedor")
-        cep_destino = request.GET.get("cep_destino")
-        valor_total = request.GET.get("valor_total", 0) # Para verificar se é elegível para frete grátis
-        
-        try:
-            valor_total = Decimal(valor_total)
-        except:
-            return Response({"detail": "O parâmetro 'valor_total' deve ser um número."}, status=status.HTTP_400_BAD_REQUEST)
+    """PLACEHOLDER: regra de frete fictícia até haver tabela de transportadoras."""
+    permission_classes = [IsAuthenticated]
 
-        # SIMULAÇÃO de Lógica Complexa de Frete
-        frete = Decimal('10.00') # Custo base
-        prazo_dias = 3
-        
-        if valor_total >= 500:
-            frete = Decimal('0.00') # Frete grátis
-            
-        if frete > 0:
-            frete += valor_total * Decimal('0.02') # 2% do valor como seguro/custo
-        
-        if cep_destino and cep_destino.startswith('01'): # Simula CEP de capital
-             prazo_dias = 1
-            
-        return Response({
-            "frete": frete.quantize(Decimal('0.01')),
-            "prazo_dias": prazo_dias,
-            "transportadora": "Transportadora XYZ"
-        }, status=status.HTTP_200_OK)
+    def get(self, request):
+        try:
+            valor = Decimal(request.GET.get('valor_total', '0'))
+        except InvalidOperation:
+            return Response({'detail': "'valor_total' deve ser numérico."}, status=status.HTTP_400_BAD_REQUEST)
+        frete = Decimal('0.00') if valor >= 500 else Decimal('10.00') + valor * Decimal('0.02')
+        return Response({'frete': frete.quantize(Decimal('0.01')), 'prazo_dias': 3})
+

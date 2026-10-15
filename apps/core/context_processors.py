@@ -6,6 +6,7 @@ from apps.vendas.models import Venda
 from apps.produtos.models import Lote
 
 
+
 def dashboard_data(request):
     """Context processor para dados globais do dashboard"""
     if not request.user.is_authenticated or not hasattr(request.user, 'funcionario') or not request.user.funcionario:
@@ -136,10 +137,6 @@ def modules_context(request):
 from django.db import connection
 
 
-# apps/core/context_processors.py — versão final, só isto:
-from django.db import connection
-
-
 def regime_context(request):
     """Atalhos globais para controle de interface por regime e schema."""
     if not request.user.is_authenticated:
@@ -157,6 +154,7 @@ def regime_context(request):
         'PODE_VENDER_PRODUTOS': tipo_actividade in ('COMERCIO', 'MISTO'),
         'PODE_VENDER_SERVICOS': tipo_actividade in ('SERVICOS', 'MISTO'),
         'REGIME_FISCAL':          regime_fiscal,
+        'REGIME_ACTIVIDADE': tipo_actividade,
         'IS_REGIME_GERAL':        regime_fiscal == 'GERAL',
         'IS_REGIME_SIMPLIFICADO': regime_fiscal == 'SIMPLIFICADO',
         'IS_REGIME_EXCLUSAO':     regime_fiscal == 'EXCLUSAO',
