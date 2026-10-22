@@ -26,6 +26,7 @@ urlpatterns = [
     # GESTÃO DE FUNCIONÁRIOS
     # =====================================
     path('novo/', views.FuncionarioCreateView.as_view(), name='create'),
+    path('<int:pk>/senha/', views.FuncionarioSenhaView.as_view(), name='senha'),
     path('<int:pk>/', views.FuncionarioDetailView.as_view(), name='detail'),
     path('<int:pk>/editar/', views.FuncionarioUpdateView.as_view(), name='update'),
     path('<int:pk>/deletar/', views.FuncionarioDeleteView.as_view(), name='delete'),

@@ -1,3 +1,4 @@
+# apps/saft/views.py
 """Interface web SAF-T (AO), centralizada nos serviços e modelos da app fiscal."""
 from __future__ import annotations
 

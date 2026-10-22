@@ -1,184 +1,1288 @@
-<!-- Interações do Público -->
 {% extends "base.html" %}
+
 {% block title %}Interações do Público{% endblock %}
 
-{% block extra_head %}
-<style>
-  .it-card{border:1px solid #e5e7eb;border-radius:.75rem;background:#fff}
-  .dark .it-card{background:#1f2937;border-color:#374151;color:#e5e7eb}
-  .it-chip{display:inline-flex;align-items:center;gap:.4rem;padding:.35rem .75rem;border-radius:999px;font-size:.78rem;font-weight:600;border:1px solid #d1d5db;color:#374151;background:#fff;text-decoration:none}
-  .dark .it-chip{background:#1f2937;color:#e5e7eb;border-color:#4b5563}
-  .it-chip.ativo{background:#4f46e5;border-color:#4f46e5;color:#fff}
-  .it-btn{font-size:.75rem;font-weight:600;padding:.3rem .65rem;border-radius:.4rem;border:1px solid #d1d5db;background:#fff;color:#374151;cursor:pointer;text-decoration:none}
-  .dark .it-btn{background:#374151;color:#f3f4f6;border-color:#4b5563}
-  .it-btn:hover{background:#eef2ff}
+{# O base.html já renderiza um page_header ("Dashboard"); aqui usamos o nosso próprio cabeçalho. #}
+{% block page_header %}{% endblock %}
 
-  .it-message{
-    margin-top:.65rem;
-    border:1px solid #e5e7eb;
-    border-radius:.6rem;
-    background:#f9fafb;
-    overflow:hidden;
+
+{# ATENÇÃO: o base.html declara "extra_css" (não "extra_head"). #}
+{% block extra_css %}
+<style>
+  [hidden]{ display:none !important; }
+
+  /* =========================================================
+     LAYOUT DA PÁGINA
+     ========================================================= */
+
+  .it-page{
+    display:flex;
+    flex-direction:column;
+    gap:1.25rem;
+    min-width:0;
+    padding-bottom:2rem;
   }
 
-  .dark .it-message{
+  .it-head{
+    display:flex;
+    flex-wrap:wrap;
+    align-items:center;
+    justify-content:space-between;
+    gap:.75rem;
+  }
+
+  .it-title{
+    margin:0;
+    font-size:1.25rem;
+    line-height:1.3;
+    font-weight:800;
+    color:#111827;
+  }
+  .dark .it-title{ color:#f3f4f6; }
+
+  .it-subtitle{
+    margin:.15rem 0 0;
+    font-size:.85rem;
+    color:#6b7280;
+  }
+  .dark .it-subtitle{ color:#9ca3af; }
+
+  .it-row-wrap{
+    display:flex;
+    flex-wrap:wrap;
+    gap:.5rem;
+  }
+
+  .it-grid{
+    display:grid;
+    grid-template-columns:minmax(0,1fr);
+    gap:1rem;
+  }
+  @media (min-width:1024px){
+    .it-grid{ grid-template-columns:repeat(3,minmax(0,1fr)); }
+    .it-grid > :first-child{ grid-column:span 2; }
+  }
+
+  .it-kicker{
+    margin:0;
+    font-size:.7rem;
+    font-weight:800;
+    text-transform:uppercase;
+    letter-spacing:.05em;
+    color:#6b7280;
+  }
+  .dark .it-kicker{ color:#9ca3af; }
+
+  .it-muted{ font-size:.75rem; color:#9ca3af; }
+
+  .it-stat-line{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:.75rem;
+    padding:.3rem 0;
+    min-width:0;
+  }
+  .it-stat-line > span{
+    min-width:0;
+    overflow:hidden;
+    text-overflow:ellipsis;
+    white-space:nowrap;
+    font-size:.85rem;
+    color:#4b5563;
+  }
+  .dark .it-stat-line > span{ color:#d1d5db; }
+  .it-stat-line > strong{
+    font-size:.85rem;
+    color:#111827;
+  }
+  .dark .it-stat-line > strong{ color:#f3f4f6; }
+
+  .it-big-number{
+    margin:0;
+    font-size:1.5rem;
+    font-weight:800;
+    color:#111827;
+  }
+  .dark .it-big-number{ color:#f3f4f6; }
+
+  .it-bars{
+    display:flex;
+    align-items:flex-end;
+    gap:1px;
+    height:110px;
+    margin-top:1rem;
+  }
+  .it-bar{
+    flex:1;
+    min-width:2px;
+    max-width:14px;
+    min-height:3px;
+    border-radius:4px 4px 0 0;
+  }
+  .dark .it-bar-vazia{ background:#374151 !important; }
+
+  /* =========================================================
+     CARDS
+     ========================================================= */
+
+  .it-card{
+    border:1px solid #e5e7eb;
+    border-radius:1rem;
+    background:#fff;
+    box-shadow:0 1px 2px rgba(15,23,42,.03);
+    min-width:0;
+  }
+  .dark .it-card{
+    background:#1f2937;
+    border-color:#374151;
+    color:#e5e7eb;
+    box-shadow:none;
+  }
+
+  .it-pad{ padding:1rem; }
+  .it-stack{ display:flex; flex-direction:column; gap:1.25rem; }
+
+  .it-metrics{
+    display:flex;
+    flex-wrap:wrap;
+    align-items:center;
+    gap:.5rem 1.5rem;
+    padding:1rem;
+    font-size:.85rem;
+    color:#4b5563;
+  }
+  .dark .it-metrics{ color:#d1d5db; }
+  .it-metrics strong{ color:#111827; }
+  .dark .it-metrics strong{ color:#f3f4f6; }
+
+  /* =========================================================
+     CHIPS / FILTROS
+     ========================================================= */
+
+  .it-chip{
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    gap:.4rem;
+    padding:.42rem .75rem;
+    border-radius:.65rem;
+    font-size:.75rem;
+    font-weight:700;
+    line-height:1;
+    white-space:nowrap;
+    border:1px solid #d1d5db;
+    color:#374151;
+    background:#fff;
+    text-decoration:none;
+    transition:
+      background .15s ease,
+      border-color .15s ease,
+      color .15s ease,
+      box-shadow .15s ease;
+  }
+  .dark .it-chip{
+    background:#1f2937;
+    color:#e5e7eb;
+    border-color:#4b5563;
+  }
+  .it-chip:hover{
+    background:#f9fafb;
+    border-color:#c7d2fe;
+    color:#4338ca;
+  }
+  .dark .it-chip:hover{
+    background:#374151;
+    border-color:#6366f1;
+    color:#fff;
+  }
+  .it-chip.ativo{
+    background:#4f46e5;
+    border-color:#4f46e5;
+    color:#fff;
+    box-shadow:0 3px 8px rgba(79,70,229,.18);
+  }
+  .it-chip.ativo:hover{
+    background:#4338ca;
+    border-color:#4338ca;
+    color:#fff;
+  }
+
+  /* =========================================================
+     BOTÕES
+     ========================================================= */
+
+  .it-btn{
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    gap:.35rem;
+    min-height:2rem;
+    padding:.4rem .65rem;
+    border-radius:.55rem;
+    border:1px solid #d1d5db;
+    background:#fff;
+    color:#374151;
+    font-size:.72rem;
+    font-weight:700;
+    cursor:pointer;
+    text-decoration:none;
+    white-space:nowrap;
+    transition:
+      background .15s ease,
+      border-color .15s ease,
+      color .15s ease,
+      box-shadow .15s ease;
+  }
+  .dark .it-btn{
+    background:#374151;
+    color:#f3f4f6;
+    border-color:#4b5563;
+  }
+  .it-btn:hover{
+    background:#f9fafb;
+    border-color:#c7d2fe;
+    color:#4338ca;
+    box-shadow:0 1px 3px rgba(15,23,42,.05);
+  }
+  .dark .it-btn:hover{
+    background:#4b5563;
+    border-color:#6366f1;
+    color:#fff;
+  }
+  .it-btn-primary{
+    background:#4f46e5;
+    border-color:#4f46e5;
+    color:#fff;
+  }
+  .it-btn-primary:hover{
+    background:#4338ca;
+    border-color:#4338ca;
+    color:#fff;
+  }
+  .it-btn:disabled{
+    opacity:.6;
+    cursor:not-allowed;
+  }
+
+  /* =========================================================
+     FEED
+     ========================================================= */
+
+  .it-feed > * + *{ border-top:1px solid #f3f4f6; }
+  .dark .it-feed > * + *{ border-top-color:#374151; }
+
+  .it-item{
+    display:flex;
+    align-items:flex-start;
+    gap:.75rem;
+    padding:1rem;
+  }
+
+  .it-item-icon{
+    width:2.35rem;
+    height:2.35rem;
+    border-radius:.7rem;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    flex-shrink:0;
+  }
+
+  .it-item-main{
+    flex:1 1 auto;
+    min-width:0;
+  }
+
+  .it-item-top{
+    display:flex;
+    flex-wrap:wrap;
+    align-items:center;
+    gap:.4rem .5rem;
+  }
+
+  .it-item-title{
+    font-size:.88rem;
+    font-weight:700;
+    color:#111827;
+    overflow-wrap:anywhere;
+  }
+  .dark .it-item-title{ color:#f3f4f6; }
+
+  .it-tag{
+    font-size:.7rem;
+    padding:.12rem .5rem;
+    border-radius:.35rem;
+    font-weight:600;
+  }
+
+  .it-item-text{
+    margin:.5rem 0 0;
+    font-size:.85rem;
+    line-height:1.6;
+    color:#4b5563;
+    overflow-wrap:anywhere;
+  }
+  .dark .it-item-text{ color:#d1d5db; }
+
+  .it-item-meta{
+    margin:.5rem 0 0;
+    font-size:.72rem;
+    color:#9ca3af;
+    overflow-wrap:anywhere;
+  }
+
+  .it-item-ok{
+    margin:.25rem 0 0;
+    font-size:.72rem;
+    color:#16a34a;
+    overflow-wrap:anywhere;
+  }
+
+  .it-item-actions{
+    display:flex;
+    flex-direction:column;
+    align-items:flex-end;
+    gap:.35rem;
+    flex-shrink:0;
+  }
+
+  .it-more{
+    padding:1rem;
+    text-align:center;
+  }
+
+  /* Estado vazio */
+  .it-empty{
+    padding:3rem 1rem;
+    text-align:center;
+  }
+  .it-empty-icon{
+    width:3.5rem;
+    height:3.5rem;
+    margin:0 auto 1rem;
+    border-radius:.9rem;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    background:#f3f4f6;
+    color:#9ca3af;
+    font-size:1.25rem;
+  }
+  .dark .it-empty-icon{ background:#111827; }
+
+  /* =========================================================
+     MENSAGENS DO FEED
+     ========================================================= */
+
+  .it-msg{
+    display:block;
+    width:100%;
+    text-align:left;
+    border:1px solid #e5e7eb;
+    border-radius:.7rem;
+    padding:.65rem .75rem;
+    margin-top:.5rem;
+    background:#f9fafb;
+    color:#4b5563;
+    cursor:pointer;
+    transition:
+      background .15s ease,
+      border-color .15s ease,
+      box-shadow .15s ease;
+  }
+  .dark .it-msg{
+    background:#111827;
+    border-color:#374151;
+    color:#d1d5db;
+  }
+  .it-msg:hover{
+    background:#eef2ff;
+    border-color:#c7d2fe;
+    box-shadow:0 2px 7px rgba(79,70,229,.08);
+  }
+  .dark .it-msg:hover{
+    background:#1e1b4b;
+    border-color:#6366f1;
+  }
+
+  .it-msg-preview{
+    display:block;
+    font-size:.8rem;
+    line-height:1.5;
+    overflow-wrap:anywhere;
+  }
+
+  .it-msg-label{
+    display:block;
+    margin-bottom:.25rem;
+    font-size:.65rem;
+    font-weight:800;
+    text-transform:uppercase;
+    letter-spacing:.05em;
+    color:#6b7280;
+  }
+  .dark .it-msg-label{ color:#9ca3af; }
+
+  .it-ver{
+    margin-left:.2rem;
+    color:#4f46e5;
+    font-weight:800;
+    white-space:nowrap;
+  }
+  .dark .it-ver{ color:#a5b4fc; }
+
+  /* =========================================================
+     MODAL
+     ========================================================= */
+
+  .it-modal-backdrop{
+    position:fixed;
+    top:0; right:0; bottom:0; left:0;
+    z-index:1050;
+    align-items:center;
+    justify-content:center;
+    padding:1rem;
+    background:rgba(15,23,42,.58);
+    backdrop-filter:blur(3px);
+    -webkit-backdrop-filter:blur(3px);
+  }
+
+  .it-modal-panel{
+    display:flex;
+    flex-direction:column;
+    width:100%;
+    max-width:760px;
+    max-height:88vh;
+    max-height:88dvh;
+    overflow:hidden;
+    border:1px solid #e5e7eb;
+    border-radius:1rem;
+    background:#fff;
+    box-shadow:
+      0 25px 60px rgba(15,23,42,.2),
+      0 8px 20px rgba(15,23,42,.08);
+  }
+  .dark .it-modal-panel{
+    border-color:#374151;
+    background:#1f2937;
+    box-shadow:0 25px 60px rgba(0,0,0,.4);
+  }
+
+  .it-modal-header{
+    flex-shrink:0;
+    display:flex;
+    align-items:flex-start;
+    justify-content:space-between;
+    gap:1rem;
+    padding:1rem 1.1rem;
+    border-bottom:1px solid #e5e7eb;
+    background:#fff;
+  }
+  .dark .it-modal-header{
+    background:#1f2937;
+    border-bottom-color:#374151;
+  }
+
+  .it-modal-head-main{
+    display:flex;
+    align-items:flex-start;
+    gap:.75rem;
+    min-width:0;
+  }
+
+  .it-modal-header-icon{
+    width:2.5rem;
+    height:2.5rem;
+    border-radius:.7rem;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    flex-shrink:0;
+    background:#eef2ff;
+    color:#4f46e5;
+  }
+  .dark .it-modal-header-icon{
+    background:#312e81;
+    color:#c7d2fe;
+  }
+
+  .it-modal-title{
+    margin:0;
+    font-size:1rem;
+    line-height:1.4;
+    font-weight:800;
+    color:#111827;
+    overflow-wrap:anywhere;
+  }
+  .dark .it-modal-title{ color:#f9fafb; }
+
+  .it-modal-meta{
+    margin:.25rem 0 0;
+    font-size:.72rem;
+    color:#9ca3af;
+  }
+
+  .it-modal-close{
+    width:2.1rem;
+    height:2.1rem;
+    min-width:2.1rem;
+    padding:0;
+    border-radius:.55rem;
+  }
+
+  .it-modal-body{
+    flex:1 1 auto;
+    min-height:0;
+    overflow-y:auto;
+    padding:1.1rem;
+    -webkit-overflow-scrolling:touch;
+  }
+
+  .it-modal-section{ margin-bottom:1rem; }
+  .it-modal-section:last-child{ margin-bottom:0; }
+
+  .it-modal-label{
+    display:flex;
+    align-items:center;
+    gap:.4rem;
+    margin-bottom:.5rem;
+    font-size:.68rem;
+    font-weight:800;
+    text-transform:uppercase;
+    letter-spacing:.06em;
+    color:#6b7280;
+  }
+  .dark .it-modal-label{ color:#9ca3af; }
+
+  /* O conteúdo é TEXTO, não HTML: pre-wrap preserva as quebras de linha. */
+  .it-modal-content{
+    min-height:90px;
+    max-height:42vh;
+    overflow-y:auto;
+    padding:.95rem 1rem;
+    border:1px solid #e5e7eb;
+    border-radius:.8rem;
+    background:#f9fafb;
+    color:#374151;
+    font-size:.875rem;
+    line-height:1.7;
+    white-space:pre-wrap;
+    overflow-wrap:anywhere;
+    word-break:break-word;
+  }
+  .dark .it-modal-content{
     border-color:#374151;
     background:#111827;
-  }
-
-  .it-message summary{
-    cursor:pointer;
-    list-style:none;
-    padding:.6rem .75rem;
-    font-size:.75rem;
-    font-weight:600;
-    color:#4f46e5;
-    user-select:none;
-  }
-
-  .it-message summary::-webkit-details-marker{
-    display:none;
-  }
-
-  .it-message summary:hover{
-    background:#eef2ff;
-  }
-
-  .dark .it-message summary:hover{
-    background:#1f2937;
-  }
-
-  .it-message-body{
-    padding:.75rem;
-    border-top:1px solid #e5e7eb;
-    white-space:pre-wrap;
-    word-break:break-word;
-    line-height:1.55;
-    font-size:.875rem;
-    color:#374151;
-  }
-
-  .dark .it-message-body{
-    border-top-color:#374151;
     color:#e5e7eb;
+  }
+
+  .it-modal-feedback{
+    padding-top:1rem;
+    border-top:1px solid #e5e7eb;
+  }
+  .dark .it-modal-feedback{ border-top-color:#374151; }
+
+  .it-feedback-box{
+    padding:.8rem .9rem;
+    border-radius:.75rem;
+    background:#f0fdf4;
+    border:1px solid #bbf7d0;
+    color:#166534;
+    font-size:.84rem;
+    line-height:1.6;
+    white-space:pre-wrap;
+    overflow-wrap:anywhere;
+    word-break:break-word;
+  }
+  .dark .it-feedback-box{
+    background:#052e16;
+    border-color:#166534;
+    color:#bbf7d0;
+  }
+
+  #m-feedback{
+    display:block;
+    width:100%;
+    resize:vertical;
+    min-height:110px;
+    padding:.8rem .9rem;
+    border:1px solid #d1d5db;
+    border-radius:.7rem;
+    background:#fff;
+    color:#111827;
+    font-size:.875rem;
+    line-height:1.5;
+    outline:none;
+    font-family:inherit;
+  }
+  .dark #m-feedback{
+    background:#111827;
+    border-color:#4b5563;
+    color:#f3f4f6;
+  }
+  #m-feedback:focus{
+    border-color:#818cf8;
+    box-shadow:0 0 0 3px rgba(99,102,241,.12);
+  }
+  .dark #m-feedback:focus{ border-color:#6366f1; }
+
+  .it-modal-actions{
+    display:flex;
+    justify-content:flex-end;
+    gap:.5rem;
+    margin-top:.75rem;
+  }
+
+  /* =========================================================
+     RESPONSIVO
+     ========================================================= */
+
+  @media (max-width:640px){
+
+    .it-title{ font-size:1.1rem; }
+
+    /* Filtros numa só linha com scroll horizontal (poupa altura) */
+    .it-scroll-x{
+      flex-wrap:nowrap;
+      overflow-x:auto;
+      padding-bottom:.25rem;
+      margin-right:-1rem;
+      padding-right:1rem;
+      scrollbar-width:none;
+    }
+    .it-scroll-x::-webkit-scrollbar{ display:none; }
+
+    .it-chip{ padding:.4rem .6rem; }
+
+    /* Linha do feed: acções passam para baixo, alinhadas ao texto */
+    .it-item{
+      flex-wrap:wrap;
+      padding:.85rem;
+    }
+    .it-item-actions{
+      flex-direction:row;
+      flex-wrap:wrap;
+      align-items:center;
+      width:100%;
+      padding-left:3.1rem;
+    }
+
+    /* Modal como "bottom sheet" */
+    .it-modal-backdrop{
+      align-items:flex-end;
+      padding:0;
+    }
+    .it-modal-panel{
+      max-height:92vh;
+      max-height:92dvh;
+      border-radius:1rem 1rem 0 0;
+      border-bottom:0;
+    }
+    .it-modal-header{ padding:.85rem .9rem; }
+    .it-modal-body{ padding:.9rem; }
+    .it-modal-content{
+      max-height:40vh;
+      font-size:.84rem;
+    }
+    .it-modal-actions .it-btn{ flex:1 1 0; min-height:2.4rem; }
   }
 </style>
 {% endblock %}
 
-{% block content %}
-<div class="space-y-6">
 
-  <div class="flex flex-wrap items-center justify-between gap-3">
+{% block content %}
+<div class="it-page">
+
+  <!-- =======================================================
+       CABEÇALHO
+       ======================================================= -->
+
+  <div class="it-head">
+
     <div>
-      <h1 class="text-xl font-bold text-gray-900 dark:text-gray-100">Interações do Público</h1>
-      <p class="text-sm text-gray-500 dark:text-gray-400">Tudo o que visitantes e clientes fizeram no teu site.</p>
+      <h1 class="it-title">Interações do Público</h1>
+      <p class="it-subtitle">Tudo o que visitantes e clientes fizeram no teu site.</p>
     </div>
-    <div class="flex flex-wrap gap-2">
-      <a class="it-chip {% if dias == 7 %}ativo{% endif %}"  href="?dias=7{% if filtro %}&tipo={{ filtro }}{% endif %}">7 dias</a>
-      <a class="it-chip {% if dias == 30 %}ativo{% endif %}" href="?dias=30{% if filtro %}&tipo={{ filtro }}{% endif %}">30 dias</a>
-      <a class="it-chip {% if dias == 90 %}ativo{% endif %}" href="?dias=90{% if filtro %}&tipo={{ filtro }}{% endif %}">90 dias</a>
-      <a class="it-chip" href="{{ url_dashboard }}"><i class="fas fa-arrow-left"></i> Gestão do site</a>
+
+    <div class="it-row-wrap it-scroll-x">
+
+      <a class="it-chip {% if dias == 7 %}ativo{% endif %}"
+         href="?dias=7{% if filtro %}&tipo={{ filtro }}{% endif %}">
+        <i class="fas fa-calendar-week"></i> 7 dias
+      </a>
+
+      <a class="it-chip {% if dias == 30 %}ativo{% endif %}"
+         href="?dias=30{% if filtro %}&tipo={{ filtro }}{% endif %}">
+        <i class="fas fa-calendar-days"></i> 30 dias
+      </a>
+
+      <a class="it-chip {% if dias == 90 %}ativo{% endif %}"
+         href="?dias=90{% if filtro %}&tipo={{ filtro }}{% endif %}">
+        <i class="fas fa-calendar"></i> 90 dias
+      </a>
+
+      <a class="it-chip" href="{{ url_dashboard }}">
+        <i class="fas fa-arrow-left"></i> Gestão do site
+      </a>
+
     </div>
   </div>
 
-  <!-- Audiência -->
-  <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
-    <div class="it-card p-4 lg:col-span-2">
-      <div class="flex items-baseline justify-between">
-        <p class="text-xs font-bold uppercase tracking-wide text-gray-500">Visitantes únicos por dia</p>
-        <p class="text-2xl font-bold">{{ visitas_total }}</p>
+
+  <!-- =======================================================
+       AUDIÊNCIA
+       ======================================================= -->
+
+  <div class="it-grid">
+
+    <div class="it-card it-pad">
+
+      <div style="display:flex;align-items:baseline;justify-content:space-between;gap:1rem">
+        <div>
+          <p class="it-kicker">Visitantes únicos por dia</p>
+          <p class="it-muted" style="margin:.25rem 0 0">Últimos {{ dias }} dias</p>
+        </div>
+        <p class="it-big-number">{{ visitas_total }}</p>
       </div>
-      <div class="flex items-end gap-px mt-3" style="height:96px">
+
+      <div class="it-bars">
         {% for g in grafico %}
-        <div title="{{ g.dia|date:'d/m' }}: {{ g.n }}" style="flex:1;height:{{ g.pct }}%;background:{% if g.n %}#6366f1{% else %}#e5e7eb{% endif %};border-radius:2px 2px 0 0"></div>
+        <div class="it-bar {% if not g.n %}it-bar-vazia{% endif %}"
+             title="{{ g.dia|date:'d/m' }}: {{ g.n }}"
+             style="height:{{ g.pct }}%;background:{% if g.n %}linear-gradient(to top,#4f46e5,#818cf8){% else %}#e5e7eb{% endif %};">
+        </div>
         {% endfor %}
       </div>
+
       {% if not visitas_total %}
-      <p class="text-xs text-gray-400 mt-2">Ainda sem visitas registadas — começam a contar assim que o site estiver publicado e visitado.</p>
+      <p class="it-muted" style="margin:.75rem 0 0">
+        <i class="fas fa-info-circle" style="margin-right:.25rem"></i>
+        Ainda sem visitas registadas — começam a contar assim que o site estiver publicado e visitado.
+      </p>
       {% endif %}
+
     </div>
 
-    <div class="it-card p-4 space-y-4">
+
+    <div class="it-card it-pad it-stack">
+
       <div>
-        <p class="text-xs font-bold uppercase tracking-wide text-gray-500 mb-1">Páginas mais vistas</p>
+        <p class="it-kicker" style="margin-bottom:.5rem">
+          <i class="fas fa-file-lines" style="margin-right:.25rem"></i>
+          Páginas mais vistas
+        </p>
+
         {% for p in top_paginas %}
-          <div class="flex justify-between text-sm"><span class="truncate">{{ p.caminho }}</span><strong>{{ p.n }}</strong></div>
-        {% empty %}<p class="text-xs text-gray-400">—</p>{% endfor %}
+        <div class="it-stat-line">
+          <span>{{ p.caminho }}</span>
+          <strong>{{ p.n }}</strong>
+        </div>
+        {% empty %}
+        <p class="it-muted">—</p>
+        {% endfor %}
       </div>
+
       <div>
-        <p class="text-xs font-bold uppercase tracking-wide text-gray-500 mb-1">Produtos mais vistos</p>
+        <p class="it-kicker" style="margin-bottom:.5rem">
+          <i class="fas fa-box-open" style="margin-right:.25rem"></i>
+          Produtos mais vistos
+        </p>
+
         {% for p in top_produtos %}
-          <div class="flex justify-between text-sm"><span class="truncate">{{ p.referencia }}</span><strong>{{ p.n }}</strong></div>
-        {% empty %}<p class="text-xs text-gray-400">—</p>{% endfor %}
+        <div class="it-stat-line">
+          <span>{{ p.referencia }}</span>
+          <strong>{{ p.n }}</strong>
+        </div>
+        {% empty %}
+        <p class="it-muted">—</p>
+        {% endfor %}
       </div>
-      <div class="text-xs text-gray-500">
-        {% for d in dispositivos %}{{ d.dispositivo|default:"?" }}: <strong>{{ d.n }}</strong>{% if not forloop.last %} · {% endif %}{% endfor %}
+
+      <div>
+        <p class="it-kicker" style="margin-bottom:.5rem">
+          <i class="fas fa-desktop" style="margin-right:.25rem"></i>
+          Dispositivos
+        </p>
+
+        <div class="it-muted">
+          {% for d in dispositivos %}
+            {{ d.dispositivo|default:"?" }}: <strong>{{ d.n }}</strong>{% if not forloop.last %} · {% endif %}
+          {% empty %}
+            —
+          {% endfor %}
+        </div>
       </div>
+
     </div>
   </div>
 
-  <!-- Filtros por tipo -->
-  <div class="flex flex-wrap gap-2">
-    <a class="it-chip {% if not filtro %}ativo{% endif %}" href="?dias={{ dias }}">Tudo</a>
+
+  <!-- =======================================================
+       TEMPO MÉDIO
+       ======================================================= -->
+
+  <div class="it-card it-metrics">
+
+    <span class="it-kicker">
+      <i class="fas fa-stopwatch" style="margin-right:.25rem"></i>
+      Tempo médio de resposta ({{ dias }} dias)
+    </span>
+
+    <span>Contactos: <strong>{{ tempo_medio_contato }}</strong></span>
+
+    <span>Reclamações: <strong>{{ tempo_medio_reclamacao }}</strong></span>
+
+  </div>
+
+
+  <!-- =======================================================
+       FILTROS
+       ======================================================= -->
+
+  <div class="it-row-wrap it-scroll-x">
+
+    <a class="it-chip {% if not filtro %}ativo{% endif %}" href="?dias={{ dias }}">
+      <i class="fas fa-layer-group"></i> Tudo
+    </a>
+
     {% for a in abas %}
-    <a class="it-chip {% if filtro == a.chave %}ativo{% endif %}" href="?dias={{ dias }}&tipo={{ a.chave }}">
-      <i class="{% if a.chave == 'whatsapp' %}fab{% else %}fas{% endif %} {{ a.icone }}" {% if filtro != a.chave %}style="color:{{ a.cor }}"{% endif %}></i>
-      {{ a.rotulo }} <strong>{{ a.n }}</strong>
+    <a class="it-chip {% if filtro == a.chave %}ativo{% endif %}"
+       href="?dias={{ dias }}&tipo={{ a.chave }}">
+
+      <i class="{% if a.chave == 'whatsapp' %}fab{% else %}fas{% endif %} {{ a.icone }}"
+         {% if filtro != a.chave %}style="color:{{ a.cor }}"{% endif %}></i>
+
+      {{ a.rotulo }}
+
+      <strong>{{ a.n }}</strong>
+
     </a>
     {% endfor %}
+
   </div>
 
-  <!-- Feed -->
-  <div class="it-card divide-y divide-gray-100 dark:divide-gray-700">
+
+  <!-- =======================================================
+       FEED
+       ======================================================= -->
+
+  <div class="it-card it-feed" id="it-feed">
+
     {% for i in feed %}
-    <div class="flex items-start gap-3 p-4" data-linha>
-      <div style="width:2.2rem;height:2.2rem;border-radius:999px;background:{{ i.cor }}22;color:{{ i.cor }};display:flex;align-items:center;justify-content:center;flex-shrink:0">
+
+    <div class="it-item"
+         data-linha
+         data-tipo="{{ i.tipo }}"
+         data-pk="{{ i.pk }}"
+         data-titulo="{{ i.titulo }}"
+         data-rotulo="{{ i.rotulo }}"
+         data-quando="{{ i.quando|date:'d/m/Y H:i' }}"
+         data-pendente="{% if i.pendente and i.acao %}1{% endif %}"
+         data-acao="{{ i.acao }}">
+
+      <!-- Ícone -->
+      <div class="it-item-icon" style="background:{{ i.cor }}18;color:{{ i.cor }}">
         <i class="{% if i.tipo == 'whatsapp' %}fab{% else %}fas{% endif %} {{ i.icone }}"></i>
       </div>
-      <div class="flex-1 min-w-0">
-        <div class="flex flex-wrap items-center gap-2">
-          <span class="text-sm font-semibold text-gray-900 dark:text-gray-100">{{ i.titulo }}</span>
-          <span class="text-xs px-2 py-0.5 rounded" style="background:{{ i.cor }}22;color:{{ i.cor }}">{{ i.rotulo }}</span>
-          {% if i.pendente %}<span class="badge-pend text-xs px-2 py-0.5 rounded font-semibold" style="background:#fee2e2;color:#991b1b">Pendente</span>{% endif %}
+
+
+      <!-- Conteúdo -->
+      <div class="it-item-main">
+
+        <div class="it-item-top">
+
+          <span class="it-item-title">{{ i.titulo }}</span>
+
+          <span class="it-tag" style="background:{{ i.cor }}18;color:{{ i.cor }}">
+            {{ i.rotulo }}
+          </span>
+
+          {% if i.pendente %}
+          <span class="badge-pend it-tag" style="background:#fee2e2;color:#991b1b">
+            <i class="fas fa-circle-exclamation" style="margin-right:.25rem"></i>
+            Pendente
+          </span>
+          {% endif %}
+
         </div>
-        {% if i.detalhe %}<p class="text-sm text-gray-600 dark:text-gray-300 mt-0.5">{{ i.detalhe }}</p>{% endif %}
-        <p class="text-xs text-gray-400 mt-1">
-          {{ i.quando|date:"d/m/Y H:i" }} · há {{ i.quando|timesince }}{% if i.contacto %} · {{ i.contacto }}{% endif %}
-        </p>
-      </div>
-      <div class="flex flex-col gap-1 items-end">
-        {% if i.link %}<a class="it-btn" href="{{ i.link }}" target="_blank" rel="noopener"><i class="fas fa-paperclip"></i> Ficheiro</a>{% endif %}
-        {% if i.pendente and i.acao %}
-        <button type="button" class="it-btn" data-atender data-tipo="{{ i.tipo }}" data-pk="{{ i.pk }}">{{ i.acao }}</button>
+
+
+        {% if i.detalhe %}
+
+          {% if i.mensagem_completa %}
+
+          <button type="button" data-abrir class="it-msg" title="Ver mensagem completa">
+
+            <span class="it-msg-label">
+              <i class="fas fa-message" style="margin-right:.25rem"></i>
+              Mensagem
+            </span>
+
+            <span class="it-msg-preview">
+              {{ i.detalhe }}
+              {% if i.tem_mais %}
+              <span class="it-ver">ver completa <i class="fas fa-arrow-right"></i></span>
+              {% endif %}
+            </span>
+
+          </button>
+
+          <!-- TEXTO PURO: NÃO usar linebreaksbr -->
+          <div data-completo hidden>{{ i.mensagem_completa }}</div>
+
+          {% else %}
+
+          <p class="it-item-text">{{ i.detalhe }}</p>
+
+          {% endif %}
+
         {% endif %}
+
+
+        <!-- Metadados -->
+        <p class="it-item-meta">
+          <i class="far fa-clock" style="margin-right:.25rem"></i>
+          Recebido {{ i.quando|date:"d/m/Y H:i" }}
+          · há {{ i.quando|timesince }}
+          {% if i.contacto %}· {{ i.contacto }}{% endif %}
+        </p>
+
+
+        <!-- Atendimento -->
+        <p class="it-item-ok" data-atendido {% if not i.atendido_em %}hidden{% endif %}>
+          {% if i.atendido_em %}
+            <i class="fas fa-check-circle" style="margin-right:.25rem"></i>
+            Atendido por {{ i.atendido_por|default:"—" }}
+            em {{ i.atendido_em|date:"d/m/Y H:i" }}
+            · resposta em {{ i.tempo_resposta }}
+          {% endif %}
+        </p>
+
+
+        <!-- Feedback em texto puro -->
+        <div data-feedback hidden>{{ i.feedback }}</div>
+
       </div>
+
+
+      <!-- Ações -->
+      <div class="it-item-actions">
+
+        {% if i.link %}
+        <a class="it-btn" href="{{ i.link }}" target="_blank" rel="noopener">
+          <i class="fas fa-paperclip"></i> Ficheiro
+        </a>
+        {% endif %}
+
+        {% if i.pendente and i.acao %}
+        <button type="button" class="it-btn" data-atender>
+          <i class="fas fa-check"></i> {{ i.acao }}
+        </button>
+        {% endif %}
+
+      </div>
+
     </div>
+
     {% empty %}
-    <p class="p-10 text-center text-sm text-gray-500">
-      <i class="fas fa-inbox text-3xl block mb-3 text-gray-300"></i>
-      Sem interações neste período{% if filtro %} para este filtro{% endif %}.
-    </p>
+
+    <div class="it-empty">
+      <div class="it-empty-icon"><i class="fas fa-inbox"></i></div>
+      <p style="margin:0;font-size:.88rem;font-weight:700" class="text-gray-600 dark:text-gray-300">
+        Nenhuma interação encontrada
+      </p>
+      <p class="it-muted" style="margin:.25rem 0 0">
+        Sem interações neste período{% if filtro %} para este filtro{% endif %}.
+      </p>
+    </div>
+
     {% endfor %}
+
+    <!-- "Mostrar mais": evita uma página interminável (preenchido pelo JS) -->
+    <div class="it-more" id="it-more" hidden>
+      <button type="button" class="it-btn" id="it-more-btn">
+        <i class="fas fa-chevron-down"></i>
+        <span>Mostrar mais</span>
+      </button>
+    </div>
+
   </div>
 </div>
+
+
+<!-- =========================================================
+     MODAL
+     ========================================================= -->
+
+<div id="it-modal"
+     role="dialog"
+     aria-modal="true"
+     aria-labelledby="m-titulo"
+     class="it-modal-backdrop"
+     style="display:none">
+
+  <div class="it-modal-panel">
+
+    <!-- Cabeçalho -->
+    <div class="it-modal-header">
+
+      <div class="it-modal-head-main">
+
+        <div class="it-modal-header-icon">
+          <i class="fas fa-message"></i>
+        </div>
+
+        <div style="min-width:0">
+          <h2 id="m-titulo" class="it-modal-title"></h2>
+          <p id="m-meta" class="it-modal-meta"></p>
+        </div>
+
+      </div>
+
+      <button type="button" id="m-fechar" class="it-btn it-modal-close" aria-label="Fechar">
+        <i class="fas fa-xmark"></i>
+      </button>
+
+    </div>
+
+
+    <!-- Corpo (só esta zona rola) -->
+    <div class="it-modal-body">
+
+      <!-- Mensagem -->
+      <div class="it-modal-section">
+        <div class="it-modal-label">
+          <i class="fas fa-align-left"></i>
+          Mensagem completa
+        </div>
+        <div id="m-corpo" class="it-modal-content"></div>
+      </div>
+
+
+      <!-- Feedback existente -->
+      <div id="m-feedback-lido" class="it-modal-section it-modal-feedback" style="display:none">
+        <div class="it-modal-label">
+          <i class="fas fa-reply"></i>
+          Feedback enviado ao cliente
+        </div>
+        <div id="m-feedback-texto" class="it-feedback-box"></div>
+      </div>
+
+
+      <!-- Formulário -->
+      <div id="m-form" class="it-modal-section it-modal-feedback" style="display:none">
+
+        <label for="m-feedback" class="it-modal-label">
+          <i class="fas fa-pen"></i>
+          Feedback para o cliente
+        </label>
+
+        <p class="it-muted" style="margin:0 0 .5rem">
+          Esta resposta ficará visível no perfil do cliente.
+        </p>
+
+        <textarea id="m-feedback"
+                  rows="4"
+                  maxlength="2000"
+                  placeholder="Ex.: Já resolvemos o problema. Obrigado pela paciência."></textarea>
+
+        <div class="it-modal-actions">
+          <button type="button" class="it-btn" id="m-cancelar">Cancelar</button>
+          <button type="button" class="it-btn it-btn-primary" id="m-confirmar"></button>
+        </div>
+
+      </div>
+
+    </div>
+  </div>
+</div>
+
 {% endblock %}
+
 
 {% block extra_js %}
 <script>
 (() => {
-  const BASE = "{% url 'site:atender_interacao' 'contato' 0 %}";
-  document.querySelectorAll('[data-atender]').forEach(btn => btn.addEventListener('click', async () => {
-    const url = BASE.replace('/contato/0/', `/${btn.dataset.tipo}/${btn.dataset.pk}/`);
+
+  const BASE  = "{% url 'site:atender_interacao' 'contato' 0 %}";
+  const CSRF  = '{{ csrf_token }}';
+  const modal = document.getElementById('it-modal');
+  const feed  = document.getElementById('it-feed');
+  const POR_PAGINA = 20;
+
+  const $ = id => document.getElementById(id);
+  const mostrar = (el, on) => { el.style.display = on ? '' : 'none'; };
+
+  let linhaAtual = null;
+
+
+  /* =======================================================
+   * "Mostrar mais" — limita o tamanho inicial do feed
+   * ======================================================= */
+
+  const linhas = Array.from(document.querySelectorAll('#it-feed [data-linha]'));
+  const maisBox = $('it-more');
+  const maisBtn = $('it-more-btn');
+  let visiveis = POR_PAGINA;
+
+  function aplicarPaginacao() {
+    linhas.forEach((l, idx) => { l.hidden = idx >= visiveis; });
+
+    const restantes = Math.max(linhas.length - visiveis, 0);
+    maisBox.hidden = restantes === 0;
+
+    if (restantes > 0) {
+      maisBtn.querySelector('span').textContent =
+        `Mostrar mais (${Math.min(restantes, POR_PAGINA)} de ${restantes})`;
+    }
+  }
+
+  maisBtn.addEventListener('click', () => {
+    visiveis += POR_PAGINA;
+    aplicarPaginacao();
+  });
+
+  aplicarPaginacao();
+
+
+  /* =======================================================
+   * Modal
+   * ======================================================= */
+
+  function abrir(linha, modoAtender) {
+
+    if (!linha) return;
+
+    linhaAtual = linha;
+
+    $('m-titulo').textContent = linha.dataset.titulo;
+    $('m-meta').textContent =
+      `${linha.dataset.rotulo} · recebido ${linha.dataset.quando}`;
+
+    // A mensagem é tratada exclusivamente como TEXTO (textContent).
+    const mensagem =
+      linha.querySelector('[data-completo]')?.textContent.trim() || '';
+
+    $('m-corpo').textContent = mensagem;
+
+    // Feedback também é texto puro.
+    const fb =
+      linha.querySelector('[data-feedback]')?.textContent.trim() || '';
+
+    $('m-feedback-texto').textContent = fb;
+    mostrar($('m-feedback-lido'), !!fb);
+
+    const pendente = linha.dataset.pendente === '1';
+
+    mostrar($('m-form'), pendente && modoAtender);
+
+    $('m-feedback').value = '';
+    $('m-confirmar').textContent = linha.dataset.acao || 'Confirmar';
+    $('m-confirmar').disabled = false;
+
+    modal.style.display = 'flex';
+    $('m-corpo').scrollTop = 0;
+    document.querySelector('.it-modal-body').scrollTop = 0;
+
+    if (pendente && modoAtender) {
+      setTimeout(() => $('m-feedback').focus(), 50);
+    }
+  }
+
+  function fechar() {
+    modal.style.display = 'none';
+    linhaAtual = null;
+  }
+
+  const aberto = () => modal.style.display !== 'none';
+
+
+  /* Abrir mensagem / marcar como atendido (delegação de eventos) */
+  feed.addEventListener('click', e => {
+
+    const alvo = e.target.closest('[data-abrir], [data-atender]');
+    if (!alvo) return;
+
+    abrir(alvo.closest('[data-linha]'), true);
+  });
+
+
+  /* Fechar */
+  $('m-fechar').addEventListener('click', fechar);
+  $('m-cancelar').addEventListener('click', fechar);
+
+  modal.addEventListener('mousedown', e => {
+    if (e.target === modal) fechar();
+  });
+
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && aberto()) fechar();
+  });
+
+
+  /* Confirmar atendimento */
+  $('m-confirmar').addEventListener('click', async () => {
+
+    const linha = linhaAtual;
+    if (!linha) return;
+
+    const btn   = $('m-confirmar');
+    const texto = $('m-feedback').value;
+
     btn.disabled = true;
+
     try {
-      const r = await fetch(url, {method: 'POST', headers: {'X-CSRFToken': '{{ csrf_token }}', 'X-Requested-With': 'XMLHttpRequest'}});
+
+      const url = BASE.replace(
+        '/contato/0/',
+        `/${linha.dataset.tipo}/${linha.dataset.pk}/`
+      );
+
+      const fd = new FormData();
+      fd.append('feedback', texto);
+
+      const r = await fetch(url, {
+        method: 'POST',
+        body: fd,
+        headers: {
+          'X-CSRFToken': CSRF,
+          'X-Requested-With': 'XMLHttpRequest'
+        },
+      });
+
       const j = await r.json();
-      if (!j.ok) throw new Error();
-      const linha = btn.closest('[data-linha]');
+
+      if (!r.ok || !j.ok) {
+        throw new Error(j.error || 'erro');
+      }
+
       linha.querySelector('.badge-pend')?.remove();
-      btn.remove();
-    } catch { btn.disabled = false; alert('Não foi possível actualizar.'); }
-  }));
+      linha.querySelector('[data-atender]')?.remove();
+      linha.dataset.pendente = '';
+
+      const a = linha.querySelector('[data-atendido]');
+
+      if (a) {
+        a.textContent =
+          `Atendido por ${j.atendido_por} em ${j.atendido_em} · resposta em ${j.tempo_resposta}`;
+        a.hidden = false;
+      }
+
+      // Guardar feedback como texto puro.
+      const fbEl = linha.querySelector('[data-feedback]');
+      if (fbEl) fbEl.textContent = texto;
+
+      fechar();
+
+    } catch (err) {
+
+      btn.disabled = false;
+      alert('Não foi possível actualizar.');
+
+    }
+  });
+
 })();
 </script>
 {% endblock %}

@@ -194,6 +194,17 @@ class SubmissaoFaturaService:
 
         return node
 
+
+    @staticmethod
+    def _tax_code_api(taxa):
+        """A API AGT usa taxCode=ISE para taxType=NS; o catálogo interno/SAF-T mantém NS."""
+        if not taxa:
+            return "NOR"
+        if getattr(taxa, "tax_type", None) == "NS":
+            return "ISE"
+        return getattr(taxa, "tax_code", None) or "NOR"
+    
+
     def _montar_linhas(self, doc):
         """Constrói o array `lines` a partir das linhas do DocumentoFiscal."""
         from apps.fiscal.services.saft_mapping import mapear_withholding_tax_saft  # noqa — usado só para retenções
@@ -265,7 +276,7 @@ class SubmissaoFaturaService:
                 tax_node = {
                     "taxType": item.taxa_iva.tax_type or "IVA",
                     "taxCountryRegion": "AO",
-                    "taxCode": item.taxa_iva.tax_code or "NOR",
+                    "taxCode": self._tax_code_api(item.taxa_iva),
                     "taxPercentage": float(item.taxa_iva.tax_percentage or 0),
                     "taxContribution": float(item.iva_valor or 0),
                 }
@@ -301,7 +312,7 @@ class SubmissaoFaturaService:
                 tax_node = {
                     "taxType": item.taxa_iva.tax_type or "IVA",
                     "taxCountryRegion": "AO",
-                    "taxCode": item.taxa_iva.tax_code or "NOR",
+                    "taxCode": self._tax_code_api(item.taxa_iva),
                     "taxPercentage": float(item.taxa_iva.tax_percentage or 0),
                     "taxContribution": float(item.iva_valor or 0),
                 }
@@ -331,7 +342,7 @@ class SubmissaoFaturaService:
         tax_node = {
             "taxType": taxa.tax_type or "IVA",
             "taxCountryRegion": "AO",
-            "taxCode": taxa.tax_code or "NOR",
+            "taxCode": self._tax_code_api(taxa),
             "taxPercentage": float(taxa.tax_percentage or 0),
             "taxContribution": float(getattr(linha, 'valor_iva', 0) or 0),
         }

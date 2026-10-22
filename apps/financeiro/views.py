@@ -4,10 +4,15 @@ from django.views.generic import (
     ListView, DetailView, CreateView, UpdateView, 
     TemplateView, FormView, View
 )
+import logging
+from datetime import timedelta
+from django.db.models.functions import TruncDate
+from django.urls import reverse, NoReverseMatch
+from apps.vendas.models import PagamentoVenda
 from django.contrib.auth.mixins import LoginRequiredMixin, PermissionRequiredMixin
 from django.contrib import messages
 from django.http import JsonResponse, HttpResponse, Http404
-from django.db.models import Sum, Count, Q, Avg, F
+from django.db.models import ProtectedError, Sum, Count, Q, Avg, F
 from django.utils import timezone
 from django.urls import reverse_lazy
 from datetime import date, timedelta, datetime
@@ -15,7 +20,7 @@ from decimal import Decimal, InvalidOperation
 import json
 import csv
 from rest_framework import viewsets
-from jsonschema import ValidationError
+from django.core.exceptions import ValidationError
 from apps.clientes.models import Cliente
 from apps.empresas.models import Empresa
 from apps.core.views import BaseMPAView
@@ -24,10 +29,10 @@ from apps.vendas.models import Venda
 from .models import (
     ConciliacaoBancaria, ContaReceber, ContaPagar, FluxoCaixa,
     CentroCusto, ContaBancaria, MovimentacaoFinanceira, MovimentoCaixa,
-    ImpostoTributo
+    ImpostoTributo, PlanoConta
 )
 from .forms import (
-    ContaReceberForm, ContaPagarForm, ImpostoTributoForm, CentroCustoForm, MovimentoCaixaForm
+    ContaReceberForm, ContaPagarForm, ImpostoTributoForm, CentroCustoForm, MovimentoCaixaForm, PlanoContaForm
 )
 from django.contrib.auth.mixins import AccessMixin
 from django.urls import reverse_lazy
@@ -64,6 +69,15 @@ from .models import FluxoCaixa
 from .forms import FluxoCaixaForm
 from datetime import datetime, date
 
+from django.contrib import messages
+from django.contrib.auth.mixins import LoginRequiredMixin
+from django.db import connection, transaction
+from django.http import Http404
+from django.shortcuts import redirect
+from django.views import View
+from django.views.generic import TemplateView
+
+from apps.vendas.models import FormaPagamento
 
 
 
@@ -199,9 +213,116 @@ class FinanceiroView(BaseMPAView, PermissaoAcaoMixin):
 
 
 # =====================================
-# PLANO DE CONTAS
+# FORMAS DE PAGAMENTOS
 # =====================================
 
+
+# ======================================================================
+# FORMAS DE PAGAMENTO (cada tenant escolhe as que usa)
+# ======================================================================
+
+# O fecho de turno (funcionarios.FecharTurnoView) soma pagamentos por
+# forma_pagamento__codigo = 'numerario' | 'tpa' | 'transferencia'.
+# Os códigos criados aqui mantêm essa compatibilidade.
+CODIGO_COMPAT = {
+    'dinheiro': 'numerario',
+    'cartao_debito': 'tpa',
+    'cartao_credito': 'tpa',
+    'transferencia': 'transferencia',
+}
+
+"""
+def _pode_acessar_financeiro(user):
+    if connection.schema_name == 'public':
+        return False
+    tenant = connection.tenant
+    if user.e_administrador_empresa and user.empresa_id == tenant.pk:
+        return True
+    funcionario = user.funcionario  # None no schema public / sem ficha de funcionário
+    return bool(funcionario and funcionario.pode_realizar_acao('acessar_financeiro'))
+
+class FinanceiroPermissaoMixin(LoginRequiredMixin):
+
+    def dispatch(self, request, *args, **kwargs):
+        if request.user.is_authenticated and not _pode_acessar_financeiro(request.user):
+            messages.error(request, "Não tem permissão para aceder ao módulo financeiro.")
+            return redirect('core_tenants:dashboard')
+        return super().dispatch(request, *args, **kwargs)
+
+"""
+
+
+def _garantir_formas_padrao():
+    """Cria (inativa) uma forma de pagamento por cada tipo que o tenant ainda não tenha."""
+    for ordem, (tipo, rotulo) in enumerate(FormaPagamento.FORMA_PAGAMENTO_CHOICES, start=1):
+        if not FormaPagamento.objects.filter(tipo=tipo).exists():
+            FormaPagamento.objects.get_or_create(
+                nome=rotulo,
+                defaults=dict(
+                    tipo=tipo,
+                    codigo=CODIGO_COMPAT.get(tipo, tipo),
+                    ativa=False,
+                    ordem_exibicao=ordem * 10,
+                ),
+            )
+
+
+class FormasPagamentoView(PermissaoAcaoMixin, TemplateView):
+    template_name = 'financeiro/formas_pagamento.html'
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        _garantir_formas_padrao()
+
+        por_tipo = {}
+        for forma in FormaPagamento.objects.select_related('conta_destino').order_by('ordem_exibicao', 'nome'):
+            por_tipo.setdefault(forma.tipo, []).append(forma)
+
+        formas = []
+        for tipo, rotulo in FormaPagamento.FORMA_PAGAMENTO_CHOICES:
+            registos = por_tipo.get(tipo, [])
+            formas.append({
+                'tipo': tipo,
+                'rotulo': rotulo,
+                'ativa': any(r.ativa for r in registos),
+                'registos': registos,
+            })
+
+        ctx['formas'] = formas
+        ctx['total_ativas'] = sum(1 for f in formas if f['ativa'])
+        ctx['total'] = len(formas)
+        return ctx
+
+
+class AlternarFormaPagamentoView(PermissaoAcaoMixin, View):
+    http_method_names = ['post']
+
+    def post(self, request, tipo):
+        if tipo not in dict(FormaPagamento.FORMA_PAGAMENTO_CHOICES):
+            raise Http404
+        acao = request.POST.get('acao')
+        if acao not in ('ativar', 'desativar'):
+            messages.error(request, "Ação inválida.")
+            return redirect('financeiro:formas_pagamento')
+
+        rotulo = dict(FormaPagamento.FORMA_PAGAMENTO_CHOICES)[tipo]
+        with transaction.atomic():
+            _garantir_formas_padrao()
+            if acao == 'desativar':
+                # Sem nenhuma forma ativa, a empresa deixa de conseguir vender.
+                if not FormaPagamento.objects.exclude(tipo=tipo).filter(ativa=True).exists():
+                    messages.error(
+                        request,
+                        "A empresa tem de manter pelo menos uma forma de pagamento ativa."
+                    )
+                    return redirect('financeiro:formas_pagamento')
+            FormaPagamento.objects.filter(tipo=tipo).update(ativa=(acao == 'ativar'))
+
+        if acao == 'ativar':
+            messages.success(request, f"“{rotulo}” ativada: já está disponível para a empresa.")
+        else:
+            messages.warning(request, f"“{rotulo}” desativada: deixa de estar disponível.")
+        return redirect('financeiro:formas_pagamento')
 
 
 
@@ -741,7 +862,7 @@ class ContaBancariaDetailView(LoginRequiredMixin, PermissaoAcaoMixin, DetailView
         context['movimentacoes_recentes'] = MovimentacaoFinanceira.objects.filter(
             conta_bancaria=self.object,
             confirmada=True
-        ).select_related('plano_contas').order_by('-data_movimentacao')[:20]
+        ).order_by('-data_movimentacao')[:20]
         
         # Totais do mês
         hoje = date.today()
@@ -793,7 +914,173 @@ class ContaBancariaUpdateView(LoginRequiredMixin, PermissaoAcaoMixin, UpdateView
 # =====================================
 # DASHBOARD FINANCEIRO
 # =====================================
+# =====================================
+# CATÁLOGO DINÂMICO DE PÁGINAS + ATALHOS
+# =====================================
+# (título, nota, nome da rota[, função(hoje) -> args])  — só páginas GET sem ID.
+_CATALOGO = [
+    ("Visão geral e fluxo de caixa", "fa-chart-line", [
+        ("Painel financeiro", "Resumo geral de tesouraria", "dashboard"),
+        ("Fluxo de caixa", "Previsões e movimentos de caixa", "fluxo_caixa"),
+        ("Nova previsão de fluxo", "Registar nova previsão", "fluxo_caixa_create"),
+        ("Demonstração de resultados (DRE)", "Receitas, despesas e resultado", "dre"),
+        ("Balanço patrimonial", "Posição patrimonial", "balanco"),
+    ]),
+    ("Movimentações financeiras", "fa-exchange-alt", [
+        ("Movimentações", "Movimentos registados", "movimentacao_lista"),
+        ("Nova movimentação", "Entrada, saída ou transferência", "movimentacao_create"),
+    ]),
+    ("Contas a receber", "fa-hand-holding-usd", [
+        ("Contas a receber", "Cobranças de clientes", "conta_receber_lista"),
+        ("Nova conta a receber", "Registar cobrança", "conta_receber_create"),
+        ("Contas vencidas", "Cobranças em atraso", "contas_vencidas"),
+        ("Contas a vencer", "Vencimentos próximos", "contas_vencendo"),
+    ]),
+    ("Contas a pagar", "fa-file-invoice-dollar", [
+        ("Contas a pagar", "Compromissos financeiros", "conta_pagar_lista"),
+        ("Nova conta a pagar", "Registar compromisso", "conta_pagar_create"),
+        ("Agenda de pagamentos", "Pagamentos programados", "agenda_pagamentos"),
+        ("Aprovação de pagamentos", "Aguardam aprovação", "aprovacao_pagamentos"),
+        ("Pagamentos em lote", "Pagar várias contas", "pagamento_lote"),
+    ]),
+    ("Bancos e caixa", "fa-building-columns", [
+        ("Contas bancárias", "Saldos e extratos", "conta_bancaria_lista"),
+        ("Nova conta bancária", "Registar conta", "conta_bancaria_create"),
+        ("Painel do caixa", "Caixa físico", "caixa"),
+        ("Abrir caixa", "Abertura do caixa", "abrir_caixa"),
+        ("Fechar caixa", "Fecho do caixa", "fechar_caixa"),
+        ("Conferência de caixa", "Conferir valores", "conferencia_caixa"),
+        ("Relatório diário do caixa", "Fecho e movimentos do dia", "relatorio_caixa_diario"),
+        ("Movimentos de caixa", "Todos os movimentos", "movimento_caixa"),
+        ("Histórico do caixa", "Operações anteriores", "historico_caixa"),
+    ]),
+    ("Formas de pagamento, cartões e TEF", "fa-credit-card", [
+        ("Formas de pagamento", "Escolher as que a empresa aceita", "formas_pagamento"),
+        ("Cartões", "Visão geral das operações", "cartao_lista"),
+        ("Vendas com cartão", "Pagamentos por cartão", "vendas_cartao"),
+        ("Recebimentos de cartões", "Valores líquidos", "recebimentos_cartao"),
+        ("Taxas de cartão", "Taxas e encargos", "taxas_cartao"),
+        ("Conciliação de cartões", "Conferência de referências", "conciliacao_cartao"),
+        ("Terminal TEF", "Controlo de transações eletrónicas", "tef"),
+        ("Transações TEF", "Consultar e cancelar", "tef_transacoes"),
+    ]),
+    ("Centros de custo e conciliações", "fa-scale-balanced", [
+        ("Centros de custo", "Listar centros de custo", "centro_custo_lista"),
+        ("Novo centro de custo", "Registar centro de custo", "centro_custo_create"),
+        ("Conciliações bancárias", "Consultar conciliações", "conciliacao_lista"),
+        ("Nova conciliação bancária", "Registar conciliação", "conciliacao_bancaria_create"),
+        ("Conciliação", "Módulo de conciliação", "conciliacao"),
+        ("Conciliação automática", "Executar conciliação automática", "conciliacao_automatica"),
+        ("Plano de contas", "Plano Geral de Contabilidade (PGC)", "plano_conta_lista"),
+        ("Nova conta do plano", "Registar conta contabilística", "plano_conta_create"),
+    ]),
+    ("Planeamento financeiro", "fa-calendar-check", [
+        ("Projeções", "Antecipar fluxos", "projecoes"),
+        ("Cenários", "Comparar cenários", "cenarios"),
+        ("Metas", "Definir e acompanhar metas", "metas"),
+    ]),
+    ("Impostos e tributos", "fa-file-invoice", [
+        ("Impostos e tributos", "Obrigações fiscais", "imposto_list"),
+        ("Novo imposto / tributo", "Registar obrigação", "imposto_create"),
+    ]),
+    ("Fecho, relatórios e análises", "fa-chart-pie", [
+        ("Fecho mensal", "Fecho financeiro", "fechamento_mensal"),
+        ("Fecho do mês corrente", "Detalhes do período atual", "fechamento_detalhes",
+         lambda hoje: (hoje.month, hoje.year)),
+        ("Relatórios", "Painel de relatórios", "relatorios"),
+        ("Relatório de fluxo de caixa", "Fluxo de caixa", "relatorio_fluxo_caixa"),
+        ("Relatório da DRE", "Resultado do exercício", "relatorio_dre"),
+        ("Relatório do balanço", "Posição patrimonial", "relatorio_balanco"),
+        ("Relatório de inadimplência", "Valores em atraso", "relatorio_inadimplencia"),
+        ("Relatório de contas a receber", "Cobranças", "relatorio_contas_receber"),
+        ("Relatório de contas a pagar", "Compromissos", "relatorio_contas_pagar"),
+        ("Relatório de movimento bancário", "Movimentos bancários", "relatorio_movimento_bancario"),
+        ("Análises", "Painel de análises", "analises"),
+        ("Análise de liquidez", "Indicadores de liquidez", "analise_liquidez"),
+        ("Análise de rentabilidade", "Indicadores de rentabilidade", "analise_rentabilidade"),
+        ("Análise de endividamento", "Indicadores de endividamento", "analise_endividamento"),
+    ]),
+    ("Importação e exportação", "fa-file-arrow-down", [
+        ("Importar dados", "Importação", "importar"),
+        ("Importar OFX", "Extrato bancário OFX", "importar_ofx"),
+        ("Importar CNAB", "Ficheiro CNAB", "importar_cnab"),
+        ("Exportar dados", "Exportação", "exportar"),
+    ]),
+]
 
+
+def _catalogo_urls(hoje):
+    """Gera o catálogo com reverse(); rotas que deixem de existir são ignoradas."""
+    categorias, total = [], 0
+    for titulo, icone, itens in _CATALOGO:
+        visiveis = []
+        for item in itens:
+            nome, nota, rota = item[:3]
+            args = item[3](hoje) if len(item) > 3 else ()
+            try:
+                url = reverse(f"financeiro:{rota}", args=args)
+            except NoReverseMatch:
+                logging.getLogger(__name__).warning("Rota financeiro:%s não encontrada", rota)
+                continue
+            visiveis.append({"titulo": nome, "nota": nota, "rota": f"financeiro:{rota}", "url": url})
+        if visiveis:
+            categorias.append({"titulo": titulo, "icone": icone, "itens": visiveis})
+            total += len(visiveis)
+    return categorias, total
+
+
+def _atalhos_registos(hoje, limite=5):
+    """Registos reais que precisam de atenção, com ligação direta."""
+    def sec(titulo, icone, lista, vazio, itens):
+        return {"titulo": titulo, "icone": icone, "lista": reverse(f"financeiro:{lista}"),
+                "vazio": vazio, "itens": itens}
+
+    receber = [{
+        "titulo": f"{c.numero_documento} — {c.descricao}",
+        "detalhe": f"{c.cliente or 'Sem cliente'} · vence {c.data_vencimento:%d/%m/%Y} · {c.valor_saldo:,.2f} AOA",
+        "url": reverse("financeiro:conta_receber_detail", args=[c.pk]),
+        "alerta": c.data_vencimento < hoje,
+    } for c in ContaReceber.objects.filter(status__in=("aberta", "vencida"))
+        .select_related("cliente").order_by("data_vencimento")[:limite]]
+
+    pagar = [{
+        "titulo": f"{c.numero_documento} — {c.descricao}",
+        "detalhe": f"{c.fornecedor or 'Sem fornecedor'} · vence {c.data_vencimento:%d/%m/%Y} · {c.valor_saldo:,.2f} AOA",
+        "url": reverse("financeiro:conta_pagar_detail", args=[c.pk]),
+        "alerta": c.data_vencimento < hoje,
+    } for c in ContaPagar.objects.filter(status__in=("aberta", "vencida"))
+        .select_related("fornecedor").order_by("data_vencimento")[:limite]]
+
+    movimentos = [{
+        "titulo": m.descricao,
+        "detalhe": f"{m.get_tipo_movimentacao_display()} · {m.data_movimentacao:%d/%m/%Y} · {m.valor:,.2f} AOA",
+        "url": reverse("financeiro:movimentacao_detail", args=[m.pk]),
+        "alerta": False,
+    } for m in MovimentacaoFinanceira.objects.filter(confirmada=False)
+        .exclude(status__in=("cancelada", "estornada")).order_by("-data_movimentacao")[:limite]]
+
+    bancos = [{
+        "titulo": c.nome,
+        "detalhe": f"{c.banco} · saldo {c.saldo_atual:,.2f} AOA",
+        "url": reverse("financeiro:extrato_bancario", args=[c.pk]),
+        "alerta": c.saldo_atual < 0,
+    } for c in ContaBancaria.objects.filter(ativa=True)[:limite]]
+
+    impostos = [{
+        "titulo": i.nome,
+        "detalhe": f"{i.mes_referencia:02d}/{i.ano_referencia} · vence {i.data_vencimento:%d/%m/%Y} · {i.total_agt:,.2f} AOA",
+        "url": reverse("financeiro:imposto_detail", args=[i.pk]),
+        "alerta": i.data_vencimento < hoje,
+    } for i in ImpostoTributo.objects.filter(situacao__in=("pendente", "calculado", "vencido"))
+        .order_by("data_vencimento")[:limite]]
+
+    return [
+        sec("Contas a receber em aberto", "fa-hand-holding-usd", "conta_receber_lista", "Sem cobranças em aberto.", receber),
+        sec("Contas a pagar em aberto", "fa-file-invoice-dollar", "conta_pagar_lista", "Sem compromissos em aberto.", pagar),
+        sec("Movimentações por confirmar", "fa-right-left", "movimentacao_lista", "Nenhuma movimentação pendente.", movimentos),
+        sec("Contas bancárias", "fa-building-columns", "conta_bancaria_lista", "Ainda não há contas bancárias ativas.", bancos),
+        sec("Impostos pendentes", "fa-file-invoice", "imposto_list", "Sem impostos pendentes.", impostos),
+    ]
 
 
 class FinanceiroDashboardView(LoginRequiredMixin, PermissaoAcaoMixin, TemplateView):
@@ -839,6 +1126,12 @@ class FinanceiroDashboardView(LoginRequiredMixin, PermissaoAcaoMixin, TemplateVi
             "despesas_por_categoria": json.dumps([]),
             "evolucao_saldos": json.dumps({"labels": [], "valores": []}),
             "contas_vencimento": json.dumps({"labels": [], "valores": []}),
+        })
+        catalogo, total_rotas = _catalogo_urls(hoje)
+        context.update({
+            "catalogo_urls": catalogo,
+            "total_rotas": total_rotas,
+            "atalhos": _atalhos_registos(hoje),
         })
         return context
 
@@ -1015,10 +1308,10 @@ class ContaReceberListView(LoginRequiredMixin, PermissaoAcaoMixin, ListView):
         return queryset.select_related('cliente').order_by('data_vencimento')
 
 
-
-class ContaReceberDetailView(DetailView):
-    """Integre get_context_data desta classe na ContaReceberDetailView existente."""
+class ContaReceberDetailView(LoginRequiredMixin, PermissaoAcaoMixin, DetailView):
+    acao_requerida = "acessar_financeiro"
     model = ContaReceber
+    template_name = "financeiro/conta_receber/detail.html"
     context_object_name = "conta"
 
     def get_context_data(self, **kwargs):
@@ -1098,7 +1391,7 @@ class ReceberContaView(LoginRequiredMixin, PermissaoAcaoMixin, View):
 
 
 
-class ParcelarContaView(LoginRequiredMixin, PermissaoAcaoMixin, FormView):
+class ParcelarContaView(LoginRequiredMixin, PermissaoAcaoMixin, TemplateView):
     acao_requerida = 'acessar_financeiro'
     template_name = 'financeiro/conta_receber/parcelar.html'
     
@@ -1161,7 +1454,7 @@ class ContasVencendoView(LoginRequiredMixin, PermissaoAcaoMixin, ListView):
         ).select_related('cliente').order_by('data_vencimento')
 
 
-class NegociarContaView(LoginRequiredMixin, PermissaoAcaoMixin, FormView):
+class NegociarContaView(LoginRequiredMixin, PermissaoAcaoMixin, TemplateView):
     acao_requerida = 'acessar_financeiro'
     template_name = 'financeiro/conta_receber/negociar.html'
     
@@ -1181,6 +1474,195 @@ class ProtestarContaView(LoginRequiredMixin, PermissaoAcaoMixin, View):
         
         messages.success(request, 'Conta enviada para protesto!')
         return redirect('financeiro:conta_receber_detail', pk=pk)
+
+
+
+# ADICIONAR a apps/financeiro/views.py
+# Imports a garantir no topo:
+#   from django.db.models import ProtectedError
+#   from .models import PlanoConta
+#   from .forms import PlanoContaForm
+# (Q, Count, Sum, View, ListView, DetailView, CreateView, UpdateView, DeleteView,
+#  messages, transaction, get_object_or_404, redirect, reverse_lazy já existem no ficheiro.)
+
+# =====================================
+# PLANO DE CONTAS (PGC)
+# =====================================
+
+def _pode_gerir_financeiro(user):
+    """Superuser, administrador da empresa ou funcionário com a permissão 'acessar_financeiro'."""
+    if not user.is_authenticated:
+        return False
+    if user.is_superuser or getattr(user, "e_administrador_empresa", False):
+        return True
+    funcionario = getattr(user, "funcionario_relacionado", None) or getattr(user, "funcionario", None)
+    return bool(funcionario and funcionario.pode_realizar_acao("acessar_financeiro"))
+
+
+class PlanoContaAcessoMixin(LoginRequiredMixin):
+    """Acesso ao Plano de Contas: admin ou quem tem permissão de financeiro."""
+
+    def dispatch(self, request, *args, **kwargs):
+        if request.user.is_authenticated and not _pode_gerir_financeiro(request.user):
+            messages.error(request, "Não tem permissão para gerir o Plano de Contas.")
+            return redirect("financeiro:dashboard")
+        return super().dispatch(request, *args, **kwargs)
+
+
+def _impedimentos_plano_conta(conta):
+    """Motivos que impedem a eliminação (as FKs são PROTECT)."""
+    motivos = []
+    n = conta.subcontas.count()
+    if n:
+        motivos.append(f"tem {n} subconta(s) agregada(s)")
+    n = conta.movimentacoes.count()
+    if n:
+        motivos.append(f"está associada a {n} movimentação(ões) financeira(s)")
+    n = conta.categorias_financeiras.count()
+    if n:
+        motivos.append(f"está associada a {n} categoria(s) financeira(s)")
+    return motivos
+
+
+class PlanoContaListView(PlanoContaAcessoMixin, ListView):
+    model = PlanoConta
+    template_name = "financeiro/plano_contas/lista.html"
+    context_object_name = "contas"
+    paginate_by = 100
+
+    def get_queryset(self):
+        qs = PlanoConta.objects.select_related("conta_pai").order_by("codigo")
+        g = self.request.GET
+        q = (g.get("q") or "").strip()
+        if q:
+            qs = qs.filter(Q(codigo__icontains=q) | Q(nome__icontains=q))
+        if g.get("classe") in dict(PlanoConta.CLASSE_CHOICES):
+            qs = qs.filter(classe=g["classe"])
+        if g.get("natureza") in dict(PlanoConta.NATUREZA_CHOICES):
+            qs = qs.filter(natureza=g["natureza"])
+        if g.get("estado") == "ativas":
+            qs = qs.filter(ativa=True)
+        elif g.get("estado") == "inativas":
+            qs = qs.filter(ativa=False)
+        if g.get("tipo") == "movimento":
+            qs = qs.filter(aceita_lancamentos=True)
+        elif g.get("tipo") == "agregadora":
+            qs = qs.filter(aceita_lancamentos=False)
+        return qs
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        params = self.request.GET.copy()
+        params.pop("page", None)
+        total = PlanoConta.objects.count()
+        ctx.update({
+            "querystring": params.urlencode(),
+            "classes": PlanoConta.CLASSE_CHOICES,
+            "naturezas": PlanoConta.NATUREZA_CHOICES,
+            "filtros": self.request.GET,
+            "total_contas": total,
+            "total_ativas": PlanoConta.objects.filter(ativa=True).count(),
+            "total_movimento": PlanoConta.objects.filter(aceita_lancamentos=True).count(),
+            "total_filtrado": self.get_queryset().count(),
+        })
+        return ctx
+
+
+class PlanoContaDetailView(PlanoContaAcessoMixin, DetailView):
+    model = PlanoConta
+    template_name = "financeiro/plano_contas/detail.html"
+    context_object_name = "conta"
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        conta = self.object
+        ctx["subcontas"] = conta.subcontas.order_by("codigo")
+        ctx["movimentacoes_recentes"] = (conta.movimentacoes
+                                         .select_related("conta_bancaria")
+                                         .order_by("-data_movimentacao")[:10])
+        ctx["total_movimentacoes"] = conta.movimentacoes.count()
+        ctx["total_categorias"] = conta.categorias_financeiras.count()
+        ctx["impedimentos"] = _impedimentos_plano_conta(conta)
+        return ctx
+
+
+class PlanoContaCreateView(PlanoContaAcessoMixin, CreateView):
+    model = PlanoConta
+    form_class = PlanoContaForm
+    template_name = "financeiro/plano_contas/form.html"
+    success_url = reverse_lazy("financeiro:plano_conta_lista")
+
+    def get_initial(self):
+        initial = super().get_initial()
+        pai = self.request.GET.get("conta_pai")
+        if pai and pai.isdigit():
+            initial["conta_pai"] = pai
+        return initial
+
+    def form_valid(self, form):
+        messages.success(self.request, "Conta do plano criada com sucesso.")
+        return super().form_valid(form)
+
+
+class PlanoContaUpdateView(PlanoContaAcessoMixin, UpdateView):
+    model = PlanoConta
+    form_class = PlanoContaForm
+    template_name = "financeiro/plano_contas/form.html"
+
+    def get_success_url(self):
+        return reverse_lazy("financeiro:plano_conta_detail", kwargs={"pk": self.object.pk})
+
+    def form_valid(self, form):
+        messages.success(self.request, "Conta do plano atualizada com sucesso.")
+        return super().form_valid(form)
+
+
+class PlanoContaDeleteView(PlanoContaAcessoMixin, DeleteView):
+    model = PlanoConta
+    template_name = "financeiro/plano_contas/confirm_delete.html"
+    context_object_name = "conta"
+    success_url = reverse_lazy("financeiro:plano_conta_lista")
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        ctx["impedimentos"] = _impedimentos_plano_conta(self.object)
+        return ctx
+
+    def form_valid(self, form):
+        conta = self.object
+        motivos = _impedimentos_plano_conta(conta)
+        if motivos:
+            messages.error(
+                self.request,
+                f"Não é possível eliminar {conta.codigo}: a conta {'; '.join(motivos)}. "
+                "Pode desativá-la em vez de a eliminar.")
+            return redirect("financeiro:plano_conta_detail", pk=conta.pk)
+        try:
+            with transaction.atomic():
+                response = super().form_valid(form)
+        except ProtectedError:
+            messages.error(self.request, "A conta está em uso e não pode ser eliminada. Desative-a em vez disso.")
+            return redirect("financeiro:plano_conta_detail", pk=conta.pk)
+        messages.success(self.request, f"Conta {conta.codigo} eliminada.")
+        return response
+
+
+class PlanoContaAlternarView(PlanoContaAcessoMixin, View):
+    """Ativa/desativa uma conta (alternativa segura à eliminação)."""
+    http_method_names = ["post"]
+
+    def post(self, request, pk):
+        conta = get_object_or_404(PlanoConta, pk=pk)
+        conta.ativa = not conta.ativa
+        conta.save(update_fields=["ativa", "updated_at"] if hasattr(conta, "updated_at") else ["ativa"])
+        messages.success(request, f"Conta {conta.codigo} {'ativada' if conta.ativa else 'desativada'}.")
+        return redirect(request.POST.get("next") or "financeiro:plano_conta_lista")
+
+
+# ---- No catálogo do dashboard (_CATALOGO), na categoria "Centros de custo e conciliações",
+# ---- acrescentar estes dois itens:
+#     ("Plano de contas", "Plano Geral de Contabilidade (PGC)", "plano_conta_lista"),
+#     ("Nova conta do plano", "Registar conta contabilística", "plano_conta_create"),
 
 # =====================================
 # CONTAS A PAGAR
@@ -1207,7 +1689,9 @@ class ContaPagarListView(LoginRequiredMixin, PermissaoAcaoMixin, ListView):
 
 class ContaPagarDetailView(DetailView):
     """Integre get_context_data desta classe na ContaPagarDetailView existente."""
-    model = ContaPagar
+    acao_requerida = "acessar_financeiro"
+    model = ContaReceber
+    template_name = "financeiro/conta_pagar/detail.html"
     context_object_name = "conta"
 
     def get_context_data(self, **kwargs):
@@ -1314,7 +1798,7 @@ class AprovacaoPagamentosView(LoginRequiredMixin, PermissaoAcaoMixin, ListView):
             status='aguardando_aprovacao'
         ).order_by('data_vencimento')
 
-class PagamentoLoteView(LoginRequiredMixin, PermissaoAcaoMixin, FormView):
+class PagamentoLoteView(LoginRequiredMixin, PermissaoAcaoMixin, TemplateView):
     acao_requerida = 'acessar_financeiro'
     template_name = 'financeiro/conta_pagar/pagamento_lote.html'
     
@@ -1364,7 +1848,7 @@ from django.urls import reverse_lazy
 class BancoEditarView(LoginRequiredMixin, PermissaoAcaoMixin, UpdateView):
     acao_requerida = 'acessar_financeiro'
     model = ContaBancaria
-    template_name = "financeiro/banco/form.html"  # Template para edição
+    template_name = "financeiro/banco/form.html"
     fields = [
         "nome", "banco", "agencia", "conta", "digito", "tipo_conta",
         "saldo_inicial", "saldo_atual",
@@ -1384,7 +1868,7 @@ class BancoEditarView(LoginRequiredMixin, PermissaoAcaoMixin, UpdateView):
         # Exemplo: garantir que só uma conta seja principal
         if self.object.conta_principal:
             ContaBancaria.objects.filter(
-                empresa=self.object.empresa, conta_principal=True
+                conta_principal=True
             ).exclude(pk=self.object.pk).update(conta_principal=False)
         self.object.save()
         return super().form_valid(form)
@@ -1411,9 +1895,6 @@ class ConciliacaoBancariaView(LoginRequiredMixin, PermissaoAcaoMixin, DetailView
     model = ContaBancaria
     template_name = 'financeiro/banco/conciliacao.html'
     context_object_name = 'conta'
-
-
-
 
 
 class DepositoBancarioView(LoginRequiredMixin, PermissaoAcaoMixin, View):
@@ -1552,7 +2033,7 @@ class CaixaView(LoginRequiredMixin, PermissaoAcaoMixin, TemplateView):
             data_movimento=date.today()
         ).order_by('-hora_movimento')
 
-class AbrirCaixaView(LoginRequiredMixin, PermissaoAcaoMixin, FormView):
+class AbrirCaixaView(LoginRequiredMixin, PermissaoAcaoMixin, TemplateView):
     acao_requerida = 'acessar_financeiro'
     template_name = 'financeiro/caixa/abrir.html'
     
@@ -1571,7 +2052,7 @@ class AbrirCaixaView(LoginRequiredMixin, PermissaoAcaoMixin, FormView):
         messages.success(request, 'Caixa aberto com sucesso!')
         return redirect('financeiro:caixa')
 
-class FecharCaixaView(LoginRequiredMixin, PermissaoAcaoMixin, FormView):
+class FecharCaixaView(LoginRequiredMixin, PermissaoAcaoMixin, TemplateView):
     acao_requerida = 'acessar_financeiro'
     template_name = 'financeiro/caixa/fechar.html'
     
@@ -1706,41 +2187,244 @@ class HistoricoCaixaView(LoginRequiredMixin, PermissaoAcaoMixin, ListView):
 # CARTÕES E TEF (Implementação básica)
 # =====================================
 
-class CartaoListView(LoginRequiredMixin, PermissaoAcaoMixin, TemplateView):
-    acao_requerida = 'acessar_financeiro'
-    template_name = 'financeiro/cartao/lista.html'
+# =====================================
+# CARTÕES E TEF (sobre PagamentoVenda — sem tabelas novas)
+# =====================================
+# Transação eletrónica = pagamento cuja forma é de cartão ou marcada necessita_tef.
+# NSU/TID/autorização são registados a partir do terminal; não há integração
+# com fornecedor de TEF.
+TIPOS_CARTAO = ("cartao_debito", "cartao_credito")
+STATUS_ANULADOS = ("estornado", "cancelado", "rejeitado")
+STATUS_PENDENTES = ("pendente", "processando")
+STATUS_CANCELAVEIS = ("pendente", "processando", "aprovado")
 
-class VendasCartaoView(LoginRequiredMixin, TemplateView):
-    acao_requerida = 'acessar_financeiro'
-    template_name = 'financeiro/cartao/vendas.html'
 
-class RecebimentosCartaoView(LoginRequiredMixin, PermissaoAcaoMixin, TemplateView):
-    acao_requerida = 'acessar_financeiro'
-    template_name = 'financeiro/cartao/recebimentos.html'
+def _pagamentos_eletronicos():
+    return (PagamentoVenda.objects
+            .filter(Q(forma_pagamento__necessita_tef=True) | Q(forma_pagamento__tipo__in=TIPOS_CARTAO))
+            .select_related("venda", "forma_pagamento"))
 
-class TaxasCartaoView(LoginRequiredMixin, PermissaoAcaoMixin, TemplateView):
-    acao_requerida = 'acessar_financeiro'
-    template_name = 'financeiro/cartao/taxas.html'
 
-class ConciliacaoCartaoView(LoginRequiredMixin, PermissaoAcaoMixin, TemplateView):
-    acao_requerida = 'acessar_financeiro'
-    template_name = 'financeiro/cartao/conciliacao.html'
+def _formas_eletronicas():
+    return FormaPagamento.objects.filter(Q(necessita_tef=True) | Q(tipo__in=TIPOS_CARTAO))
+
+
+def _totais(qs):
+    t = qs.exclude(status__in=STATUS_ANULADOS).aggregate(
+        bruto=Sum("valor_pago"), taxas=Sum("valor_taxa"),
+        liquido=Sum("valor_liquido"), n=Count("id"))
+    return {k: (v or 0) for k, v in t.items()}
+
+
+def _periodo_get(request):
+    hoje = timezone.localdate()
+    try:
+        ini = date.fromisoformat(request.GET.get("inicio", ""))
+    except ValueError:
+        ini = hoje.replace(day=1)
+    try:
+        fim = date.fromisoformat(request.GET.get("fim", ""))
+    except ValueError:
+        fim = hoje
+    return (fim, ini) if ini > fim else (ini, fim)
+
+
+class _CartaoPeriodoMixin(LoginRequiredMixin, PermissaoAcaoMixin):
+    acao_requerida = "acessar_financeiro"
+
+    def pagamentos_periodo(self):
+        self.inicio, self.fim = _periodo_get(self.request)
+        return _pagamentos_eletronicos().filter(data_pagamento__date__range=(self.inicio, self.fim))
+
+    def contexto_periodo(self):
+        params = self.request.GET.copy()
+        params.pop("page", None)
+        return {"inicio": self.inicio, "fim": self.fim, "querystring": params.urlencode()}
+
+
+def _marcar_cancelaveis(pagamentos):
+    lista = list(pagamentos)
+    for p in lista:
+        p.pode_cancelar = p.status in STATUS_CANCELAVEIS
+    return lista
+
+
+class CartaoListView(_CartaoPeriodoMixin, TemplateView):
+    template_name = "financeiro/cartao/lista.html"
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        qs = self.pagamentos_periodo()
+        ctx.update(self.contexto_periodo())
+        ctx["totais"] = _totais(qs)
+        ctx["por_forma"] = (qs.exclude(status__in=STATUS_ANULADOS)
+                            .values("forma_pagamento__nome")
+                            .annotate(n=Count("id"), bruto=Sum("valor_pago"),
+                                      taxas=Sum("valor_taxa"), liquido=Sum("valor_liquido"))
+                            .order_by("-bruto"))
+        rotulos = dict(PagamentoVenda.STATUS_CHOICES)
+        ctx["por_estado"] = [{"rotulo": rotulos.get(r["status"], r["status"]), "n": r["n"]}
+                             for r in qs.values("status").annotate(n=Count("id")).order_by("-n")]
+        ctx["sem_formas"] = not _formas_eletronicas().filter(ativa=True).exists()
+        return ctx
+
+
+class VendasCartaoView(_CartaoPeriodoMixin, ListView):
+    template_name = "financeiro/cartao/vendas.html"
+    context_object_name = "pagamentos"
+    paginate_by = 50
+
+    def get_queryset(self):
+        qs = self.pagamentos_periodo()
+        self.estado = self.request.GET.get("estado", "")
+        if self.estado in dict(PagamentoVenda.STATUS_CHOICES):
+            qs = qs.filter(status=self.estado)
+        return qs.order_by("-data_pagamento")
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        ctx.update(self.contexto_periodo())
+        ctx["totais"] = _totais(self.pagamentos_periodo())
+        ctx["estados"] = PagamentoVenda.STATUS_CHOICES
+        ctx["estado"] = self.estado
+        return ctx
+
+
+class RecebimentosCartaoView(_CartaoPeriodoMixin, TemplateView):
+    template_name = "financeiro/cartao/recebimentos.html"
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        base = self.pagamentos_periodo()
+        aprovados = base.filter(status="aprovado")
+        ctx.update(self.contexto_periodo())
+        ctx["totais"] = _totais(aprovados)
+        ctx["pendentes"] = _totais(base.filter(status__in=STATUS_PENDENTES))
+        ctx["dias"] = (aprovados.annotate(dia=TruncDate("data_pagamento")).values("dia")
+                       .annotate(n=Count("id"), bruto=Sum("valor_pago"),
+                                 taxas=Sum("valor_taxa"), liquido=Sum("valor_liquido"))
+                       .order_by("-dia"))
+        return ctx
+
+
+class TaxasCartaoView(_CartaoPeriodoMixin, TemplateView):
+    template_name = "financeiro/cartao/taxas.html"
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        qs = self.pagamentos_periodo()
+        ctx.update(self.contexto_periodo())
+        por_forma = {r["forma_pagamento"]: r for r in
+                     qs.exclude(status__in=STATUS_ANULADOS).values("forma_pagamento")
+                     .annotate(bruto=Sum("valor_pago"), taxas=Sum("valor_taxa"))}
+        ctx["formas"] = [{
+            "forma": f,
+            "bruto": por_forma.get(f.pk, {}).get("bruto") or 0,
+            "taxas": por_forma.get(f.pk, {}).get("taxas") or 0,
+        } for f in _formas_eletronicas().order_by("ordem_exibicao", "nome")]
+        ctx["totais"] = _totais(qs)
+        return ctx
+
+
+class ConciliacaoCartaoView(_CartaoPeriodoMixin, TemplateView):
+    """Conferência interna (sem extrato do adquirente): lacunas e duplicados."""
+    template_name = "financeiro/cartao/conciliacao.html"
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        base = self.pagamentos_periodo()
+        aprovados = base.filter(status="aprovado")
+        ctx.update(self.contexto_periodo())
+
+        sem_ref = aprovados.filter(Q(nsu="") | Q(numero_autorizacao="")).order_by("-data_pagamento")
+        nsus_dup = [r["nsu"] for r in aprovados.exclude(nsu="").values("nsu")
+                    .annotate(n=Count("id")).filter(n__gt=1)]
+        duplicados = aprovados.filter(nsu__in=nsus_dup).order_by("nsu", "-data_pagamento")
+        parados = base.filter(status__in=STATUS_PENDENTES,
+                              data_pagamento__lt=timezone.now() - timedelta(days=1)).order_by("data_pagamento")
+
+        ctx["totais"] = _totais(aprovados)
+        ctx["sem_ref_total"], ctx["duplicados_total"], ctx["parados_total"] = (
+            sem_ref.count(), duplicados.count(), parados.count())
+        ctx["sem_ref"], ctx["duplicados"], ctx["parados"] = sem_ref[:100], duplicados[:100], parados[:100]
+        return ctx
+
 
 class TEFView(LoginRequiredMixin, PermissaoAcaoMixin, TemplateView):
-    acao_requerida = 'acessar_financeiro'
-    template_name = 'financeiro/tef/tef.html'
+    acao_requerida = "acessar_financeiro"
+    template_name = "financeiro/tef/tef.html"
 
-class TransacoesTEFView(LoginRequiredMixin, PermissaoAcaoMixin, TemplateView):
-    acao_requerida = 'acessar_financeiro'
-    template_name = 'financeiro/tef/transacoes.html'
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        hoje = timezone.localdate()
+        do_dia = _pagamentos_eletronicos().filter(data_pagamento__date=hoje)
+        ctx["hoje"] = hoje
+        ctx["totais"] = _totais(do_dia)
+        ctx["pendentes"] = do_dia.filter(status__in=STATUS_PENDENTES).count()
+        ctx["estornados"] = do_dia.filter(status="estornado").count()
+        ctx["recentes"] = _marcar_cancelaveis(_pagamentos_eletronicos().order_by("-data_pagamento")[:10])
+        ctx["formas_ativas"] = _formas_eletronicas().filter(ativa=True).order_by("ordem_exibicao", "nome")
+        return ctx
+
+
+class TransacoesTEFView(_CartaoPeriodoMixin, ListView):
+    template_name = "financeiro/tef/transacoes.html"
+    context_object_name = "pagamentos"
+    paginate_by = 50
+
+    def get_queryset(self):
+        qs = self.pagamentos_periodo()
+        self.estado = self.request.GET.get("estado", "")
+        self.busca = (self.request.GET.get("q") or "").strip()
+        if self.estado in dict(PagamentoVenda.STATUS_CHOICES):
+            qs = qs.filter(status=self.estado)
+        if self.busca:
+            qs = qs.filter(Q(nsu__icontains=self.busca) | Q(tid__icontains=self.busca) |
+                           Q(numero_autorizacao__icontains=self.busca) |
+                           Q(venda__numero_documento__icontains=self.busca))
+        return qs.order_by("-data_pagamento")
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        ctx.update(self.contexto_periodo())
+        ctx["pagamentos"] = _marcar_cancelaveis(ctx["pagamentos"])
+        ctx["estados"] = PagamentoVenda.STATUS_CHOICES
+        ctx["estado"], ctx["busca"] = self.estado, self.busca
+        return ctx
+
 
 class CancelarTEFView(LoginRequiredMixin, PermissaoAcaoMixin, View):
-    acao_requerida = 'acessar_financeiro'
-    def post(self, request, pk):
-        # Implementar cancelamento TEF
-        messages.success(request, 'Transação TEF cancelada!')
-        return redirect('financeiro:tef')
+    """Regista o estorno do pagamento. A devolução ao cliente faz-se no terminal."""
+    acao_requerida = "acessar_financeiro"
+    http_method_names = ["post"]
 
+    def post(self, request, pk):
+        motivo = (request.POST.get("motivo") or "").strip()
+        if len(motivo) < 5:
+            messages.error(request, "Indique o motivo do cancelamento (mínimo 5 caracteres).")
+            return redirect("financeiro:tef_transacoes")
+
+        with transaction.atomic():
+            pagamento = get_object_or_404(
+                _pagamentos_eletronicos().select_for_update(of=("self",)), pk=pk)
+            if pagamento.status not in STATUS_CANCELAVEIS:
+                messages.error(request, "Esta transação já não pode ser cancelada.")
+                return redirect("financeiro:tef_transacoes")
+            pagamento.status = "estornado"
+            pagamento.data_estorno = timezone.now()
+            pagamento.motivo_estorno = motivo[:255]
+            pagamento.usuario_estorno = request.user
+            pagamento.save(update_fields=["status", "data_estorno", "motivo_estorno", "usuario_estorno"])
+            pagamento.venda.calcular_saldo_e_atualizar_status()
+
+        messages.success(request, "Transação cancelada e valor estornado na venda.")
+        if pagamento.venda.documento_fiscal_id:
+            messages.warning(
+                request,
+                "A venda tem documento fiscal emitido e este cancelamento não o altera. "
+                "Se houve devolução ao cliente, emita a Nota de Crédito correspondente.")
+        return redirect("financeiro:tef_transacoes")
+    
 # =====================================
 # CATEGORIAS E CENTROS DE CUSTO
 # =====================================
@@ -1797,7 +2481,8 @@ class ImpostoTributoListView(LoginRequiredMixin, PermissaoAcaoMixin, ListView):
 
 class ImpostoTributoDetailView(DetailView):
     """Integre get_context_data desta classe na ImpostoTributoDetailView existente."""
-    model = ImpostoTributo
+    acao_requerida = "acessar_financeiro"
+    template_name = "tributacao/imposto_detail.html"
     context_object_name = "imposto"
 
     def get_context_data(self, **kwargs):
@@ -1919,7 +2604,7 @@ def estornar_imposto_view(request, pk):
 
     if imposto.situacao != "pago":
         messages.error(request, "⚠️ Este imposto não está pago, portanto não pode ser estornado.")
-        return redirect("financeiro:detalhe_imposto", pk=imposto.pk)
+        return redirect("financeiro:imposto_detail", pk=imposto.pk)
 
     try:
         resultado = imposto.estornar_imposto_agt(usuario=request.user)

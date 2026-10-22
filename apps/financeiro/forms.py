@@ -9,10 +9,59 @@ from datetime import date, timedelta
 from .models import (
     ContaReceber, ContaPagar, ImpostoTributo,
     CentroCusto, MovimentoCaixa, ContaBancaria,
-    MovimentacaoFinanceira
+    MovimentacaoFinanceira, PlanoConta
 )
 
 
+
+# ADICIONAR ao fim de apps/financeiro/forms.py
+# (garanta: from django import forms  e  from .models import PlanoConta)
+
+class PlanoContaForm(forms.ModelForm):
+    class Meta:
+        model = PlanoConta
+        fields = [
+            "codigo", "nome", "descricao", "classe", "natureza",
+            "conta_pai", "agrupamento_saft", "aceita_lancamentos", "ativa",
+        ]
+        widgets = {"descricao": forms.Textarea(attrs={"rows": 3})}
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # A classe é deduzida do 1.º dígito do código.
+        self.fields["classe"].required = False
+        self.fields["classe"].help_text = "Preenchida automaticamente a partir do código."
+        for nome, campo in self.fields.items():
+            if isinstance(campo.widget, forms.CheckboxInput):
+                campo.widget.attrs.setdefault("class", "form-check-input")
+            else:
+                campo.widget.attrs.setdefault("class", "form-control")
+
+        # Conta agregadora: não pode ser a própria conta nem uma descendente.
+        qs = PlanoConta.objects.filter(ativa=True).order_by("codigo")
+        if self.instance and self.instance.pk:
+            excluidos = {self.instance.pk}
+            fila = [self.instance.pk]
+            while fila:
+                filhos = list(PlanoConta.objects.filter(conta_pai_id__in=fila).values_list("pk", flat=True))
+                filhos = [f for f in filhos if f not in excluidos]
+                excluidos.update(filhos)
+                fila = filhos
+            qs = qs.exclude(pk__in=excluidos)
+        self.fields["conta_pai"].queryset = qs
+
+    def clean(self):
+        cleaned = super().clean()
+        codigo = (cleaned.get("codigo") or "").strip()
+        if codigo:
+            cleaned["codigo"] = codigo
+            cleaned["classe"] = codigo[0]
+            pai = cleaned.get("conta_pai")
+            if pai and pai.classe != codigo[0]:
+                self.add_error("conta_pai", "A conta agregadora tem de pertencer à mesma classe do código.")
+        return cleaned
+
+        
 class ContaReceberForm(forms.ModelForm):
     """Formulário para Conta a Receber (django-tenants)"""
 

@@ -1,0 +1,6 @@
+{% extends 'base.html' %}
+{% block title %}Rever contrato #{{ contrato.pk }}{% endblock %}
+{% block page_title %}Rever contrato solicitado pelo cliente{% endblock %}
+{% block content %}
+<form method="post" class="mx-auto max-w-5xl space-y-4 rounded-xl border bg-white p-6">{% csrf_token %}<h1 class="text-xl font-semibold">Contrato #{{ contrato.pk }} — {{ contrato.cliente.nome_exibicao|default:contrato.cliente.nome_completo }}</h1><section class="rounded bg-orange-50 p-4"><strong>Correção solicitada pelo cliente</strong><p class="mt-2 whitespace-pre-wrap">{{ contrato.comentario_cliente }}</p></section><label class="block font-medium">Edite o texto específico deste cliente. O contrato anterior continuará no histórico; será criada uma nova versão.<div class="mt-2">{{ form.conteudo }}</div></label>{% for error in form.conteudo.errors %}<p class="text-sm text-red-600">{{ error }}</p>{% endfor %}<button class="rounded bg-orange-500 px-4 py-2 text-white" onclick="return confirm('Emitir uma nova versão do contrato?')">Emitir e enviar nova versão</button><a href="{% url 'clientes:lista_contratos' %}" class="ml-3 text-blue-700 underline">Cancelar</a></form>
+{% endblock %}

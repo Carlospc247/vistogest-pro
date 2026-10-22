@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block title %}Solicitar reactivação{% endblock %}
+{% block content %}
+<section class="mx-auto max-w-3xl space-y-5 p-4 sm:p-6">
+  <div class="rounded-xl border border-amber-300 bg-amber-50 p-5"><h1 class="text-2xl font-bold text-amber-900">Conta de parceiro inactiva</h1><p class="mt-2 text-sm text-amber-900">A conta foi inactivada após o período configurado sem novos tenants ou renovações. Só um superuser da SOTARQ pode reactivá-la.</p></div>
+  <form method="post" class="space-y-3 rounded-xl border bg-white p-5">{% csrf_token %}<label class="block"><span class="mb-1 block font-medium">Motivo do pedido (mínimo 20 caracteres)</span><textarea required minlength="20" name="motivo" rows="5" class="w-full rounded-lg border p-3"></textarea></label><button class="rounded-lg bg-blue-600 px-4 py-2 font-semibold text-white">Enviar pedido</button></form>
+  <section class="overflow-hidden rounded-xl border bg-white"><h2 class="border-b p-4 font-semibold">Histórico de pedidos</h2><div class="divide-y">{% for p in pedidos %}<article class="p-4"><div class="flex justify-between gap-2"><strong>{{ p.get_status_display }}</strong><time class="text-xs text-gray-500">{{ p.created_at|date:"d/m/Y H:i" }}</time></div><p class="mt-2 text-sm">{{ p.motivo }}</p>{% if p.resposta %}<p class="mt-2 text-sm text-gray-500">Resposta: {{ p.resposta }}</p>{% endif %}</article>{% empty %}<p class="p-5 text-sm text-gray-500">Sem pedidos anteriores.</p>{% endfor %}</div></section>
+</section>
+{% endblock %}

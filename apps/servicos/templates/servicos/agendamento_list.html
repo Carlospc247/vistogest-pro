@@ -1,77 +1,13 @@
-{% extends 'base.html' %}
-{% block title %}Agenda de Serviços{% endblock %}
-{% block page_title %}Agenda de Serviços{% endblock %}
-{% block page_actions %}<a href="{% url 'servicos:agendamento_create' %}" class="inline-flex ..."><i class="fas fa-plus"></i> Novo Agendamento</a>{% endblock %}
-
+{% extends "base.html" %}
+{% block title %}Agendamentos de Serviços{% endblock %}
 {% block content %}
-<div class="overflow-hidden rounded-lg bg-white shadow-sm dark:bg-gray-800">
-    <div class="mb-6">
-        <label for="searchAgendamento" class="block text-sm font-medium text-gray-700 dark:text-gray-300">Pesquisar Agendamento</label>
-        <input type="search" id="searchAgendamento" placeholder="Cliente, serviço ou funcionário..."
-            class="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white sm:text-sm">
-    </div>
-
-<div id="searchResultsAgendamento" class="mt-2 space-y-2"></div>
-
-    <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-        <thead class="bg-gray-50 dark:bg-gray-700/50">
-            <tr>
-                <th class="py-3.5 pl-6 ...">Data/Hora</th>
-                <th class="px-3 py-3.5 ...">Serviço</th>
-                <th class="px-3 py-3.5 ...">Cliente</th>
-                <th class="px-3 py-3.5 ...">Funcionário</th>
-                <th class="relative py-3.5 pr-6"></th>
-            </tr>
-        </thead>
-        <tbody class="divide-y divide-gray-200 dark:divide-gray-700">
-            {% for agendamento in agendamentos %}
-            <tr>
-                <td class="py-4 pl-6">{{ agendamento.data_hora|date:"d/m/Y H:i" }}</td>
-                <td>{{ agendamento.servico.nome }}</td>
-                <td>{{ agendamento.cliente.nome_completo }}</td>
-                <td>{{ agendamento.funcionario.nome_completo }}</td>
-                <td class="py-4 pr-6 text-right space-x-4">
-                    <a href="{% url 'servicos:agendamento_update' agendamento.pk %}" class="text-blue-600">Editar</a>
-                    <a href="{% url 'servicos:agendamento_delete' agendamento.pk %}" class="text-red-600">Eliminar</a>
-                </td>
-            </tr>
-            {% empty %}
-            <tr><td colspan="5" class="text-center py-12">Nenhum agendamento encontrado.</td></tr>
-            {% endfor %}
-        </tbody>
-    </table>
+{% include "servicos/_styles.html" %}
+<div class="svc-page">
+  <header class="svc-heading"><div><p class="svc-eyebrow">Serviços · Agenda</p><h1>Agendamentos</h1><p class="svc-subtitle">Consulte a agenda, acompanhe estados e aceda rapidamente ao histórico de cada atendimento.</p></div><div class="svc-actions"><a class="svc-btn svc-btn--light" href="{% url 'servicos:servico_dashboard' %}">← Dashboard</a><a class="svc-btn" href="{% url 'servicos:agendamento_create' %}">＋ Novo agendamento</a></div></header>
+  <section class="svc-panel"><form method="get" class="svc-toolbar"><div class="svc-field"><label for="q">Pesquisar</label><input id="q" type="search" name="q" value="{{ filtro_q }}" placeholder="Cliente, serviço ou funcionário"></div><div class="svc-field" style="max-width:240px"><label for="status">Estado</label><select id="status" name="status"><option value="">Todos os estados</option>{% for key,label in status_choices %}<option value="{{ key }}" {% if filtro_status == key %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></div><button class="svc-btn" type="submit">Filtrar</button><a class="svc-btn svc-btn--light" href="{% url 'servicos:agendamento_list' %}">Limpar</a></form>
+    {% if agendamentos %}<div class="svc-table-wrap"><table class="svc-table"><thead><tr><th>Data e hora</th><th>Serviço</th><th>Cliente</th><th>Funcionário</th><th>Valor</th><th>Estado</th><th>Acções</th></tr></thead><tbody>{% for a in agendamentos %}<tr><td><strong>{{ a.data_hora|date:"d/m/Y" }}</strong><br>{{ a.data_hora|date:"H:i" }}</td><td>{{ a.servico.nome }}</td><td>{{ a.cliente.nome_completo }}</td><td>{% if a.funcionario %}{{ a.funcionario.nome_completo }}{% else %}<span class="svc-muted">Por atribuir</span>{% endif %}</td><td>{{ a.valor_cobrado|floatformat:2 }} Kz</td><td><span class="svc-chip {% if a.status == 'finalizado' %}svc-chip--ok{% elif a.status == 'cancelado' or a.status == 'faltou' %}svc-chip--red{% elif a.status == 'em_andamento' %}svc-chip--blue{% else %}svc-chip--warn{% endif %}">{{ a.get_status_display }}</span></td><td><div class="svc-inline-actions"><a class="svc-btn svc-btn--light svc-btn--small" href="{% url 'servicos:agendamento_detail' a.pk %}">Detalhes</a><a class="svc-btn svc-btn--small" href="{% url 'servicos:acompanhamento_agendamento' a.pk %}">Acompanhar</a></div></td></tr>{% endfor %}</tbody></table></div>
+    {% if is_paginated %}<div class="svc-pagination"><span>{{ page_obj.start_index }}–{{ page_obj.end_index }} de {{ page_obj.paginator.count }} agendamentos</span><div class="svc-actions">{% if page_obj.has_previous %}<a class="svc-btn svc-btn--light svc-btn--small" href="?page={{ page_obj.previous_page_number }}&q={{ filtro_q|urlencode }}&status={{ filtro_status|urlencode }}">← Anterior</a>{% endif %}{% if page_obj.has_next %}<a class="svc-btn svc-btn--light svc-btn--small" href="?page={{ page_obj.next_page_number }}&q={{ filtro_q|urlencode }}&status={{ filtro_status|urlencode }}">Seguinte →</a>{% endif %}</div></div>{% endif %}
+    {% else %}<div class="svc-empty"><h3>Nenhum agendamento encontrado</h3><p>Crie um agendamento ou altere os filtros da pesquisa.</p><a class="svc-btn" href="{% url 'servicos:agendamento_create' %}">Criar agendamento</a></div>{% endif %}
+  </section>
 </div>
-
-<script>
-document.addEventListener('DOMContentLoaded', function() {
-    const searchInput = document.getElementById('searchAgendamento');
-    const resultsDiv = document.getElementById('searchResultsAgendamento');
-
-    searchInput.addEventListener('input', async function() {
-        const query = this.value.trim();
-        if (!query) {
-            resultsDiv.innerHTML = '';
-            return;
-        }
-
-        try {
-            const response = await fetch(`/servicos/api/agendamentos/buscar/?q=${encodeURIComponent(query)}`);
-            const data = await response.json();
-
-            if (data.success) {
-                resultsDiv.innerHTML = data.agendamentos.map(a => `
-                    <div class="p-2 border rounded-lg bg-gray-50 dark:bg-gray-700">
-                        <strong>${new Date(a.data_hora).toLocaleString()}</strong> - ${a.servico} - ${a.cliente} - ${a.funcionario} - Status: ${a.status}
-                    </div>
-                `).join('');
-            } else {
-                resultsDiv.innerHTML = `<p class="text-red-500">${data.message}</p>`;
-            }
-        } catch (err) {
-            resultsDiv.innerHTML = `<p class="text-red-500">Erro na busca.</p>`;
-        }
-    });
-});
-</script>
-
 {% endblock %}

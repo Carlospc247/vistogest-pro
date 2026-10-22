@@ -1,4 +1,4 @@
-
+# apps/clientes/forms.py
 from django import forms
 from .models import (
     Ponto,
@@ -13,7 +13,9 @@ from .models import (
     TelefoneCliente,
     GrupoCliente,
     ProgramaFidelidade,
+    ModeloContrato,
 )
+
 
 
 
@@ -187,5 +189,24 @@ class ProgramaFidelidadeForm(StyledModelForm):
         }
 
 
+####################
+# Forms de Contrato
+####################
 
+
+class ModeloContratoForm(forms.ModelForm):
+    class Meta:
+        model = ModeloContrato
+        fields = ["nome", "conteudo", "ativo"]
+        widgets = {
+            "nome": forms.TextInput(attrs={"class": "w-full rounded border px-3 py-2"}),
+            "conteudo": forms.Textarea(attrs={"class": "w-full rounded border px-3 py-2 font-mono", "rows": 12}),
+            "ativo": forms.CheckboxInput(attrs={"class": "h-4 w-4"}),
+        }
+
+
+class EnviarContratoForm(forms.Form):
+    cliente_id = forms.IntegerField(widget=forms.HiddenInput())
+    nome = forms.CharField(max_length=160, required=False)
+    conteudo = forms.CharField(widget=forms.Textarea(attrs={"rows": 14, "class": "w-full rounded border p-3"}))
 

@@ -1,0 +1,66 @@
+{% extends 'base.html' %}
+
+{% block title %}{{ title }}{% endblock %}
+
+{% block page_title %}{{ title }}{% endblock %}
+
+{% block content %}
+<form method="post">
+    {% csrf_token %}
+    <div class="space-y-8">
+        <div class="overflow-hidden rounded-lg bg-white dark:bg-gray-800 shadow-sm p-6">
+            <h2 class="text-base font-semibold text-gray-900 dark:text-white">Informações Principais</h2>
+            <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">Dados de identificação do inventário.</p>
+            <div class="mt-6 grid grid-cols-1 gap-6 md:grid-cols-2">
+                <div class="md:col-span-2">{{ form.titulo.label_tag }}<div class="mt-1">{{ form.titulo }}</div></div>
+                <div class="md:col-span-2">{{ form.descricao.label_tag }}<div class="mt-1">{{ form.descricao }}</div></div>
+            </div>
+        </div>
+        
+        <div class="overflow-hidden rounded-lg bg-white dark:bg-gray-800 shadow-sm p-6">
+            <h2 class="text-base font-semibold text-gray-900 dark:text-white">Escopo e Regras</h2>
+            <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">Defina quais produtos serão contados e as regras do processo.</p>
+            <div class="mt-6 grid grid-cols-1 gap-6 md:grid-cols-2">
+
+                <div>{{ form.categorias.label_tag }}<div class="mt-1">{{ form.categorias }}</div><p class="mt-1 text-xs text-gray-500">{{ form.categorias.help_text }}</p></div>
+            </div>
+            <div class="mt-6 space-y-4">
+                {% for field in form %}
+                    {% if field.widget.input_type == 'checkbox' %}
+                    <div class="relative flex items-start">
+                        <div class="flex h-6 items-center"> {{ field }} </div>
+                        <div class="ml-3 text-sm leading-6">
+                            <label for="{{ field.id_for_label }}" class="font-medium text-gray-900 dark:text-gray-200">{{ field.label }}</label>
+                            <p class="text-gray-500 dark:text-gray-400">{{ field.help_text }}</p>
+                        </div>
+                    </div>
+                    {% endif %}
+                {% endfor %}
+            </div>
+        </div>
+
+        <div class="overflow-hidden rounded-lg bg-white dark:bg-gray-800 shadow-sm p-6">
+             <h2 class="text-base font-semibold text-gray-900 dark:text-white">Agendamento e Responsáveis</h2>
+             <div class="mt-6 grid grid-cols-1 gap-6 md:grid-cols-2">
+                <div>{{ form.data_planejada.label_tag }}<div class="mt-1">{{ form.data_planejada }}</div></div>
+                <div>{{ form.responsaveis_contagem.label_tag }}<div class="mt-1">{{ form.responsaveis_contagem }}</div><p class="mt-1 text-xs text-gray-500">{{ form.responsaveis_contagem.help_text }}</p></div>
+             </div>
+        </div>
+
+    </div>
+    <div class="mt-6 flex items-center justify-end gap-x-4">
+        <a href="{% url 'estoque:inventario_lista' %}" class="text-sm font-semibold text-gray-900 dark:text-white">Cancelar</a>
+        <button type="submit" class="rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-500">Salvar Planeamento</button>
+    </div>
+</form>
+{% endblock %}
+
+{% block extra_js %}
+{# Se quiser usar o Select2 para os campos de múltipla seleção #}
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        // Inicialize o Select2 aqui, se o estiver a usar no seu projeto.
+        // $('.select2').select2();
+    });
+</script>
+{% endblock %}

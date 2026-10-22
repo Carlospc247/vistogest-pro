@@ -1,0 +1,97 @@
+{# financeiro/plano_contas/lista.html #}
+{% extends "financeiro/base_financeiro.html" %}
+{% block title %}Plano de contas{% endblock %}
+{% block breadcrumb %}Plano de contas{% endblock %}
+{% block content %}
+<header class="page-head">
+  <div><h1>Plano de contas</h1><p>Plano Geral de Contabilidade (PGC) da empresa.</p></div>
+  <div class="actions">
+    <a class="btn" href="{% url 'financeiro:plano_conta_create' %}"><i class="fas fa-plus"></i> Nova conta</a>
+    <a class="btn secondary" href="{% url 'financeiro:dashboard' %}"><i class="fas fa-arrow-left"></i> Painel</a>
+  </div>
+</header>
+
+<div class="grid">
+  <article class="metric"><div class="label">Contas no plano</div><div class="value">{{ total_contas }}</div></article>
+  <article class="metric"><div class="label">Contas ativas</div><div class="value">{{ total_ativas }}</div></article>
+  <article class="metric"><div class="label">Contas de movimento</div><div class="value">{{ total_movimento }}</div><div class="hint">Aceitam lançamentos</div></article>
+  <article class="metric"><div class="label">Resultado do filtro</div><div class="value">{{ total_filtrado }}</div></article>
+</div>
+
+<section class="panel">
+  <form method="get" class="pc-filtros">
+    <input type="search" name="q" value="{{ filtros.q|default:'' }}" placeholder="Código ou designação…">
+    <select name="classe">
+      <option value="">Todas as classes</option>
+      {% for v, l in classes %}<option value="{{ v }}" {% if filtros.classe == v %}selected{% endif %}>{{ l }}</option>{% endfor %}
+    </select>
+    <select name="natureza">
+      <option value="">Todas as naturezas</option>
+      {% for v, l in naturezas %}<option value="{{ v }}" {% if filtros.natureza == v %}selected{% endif %}>{{ l }}</option>{% endfor %}
+    </select>
+    <select name="tipo">
+      <option value="">Agregadoras e movimento</option>
+      <option value="movimento" {% if filtros.tipo == 'movimento' %}selected{% endif %}>Só de movimento</option>
+      <option value="agregadora" {% if filtros.tipo == 'agregadora' %}selected{% endif %}>Só agregadoras</option>
+    </select>
+    <select name="estado">
+      <option value="">Ativas e inativas</option>
+      <option value="ativas" {% if filtros.estado == 'ativas' %}selected{% endif %}>Ativas</option>
+      <option value="inativas" {% if filtros.estado == 'inativas' %}selected{% endif %}>Inativas</option>
+    </select>
+    <button class="btn" type="submit"><i class="fas fa-search"></i> Filtrar</button>
+    <a class="btn secondary" href="{% url 'financeiro:plano_conta_lista' %}">Limpar</a>
+  </form>
+</section>
+
+<section class="panel">
+  <div class="pc-table-wrap">
+    <table class="pc-table">
+      <thead>
+        <tr><th>Código</th><th>Designação</th><th>Classe</th><th>Natureza</th><th>Agregadora</th><th>Tipo</th><th>Estado</th><th class="pc-right">Ações</th></tr>
+      </thead>
+      <tbody>
+      {% for c in contas %}
+        <tr{% if not c.ativa %} class="pc-inativa"{% endif %}>
+          <td><a href="{% url 'financeiro:plano_conta_detail' c.pk %}"><strong>{{ c.codigo }}</strong></a></td>
+          <td>{{ c.nome }}</td>
+          <td>{{ c.classe }}</td>
+          <td>{{ c.get_natureza_display }}</td>
+          <td>{% if c.conta_pai %}{{ c.conta_pai.codigo }}{% else %}—{% endif %}</td>
+          <td>{% if c.aceita_lancamentos %}Movimento{% else %}Agregadora{% endif %}</td>
+          <td>{% if c.ativa %}Ativa{% else %}Inativa{% endif %}</td>
+          <td class="pc-right pc-acoes">
+            <a class="btn secondary" href="{% url 'financeiro:plano_conta_detail' c.pk %}" title="Ver"><i class="fas fa-eye"></i></a>
+            <a class="btn secondary" href="{% url 'financeiro:plano_conta_update' c.pk %}" title="Editar"><i class="fas fa-pen"></i></a>
+            <a class="btn secondary" href="{% url 'financeiro:plano_conta_delete' c.pk %}" title="Eliminar"><i class="fas fa-trash"></i></a>
+          </td>
+        </tr>
+      {% empty %}
+        <tr><td colspan="8">Nenhuma conta encontrada.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {% if is_paginated %}
+  <nav class="pc-pager" aria-label="Paginação">
+    {% if page_obj.has_previous %}<a class="btn secondary" href="?{% if querystring %}{{ querystring }}&{% endif %}page={{ page_obj.previous_page_number }}">← Anterior</a>{% endif %}
+    <span>Página {{ page_obj.number }} de {{ page_obj.paginator.num_pages }}</span>
+    {% if page_obj.has_next %}<a class="btn secondary" href="?{% if querystring %}{{ querystring }}&{% endif %}page={{ page_obj.next_page_number }}">Seguinte →</a>{% endif %}
+  </nav>
+  {% endif %}
+</section>
+
+<style>
+  .pc-filtros{display:flex;flex-wrap:wrap;gap:.5rem;align-items:center}
+  .pc-filtros input,.pc-filtros select{padding:.5rem .65rem;border:1px solid #cbd5e1;border-radius:8px;background:#fff;min-width:150px}
+  .pc-table-wrap{overflow-x:auto}
+  .pc-table{width:100%;border-collapse:collapse;font-size:.92rem}
+  .pc-table th,.pc-table td{padding:.55rem .6rem;border-bottom:1px solid #e2e8f0;text-align:left;vertical-align:middle}
+  .pc-table th{font-size:.78rem;text-transform:uppercase;letter-spacing:.03em;color:#64748b}
+  .pc-right{text-align:right!important;white-space:nowrap}
+  .pc-acoes .btn{padding:.3rem .55rem}
+  .pc-inativa{opacity:.55}
+  .pc-pager{display:flex;gap:1rem;justify-content:center;align-items:center;margin-top:1rem}
+</style>
+{% endblock %}

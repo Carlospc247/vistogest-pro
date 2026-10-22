@@ -149,7 +149,11 @@
     </div>
 </div>
 
+<!--usar o static para offline quando quiseres funcionar offline (PWA), troca o-->
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+{# {% static 'vendor/chartjs/chart.umd.min.js' %} #}
+
+
 <script>
     document.addEventListener('DOMContentLoaded', function () {
         const crescimentoLabels = JSON.parse("{{ crescimento_labels|safe }}");

@@ -1,2 +1,12 @@
-{% extends "financeiro/base_financeiro.html" %}{% block title %}Vendas com cartão{% endblock %}{% block breadcrumb %}Vendas com cartão{% endblock %}{% block content %}
-<header class="page-head"><div><h1>Vendas com cartão</h1><p>Acompanhe as vendas processadas por cartão.</p></div>{% block page_actions %}{% endblock %}</header><section class="panel"><div class="notice">Esta view é apresentada como página base no código enviado e ainda não disponibiliza dados de cartão no contexto. A interface está preparada para receber filtros, totais e registos quando a integração for implementada.</div><div class="link-grid"><a class="link-card" href="{% url 'financeiro:vendas_cartao' %}"><strong>Vendas</strong><span>Operações de cartão</span></a><a class="link-card" href="{% url 'financeiro:recebimentos_cartao' %}"><strong>Recebimentos</strong><span>Valores liquidados</span></a><a class="link-card" href="{% url 'financeiro:conciliacao_cartao' %}"><strong>Conciliação</strong><span>Conferência de extractos</span></a></div></section>{% endblock %}
+{# financeiro/cartao/vendas.html #}
+{% extends "financeiro/base_financeiro.html" %}
+{% block title %}Vendas com cartão{% endblock %}
+{% block breadcrumb %}Vendas com cartão{% endblock %}
+{% block content %}
+<header class="page-head"><div><h1>Vendas com cartão</h1><p>Pagamentos por cartão no período: {{ totais.n }} transações, {{ totais.bruto|floatformat:2 }} AOA brutos.</p></div></header>
+{% include "financeiro/cartao/_nav.html" with filtro=True %}
+<section class="panel">
+  {% include "financeiro/cartao/_tabela.html" %}
+  {% include "financeiro/cartao/_paginacao.html" %}
+</section>
+{% endblock %}

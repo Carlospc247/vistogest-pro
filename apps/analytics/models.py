@@ -149,7 +149,7 @@ class NotificacaoAlerta(models.Model):
     alerta = models.ForeignKey(AlertaInteligente, on_delete=models.CASCADE, null=True,blank=True, related_name='notificacoes', verbose_name="Alerta")
     usuario = models.ForeignKey(
         Usuario, 
-        on_delete=models.CASCADE,  # ou models.SET_NULL
+        on_delete=models.CASCADE,
         null=True, 
         blank=True,
         related_name='notificacoes_alertas',

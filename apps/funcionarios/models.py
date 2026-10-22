@@ -100,7 +100,13 @@ class Cargo(TimeStampedModel):
     pode_emitir_recibo = models.BooleanField(default=False)
     pode_acessar_documentos = models.BooleanField(default=False)
     pode_acessar_rh = models.BooleanField(default=False)
+    pode_gerir_senhas = models.BooleanField(
+        default=False,
+        verbose_name='Pode gerir senhas',
+        help_text='Pode criar acesso e redefinir a senha de outros funcionários.',
+    )
     pode_acessar_financeiro = models.BooleanField(default=False)
+    pode_ver_rentabilidade = models.BooleanField(default=False)
     pode_acessar_fornecedores = models.BooleanField(default=False)
     pode_alterar_dados_fiscais = models.BooleanField(default=False)
     pode_eliminar_detalhes_fiscal = models.BooleanField(default=False)
@@ -1160,6 +1166,8 @@ class Candidato(models.Model):
     def __str__(self):
         return f"{self.nome} ({self.get_status_display()})"
 
+
+
 class Comunicado(models.Model):
     titulo = models.CharField(max_length=200)
     mensagem = models.TextField()
@@ -1178,6 +1186,7 @@ class Comunicado(models.Model):
 
     def __str__(self):
         return self.titulo
+
 
 class FolhaPagamento(TimeStampedModel):
     """Folha de pagamento mensal"""

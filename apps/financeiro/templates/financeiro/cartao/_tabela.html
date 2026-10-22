@@ -1,0 +1,36 @@
+{# financeiro/cartao/_tabela.html — usar com pagamentos=... [acoes=True] #}
+<div style="overflow-x:auto">
+<table class="fin-table">
+  <thead><tr>
+    <th>Data</th><th>Documento</th><th>Forma</th><th>Parc.</th>
+    <th class="num">Bruto</th><th class="num">Taxa</th><th class="num">Líquido</th>
+    <th>NSU / Autorização</th><th>Estado</th>{% if acoes %}<th>Cancelar</th>{% endif %}
+  </tr></thead>
+  <tbody>
+  {% for p in pagamentos %}
+  <tr>
+    <td>{{ p.data_pagamento|date:"d/m/Y H:i" }}</td>
+    <td>{{ p.venda.numero_documento }}</td>
+    <td>{{ p.forma_pagamento.nome }}</td>
+    <td>{{ p.numero_parcelas }}x</td>
+    <td class="num">{{ p.valor_pago|floatformat:2 }}</td>
+    <td class="num">{{ p.valor_taxa|floatformat:2 }}</td>
+    <td class="num">{{ p.valor_liquido|floatformat:2 }}</td>
+    <td>{{ p.nsu|default:"—" }} / {{ p.numero_autorizacao|default:"—" }}</td>
+    <td><span class="fin-badge fin-{{ p.status }}">{{ p.get_status_display }}</span></td>
+    {% if acoes %}<td>
+      {% if p.pode_cancelar %}
+      <form method="post" action="{% url 'financeiro:tef_cancelar' p.pk %}" class="fin-cancel">
+        {% csrf_token %}
+        <input name="motivo" required minlength="5" maxlength="255" placeholder="Motivo">
+        <button type="submit" class="btn secondary" onclick="return confirm('Cancelar esta transação?');">Cancelar</button>
+      </form>
+      {% endif %}
+    </td>{% endif %}
+  </tr>
+  {% empty %}
+  <tr><td colspan="10" class="fin-vazio">Sem registos neste período.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>

@@ -4,9 +4,6 @@ from . import views
 
 
 
-
-
-
 app_name = 'vendas'
 
 urlpatterns = [
@@ -32,16 +29,6 @@ urlpatterns = [
     path('pagamentos/cartao/', views.PagamentoCartaoView.as_view(), name='pagamento_cartao'),
     path('pagamentos/convenio/', views.PagamentoConvenioView.as_view(), name='pagamento_convenio'),
     path('pagamentos/crediario/', views.PagamentoCrediarioView.as_view(), name='pagamento_crediario'),
-    
-    # =====================================
-    # 3. ORÇAMENTOS
-    # =====================================
-    path('orcamentos/', views.OrcamentoListView.as_view(), name='orcamento_lista'),
-    path('orcamentos/novo/', views.OrcamentoCreateView.as_view(), name='orcamento_create'),
-    path('orcamentos/<int:pk>/', views.OrcamentoDetailView.as_view(), name='orcamento_detail'),
-    path('orcamentos/<int:pk>/editar/', views.OrcamentoUpdateView.as_view(), name='orcamento_update'),
-    path('orcamentos/<int:pk>/excluir/', views.OrcamentoDeleteView.as_view(), name='orcamento_delete'),
-    path("orcamentos/<int:pk>/converter/", views.OrcamentoConverterView.as_view(), name="orcamento_converter"),
     
     # =====================================
     # 4. DEVOLUÇÕES
@@ -131,6 +118,13 @@ urlpatterns = [
     
     path('api/converter-proforma/<int:proforma_id>/', views.converter_proforma_api, name='converter_proforma'),
     path('api/atualizar-status-proforma/<int:proforma_id>/', views.atualizar_status_proforma_api, name='atualizar_status_proforma'),
+
+ 
+    path('api/proforma/finalizar/', views.finalizar_proforma_api, name='api_finalizar_proforma'),
+    path('api/fatura-credito/finalizar/', views.finalizar_fatura_credito_api, name='api_finalizar_fatura_credito'),
+    path('proforma/<int:proforma_id>/pdf/', views.proforma_pdf_view, name='proforma_pdf'),
+    path('api/fatura-credito/<int:fatura_id>/a4/', views.fatura_credito_pdf_view, name='fatura_credito_pdf'),
+    path('api/fatura/<int:venda_id>/<str:tipo>/', views.fatura_pdf_view, name='fatura_pdf'),
 
     # =====================================
     # 12. API REST ROUTER (DRF)

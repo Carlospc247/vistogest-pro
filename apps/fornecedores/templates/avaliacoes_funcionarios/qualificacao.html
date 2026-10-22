@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% block vendor_libs %}
+  {% include 'partials/vendor_chartjs.html' %}
+{% endblock %}
+
+{% block title %}Dashboard de Qualificação de Fornecedores{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <h2>Qualificação de Fornecedores</h2>
+    <p class="lead">Análise detalhada do desempenho dos seus parceiros de negócio.</p>
+    <hr>
+    
+    {# Filtros (Seção Crítica para Dashboards) #}
+    <div class="card card-body bg-light mb-4">
+        <form method="get" class="row g-3 align-items-end">
+            <div class="col-md-4">
+                <label for="id_fornecedor" class="form-label">Filtrar por Fornecedor:</label>
+                {# Deve ser um campo de busca/select dinâmico #}
+                <input type="text" class="form-control" id="id_fornecedor" placeholder="Nome ou Código do Fornecedor">
+            </div>
+            <div class="col-md-3">
+                <label for="id_periodo" class="form-label">Período:</label>
+                <select id="id_periodo" class="form-select">
+                    <option>Últimos 3 Meses</option>
+                    <option>Últimos 6 Meses</option>
+                    <option>Ano Atual</option>
+                </select>
+            </div>
+            <div class="col-md-2">
+                <button type="submit" class="btn btn-primary w-100">
+                    <i class="fas fa-filter"></i> Aplicar
+                </button>
+            </div>
+        </form>
+    </div>
+
+    {# Indicadores Chave de Performance (KPIs) #}
+    <div class="row mb-5">
+        <div class="col-md-4">
+            <div class="card text-white bg-success mb-3">
+                <div class="card-header">Nota Média Geral</div>
+                <div class="card-body">
+                    <h1 class="card-title">{{ qualificacao_data.media_geral|floatformat:1|default:"N/A" }} / 10</h1>
+                    <p class="card-text">Baseado em {{ qualificacao_data.total_avaliacoes|default:0 }} avaliações.</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card text-white bg-warning mb-3">
+                <div class="card-header">Taxa de Atraso (Pedidos)</div>
+                <div class="card-body">
+                    <h1 class="card-title">{{ qualificacao_data.taxa_atraso|floatformat:1|default:"0.0" }}%</h1>
+                    <p class="card-text">Atrasos médios no último período.</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card text-white bg-info mb-3">
+                <div class="card-header">Fornecedores Críticos</div>
+                <div class="card-body">
+                    <h1 class="card-title">{{ qualificacao_data.criticos_count|default:0 }}</h1>
+                    <p class="card-text">Fornecedores com nota inferior a 6.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    {# Gráficos (Espaço para integração de Chart.js ou outra biblioteca) #}
+    <div class="card shadow-sm p-4">
+        <h4>Tendência da Qualidade (Média Móvel)</h4>
+        <canvas id="qualityChart" height="100"></canvas>
+        <p class="text-muted small mt-2">Use **Chart.js** aqui para renderizar `qualificacao_data.chart_json`.</p>
+    </div>
+</div>
+{% endblock %}

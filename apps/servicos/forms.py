@@ -109,6 +109,8 @@ class AgendamentoServicoForm(forms.ModelForm):
             self.fields['cliente'].queryset = Cliente.objects.filter(ativo=True)
             self.fields['funcionario'].queryset = Funcionario.objects.filter(ativo=True)
 
+
+
 # -----------------------------------------------------------------------------
 # FORMULÁRIO PARA AÇÃO DE FINALIZAR SERVIÇO
 # -----------------------------------------------------------------------------

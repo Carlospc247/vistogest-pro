@@ -610,7 +610,7 @@ class CategoriaListView(CategoriaBaseView, ListView):
 
 
 
-class CategoriaCreateView(CategoriaBaseView, CreateView):
+class CategoriaCreateView(CategoriaBaseView, TenantRequeridoMixin,  CreateView):
     model = Categoria
     # --- PONTO CRÍTICO DA CORREÇÃO ---
     form_class = CategoriaForm
@@ -621,12 +621,12 @@ class CategoriaCreateView(CategoriaBaseView, CreateView):
     def get_form_kwargs(self):
         # Este método é essencial para passar a 'empresa' para o formulário
         kwargs = super().get_form_kwargs()
-        kwargs['empresa'] = self.get_empresa()
+        #kwargs['empresa'] = self.get_empresa()
         return kwargs
 
     def form_valid(self, form):
         # A lógica aqui está correta, associa a empresa antes de salvar
-        form.instance.empresa = self.get_empresa()
+        #form.instance.empresa = self.get_empresa()
         messages.success(self.request, "Categoria criada com sucesso!")
         return super().form_valid(form)
     
@@ -645,7 +645,6 @@ class CategoriaUpdateView(CategoriaBaseView, UpdateView):
     def get_form_kwargs(self):
         """ Passa a empresa para o formulário. """
         kwargs = super().get_form_kwargs()
-        kwargs['empresa'] = self.get_empresa()
         return kwargs
 
     def form_valid(self, form):

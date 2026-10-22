@@ -1,28 +1,39 @@
 # apps/parceiros/management/commands/listar_parceiros.py
+"""Lista parceiros com métricas do modelo comercial novo.
+
+Uso: python manage.py listar_parceiros --settings=config.settings.development
+"""
+from decimal import Decimal
 from django.core.management.base import BaseCommand
-from apps.parceiros.models import Partner
+from django.db.models import Sum
+from django.utils import timezone
+from django_tenants.utils import schema_context
+from apps.parceiros.models import Partner, PartnerClient, PartnerAudit
+from apps.parceiros.models_comercial import PartnerCommission
 
 
 class Command(BaseCommand):
-    help = 'Lista todos os parceiros com estado e quota'
+    help = 'Lista parceiros, estado de actividade, tenants e comissões'
 
     def handle(self, *args, **options):
-        partners = Partner.objects.select_related('usuario').order_by('nome')
-        if not partners.exists():
-            self.stdout.write('Nenhum parceiro cadastrado.')
-            return
-
-        self.stdout.write(f'\n{"ID":<5} {"Nome":<30} {"Estado":<12} {"Licença":<25} {"Quota"}')
-        self.stdout.write('-' * 90)
-        for p in partners:
-            lic = p.licenca_activa
-            lic_label = lic.plano.nome[:24] if lic else '(sem licença)'
-            quota = ''
-            if lic:
-                s = lic.saldo()
-                t_lim = '∞' if s['ilimitado_total'] else str(s['total_limite'])
-                quota = f"{s['total_usado']}/{t_lim}"
-            self.stdout.write(
-                f"{p.pk:<5} {p.nome[:30]:<30} {p.status:<12} {lic_label:<25} {quota}"
-            )
-        self.stdout.write('')
+        with schema_context('public'):
+            partners = Partner.objects.order_by('nome').iterator(chunk_size=200)
+            hoje = timezone.localdate()
+            self.stdout.write(f"{'ID':<6} {'Parceiro':<30} {'Estado':<12} {'Tenants':>8} {'Última actividade':<18} {'Comissão paga':>18}")
+            self.stdout.write('-' * 105)
+            encontrou = False
+            for partner in partners:
+                encontrou = True
+                ultima = PartnerAudit.objects.filter(
+                    partner=partner,
+                    acao__in=('CLIENT_CREATED', 'CLIENT_LICENSE_RENEWED'),
+                ).order_by('-created_at').values_list('created_at', flat=True).first()
+                ultima_data = timezone.localtime(ultima).date() if ultima else partner.created_at.date()
+                total = PartnerClient.objects.filter(partner=partner).count()
+                paga = PartnerCommission.objects.filter(partner=partner, status='paga').aggregate(v=Sum('valor_comissao'))['v'] or Decimal('0.00')
+                self.stdout.write(
+                    f"{partner.pk:<6} {partner.nome[:30]:<30} {partner.status:<12} {total:>8} "
+                    f"{str(ultima_data):<18} {paga:>18,.2f} AOA"
+                )
+            if not encontrou:
+                self.stdout.write('Nenhum parceiro cadastrado.')

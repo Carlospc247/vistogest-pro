@@ -135,6 +135,10 @@ class CategoriaFinanceira(TimeStampedModel):
     nome = models.CharField(max_length=100)
     tipo = models.CharField(max_length=10, choices=TIPO_CHOICES, default='receita')
     ativa = models.BooleanField(default=True)
+    plano_contas = models.ForeignKey(
+        'PlanoConta', on_delete=models.PROTECT, null=True, blank=True,
+        related_name='categorias_financeiras', verbose_name='Conta do Plano de Contas'
+    )
 
     class Meta:
         verbose_name = "Categoria Financeira"
@@ -143,6 +147,86 @@ class CategoriaFinanceira(TimeStampedModel):
 
     def __str__(self):
         return f"{self.nome} ({self.get_tipo_display()})"
+
+
+class PlanoConta(TimeStampedModel):
+    """Conta do Plano Geral de Contabilidade angolano (PGC)."""
+    CLASSE_CHOICES = [
+        ('1', '1 — Meios fixos e investimentos'),
+        ('2', '2 — Existências'),
+        ('3', '3 — Terceiros'),
+        ('4', '4 — Meios monetários'),
+        ('5', '5 — Capital e reservas'),
+        ('6', '6 — Proveitos e ganhos por natureza'),
+        ('7', '7 — Custos e perdas por natureza'),
+        ('8', '8 — Resultados'),
+    ]
+    NATUREZA_CHOICES = [
+        ('ativo', 'Activo'),
+        ('passivo', 'Passivo'),
+        ('patrimonio_liquido', 'Capital próprio'),
+        ('receita', 'Proveitos'),
+        ('custo', 'Custos'),
+        ('resultado', 'Resultados'),
+        ('mista', 'Mista / Terceiros'),
+        ('ordem', 'Contas de ordem'),
+    ]
+    AGRUPAMENTO_SAFT_CHOICES = [
+        ('GR', 'Conta de 1.º grau da contabilidade geral'),
+        ('GA', 'Conta agregadora/integrador da contabilidade geral'),
+        ('GM', 'Conta de movimento da contabilidade geral'),
+        ('AR', 'Conta de 1.º grau da contabilidade analítica'),
+        ('AA', 'Conta agregadora/integrador da contabilidade analítica'),
+        ('AM', 'Conta de movimento da contabilidade analítica'),
+    ]
+
+    codigo = models.CharField(max_length=30, unique=True, verbose_name='Código da conta')
+    nome = models.CharField(max_length=180, verbose_name='Designação')
+    descricao = models.TextField(blank=True)
+    classe = models.CharField(max_length=1, choices=CLASSE_CHOICES)
+    natureza = models.CharField(max_length=24, choices=NATUREZA_CHOICES, default='mista')
+    conta_pai = models.ForeignKey(
+        'self', on_delete=models.PROTECT, null=True, blank=True,
+        related_name='subcontas', verbose_name='Conta agregadora'
+    )
+    agrupamento_saft = models.CharField(
+        max_length=2, choices=AGRUPAMENTO_SAFT_CHOICES, default='GM',
+        verbose_name='Agrupamento SAF-T'
+    )
+    aceita_lancamentos = models.BooleanField(
+        default=True, verbose_name='Aceita lançamentos',
+        help_text='Desactive nas classes/contas agregadoras.'
+    )
+    ativa = models.BooleanField(default=True)
+    origem = models.CharField(max_length=60, default='PGC Angola — Decreto n.º 82/01')
+
+    class Meta:
+        verbose_name = 'Conta do Plano de Contas'
+        verbose_name_plural = 'Plano de Contas'
+        ordering = ['codigo']
+        indexes = [models.Index(fields=['classe', 'ativa'])]
+
+    def clean(self):
+        super().clean()
+        codigo = (self.codigo or '').strip()
+        import re
+        if not codigo or not re.fullmatch(r'[1-8](?:[0-9]+)?(?:\.[0-9]+)*', codigo):
+            raise ValidationError({'codigo': 'Use um código PGC numérico, com pontos apenas entre os níveis (classes 1 a 8).'})
+        if codigo[0] not in dict(self.CLASSE_CHOICES):
+            raise ValidationError({'codigo': 'A classe deve estar entre 1 e 8 neste plano-base.'})
+        if self.conta_pai_id and self.conta_pai_id == self.pk:
+            raise ValidationError({'conta_pai': 'Uma conta não pode ser sua própria conta agregadora.'})
+
+    def save(self, *args, **kwargs):
+        self.codigo = (self.codigo or '').strip()
+        if self.codigo and not self.classe:
+            self.classe = self.codigo[0]
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f'{self.codigo} — {self.nome}'
+
+
 
 class MovimentacaoFinanceira(TimeStampedModel):
     """Movimentações financeiras"""
@@ -208,6 +292,10 @@ class MovimentacaoFinanceira(TimeStampedModel):
         null=True,
         blank=True,
         related_name='%(class)s_relacionada'
+    )
+    plano_contas = models.ForeignKey(
+        'PlanoConta', on_delete=models.PROTECT, null=True, blank=True,
+        related_name='movimentacoes', verbose_name='Conta do Plano de Contas'
     )
     centro_custo = models.ForeignKey(CentroCusto, on_delete=models.PROTECT, null=True, blank=True)
 

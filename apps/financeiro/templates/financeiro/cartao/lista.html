@@ -1,2 +1,32 @@
-{% extends "financeiro/base_financeiro.html" %}{% block title %}Gestão de cartões{% endblock %}{% block breadcrumb %}Gestão de cartões{% endblock %}{% block content %}
-<header class="page-head"><div><h1>Gestão de cartões</h1><p>Visão geral das operações e configurações de cartões.</p></div>{% block page_actions %}{% endblock %}</header><section class="panel"><div class="notice">Esta view é apresentada como página base no código enviado e ainda não disponibiliza dados de cartão no contexto. A interface está preparada para receber filtros, totais e registos quando a integração for implementada.</div><div class="link-grid"><a class="link-card" href="{% url 'financeiro:vendas_cartao' %}"><strong>Vendas</strong><span>Operações de cartão</span></a><a class="link-card" href="{% url 'financeiro:recebimentos_cartao' %}"><strong>Recebimentos</strong><span>Valores liquidados</span></a><a class="link-card" href="{% url 'financeiro:conciliacao_cartao' %}"><strong>Conciliação</strong><span>Conferência de extractos</span></a></div></section>{% endblock %}
+{# financeiro/cartao/lista.html #}
+{% extends "financeiro/base_financeiro.html" %}
+{% block title %}Gestão de cartões{% endblock %}
+{% block breadcrumb %}Gestão de cartões{% endblock %}
+{% block content %}
+<header class="page-head"><div><h1>Gestão de cartões</h1><p>Operações de cartão e TPA no período, calculadas a partir dos pagamentos das vendas.</p></div></header>
+{% include "financeiro/cartao/_nav.html" with filtro=True %}
+{% if sem_formas %}
+<div class="notice warning">Nenhuma forma de pagamento por cartão está ativa. <a href="{% url 'financeiro:formas_pagamento' %}">Ativar nas formas de pagamento</a>.</div>
+{% endif %}
+<div class="grid">
+  <article class="metric"><div class="label">Transações</div><div class="value">{{ totais.n }}</div><div class="hint">Excluindo anuladas</div></article>
+  <article class="metric"><div class="label">Total bruto</div><div class="value">{{ totais.bruto|floatformat:2 }} AOA</div><div class="hint">Valor pago pelos clientes</div></article>
+  <article class="metric"><div class="label">Taxas</div><div class="value">{{ totais.taxas|floatformat:2 }} AOA</div><div class="hint">Encargos do adquirente</div></article>
+  <article class="metric"><div class="label">Total líquido</div><div class="value">{{ totais.liquido|floatformat:2 }} AOA</div><div class="hint">Bruto menos taxas</div></article>
+</div>
+<section class="panel">
+  <h2>Por forma de pagamento</h2>
+  <table class="fin-table">
+    <thead><tr><th>Forma</th><th class="num">Transações</th><th class="num">Bruto</th><th class="num">Taxas</th><th class="num">Líquido</th></tr></thead>
+    <tbody>
+    {% for r in por_forma %}
+      <tr><td>{{ r.forma_pagamento__nome }}</td><td class="num">{{ r.n }}</td><td class="num">{{ r.bruto|floatformat:2 }}</td><td class="num">{{ r.taxas|floatformat:2 }}</td><td class="num">{{ r.liquido|floatformat:2 }}</td></tr>
+    {% empty %}<tr><td colspan="5" class="fin-vazio">Sem transações neste período.</td></tr>{% endfor %}
+    </tbody>
+  </table>
+</section>
+<section class="panel">
+  <h2>Por estado</h2>
+  <p>{% for e in por_estado %}<span class="fin-badge" style="margin-right:.4rem">{{ e.rotulo }}: {{ e.n }}</span>{% empty %}Sem dados.{% endfor %}</p>
+</section>
+{% endblock %}

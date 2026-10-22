@@ -1,17 +1,9 @@
-{% extends 'base.html' %}
-{% block title %}{{ title|default:"Formulário de Agendamento" }}{% endblock %}
+{% extends "base.html" %}
+{% block title %}{% if object %}Editar agendamento{% else %}Novo agendamento{% endif %}{% endblock %}
 {% block content %}
-<div class="overflow-hidden rounded-lg bg-white dark:bg-gray-800 shadow-sm">
-    <form method="post">
-        {% csrf_token %}
-        <div class="p-6 space-y-6">
-            <h2 class="text-lg font-semibold">{{ title }}</h2>
-            {{ form.as_p }}
-        </div>
-        <div class="flex items-center justify-end gap-x-4 px-6 py-4 bg-gray-50 dark:bg-gray-800/50">
-            <a href="{% url 'servicos:agendamento_list' %}" class="text-sm font-semibold">Cancelar</a>
-            <button type="submit" class="rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white">Salvar Agendamento</button>
-        </div>
-    </form>
+{% include "servicos/_styles.html" %}
+<div class="svc-page" style="max-width:1050px">
+  <header class="svc-heading"><div><p class="svc-eyebrow">Serviços · Agenda</p><h1>{% if object %}Editar agendamento{% else %}Novo agendamento{% endif %}</h1><p class="svc-subtitle">Associe o cliente, o serviço, o horário e os dados operacionais do atendimento.</p></div><div class="svc-actions"><a class="svc-btn svc-btn--light" href="{% url 'servicos:agendamento_list' %}">← Voltar à agenda</a></div></header>
+  <section class="svc-panel">{% if form.non_field_errors %}<div class="svc-alert">{{ form.non_field_errors }}</div>{% endif %}<form method="post" class="svc-form">{% csrf_token %}{% for hidden in form.hidden_fields %}{{ hidden }}{% endfor %}{% for field in form.visible_fields %}<div class="svc-field" style="margin-bottom:17px"><label for="{{ field.id_for_label }}">{{ field.label }}{% if field.field.required %} <span style="color:#b91c1c">*</span>{% endif %}</label>{{ field }}{% if field.help_text %}<small class="svc-muted">{{ field.help_text }}</small>{% endif %}{% for error in field.errors %}<small style="color:#b91c1c">{{ error }}</small>{% endfor %}</div>{% endfor %}<div class="svc-form-footer"><button class="svc-btn" type="submit">Guardar agendamento</button><a class="svc-btn svc-btn--light" href="{% url 'servicos:agendamento_list' %}">Cancelar</a></div></form></section>
 </div>
 {% endblock %}

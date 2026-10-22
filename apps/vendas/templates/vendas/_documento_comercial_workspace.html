@@ -1,0 +1,421 @@
+<div id="commercialApp" class="com-app"
+ data-mode="{{ modo }}" data-regime="{{ regime|escape }}"
+ data-categories-url="{{ categories_url }}" data-products-url="{{ products_url }}"
+ data-services-url="{{ services_url }}" data-clients-url="{{ clients_url }}"
+ data-create-url="{{ create_url }}" data-payment-url="{{ payment_url }}"
+ data-pdf-template="{{ pdf_template }}" data-pdf-a4="{{ pdf_a4_template }}" data-pdf-thermal="{{ pdf_thermal_template }}"
+ data-document-title="{{ titulo_doc|escape }}">
+    <header class="com-header">
+        <div>
+            <h1 class="com-title"><span class="com-title-icon"><i class="fas {% if modo == 'pdv' %}fa-cash-register{% elif modo == 'proforma' %}fa-file-contract{% else %}fa-file-invoice-dollar{% endif %}"></i></span>{{ titulo_doc }}</h1>
+            <p class="com-subtitle">{% if modo == 'pdv' %}Venda rápida com pesquisa por código de barras e operação por teclado.{% elif modo == 'proforma' %}Prepare a proforma, escolha a validade e disponibilize-a ao cliente apenas quando necessário.{% else %}Emissão de fatura a crédito com vencimento obrigatório e registo da dívida do cliente.{% endif %}</p>
+        </div>
+        <div class="com-shortcuts" aria-label="Atalhos de teclado">
+            <span><b>F2</b> Artigo</span><span><b>F3</b> Cliente</span><span><b>F4</b> Limpar</span><span><b>F8</b> {% if modo == 'pdv' %}Vender{% else %}Criar{% endif %}</span><span><b>Esc</b> Fechar</span>
+        </div>
+    </header>
+
+    <div class="com-banner">
+        <i class="fas {% if modo == 'pdv' %}fa-bolt{% elif modo == 'proforma' %}fa-lightbulb{% else %}fa-exclamation-triangle{% endif %}"></i>
+        <div><strong>{% if modo == 'pdv' %}Venda imediata{% elif modo == 'proforma' %}Proforma (FP){% else %}Fatura a Crédito (FT){% endif %}</strong><br>
+        {% if modo == 'pdv' %}Os preços e o IVA definitivos são calculados no servidor. O cliente é opcional, salvo quando pretender partilhar a fatura no perfil online.{% elif modo == 'proforma' %}A proforma não liquida a venda nem baixa o stock. O cliente e a data de validade são obrigatórios.{% else %}A fatura a crédito regista uma dívida, exige cliente e vencimento e verifica o stock no servidor.{% endif %}</div>
+    </div>
+
+    <div class="com-topbar">
+        <section class="com-panel">
+            <h2 class="com-panel-title"><i class="fas fa-search"></i> Pesquisar {% if regime == 'SERVICOS' %}serviços{% elif regime == 'COMERCIO' %}produtos{% else %}produtos ou serviços{% endif %}</h2>
+            <div class="com-field-row">
+                <div class="com-input-wrap"><i class="fas fa-barcode com-input-icon"></i><input type="search" id="searchInput" class="com-input has-icon" placeholder="Nome, código interno ou código de barras…" autocomplete="off" aria-label="Pesquisar artigo"></div>
+                <button type="button" id="btnSearchProducts" class="com-icon-btn" aria-label="Pesquisar artigos" title="Pesquisar (F2)"><i class="fas fa-search"></i></button>
+            </div>
+            <p class="com-hint">Dica: lê o código de barras e pressiona Enter para adicionar o artigo sem usar o rato.</p>
+        </section>
+        <section class="com-panel">
+            <h2 class="com-panel-title"><i class="fas fa-user-circle"></i> Cliente {% if modo == 'pdv' %}(opcional){% else %}(obrigatório){% endif %}</h2>
+            <div class="com-field-row">
+                <div class="com-input-wrap"><i class="fas fa-user com-input-icon"></i><input type="search" id="clienteInput" class="com-input has-icon" placeholder="Nome, NIF ou e-mail…" autocomplete="off" aria-label="Pesquisar cliente"></div>
+                <button type="button" id="btnSearchClients" class="com-icon-btn" aria-label="Pesquisar clientes" title="Pesquisar cliente (F3)"><i class="fas fa-search"></i></button>
+            </div>
+            <div id="clientesContainer" class="com-results"></div>
+            <div id="clienteSelecionado" class="com-selected-client com-hidden"><i class="fas fa-user-check" style="color:var(--doc-primary)"></i><span id="clienteNome"></span><button type="button" id="btnRemoveClient" class="com-link-btn">Remover</button></div>
+            <p class="com-hint">{% if modo == 'pdv' %}Para consumidor final, pode continuar sem selecionar um cliente.{% else %}Selecione o cliente antes de criar este documento.{% endif %}</p>
+        </section>
+    </div>
+
+    <div class="com-toolbar">
+        <div class="com-tabs" role="tablist" aria-label="Tipo de artigo">
+            {% if regime == 'COMERCIO' or regime == 'MISTO' %}<button type="button" class="com-tab active" id="tabProdutos" data-tab="produtos" role="tab" aria-selected="true"><i class="fas fa-box"></i> Produtos</button>{% endif %}
+            {% if regime == 'SERVICOS' or regime == 'MISTO' %}<button type="button" class="com-tab {% if regime == 'SERVICOS' %}active{% endif %}" id="tabServicos" data-tab="servicos" role="tab" aria-selected="{% if regime == 'SERVICOS' %}true{% else %}false{% endif %}"><i class="fas fa-concierge-bell"></i> Serviços</button>{% endif %}
+        </div>
+        <div class="com-category-wrap" id="categoryWrap"><span class="com-category-label"><i class="fas fa-filter"></i> Categoria</span><div id="categoriaButtons" class="com-categories"><button type="button" class="com-category active" data-category="todos">Todas</button></div></div>
+    </div>
+
+    <div class="com-layout">
+        <section class="com-products-panel">
+            <div class="com-products-head"><h2 id="catalogTitle">Artigos disponíveis</h2><span id="catalogCount" class="com-count">0 artigos</span></div>
+            <div id="produtosContainer" class="com-products-grid" aria-live="polite"></div>
+            <div id="servicosContainer" class="com-products-grid com-hidden" aria-live="polite"></div>
+        </section>
+
+        <aside id="cartPanel" class="com-cart" aria-label="Carrinho / documento">
+            <div class="com-cart-header"><div class="com-cart-title"><i class="fas {% if modo == 'pdv' %}fa-shopping-cart{% elif modo == 'proforma' %}fa-file-contract{% else %}fa-file-invoice-dollar{% endif %}"></i> {% if modo == 'pdv' %}Venda{% elif modo == 'proforma' %}Proforma{% else %}Fatura a Crédito{% endif %}<span id="carrinhoCount" class="com-cart-badge">0</span></div><button type="button" id="btnCloseCartMobile" class="com-share-close" style="display:none" aria-label="Fechar carrinho"><i class="fas fa-times"></i></button></div>
+            <div class="com-cart-body">
+                <div id="carrinhoItems" class="com-cart-items"><div class="com-cart-empty"><i class="fas fa-cart-plus"></i><strong>O carrinho está vazio</strong><span>Pesquise e selecione um artigo para começar.</span></div></div>
+                <div id="totalSection" class="com-hidden">
+                    {% if modo == 'proforma' %}<div class="com-date-area"><label class="com-label" for="dataValidade">Data de validade *</label><input type="date" id="dataValidade" class="com-input" required></div>{% endif %}
+                    {% if modo == 'fatura_credito' %}<div class="com-date-area"><label class="com-label" for="dataVencimento">Data de vencimento *</label><input type="date" id="dataVencimento" class="com-input" required></div>{% endif %}
+                    {% if modo == 'pdv' %}<label class="com-label" for="formaPagamentoSelect">Forma de pagamento *</label><select id="formaPagamentoSelect" class="com-select"><option value="">A carregar formas de pagamento…</option></select><div class="com-hint" id="paymentHint">Selecione o meio de pagamento antes de finalizar.</div>{% endif %}
+                    {% if modo != 'pdv' %}<div class="com-discount-row"><label for="descontoInput">Desconto global (%)</label><input type="number" id="descontoInput" value="0" min="0" max="100" step="0.01" inputmode="decimal"></div>{% endif %}
+                    <div class="com-totals"><div class="com-total-row"><span>Subtotal</span><strong id="subtotalValor">0,00 Kz</strong></div><div id="descontoRow" class="com-total-row {% if modo == 'pdv' %}com-hidden{% endif %}"><span>Desconto</span><strong id="descontoValor">0,00 Kz</strong></div><div class="com-total-row" id="ivaRow"><span>IVA estimado</span><strong id="taxaValor">0,00 Kz</strong></div></div>
+                    <div class="com-total-grand"><span>Total estimado</span><strong id="totalValor">0,00 Kz</strong></div>
+                    <label class="com-label" for="observacoesInput">Observações (opcional)</label><textarea id="observacoesInput" class="com-textarea" rows="2" placeholder="Observações para constar no documento…"></textarea>
+                    <div style="margin-top:12px"><button type="button" id="btnFinalizar" class="com-btn-primary"><i class="fas {% if modo == 'pdv' %}fa-check-circle{% elif modo == 'proforma' %}fa-file-contract{% else %}fa-file-invoice-dollar{% endif %}"></i> <span id="btnFinalizarLabel">{% if modo == 'pdv' %}Finalizar venda{% elif modo == 'proforma' %}Criar Proforma{% else %}Criar Fatura a Crédito{% endif %}</span> <span style="opacity:.75">(F8)</span></button><button type="button" id="btnLimparCarrinho" class="com-btn-secondary com-btn-clear"><i class="fas fa-trash-alt"></i> Limpar carrinho (F4)</button></div>
+                </div>
+                <p class="com-hint com-cart-footnote">{% if modo == 'pdv' %}A venda e os valores fiscais são confirmados pelo servidor.{% elif modo == 'proforma' %}O servidor confirma preços, descontos permitidos pelo endpoint e IVA.{% else %}O stock e os valores são validados novamente no servidor.{% endif %}</p>
+            </div>
+        </aside>
+    </div>
+
+    <div id="cartBackdrop" class="com-cart-backdrop" aria-hidden="true"></div>
+    <div class="com-mobile-bar"><div class="com-mobile-total"><small><span id="mobileCartCount">0</span> artigo(s) · Total estimado</small><strong id="mobileTotal">0,00 Kz</strong></div><div class="com-mobile-actions"><button type="button" id="btnOpenCartMobile" class="com-mobile-cart-btn"><i class="fas fa-shopping-basket"></i> Carrinho</button><button type="button" id="btnMobileFinalize" class="com-mobile-finish-btn" disabled>{% if modo == 'pdv' %}Finalizar{% elif modo == 'proforma' %}Criar FP{% else %}Criar FT{% endif %}</button></div></div>
+
+    <button type="button" id="toggleShareBtn" class="com-fab" aria-expanded="false" aria-controls="sharePanel" title="Opções opcionais de envio e partilha"><i class="fas fa-paper-plane"></i><span class="com-fab-label">Enviar ao cliente</span><span id="shareFabCount" class="com-fab-count">0</span></button>
+    <section id="sharePanel" class="com-share-panel" aria-label="Partilha opcional do documento">
+        <div class="com-share-head"><div><h3><i class="fas fa-paper-plane" style="color:var(--doc-primary)"></i> Envio opcional</h3><p>Escolha como pretende disponibilizar o documento depois de o criar.</p></div><button type="button" id="btnCloseShare" class="com-share-close" aria-label="Fechar"><i class="fas fa-times"></i></button></div>
+        <label class="com-share-option"><input type="checkbox" id="shareProfile"><span>Disponibilizar na conta/perfil do cliente no site</span></label>
+        <label class="com-share-option"><input type="checkbox" id="notifyCustomer"><span>Enviar/notificar por e-mail e/ou WhatsApp</span></label>
+        <div id="shareFields" class="com-share-fields" hidden>
+            <div><label for="email_avulso">E-mail de destino</label><input type="email" id="email_avulso" placeholder="cliente@exemplo.com" autocomplete="email"></div>
+            <div><label for="whats_avulso">WhatsApp com indicativo</label><input type="tel" id="whats_avulso" placeholder="244923000000" autocomplete="tel"></div>
+        </div>
+        <p class="com-share-note">O envio é opcional e vem desativado por omissão. A partilha no perfil exige que o cliente interno tenha e-mail igual ao da conta ativa no site. O estado da partilha será indicado depois da criação.</p>
+    </section>
+    <div id="comToast" class="com-toast" role="status" aria-live="polite"></div>
+    <div id="documentModal" class="com-modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+        <div class="com-modal-card"><div class="com-modal-icon"><i class="fas fa-check-circle"></i></div><h3 id="modalTitle">Documento criado</h3><p id="modalMessage">O documento foi registado.</p>
+            {% if modo == 'pdv' %}<div class="com-pdf-type"><button type="button" class="com-pdf-choice selected" data-pdf-type="a4">A4</button><button type="button" class="com-pdf-choice" data-pdf-type="80mm">Talão 80 mm</button></div>{% endif %}
+            <div class="com-modal-actions"><button type="button" id="btnPreviewPdf" class="com-btn-secondary"><i class="fas fa-eye"></i> Abrir PDF</button><button type="button" id="btnPrintPdf" class="com-btn-primary"><i class="fas fa-print"></i> Imprimir</button><button type="button" id="btnCloseModal" class="com-btn-secondary wide">Concluir e voltar à pesquisa (Esc)</button></div>
+        </div>
+    </div>
+</div>
+
+<script>
+(() => {
+  'use strict';
+  const $ = id => document.getElementById(id);
+  const app = $('commercialApp');
+  const mode = app.dataset.mode;
+  const regime = app.dataset.regime || 'COMERCIO';
+  const URLS = {
+    categories: app.dataset.categoriesUrl, products: app.dataset.productsUrl,
+    services: app.dataset.servicesUrl, clients: app.dataset.clientsUrl,
+    create: app.dataset.createUrl, payments: app.dataset.paymentUrl,
+    pdf: app.dataset.pdfTemplate, pdfA4: app.dataset.pdfA4, pdfThermal: app.dataset.pdfThermal
+  };
+  let products = {{ produtos_json|default:"[]"|safe }};
+  let services = {{ servicos_json|default:"[]"|safe }};
+  let initialProducts = [], initialServices = [];
+  let categories = [], cart = [], selectedClient = null, paymentMethods = [];
+  let activeTab = regime === 'SERVICOS' ? 'servicos' : 'produtos';
+  let activeCategory = 'todos', currentDocumentId = null, currentDocumentNumber = '';
+  let pdfType = localStorage.getItem('vistogest:pdfType') || 'a4';
+  let isSubmitting = false, searchTimer = null, clientTimer = null, toastTimer = null;
+  let shownProducts = [], shownServices = [];
+
+  const money = value => `${Number(value || 0).toLocaleString('pt-AO',{minimumFractionDigits:2,maximumFractionDigits:2})} Kz`;
+  const numeric = value => { const n = Number(String(value ?? '0').replace(/\s/g,'').replace(',','.')); return Number.isFinite(n) ? n : 0; };
+  const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
+  const csrfToken = () => { const match = document.cookie.match(/(?:^|; )csrftoken=([^;]+)/); return match ? decodeURIComponent(match[1]) : document.querySelector('[name=csrfmiddlewaretoken]')?.value || ''; };
+  const itemName = (item, type) => type === 'produto' ? (item.nome_produto || item.nome || 'Produto') : (item.nome || item.nome_servico || 'Serviço');
+  const itemCode = item => item.codigo_interno || item.codigo_barras || item.codigo || '';
+  const itemPrice = (item, type) => numeric(type === 'produto' ? item.preco_venda : (item.preco ?? item.preco_padrao));
+  const itemVat = item => numeric(item.iva_percentual ?? 14);
+  const itemStock = item => numeric(item.estoque_atual ?? item.estoque ?? 0);
+  const isPdv = mode === 'pdv';
+  const needsClient = mode !== 'pdv';
+  const requiresStock = mode !== 'proforma';
+  const localDate = offsetDays => { const d = new Date(); d.setDate(d.getDate() + offsetDays); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; };
+  const showToast = (message, kind='info') => { const t=$('comToast'); t.textContent=message; t.className=`com-toast show ${kind}`; clearTimeout(toastTimer); toastTimer=setTimeout(()=>t.classList.remove('show'),4300); };
+  const setState = (containerId, heading, description, icon='fa-search', loading=false) => {
+    const el=$(containerId); if(!el) return;
+    el.className = containerId === 'produtosContainer' || containerId === 'servicosContainer' ? 'com-products-grid' : 'com-results';
+    el.innerHTML = `<div class="com-state"><${loading?'div':'i'} class="${loading?'com-spinner':`fas ${icon}`}" aria-hidden="true"></${loading?'div':'i'}><strong>${escapeHtml(heading)}</strong><span>${escapeHtml(description||'')}</span></div>`;
+  };
+  async function fetchJson(url, options={}) {
+    const response = await fetch(url, {credentials:'same-origin', ...options});
+    const raw = await response.text();
+    let data;
+    try { data = JSON.parse(raw); } catch (_) { throw new Error(`Resposta inválida do servidor (HTTP ${response.status}). Confirma a sessão e o endpoint.`); }
+    if (!response.ok || data.success === false) throw new Error(data.message || data.detail || `Pedido falhou (HTTP ${response.status}).`);
+    return data;
+  }
+  function safeInitial(array) { return Array.isArray(array) ? array : []; }
+  function currentCatalog() { return activeTab === 'produtos' ? products : services; }
+  function filteredCatalog(items, type) {
+    let result = safeInitial(items);
+    if (activeCategory !== 'todos') result = result.filter(item => String(item.categoria_id ?? '') === String(activeCategory));
+    const query = $('searchInput').value.trim().toLowerCase();
+    if (query) result = result.filter(item => `${itemName(item,type)} ${itemCode(item)} ${item.categoria||''} ${item.nif||''}`.toLowerCase().includes(query));
+    return result;
+  }
+  async function loadInitialData() {
+    products=safeInitial(products); services=safeInitial(services);
+    initialProducts=products.slice(); initialServices=services.slice();
+    if (mode === 'proforma') { $('dataValidade').min=localDate(0); $('dataValidade').value=localDate(30); }
+    if (mode === 'fatura_credito') { $('dataVencimento').min=localDate(0); $('dataVencimento').value=localDate(30); }
+    renderCategories(); renderCatalog();
+    const jobs=[loadCategories()];
+    if (isPdv) jobs.push(loadPaymentMethods());
+    await Promise.allSettled(jobs);
+    $('searchInput').focus({preventScroll:true});
+  }
+  async function loadCategories() {
+    try { const data=await fetchJson(URLS.categories); categories=Array.isArray(data.categorias)?data.categorias:[]; renderCategories(); }
+    catch (e) { console.warn('Categorias indisponíveis:',e.message); }
+  }
+  function renderCategories() {
+    const box=$('categoriaButtons');
+    box.innerHTML = `<button type="button" class="com-category ${activeCategory==='todos'?'active':''}" data-category="todos">Todas</button>` + categories.map(c=>`<button type="button" class="com-category ${String(activeCategory)===String(c.id)?'active':''}" data-category="${escapeHtml(c.id)}">${escapeHtml(c.nome)}</button>`).join('');
+  }
+  async function loadPaymentMethods() {
+    try {
+      const data=await fetchJson(URLS.payments); paymentMethods=Array.isArray(data.formas_pagamento)?data.formas_pagamento:[];
+      $('formaPagamentoSelect').innerHTML='<option value="">Selecione uma forma de pagamento</option>'+paymentMethods.map(p=>`<option value="${escapeHtml(p.id)}">${escapeHtml(p.nome)}</option>`).join('');
+    } catch(e) { $('formaPagamentoSelect').innerHTML='<option value="">Não foi possível carregar</option>'; showToast(e.message,'error'); }
+  }
+  async function refreshCatalog(query='') {
+    if(activeTab==='produtos') {
+      if(query.length >= 1) {
+        setState('produtosContainer','A pesquisar produtos…','A consultar o catálogo.','fa-search',true);
+        try { const params=new URLSearchParams({q:query,termo:query}); const data=await fetchJson(`${URLS.products}?${params}`); products=Array.isArray(data.produtos)?data.produtos:[]; }
+        catch(e) { showToast(e.message,'error'); products=[]; }
+      } else { products=initialProducts.slice(); }
+      renderProducts(filteredCatalog(products,'produto'));
+    } else {
+      if(query.length >= 2 && URLS.services) {
+        try { const params=new URLSearchParams({q:query,termo:query}); const data=await fetchJson(`${URLS.services}?${params}`); if(Array.isArray(data.servicos)) services=data.servicos; }
+        catch(e) { /* algumas versões da API de serviços ignoram a pesquisa; filtra a lista local */ console.debug(e.message); }
+      } else { services=initialServices.slice(); }
+      renderServices(filteredCatalog(services,'servico'));
+    }
+  }
+  function renderProducts(items) {
+    const box=$('produtosContainer'); shownProducts=items;
+    $('catalogTitle').textContent='Produtos disponíveis'; $('catalogCount').textContent=`${items.length} artigo(s)`;
+    box.className='com-products-grid';
+    if(!items.length) { setState('produtosContainer','Nenhum produto encontrado','Tenta outro nome, código ou categoria.'); return; }
+    box.innerHTML=items.map((p,index)=>{
+      const stock=itemStock(p), disabled=requiresStock && stock<=0;
+      const stockClass=stock<=0?'none':(p.estoque_baixo?'low':'ok');
+      const stockLabel=stock<=0?'Sem stock':(p.estoque_baixo?`Stock baixo: ${stock}`:`Stock: ${stock}`);
+      const image=p.foto_url?`<img src="${escapeHtml(p.foto_url)}" alt="${escapeHtml(itemName(p,'produto'))}" loading="lazy">`:'<i class="fas fa-box-open fa-lg"></i>';
+      return `<button type="button" class="com-product-card" data-product-index="${index}" ${disabled?'disabled':''}><span class="com-product-image">${image}</span><span class="com-product-name">${escapeHtml(itemName(p,'produto'))}</span><span class="com-product-code">${escapeHtml(itemCode(p)?`Cód. ${itemCode(p)}`:'')}</span><span class="com-product-price">${money(itemPrice(p,'produto'))}</span><span class="com-stock ${stockClass}">${escapeHtml(stockLabel)}</span></button>`;
+    }).join('');
+  }
+  function renderServices(items) {
+    const box=$('servicosContainer'); shownServices=items;
+    $('catalogTitle').textContent='Serviços disponíveis'; $('catalogCount').textContent=`${items.length} serviço(s)`;
+    box.className='com-products-grid';
+    if(!items.length) { setState('servicosContainer','Nenhum serviço encontrado','Tenta outro termo de pesquisa ou categoria.','fa-concierge-bell'); return; }
+    box.innerHTML=items.map((s,index)=>`<button type="button" class="com-product-card service" data-service-index="${index}"><span class="com-product-image"><i class="fas fa-concierge-bell fa-lg"></i></span><span class="com-product-name">${escapeHtml(itemName(s,'servico'))}</span><span class="com-product-code">${escapeHtml(s.categoria||'Serviço')}</span><span class="com-product-price">${money(itemPrice(s,'servico'))}</span><span class="com-stock service">Disponível</span></button>`).join('');
+  }
+  function renderCatalog() {
+    $('produtosContainer').classList.toggle('com-hidden',activeTab!=='produtos');
+    $('servicosContainer').classList.toggle('com-hidden',activeTab!=='servicos');
+    $('categoryWrap').classList.toggle('com-hidden',activeTab==='servicos');
+    $('searchInput').placeholder=activeTab==='produtos'?'Nome, código interno ou código de barras…':'Pesquisar serviço…';
+    if(activeTab==='produtos') renderProducts(filteredCatalog(products,'produto')); else renderServices(filteredCatalog(services,'servico'));
+  }
+  function switchTab(tab) {
+    if(tab==='produtos' && regime==='SERVICOS') return;
+    if(tab==='servicos' && regime==='COMERCIO') return;
+    activeTab=tab;
+    document.querySelectorAll('.com-tab').forEach(b=>{const on=b.dataset.tab===tab;b.classList.toggle('active',on);b.setAttribute('aria-selected',String(on));});
+    activeCategory='todos'; renderCategories(); refreshCatalog($('searchInput').value.trim()); $('searchInput').focus();
+  }
+  function addToCart(item,type) {
+    if(!item) { showToast('Artigo não encontrado. Pesquisa novamente.','warning'); return; }
+    const stock=itemStock(item);
+    if(type==='produto' && requiresStock && stock<=0) { showToast('Produto sem stock disponível.','warning'); return; }
+    const id=String(item.id);
+    const exists=cart.find(row=>row.id===id && row.type===type);
+    if(exists) {
+      if(type==='produto' && requiresStock && exists.quantity+1>stock) { showToast('Quantidade superior ao stock disponível.','warning'); return; }
+      exists.quantity++;
+    } else cart.push({id, type, name:itemName(item,type), price:itemPrice(item,type), iva:itemVat(item), stock, quantity:1, email:item.email||'', phone:item.whatsapp||item.telefone||''});
+    renderCart(); showToast(`${type==='produto'?'Produto':'Serviço'} adicionado.`,'success');
+  }
+  function changeQuantity(index,delta) {
+    const row=cart[index]; if(!row) return;
+    const quantity=row.quantity+delta;
+    if(quantity<1) { removeCartItem(index); return; }
+    if(row.type==='produto' && requiresStock && quantity>row.stock) { showToast('Quantidade superior ao stock disponível.','warning'); return; }
+    row.quantity=quantity; renderCart();
+  }
+  function removeCartItem(index) { cart.splice(index,1); renderCart(); }
+  function clearCart(confirmUser=false) {
+    if(confirmUser && cart.length && !window.confirm('Queres limpar todos os artigos deste documento?')) return;
+    cart=[]; renderCart();
+  }
+  function calculateTotals() {
+    const discountPercent=isPdv?0:Math.min(100,Math.max(0,numeric($('descontoInput').value)));
+    let subtotal=0, discount=0, vat=0;
+    cart.forEach(row=>{const gross=row.price*row.quantity;const d=gross*discountPercent/100;subtotal+=gross;discount+=d;vat+=(gross-d)*row.iva/100;});
+    const total=Math.max(0,subtotal-discount+vat);
+    $('subtotalValor').textContent=money(subtotal); $('descontoValor').textContent=money(discount); $('taxaValor').textContent=money(vat); $('totalValor').textContent=money(total);
+    $('mobileTotal').textContent=money(total); $('mobileCartCount').textContent=cart.reduce((s,r)=>s+r.quantity,0);
+    return {subtotal,discount,vat,total,discountPercent};
+  }
+  function renderCart() {
+    const itemsBox=$('carrinhoItems'), totalSection=$('totalSection');
+    $('carrinhoCount').textContent=cart.reduce((s,r)=>s+r.quantity,0);
+    if(!cart.length) {
+      itemsBox.innerHTML='<div class="com-cart-empty"><i class="fas fa-cart-plus"></i><strong>O carrinho está vazio</strong><span>Pesquise e selecione um artigo para começar.</span></div>';
+      totalSection.classList.add('com-hidden'); $('btnFinalizar').disabled=true; $('btnMobileFinalize').disabled=true;
+    } else {
+      itemsBox.innerHTML=cart.map((row,index)=>`<div class="com-cart-item"><div><div class="com-cart-item-name"><i class="fas ${row.type==='produto'?'fa-box':'fa-concierge-bell'}" style="color:#64748b;margin-right:4px"></i>${escapeHtml(row.name)}</div><div class="com-cart-item-meta">${money(row.price)} cada × ${row.quantity}</div></div><div><div class="com-cart-item-total">${money(row.price*row.quantity)}</div><div class="com-qty-controls"><button type="button" class="com-qty-btn" data-qty-index="${index}" data-delta="-1" aria-label="Diminuir quantidade"><i class="fas fa-minus"></i></button><span class="com-qty-value">${row.quantity}</span><button type="button" class="com-qty-btn" data-qty-index="${index}" data-delta="1" aria-label="Aumentar quantidade"><i class="fas fa-plus"></i></button><button type="button" class="com-qty-btn danger" data-remove-index="${index}" aria-label="Remover artigo"><i class="fas fa-trash-alt"></i></button></div></div></div>`).join('');
+      totalSection.classList.remove('com-hidden'); $('btnFinalizar').disabled=isSubmitting; $('btnMobileFinalize').disabled=isSubmitting;
+    }
+    calculateTotals();
+    const shareFab=$('toggleShareBtn'); shareFab.classList.toggle('show',cart.length>0); $('shareFabCount').textContent=String(cart.length);
+    if(!cart.length) setSharePanel(false);
+  }
+  function setSharePanel(open) { $('sharePanel').classList.toggle('open',open); $('toggleShareBtn').setAttribute('aria-expanded',String(open)); }
+  function setShareFields() {
+    const enabled=$('notifyCustomer').checked; $('shareFields').hidden=!enabled;
+    if(enabled && selectedClient) {
+      if(!$('email_avulso').value) $('email_avulso').value=selectedClient.email||'';
+      if(!$('whats_avulso').value) $('whats_avulso').value=selectedClient.whatsapp||selectedClient.telefone||'';
+    }
+  }
+  async function searchClients() {
+    const query=$('clienteInput').value.trim(), box=$('clientesContainer');
+    if(query.length<2) { box.innerHTML=''; return; }
+    box.innerHTML='<div class="com-results-list"><div class="com-result-meta" style="padding:10px">A pesquisar clientes…</div></div>';
+    try {
+      const params=new URLSearchParams({q:query,termo:query}); const data=await fetchJson(`${URLS.clients}?${params}`);
+      const clients=Array.isArray(data.clientes)?data.clientes:[];
+      if(!clients.length) { box.innerHTML='<div class="com-results-list"><div class="com-result-meta" style="padding:10px">Nenhum cliente encontrado.</div></div>'; return; }
+      box.dataset.clients=JSON.stringify(clients);
+      box.innerHTML=`<div class="com-results-list">${clients.map((c,index)=>`<button type="button" class="com-result" data-client-index="${index}"><span class="com-result-main"><span class="com-result-name">${escapeHtml(c.nome_exibicao||c.nome_completo||c.nome||'Cliente')}</span><span class="com-result-meta">${escapeHtml(c.identificacao||c.nif||c.email||c.telefone||'')}</span></span><i class="fas fa-chevron-right" style="color:#94a3b8"></i></button>`).join('')}</div>`;
+    } catch(e) { box.innerHTML=`<div class="com-results-list"><div style="padding:10px;color:#b91c1c;font-size:.78rem">${escapeHtml(e.message)}</div></div>`; }
+  }
+  function selectClient(client) {
+    selectedClient={id:client.id,name:client.nome_exibicao||client.nome_completo||client.nome||'Cliente',email:client.email||'',telefone:client.telefone||'',whatsapp:client.whatsapp||''};
+    $('clienteNome').textContent=selectedClient.name; $('clienteSelecionado').classList.remove('com-hidden'); $('clientesContainer').innerHTML=''; $('clienteInput').value='';
+    if($('notifyCustomer').checked) setShareFields(); $('searchInput').focus({preventScroll:true});
+  }
+  function removeClient() { selectedClient=null; $('clienteNome').textContent=''; $('clienteSelecionado').classList.add('com-hidden'); }
+  function currentPdfUrl() {
+    let template=URLS.pdf || '';
+    if(isPdv) template=(pdfType==='80mm'?URLS.pdfThermal:URLS.pdfA4)||template;
+    return template.replace(/\/0(?=\/|$)/,`/${encodeURIComponent(currentDocumentId)}`);
+  }
+  function openDocumentModal(data) {
+    currentDocumentId=data.venda_id||data.proforma_id||data.fatura_id;
+    currentDocumentNumber=data.numero_documento||data.numero||'';
+    const profile=data.perfil_cliente;
+    let message=currentDocumentNumber?`Documento ${currentDocumentNumber} criado com sucesso.`:'Documento criado com sucesso.';
+    if(profile?.solicitado) message += profile.partilhado ? ' Disponibilizado no perfil do cliente.' : ` Não foi disponibilizado no perfil: ${profile.mensagem||'conta do site não encontrada'}`;
+    if(data.notificacao_solicitada) message += ' A notificação foi solicitada; verifica a configuração do canal de envio.';
+    $('modalMessage').textContent=message;
+    if(isPdv) document.querySelectorAll('[data-pdf-type]').forEach(b=>b.classList.toggle('selected',b.dataset.pdfType===pdfType));
+    $('documentModal').classList.add('open'); $('btnPreviewPdf').focus({preventScroll:true});
+  }
+  function validateShareOptions() {
+    if($('shareProfile').checked && !selectedClient) { showToast('Seleciona o cliente para disponibilizar o documento no perfil online.','warning'); setSharePanel(true); $('clienteInput').focus(); return false; }
+    if($('notifyCustomer').checked) {
+      const email=$('email_avulso').value.trim(), phone=$('whats_avulso').value.trim();
+      if(!email && !phone) { showToast('Indica um e-mail e/ou WhatsApp, ou desativa a notificação.','warning'); setSharePanel(true); return false; }
+      if(email && !$('email_avulso').checkValidity()) { showToast('O e-mail indicado não é válido.','warning'); setSharePanel(true); $('email_avulso').focus(); return false; }
+    }
+    return true;
+  }
+  async function finalizeDocument() {
+    if(isSubmitting) return;
+    if(!cart.length) { showToast('Adiciona pelo menos um artigo antes de continuar.','warning'); $('searchInput').focus(); return; }
+    if(needsClient && !selectedClient) { showToast('Seleciona o cliente para este documento.','warning'); $('clienteInput').focus(); return; }
+    if(mode==='proforma' && !$('dataValidade').value) { showToast('A data de validade é obrigatória.','warning'); $('dataValidade').focus(); return; }
+    if(mode==='fatura_credito' && !$('dataVencimento').value) { showToast('A data de vencimento é obrigatória.','warning'); $('dataVencimento').focus(); return; }
+    if(isPdv && !$('formaPagamentoSelect').value) { showToast('Seleciona a forma de pagamento.','warning'); $('formaPagamentoSelect').focus(); return; }
+    if(!validateShareOptions()) return;
+    const totals=calculateTotals();
+    const payload={
+      cliente_id:selectedClient?selectedClient.id:null,
+      itens:cart.map(row=>({produto_id:row.type==='produto'?row.id:null,servico_id:row.type==='servico'?row.id:null,quantidade:row.quantity,desconto_item:Number((row.price*row.quantity*totals.discountPercent/100).toFixed(2))})),
+      observacoes:$('observacoesInput').value.trim(),
+      publicar_no_perfil:$('shareProfile').checked,
+      enviar_notificacao:$('notifyCustomer').checked,
+      email_cliente_avulso:$('notifyCustomer').checked?($('email_avulso').value.trim()||null):null,
+      whatsapp_cliente_avulso:$('notifyCustomer').checked?($('whats_avulso').value.trim()||null):null
+    };
+    if(isPdv) { payload.forma_pagamento_id=$('formaPagamentoSelect').value; payload.tipo_venda='fatura_recibo'; }
+    if(mode==='proforma') payload.data_validade=$('dataValidade').value;
+    if(mode==='fatura_credito') payload.data_vencimento=$('dataVencimento').value;
+    isSubmitting=true; $('btnFinalizar').disabled=true; $('btnMobileFinalize').disabled=true; $('btnFinalizarLabel').textContent='A processar…';
+    try {
+      const data=await fetchJson(URLS.create,{method:'POST',headers:{'Content-Type':'application/json','X-CSRFToken':csrfToken(),'X-Requested-With':'XMLHttpRequest'},body:JSON.stringify(payload)});
+      cart=[]; renderCart(); setSharePanel(false); $('shareProfile').checked=false; $('notifyCustomer').checked=false; setShareFields(); $('email_avulso').value=''; $('whats_avulso').value=''; $('observacoesInput').value='';
+      openDocumentModal(data); showToast(data.message||'Documento criado.','success');
+    } catch(error) { showToast(error.message||'Não foi possível criar o documento.','error'); }
+    finally { isSubmitting=false; $('btnFinalizar').disabled=!cart.length; $('btnMobileFinalize').disabled=!cart.length; $('btnFinalizarLabel').textContent=isPdv?'Finalizar venda':(mode==='proforma'?'Criar Proforma':'Criar Fatura a Crédito'); }
+  }
+  function closeDocumentModal() { $('documentModal').classList.remove('open'); $('searchInput').focus({preventScroll:true}); }
+  function previewPdf() { if(!currentDocumentId) { showToast('Documento ainda não criado.','warning'); return; } window.open(currentPdfUrl(),'_blank'); }
+  function printPdf() {
+    if(!currentDocumentId) { showToast('Documento ainda não criado.','warning'); return; }
+    const win=window.open(currentPdfUrl(),'_blank');
+    if(!win) { showToast('O navegador bloqueou a janela. Permite pop-ups para este site.','warning'); return; }
+    try { win.addEventListener('load',()=>setTimeout(()=>{try{win.print();}catch(_){}},700),{once:true}); } catch(_) {}
+  }
+  function setMobileCart(open) {
+    if(!window.matchMedia('(max-width:900px)').matches) return;
+    $('cartPanel').classList.toggle('mobile-open',open); $('cartBackdrop').classList.toggle('show',open); $('cartBackdrop').setAttribute('aria-hidden',String(!open)); $('btnCloseCartMobile').style.display=open?'inline-flex':'none';
+  }
+  function handleSearchEnter() {
+    const query=$('searchInput').value.trim(); if(!query) return;
+    const current=activeTab==='produtos'?shownProducts:shownServices;
+    const type=activeTab==='produtos'?'produto':'servico';
+    const exact=current.find(item=>itemCode(item).toLowerCase()===query.toLowerCase())||current.find(item=>itemName(item,type).trim().toLowerCase()===query.toLowerCase());
+    if(exact) { addToCart(exact,type); $('searchInput').value=''; refreshCatalog(''); $('searchInput').focus(); return; }
+    refreshCatalog(query).then(()=>{
+      const latest=activeTab==='produtos'?shownProducts:shownServices;
+      if(latest.length===1) { addToCart(latest[0],type); $('searchInput').value=''; refreshCatalog(''); $('searchInput').focus(); }
+      else if(latest.length>1) document.querySelector(`#${activeTab==='produtos'?'produtosContainer':'servicosContainer'} .com-product-card:not(:disabled)`)?.focus();
+    });
+  }
+
+  $('produtosContainer').addEventListener('click',event=>{const b=event.target.closest('[data-product-index]');if(b&&!b.disabled)addToCart(shownProducts[Number(b.dataset.productIndex)],'produto');});
+  $('servicosContainer').addEventListener('click',event=>{const b=event.target.closest('[data-service-index]');if(b)addToCart(shownServices[Number(b.dataset.serviceIndex)],'servico');});
+  $('carrinhoItems').addEventListener('click',event=>{const q=event.target.closest('[data-qty-index]');if(q){changeQuantity(Number(q.dataset.qtyIndex),Number(q.dataset.delta));return;}const r=event.target.closest('[data-remove-index]');if(r)removeCartItem(Number(r.dataset.removeIndex));});
+  $('categoriaButtons').addEventListener('click',event=>{const b=event.target.closest('[data-category]');if(!b)return;activeCategory=b.dataset.category;renderCategories();renderCatalog();});
+  document.querySelectorAll('.com-tab').forEach(b=>b.addEventListener('click',()=>switchTab(b.dataset.tab)));
+  $('searchInput').addEventListener('input',()=>{clearTimeout(searchTimer);searchTimer=setTimeout(()=>refreshCatalog($('searchInput').value.trim()),230);});
+  $('searchInput').addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();clearTimeout(searchTimer);handleSearchEnter();}if(event.key==='ArrowDown'){const first=document.querySelector(`#${activeTab==='produtos'?'produtosContainer':'servicosContainer'} .com-product-card:not(:disabled)`);if(first){event.preventDefault();first.focus();}}});
+  $('btnSearchProducts').addEventListener('click',()=>refreshCatalog($('searchInput').value.trim()));
+  $('clienteInput').addEventListener('input',()=>{clearTimeout(clientTimer);clientTimer=setTimeout(searchClients,250);});
+  $('clienteInput').addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();searchClients();}}); $('btnSearchClients').addEventListener('click',searchClients);
+  $('clientesContainer').addEventListener('click',event=>{const b=event.target.closest('[data-client-index]');if(!b)return;try{const list=JSON.parse($('clientesContainer').dataset.clients||'[]');if(list[Number(b.dataset.clientIndex)])selectClient(list[Number(b.dataset.clientIndex)]);}catch(_){showToast('Não foi possível selecionar o cliente. Pesquisa novamente.','error');}});
+  $('btnRemoveClient').addEventListener('click',removeClient); $('btnFinalizar').addEventListener('click',finalizeDocument); $('btnMobileFinalize').addEventListener('click',finalizeDocument); $('btnLimparCarrinho').addEventListener('click',()=>clearCart(true));
+  $('descontoInput')?.addEventListener('input',calculateTotals); $('formaPagamentoSelect')?.addEventListener('change',()=>{});
+  $('toggleShareBtn').addEventListener('click',()=>setSharePanel(!$('sharePanel').classList.contains('open'))); $('btnCloseShare').addEventListener('click',()=>setSharePanel(false)); $('notifyCustomer').addEventListener('change',setShareFields);
+  $('btnOpenCartMobile').addEventListener('click',()=>setMobileCart(true)); $('btnCloseCartMobile').addEventListener('click',()=>setMobileCart(false)); $('cartBackdrop').addEventListener('click',()=>setMobileCart(false));
+  $('btnCloseModal').addEventListener('click',closeDocumentModal); $('btnPreviewPdf').addEventListener('click',previewPdf); $('btnPrintPdf').addEventListener('click',printPdf);
+  document.querySelectorAll('[data-pdf-type]').forEach(b=>b.addEventListener('click',()=>{pdfType=b.dataset.pdfType;localStorage.setItem('vistogest:pdfType',pdfType);document.querySelectorAll('[data-pdf-type]').forEach(x=>x.classList.toggle('selected',x===b));}));
+  $('documentModal').addEventListener('click',event=>{if(event.target===$('documentModal'))closeDocumentModal();});
+  document.addEventListener('click',event=>{if(!$('sharePanel').contains(event.target)&&!$('toggleShareBtn').contains(event.target))setSharePanel(false);if(!$('clientesContainer').contains(event.target)&&event.target!==$('clienteInput')&&event.target!==$('btnSearchClients'))$('clientesContainer').innerHTML='';});
+  document.addEventListener('keydown',event=>{
+    const modal=$('documentModal').classList.contains('open');
+    if(event.key==='Escape'){if(modal){closeDocumentModal();return;}if($('sharePanel').classList.contains('open')){setSharePanel(false);return;}if($('cartPanel').classList.contains('mobile-open')){setMobileCart(false);return;}}
+    if(event.key==='F2'){event.preventDefault();$('searchInput').focus();$('searchInput').select();return;}
+    if(event.key==='F3'){event.preventDefault();$('clienteInput').focus();$('clienteInput').select();return;}
+    if(event.key==='F4'){event.preventDefault();clearCart(true);return;}
+    if(event.key==='F8'){event.preventDefault();modal?printPdf():finalizeDocument();return;}
+    if(event.key==='F9'){event.preventDefault();if(isPdv)$('formaPagamentoSelect').focus();else (mode==='proforma'?$('dataValidade'):$('dataVencimento')).focus();return;}
+    if(event.key==='F10'&&modal){event.preventDefault();printPdf();return;}
+  });
+  window.addEventListener('resize',()=>{if(!window.matchMedia('(max-width:900px)').matches)setMobileCart(false);});
+  renderCart(); loadInitialData();
+})();
+</script>
+{% csrf_token %}

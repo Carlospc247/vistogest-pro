@@ -15,6 +15,10 @@ urlpatterns = [
     path("dre/", views.DREView.as_view(), name="dre"),
     path("balanco/", views.BalancoPatrimonialView.as_view(), name="balanco"),
 
+    # Formas de Pagamentos
+    path("formas-pagamento/", views.FormasPagamentoView.as_view(), name="formas_pagamento"),
+    path("formas-pagamento/<str:tipo>/alternar/", views.AlternarFormaPagamentoView.as_view(), name="forma_pagamento_alternar"),
+
     # Financial movements
     path("movimentacoes/", views.MovimentacaoFinanceiraListView.as_view(), name="movimentacao_lista"),
     path("movimentacoes/nova/", views.MovimentacaoFinanceiraCreateView.as_view(), name="movimentacao_create"),
@@ -48,6 +52,18 @@ urlpatterns = [
     path("contas-pagar/aprovacao/", views.AprovacaoPagamentosView.as_view(), name="aprovacao_pagamentos"),
     path("contas-pagar/lote/", views.PagamentoLoteView.as_view(), name="pagamento_lote"),
 
+    # plano de contas
+    # ADICIONAR ao urlpatterns de apps/financeiro/urls.py (por exemplo antes de "# Planning"):
+
+    # Plano de Contas (PGC)
+    path("plano-contas/", views.PlanoContaListView.as_view(), name="plano_conta_lista"),
+    path("plano-contas/nova/", views.PlanoContaCreateView.as_view(), name="plano_conta_create"),
+    path("plano-contas/<int:pk>/", views.PlanoContaDetailView.as_view(), name="plano_conta_detail"),
+    path("plano-contas/<int:pk>/editar/", views.PlanoContaUpdateView.as_view(), name="plano_conta_update"),
+    path("plano-contas/<int:pk>/excluir/", views.PlanoContaDeleteView.as_view(), name="plano_conta_delete"),
+    path("plano-contas/<int:pk>/alternar/", views.PlanoContaAlternarView.as_view(), name="plano_conta_alternar"),
+
+    
     # Explicit ContaBancaria views (the app also exposes legacy Banco aliases)
     path("contas-bancarias/", views.ContaBancariaListView.as_view(), name="conta_bancaria_lista"),
     path("contas-bancarias/nova/", views.ContaBancariaCreateView.as_view(), name="conta_bancaria_create"),

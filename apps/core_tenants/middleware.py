@@ -14,6 +14,10 @@ from apps.core.utils import get_user_empresa
 
 logger = logging.getLogger('core_tenants.middleware')
 
+# Ficheiros públicos do PWA e recursos que nunca devem ser bloqueados
+# por módulos, licença ou 2FA por IP.
+PUBLIC_FILES = ('/manifest.json', '/service-worker.js', '/favicon.ico')
+
 
 # ==============================================================
 # 🔹 1. LOG DE DOCUMENTOS
@@ -50,6 +54,10 @@ class ModuloAcessMiddleware:
         'perfil',
         'dashboard',
         'auth',
+        # Ficheiros PWA e recursos públicos (pedidos sem módulo associado)
+        'manifest.json',
+        'service-worker.js',
+        'favicon.ico',
     }
 
     def __init__(self, get_response):
@@ -90,7 +98,12 @@ class LicencaVencidaMiddleware:
         self.get_response = get_response
 
     def __call__(self, request):
-        if connection.schema_name == 'public' or not request.user.is_authenticated or request.path.startswith('/admin/'):
+        if (
+            connection.schema_name == 'public'
+            or not request.user.is_authenticated
+            or request.path.startswith('/admin/')
+            or request.path in PUBLIC_FILES
+        ):
             return self.get_response(request)
 
         empresa = get_user_empresa(request.user)
@@ -130,6 +143,7 @@ class TwoFactorIPMiddleware:
                 settings.STATIC_URL,
                 settings.MEDIA_URL,
                 '/admin/',
+                *PUBLIC_FILES,
             ]
 
             if any(path.startswith(url) for url in exempt_urls):

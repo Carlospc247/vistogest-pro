@@ -20,6 +20,14 @@ urlpatterns = [
     path("categorias/<int:pk>/editar/", views.CategoriaClienteUpdateView.as_view(), name="categoria_editar"),
     path("categorias/<int:pk>/excluir/", views.CategoriaClienteDeleteView.as_view(), name="categoria_excluir"),
 
+    # CONTRATOS
+    path("", views.lista_contratos, name="lista"),
+    path("modelos/<str:tipo>/guardar/", views.guardar_modelo, name="guardar_modelo"),
+    path("enviar/<int:cliente_id>/", views.enviar_contrato, name="enviar"),
+    path("rever/<int:pk>/", views.rever_contrato, name="rever"),
+    path("interno/<int:pk>/", views.detalhe_contrato_staff, name="detalhe_interno"),
+    path("portal/<int:pk>/", views.ClienteContratoDetalheView.as_view(), name="cliente_detalhe"),
+    
     # ENDEREÇOS
     path("enderecos/", views.EnderecoClienteListView.as_view(), name="enderecos"),
     path("enderecos/<int:pk>/", views.EnderecoClienteDetailView.as_view(), name="endereco_detalhe"),

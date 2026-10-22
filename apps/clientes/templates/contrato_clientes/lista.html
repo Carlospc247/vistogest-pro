@@ -1,0 +1,104 @@
+{% extends 'base.html' %}
+{% block title %}Contratos de Clientes{% endblock %}
+{% block page_title %}Contratos de Clientes{% endblock %}
+{% block content %}
+<div class="space-y-6">
+  <section class="flex flex-wrap gap-3">
+    {% if pode_enviar %}
+    <form method="post" action="#" id="form-enviar-contrato" class="flex flex-wrap items-center gap-2 rounded-xl border bg-white p-3" onsubmit="return confirmarEnvioContrato(this)">
+      {% csrf_token %}
+      <label class="text-sm" for="cliente-contrato">Enviar contrato a</label>
+      <select id="cliente-contrato" required class="rounded border p-2">
+        <option value="">Seleccionar cliente...</option>
+        {% for cliente in clientes_disponiveis %}<option value="{{ cliente.pk }}">{{ cliente.nome_exibicao|default:cliente.nome_completo }}{% if cliente.vip %} — VIP{% endif %}</option>{% endfor %}
+      </select>
+      <button type="submit" class="rounded bg-blue-600 px-4 py-2 text-white">Gerar e enviar</button>
+    </form>
+    {% endif %}
+    {% if pode_gerir %}
+    <button type="button" onclick="document.getElementById('modal-normal').showModal()" class="rounded bg-blue-600 px-4 py-2 text-white">Modelo para Clientes</button>
+    <button type="button" onclick="document.getElementById('modal-vip').showModal()" class="rounded bg-green-600 px-4 py-2 text-white">Modelo para Clientes VIP</button>
+    {% endif %}
+  </section>
+
+  {% if pode_gerir %}
+  <dialog id="modal-normal" class="w-full max-w-3xl rounded-xl p-6 backdrop:bg-black/40">
+    <form method="post" action="{% url 'clientes:guardar_modelo' 'normal' %}">{% csrf_token %}
+      <div class="mb-4 flex justify-between"><h2 class="text-lg font-semibold">Modelo para Clientes</h2><button type="button" onclick="this.closest('dialog').close()">Fechar</button></div>
+      <label class="block text-sm">Nome<input name="nome" required value="{{ modelo_normal.nome|default:'Modelo Geral' }}" class="mt-1 w-full rounded border p-2"></label>
+      <label class="mt-3 block text-sm">Conteúdo do modelo<textarea name="conteudo" required rows="12" class="mt-1 w-full rounded border p-2 font-mono">{% if modelo_normal %}{{ modelo_normal.conteudo }}{% else %}CONTRATO DE PRESTAÇÃO DE SERVIÇOS
+
+Cliente: {% templatetag openvariable %} cliente.nome_exibicao {% templatetag closevariable %}
+Empresa: {% templatetag openvariable %} empresa.nome {% templatetag closevariable %}
+Data: {% templatetag openvariable %} data_emissao {% templatetag closevariable %}
+
+Objecto, preço, prazo, obrigações e condições de cancelamento...{% endif %}</textarea></label>
+      <label class="mt-3 flex gap-2"><input type="checkbox" name="ativo" {% if not modelo_normal or modelo_normal.ativo %}checked{% endif %}> Activo</label>
+      <button class="mt-4 rounded bg-blue-600 px-4 py-2 text-white">Guardar modelo</button>
+    </form>
+  </dialog>
+  <dialog id="modal-vip" class="w-full max-w-3xl rounded-xl p-6 backdrop:bg-black/40">
+    <form method="post" action="{% url 'clientes:guardar_modelo' 'vip' %}">{% csrf_token %}
+      <div class="mb-4 flex justify-between"><h2 class="text-lg font-semibold">Modelo para Clientes VIP</h2><button type="button" onclick="this.closest('dialog').close()">Fechar</button></div>
+      <label class="block text-sm">Nome<input name="nome" required value="{{ modelo_vip.nome|default:'Modelo VIP' }}" class="mt-1 w-full rounded border p-2"></label>
+      <label class="mt-3 block text-sm">Conteúdo do modelo<textarea name="conteudo" required rows="12" class="mt-1 w-full rounded border p-2 font-mono">{% if modelo_vip %}{{ modelo_vip.conteudo }}{% else %}CONTRATO VIP DE PRESTAÇÃO DE SERVIÇOS
+
+Cliente: {% templatetag openvariable %} cliente.nome_exibicao {% templatetag closevariable %}
+Empresa: {% templatetag openvariable %} empresa.nome {% templatetag closevariable %}
+Data: {% templatetag openvariable %} data_emissao {% templatetag closevariable %}
+
+Condições VIP, nível de serviço, preço, prazo, obrigações e cancelamento...{% endif %}</textarea></label>
+      <label class="mt-3 flex gap-2"><input type="checkbox" name="ativo" {% if not modelo_vip or modelo_vip.ativo %}checked{% endif %}> Activo</label>
+      <button class="mt-4 rounded bg-green-600 px-4 py-2 text-white">Guardar modelo VIP</button>
+    </form>
+  </dialog>
+  {% endif %}
+
+  <form method="get" class="flex flex-wrap gap-2 rounded-xl border bg-white p-4">
+    <input name="q" value="{{ q }}" placeholder="Pesquisar cliente" class="rounded border p-2">
+    <select name="vip" class="rounded border p-2"><option value="todos" {% if vip_filter == 'todos' %}selected{% endif %}>Todos</option><option value="vip" {% if vip_filter == 'vip' %}selected{% endif %}>VIP</option><option value="outros" {% if vip_filter == 'outros' %}selected{% endif %}>Não VIP</option></select>
+    <select name="estado" class="rounded border p-2"><option value="">Todos os estados</option>{% for value,label in status_choices %}<option value="{{ value }}" {% if estado == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select>
+    <button class="rounded bg-gray-800 px-4 py-2 text-white">Filtrar</button>
+  </form>
+
+  <div class="overflow-x-auto rounded-xl border bg-white">
+    <table class="min-w-full divide-y"><thead class="bg-gray-50"><tr><th class="p-3 text-left">Cliente</th><th class="p-3 text-left">Estado(s) correspondente(s)</th><th class="p-3 text-left">Último contrato</th><th class="p-3 text-left">Hash SHA-256</th><th class="p-3">Acções</th></tr></thead><tbody class="divide-y">
+    {% for cliente in clientes_com_contrato %}
+      {% with ultimo=cliente.historico_contratos|first %}
+      <tr>
+        <td class="p-3">{{ cliente.nome_exibicao|default:cliente.nome_completo|default:cliente.razao_social }}{% if cliente.vip %}<span class="ml-2 rounded-full bg-green-100 px-2 py-1 text-xs font-semibold text-green-800">VIP</span>{% endif %}</td>
+        <td class="p-3">{% for contrato in cliente.contratos_filtrados %}<span class="mb-1 mr-1 inline-block rounded border px-2 py-1 text-xs">{{ contrato.get_status_display }}</span>{% endfor %}</td>
+        <td class="p-3">{% if ultimo %}{{ ultimo.created_at|date:'d/m/Y H:i' }} · #{{ ultimo.pk }}{% else %}—{% endif %}</td>
+        <td class="max-w-40 truncate p-3 font-mono text-xs" title="{{ ultimo.hash_documento }}">{{ ultimo.hash_documento }}</td>
+        <td class="space-y-2 p-3 text-center">
+          <button type="button" class="text-blue-700 underline" onclick="document.getElementById('historico-cliente-{{ cliente.pk }}').showModal()">Histórico de contratos</button>
+          <a class="block text-blue-700 underline" href="{% url 'clientes:detalhe' cliente.pk %}">Perfil do cliente</a>
+          {% if pode_enviar %}<form method="post" action="{% url 'clientes:enviar' cliente.pk %}" onsubmit="return confirm('Gerar um novo contrato a partir do modelo actual?')">{% csrf_token %}<button class="text-green-700 underline">Enviar novo contrato</button></form>{% endif %}
+          {% for contrato in cliente.contratos_filtrados %}{% if contrato.status == 'correcao_solicitada' and pode_gerir %}<a class="block text-orange-700 underline" href="{% url 'clientes:rever' contrato.pk %}">Tratar correção #{{ contrato.pk }}</a>{% endif %}{% endfor %}
+          <dialog id="historico-cliente-{{ cliente.pk }}" class="w-full max-w-3xl rounded-xl p-6 backdrop:bg-black/40">
+            <div class="flex justify-between gap-3"><h2 class="text-lg font-semibold">Histórico — {{ cliente.nome_exibicao|default:cliente.nome_completo }}</h2><button type="button" onclick="this.closest('dialog').close()">Fechar</button></div>
+            <div class="mt-4 space-y-5">{% for contrato in cliente.historico_contratos %}
+              <article id="contrato-{{ contrato.pk }}" class="rounded-lg border p-4"><div class="flex flex-wrap justify-between gap-2"><strong>Contrato #{{ contrato.pk }} · versão {{ contrato.versao }}</strong><span class="text-sm">{{ contrato.get_status_display }}</span></div>
+                <p class="mt-1 text-xs text-gray-500">{{ contrato.created_at|date:'d/m/Y H:i' }} · Enviado por {{ contrato.enviado_por|default:'Sistema' }}</p><p class="mt-2 break-all font-mono text-xs">SHA-256: {{ contrato.hash_documento }}</p>
+                <details class="mt-3"><summary class="cursor-pointer font-semibold">Ver conteúdo enviado</summary><div class="mt-2 max-h-56 overflow-auto whitespace-pre-wrap rounded border p-3">{{ contrato.conteudo_snapshot }}</div></details>
+                <div class="mt-3 space-y-2">{% for evento in contrato.eventos.all %}<p class="border-l-2 border-blue-300 pl-3 text-sm"><strong>{{ evento.get_tipo_display }}</strong> · {{ evento.created_at|date:'d/m/Y H:i' }}<br>{{ evento.descricao }}</p>{% endfor %}</div>
+                <a class="mt-3 inline-block text-blue-700 underline" href="{% url 'clientes:detalhe_interno' contrato.pk %}">Abrir contrato</a>
+              </article>
+            {% empty %}<p class="text-gray-500">Sem contratos no histórico.</p>{% endfor %}</div>
+          </dialog>
+        </td>
+      </tr>
+      {% endwith %}
+    {% empty %}<tr><td colspan="5" class="p-8 text-center text-gray-500">Não foram encontrados clientes com contratos para estes filtros.</td></tr>{% endfor %}
+    </tbody></table>
+  </div>
+</div>
+<script>
+function confirmarEnvioContrato(form) {
+  const select = document.getElementById('cliente-contrato');
+  if (!select || !select.value) return false;
+  form.action = '{% url "clientes:enviar" 0 %}'.replace('/0/', '/' + select.value + '/');
+  return confirm('Vai emitir e disponibilizar um contrato ao cliente seleccionado. Continuar?');
+}
+</script>
+{% endblock %}

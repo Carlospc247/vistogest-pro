@@ -35,6 +35,7 @@ from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import cm, mm
+from reportlab.lib.utils import ImageReader
 from reportlab.pdfgen import canvas
 from reportlab.platypus import Table, TableStyle
 
@@ -105,7 +106,7 @@ def _gerar_qr_com_logo_agt(url: str, box_size: int = 10) -> io.BytesIO:
     if os.path.exists(logo_path):
         logo = Image.open(logo_path)
         qr_w, qr_h = qr_img.size
-        logo_size = int(qr_w * 0.18)   # ≤ 18% — exigência AGT Decreto 683/25
+        logo_size = int(qr_w * 0.20)   # ≤ 20% — exigência AGT Decreto 683/25
         logo = logo.resize((logo_size, logo_size))
         pos = ((qr_w - logo_size) // 2, (qr_h - logo_size) // 2)
         qr_img.paste(logo, pos)
@@ -373,17 +374,36 @@ class PDFDocumentoService:
         return []
 
     def _linha_de_doc_fiscal(self, linha) -> dict:
-        taxa = getattr(linha, 'taxa_iva', None)
+        """Converte DocumentoFiscalLinha usando os nomes reais de models.py."""
+        taxa = getattr(linha, "taxa_iva", None)
+
+        # Nomes canónicos no modelo DocumentoFiscalLinha; os fallbacks mantêm
+        # compatibilidade com objectos de vendas antigos que partilhem o PDF.
+        preco = getattr(linha, "preco_unitario", None)
+        if preco is None:
+            preco = getattr(linha, "valor_unitario", Decimal("0.00"))
+
+        desconto = getattr(linha, "valor_desconto_linha", None)
+        if desconto is None:
+            desconto = getattr(linha, "desconto_linha", Decimal("0.00"))
+
+        total_sem_iva = getattr(linha, "valor_liquido", None)
+        if total_sem_iva is None:
+            total_sem_iva = getattr(linha, "valor_sem_iva", None)
+        if total_sem_iva is None:
+            quantidade = Decimal(str(getattr(linha, "quantidade", 0) or 0))
+            total_sem_iva = quantidade * Decimal(str(preco or 0)) - Decimal(str(desconto or 0))
+
         return {
-            'cod':        getattr(linha, 'codigo_produto', '') or '',
-            'desc':       getattr(linha, 'descricao', '') or '',
-            'op_type':    getattr(linha, 'operation_type', 'TB') or 'TB',
-            'qtd':        str(linha.quantidade),
-            'preco':      _fmt_unit(linha.valor_unitario),
-            'desc_val':   _fmt_kz(getattr(linha, 'desconto_linha', Decimal('0'))),
-            'taxa_iva':   f"{taxa.tax_percentage}%" if taxa else '0%',
-            'isencao':    getattr(taxa, 'exemption_reason', '') if taxa else '',
-            'total':      _fmt_kz(getattr(linha, 'valor_sem_iva', linha.valor_unitario)),
+            "cod": getattr(linha, "codigo_produto", "") or "",
+            "desc": getattr(linha, "descricao", "") or "",
+            "op_type": getattr(linha, "operation_type", "TB") or "TB",
+            "qtd": str(getattr(linha, "quantidade", 0)),
+            "preco": _fmt_unit(preco or 0),
+            "desc_val": _fmt_kz(desconto or Decimal("0.00")),
+            "taxa_iva": f"{taxa.tax_percentage}%" if taxa else "0%",
+            "isencao": getattr(taxa, "exemption_reason", "") if taxa else "",
+            "total": _fmt_kz(total_sem_iva or Decimal("0.00")),
         }
 
     def _linha_de_item(self, item) -> dict:
@@ -436,7 +456,7 @@ class PDFDocumentoService:
         logo_io = self._logo_empresa()
         if logo_io:
             try:
-                p.drawInlineImage(logo_io, ml, h - 3.5 * cm, width=4 * cm, preserveAspectRatio=True)
+                p.drawImage(ImageReader(logo_io), ml, h - 3.5 * cm, width=4 * cm, preserveAspectRatio=True)
                 logo_w = 4.5 * cm
             except Exception:
                 pass
@@ -598,7 +618,7 @@ class PDFDocumentoService:
         # ── QR CODE + RODAPÉ LEGAL ─────────────────────────────────────────
         qr_y = 1.5 * cm
         qr_io = _gerar_qr_com_logo_agt(self._url_qr(), box_size=10)
-        p.drawInlineImage(qr_io, ml, qr_y, width=3 * cm, height=3 * cm)
+        p.drawImage(ImageReader(qr_io), ml, qr_y, width=3 * cm, height=3 * cm)
 
         # Rodapé — lado direito do QR
         p.setFont("Helvetica", 6)
@@ -648,7 +668,7 @@ class PDFDocumentoService:
         logo_io = self._logo_empresa()
         if logo_io:
             try:
-                p.drawInlineImage(logo_io, (w/2)-15*mm, y-15*mm, width=30*mm, preserveAspectRatio=True)
+                p.drawImage(ImageReader(logo_io), (w/2)-15*mm, y-15*mm, width=30*mm, preserveAspectRatio=True)
                 y -= 20 * mm
             except Exception:
                 pass
@@ -713,7 +733,7 @@ class PDFDocumentoService:
         # QR Code
         y -= 30*mm
         qr_io = _gerar_qr_com_logo_agt(self._url_qr(), box_size=5)
-        p.drawInlineImage(qr_io, (w/2)-15*mm, y, width=30*mm, height=30*mm)
+        p.drawImage(ImageReader(qr_io), (w/2)-15*mm, y, width=30*mm, height=30*mm)
         y -= 8*mm
 
         # Rodapé legal

@@ -1,6 +1,7 @@
 # apps/site/urls.py
 from django.urls import path
-from . import views
+from . import views, service_portal_views
+
 
 app_name = 'site'
 
@@ -25,6 +26,11 @@ urlpatterns = [
     # Tracking público (cliques no WhatsApp)
     path('track/', views.RegistarEventoView.as_view(), name='registar_evento'),
 
+
+    path('cliente/servicos/', service_portal_views.MeusServicosView.as_view(), name='cliente_servicos'),
+    path('cliente/servicos/<int:pk>/', service_portal_views.MeuServicoDetalheView.as_view(), name='cliente_servico_detalhe'),
+    path('cliente/servicos/<int:pk>/eventos/', service_portal_views.meu_servico_eventos_api, name='cliente_servico_eventos_api'),
+    path('cliente/servicos/<int:pk>/mensagem/', service_portal_views.meu_servico_enviar_mensagem, name='cliente_servico_mensagem'),
 
     
     # ── Loja Online — Catálogo ────────────────────────────────────────────────
@@ -85,4 +91,10 @@ urlpatterns = [
     path('admin/secao/<int:secao_id>/editar/', views.EditarConteudoSecaoView.as_view(), name='editar_secao'),
     path('admin/secao/<int:secao_id>/duplicar/', views.DuplicarSecaoView.as_view(), name='duplicar_secao'),
     path('admin/secao/<int:secao_id>/eliminar/', views.EliminarSecaoView.as_view(), name='eliminar_secao'),
+
+    path(
+        'minha-conta/documentos/<int:documento_id>/pdf/',
+        views.ClienteDocumentoComercialPDFView.as_view(),
+        name='cliente_documento_comercial_pdf',
+    ),
 ]

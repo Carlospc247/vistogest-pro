@@ -1775,7 +1775,7 @@ class WidgetMapaUsuariosView(BaseViewMixin, TemplateView):
 # =====================================
 
 class ConfiguracoesAnalyticsView(BaseViewMixin, TemplateView):
-    template_name = 'analytics/configuracoes/dashboard.html'
+    template_name = 'analytics/config/dashboard.html'
     
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)

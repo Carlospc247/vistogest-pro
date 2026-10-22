@@ -1,0 +1,38 @@
+{% extends 'site/base_loja.html' %}
+{% block title %}Acompanhar {{ agendamento.servico.nome }}{% endblock %}
+{% block content %}
+<section class="mx-auto max-w-4xl space-y-6 px-4 py-8">
+  <header class="rounded-xl border bg-white p-5 shadow-sm">
+    <a href="{% url 'site:cliente_servicos' %}" class="text-sm text-blue-700">← Os meus serviços</a>
+    <div class="mt-3 flex flex-wrap items-start justify-between gap-4"><div><h1 class="text-2xl font-bold">{{ agendamento.servico.nome }}</h1><p class="mt-1 text-sm text-gray-600">Data: {{ agendamento.data_hora|date:'d/m/Y H:i' }}</p><p class="mt-1">Estado: <strong id="estado-servico">{{ agendamento.get_status_display }}</strong></p></div>
+    <div class="rounded-lg bg-gray-50 px-5 py-3 text-center"><div id="rotulo-cronometro" class="text-xs text-gray-500">{% if agendamento.status == 'agendado' %}Tempo até ao serviço{% else %}Tempo de execução{% endif %}</div><div id="cronometro" data-segundos="{{ tempo_decorrido }}" data-agendado="{{ agendamento.data_hora|date:'c' }}" class="font-mono text-3xl font-bold">00:00:00</div></div></div>
+  </header>
+  <section class="rounded-xl border bg-white p-5 shadow-sm"><h2 class="mb-4 text-lg font-semibold">Histórico e conversa</h2>
+    <div class="space-y-3">
+    {% for evento in eventos %}<article class="rounded-lg border p-3"><div class="flex flex-wrap justify-between gap-2"><strong>{{ evento.titulo }}</strong><time class="text-xs text-gray-500">{{ evento.created_at|date:'d/m/Y H:i' }}</time></div>{% if evento.descricao %}<p class="mt-2 whitespace-pre-wrap">{{ evento.descricao }}</p>{% endif %}{% if evento.anexo %}<a class="mt-2 inline-block text-blue-700 underline" href="{{ evento.anexo.url }}" target="_blank" rel="noopener">Abrir anexo</a>{% endif %}</article>
+    {% empty %}<p class="text-sm text-gray-500">Ainda não foram registados eventos neste serviço.</p>{% endfor %}
+    </div>
+    <form method="post" enctype="multipart/form-data" action="{% url 'site:cliente_servico_mensagem' agendamento.pk %}" class="mt-5 space-y-3">{% csrf_token %}<textarea name="mensagem" rows="3" class="w-full rounded border p-3" placeholder="Escreva uma mensagem à empresa..."></textarea><input type="file" name="anexo" accept=".pdf,.png,.jpg,.jpeg,.webp,.doc,.docx,.xls,.xlsx,.txt"><button class="rounded bg-blue-600 px-4 py-2 text-white">Enviar mensagem</button></form>
+  </section>
+</section>
+<script>
+(() => {
+  const el = document.getElementById('cronometro'); const statusEl = document.getElementById('estado-servico');
+  const labelEl = document.getElementById('rotulo-cronometro');
+  let seconds = Number(el.dataset.segundos || 0); let scheduledAt = new Date(el.dataset.agendado).getTime();
+  let status = '{{ agendamento.status|escapejs }}';
+  const fmt = n => [Math.floor(n/3600),Math.floor((n%3600)/60),n%60].map(v=>String(v).padStart(2,'0')).join(':');
+  const render = () => { if(status === 'agendado') { labelEl.textContent='Tempo até ao serviço'; el.textContent=fmt(Math.max(0,Math.floor((scheduledAt-Date.now())/1000))); } else { labelEl.textContent='Tempo de execução'; el.textContent=fmt(seconds); } };
+  render();
+  setInterval(() => { if(status === 'em_andamento') seconds += 1; render(); }, 1000);
+  let latest = {{ eventos.last.pk|default:0 }};
+  async function poll() {
+    try { const r = await fetch('{% url "site:cliente_servico_eventos_api" agendamento.pk %}'); if (!r.ok) return; const d = await r.json();
+      status = d.status; seconds = Number(d.tempo_decorrido || 0); scheduledAt = new Date(d.data_hora).getTime(); render(); statusEl.textContent = d.status_display || status;
+      const id = d.eventos.length ? d.eventos[d.eventos.length - 1].id : 0; if (id > latest) location.reload();
+    } catch (_) { /* Mantém a interface visível durante falhas temporárias de rede. */ }
+  }
+  setInterval(poll, 10000);
+})();
+</script>
+{% endblock %}

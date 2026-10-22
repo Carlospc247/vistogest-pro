@@ -403,7 +403,7 @@ class VerifyIPView(LoginRequiredMixin, View):
 
 class NotificationListView(LoginRequiredMixin, ListView):
     """Lista todas as notificações do utilizador autenticado."""
-    template_name = "core/notifications_list.html"
+    template_name = "core_tenants/notifications_list.html"
     context_object_name = "notifications"
 
     def get_queryset(self):

@@ -1,114 +1,13 @@
-{% extends 'base.html' %}
-{% load static %}
+{% extends "base.html" %}
 {% block title %}Notificações de Agendamento{% endblock %}
-{% block page_title %}Notificações de Agendamento{% endblock %}
-
-{% block page_actions %}
-<div class="flex items-center space-x-2">
-    <a href="{% url 'notificacoes:notificacao_create' %}" 
-       class="inline-flex items-center gap-x-2 rounded-md bg-blue-600 px-3.5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-blue-500">
-       <i class="fas fa-plus"></i> Nova Notificação
-    </a>
-</div>
-{% endblock %}
-
 {% block content %}
-<div class="mb-6 rounded-lg bg-white p-4 shadow-sm dark:bg-gray-800">
-    <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <div>
-            <label for="search" class="block text-sm font-medium text-gray-700 dark:text-gray-300">Pesquisar</label>
-            <input type="search" id="search" placeholder="Cliente, título ou mensagem..." 
-                   class="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white sm:text-sm">
-        </div>
-        <div>
-            <label for="status" class="block text-sm font-medium text-gray-700 dark:text-gray-300">Status</label>
-            <select id="status" class="mt-1 block w-full rounded-md border-gray-300 py-2 pl-3 pr-10 text-base dark:border-gray-600 dark:bg-gray-700 dark:text-white sm:text-sm">
-                <option value="">Todos</option>
-                <option value="pendente">Pendente</option>
-                <option value="enviada">Enviada</option>
-                <option value="entregue">Entregue</option>
-                <option value="lida">Lida</option>
-                <option value="erro">Erro</option>
-                <option value="cancelada">Cancelada</option>
-            </select>
-        </div>
-    </div>
+{% include "servicos/_styles.html" %}
+<div class="svc-page">
+  <header class="svc-heading"><div><p class="svc-eyebrow">Serviços · Comunicação</p><h1>Notificações</h1><p class="svc-subtitle">Organize lembretes e mensagens ligados aos agendamentos e consulte o estado de envio de cada aviso.</p></div><div class="svc-actions"><a class="svc-btn svc-btn--light" href="{% url 'servicos:servico_dashboard' %}">← Dashboard</a><a class="svc-btn" href="{% url 'servicos:notificacao_create' %}">＋ Nova notificação</a></div></header>
+  <section class="svc-panel"><form method="get" class="svc-toolbar"><div class="svc-field"><label for="q">Pesquisar notificações</label><input id="q" type="search" name="q" value="{{ query }}" placeholder="Título, mensagem ou cliente"></div><div class="svc-field" style="max-width:260px"><label for="status">Estado</label><select id="status" name="status"><option value="">Todos os estados</option>{% for key,label in status_choices %}<option value="{{ key }}" {% if status_filter == key %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></div><button class="svc-btn" type="submit">Filtrar</button><a class="svc-btn svc-btn--light" href="{% url 'servicos:notificacao_list' %}">Limpar</a></form>
+    {% if notificacoes %}<div class="svc-table-wrap"><table class="svc-table"><thead><tr><th>Data agendada</th><th>Notificação</th><th>Cliente</th><th>Agendamento</th><th>Canal</th><th>Estado</th><th>Acções</th></tr></thead><tbody>{% for n in notificacoes %}<tr><td><strong>{{ n.data_agendada_envio|date:"d/m/Y" }}</strong><br>{{ n.data_agendada_envio|date:"H:i" }}</td><td><strong>{{ n.titulo }}</strong><br><span class="svc-muted">{{ n.mensagem|truncatechars:90 }}</span></td><td>{{ n.cliente.nome_completo }}</td><td>{{ n.agendamento.servico.nome }}<br><span class="svc-muted">{{ n.agendamento.data_hora|date:"d/m/Y H:i" }}</span></td><td>{{ n.get_tipo_notificacao_display }}</td><td><span class="svc-chip {% if n.status == 'enviada' or n.status == 'entregue' or n.status == 'lida' %}svc-chip--ok{% elif n.status == 'erro' or n.status == 'cancelada' %}svc-chip--red{% else %}svc-chip--warn{% endif %}">{{ n.get_status_display }}</span></td><td><div class="svc-inline-actions"><a class="svc-btn svc-btn--light svc-btn--small" href="{% url 'servicos:notificacao_update' n.pk %}">Editar</a><a class="svc-btn svc-btn--danger svc-btn--small" href="{% url 'servicos:notificacao_delete' n.pk %}">Eliminar</a><a class="svc-btn svc-btn--light svc-btn--small" href="{% url 'servicos:acompanhamento_agendamento' n.agendamento_id %}">Acompanhamento</a></div></td></tr>{% endfor %}</tbody></table></div>
+    {% else %}<div class="svc-empty"><h3>Nenhuma notificação encontrada</h3><p>Crie um lembrete ou ajuste os filtros de pesquisa.</p><a class="svc-btn" href="{% url 'servicos:notificacao_create' %}">Criar notificação</a></div>{% endif %}
+  </section>
+  <section class="svc-panel"><div class="svc-panel-head"><div><h2>Configuração e consulta</h2><p>Ajuste canais de comunicação ou consuma os dados pela API.</p></div></div><div class="svc-quick-grid"><a class="svc-quick" href="{% url 'servicos:notificacao_create' %}"><span class="svc-quick-icon">＋</span><span><strong>Criar notificação</strong><small>Novo aviso</small></span></a><a class="svc-quick" href="{% url 'servicos:config_notificacao' %}"><span class="svc-quick-icon">⚙</span><span><strong>Configurações</strong><small>Canais e horários</small></span></a><a class="svc-quick" href="{% url 'servicos:buscar_notificacao_api' %}" target="_blank" rel="noopener"><span class="svc-quick-icon">{ }</span><span><strong>API de notificações</strong><small>JSON</small></span></a></div></section>
 </div>
-
-<div class="overflow-hidden rounded-lg bg-white shadow-sm dark:bg-gray-800">
-    <div class="overflow-x-auto">
-        <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-            <thead class="bg-gray-50 dark:bg-gray-700/50">
-                <tr>
-                    <th class="py-3.5 pl-6 text-left text-sm font-semibold text-gray-900 dark:text-white">Cliente</th>
-                    <th class="px-3 py-3.5 text-left text-sm font-semibold text-gray-900 dark:text-white">Título</th>
-                    <th class="px-3 py-3.5 text-left text-sm font-semibold text-gray-900 dark:text-white">Mensagem</th>
-                    <th class="px-3 py-3.5 text-left text-sm font-semibold text-gray-900 dark:text-white">Tipo</th>
-                    <th class="px-3 py-3.5 text-left text-sm font-semibold text-gray-900 dark:text-white">Status</th>
-                    <th class="px-3 py-3.5 text-left text-sm font-semibold text-gray-900 dark:text-white">Agendamento</th>
-                    <th class="relative py-3.5 pr-6"></th>
-                </tr>
-            </thead>
-            <tbody id="notificacao-tbody" class="divide-y divide-gray-200 bg-white dark:divide-gray-700 dark:bg-gray-800">
-                {% for n in notificacoes %}
-                <tr>
-                    <td class="py-4 pl-6 text-sm">{{ n.cliente.nome_completo }}</td>
-                    <td class="px-3 py-4 text-sm">{{ n.titulo }}</td>
-                    <td class="px-3 py-4 text-sm">{{ n.mensagem|truncatechars:50 }}</td>
-                    <td class="px-3 py-4 text-sm">{{ n.get_tipo_notificacao_display }}</td>
-                    <td class="px-3 py-4 text-sm">{{ n.status }}</td>
-                    <td class="px-3 py-4 text-sm">{{ n.agendamento.data_hora|date:"d/m/Y H:i" }}</td>
-                    <td class="py-4 pr-6 text-right space-x-4 text-sm">
-                        <a href="{% url 'notificacoes:notificacao_update' n.pk %}" class="text-blue-600">Editar</a>
-                        <a href="{% url 'notificacoes:notificacao_delete' n.pk %}" class="text-red-600">Eliminar</a>
-                    </td>
-                </tr>
-                {% empty %}
-                <tr>
-                    <td colspan="7" class="text-center py-12 text-gray-500 dark:text-gray-400">Nenhuma notificação encontrada.</td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-    </div>
-</div>
-{% endblock %}
-
-{% block scripts %}
-<script>
-async function buscarNotificacoes() {
-    const query = document.getElementById('search').value;
-    const status = document.getElementById('status').value;
-
-    const res = await fetch(`{% url 'notificacoes:buscar_notificacao_api' %}?q=${encodeURIComponent(query)}&status=${status}`);
-    const data = await res.json();
-
-    const tbody = document.getElementById('notificacao-tbody');
-    tbody.innerHTML = '';
-
-    if (data.success && data.notificacoes.length > 0) {
-        data.notificacoes.forEach(n => {
-            const tr = document.createElement('tr');
-            tr.innerHTML = `
-                <td class="py-4 pl-6 text-sm">${n.cliente}</td>
-                <td class="px-3 py-4 text-sm">${n.titulo}</td>
-                <td class="px-3 py-4 text-sm">${n.mensagem.substring(0,50)}</td>
-                <td class="px-3 py-4 text-sm">${n.tipo}</td>
-                <td class="px-3 py-4 text-sm">${n.status}</td>
-                <td class="px-3 py-4 text-sm">${new Date(n.data_agendada_envio).toLocaleString()}</td>
-                <td class="py-4 pr-6 text-right space-x-4 text-sm">
-                    <a href="/notificacoes/${n.id}/editar/" class="text-blue-600">Editar</a>
-                    <a href="/notificacoes/${n.id}/deletar/" class="text-red-600">Eliminar</a>
-                </td>
-            `;
-            tbody.appendChild(tr);
-        });
-    } else {
-        tbody.innerHTML = `<tr><td colspan="7" class="text-center py-12 text-gray-500 dark:text-gray-400">Nenhuma notificação encontrada.</td></tr>`;
-    }
-}
-
-document.getElementById('search').addEventListener('input', buscarNotificacoes);
-document.getElementById('status').addEventListener('change', buscarNotificacoes);
-</script>
 {% endblock %}

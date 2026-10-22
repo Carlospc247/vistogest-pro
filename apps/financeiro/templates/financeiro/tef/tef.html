@@ -1,2 +1,27 @@
-{% extends "financeiro/base_financeiro.html" %}{% block title %}Terminal de Pagamento (TEF){% endblock %}{% block breadcrumb %}Terminal de Pagamento (TEF){% endblock %}{% block content %}
-<header class="page-head"><div><h1>Terminal de Pagamento (TEF)</h1><p>Gestão da interface de pagamentos electrónicos.</p></div>{% block page_actions %}{% endblock %}</header><section class="panel"><div class="notice warning">A view TEF apresentada no código estática e não está incluída na lista de URLs enviada. Antes de expor transacções reais, integrar o fornecedor TEF e registar auditoria de cada operação.</div><div class="link-grid"><a class="link-card" href="{% url 'financeiro:tef_transacoes' %}"><strong>Transacções TEF</strong><span>Ver transacções registadas</span></a><a class="link-card" href="{% url 'financeiro:cartao_lista' %}"><strong>Cartões</strong><span>Voltar ao módulo de cartões</span></a></div></section>{% endblock %}
+{# financeiro/tef/tef.html #}
+{% extends "financeiro/base_financeiro.html" %}
+{% block title %}Terminal de pagamento (TEF){% endblock %}
+{% block breadcrumb %}Terminal de pagamento (TEF){% endblock %}
+{% block content %}
+<header class="page-head"><div><h1>Terminal de pagamento (TEF)</h1><p>Controlo das transações eletrónicas de {{ hoje|date:"d/m/Y" }}.</p></div>
+  <div class="actions"><a class="btn" href="{% url 'financeiro:tef_transacoes' %}">Todas as transações</a></div></header>
+{% include "financeiro/cartao/_nav.html" %}
+<div class="notice">As transações são registadas na venda com o NSU e a autorização lidos no terminal. Não há comunicação automática com o terminal ou o adquirente.</div>
+{% if not formas_ativas %}
+<div class="notice warning">Nenhuma forma de pagamento por cartão está ativa. <a href="{% url 'financeiro:formas_pagamento' %}">Ativar</a>.</div>
+{% endif %}
+<div class="grid">
+  <article class="metric"><div class="label">Transações hoje</div><div class="value">{{ totais.n }}</div><div class="hint">Excluindo anuladas</div></article>
+  <article class="metric"><div class="label">Total hoje</div><div class="value">{{ totais.bruto|floatformat:2 }} AOA</div><div class="hint">Líquido: {{ totais.liquido|floatformat:2 }} AOA</div></article>
+  <article class="metric"><div class="label">Pendentes</div><div class="value">{{ pendentes }}</div><div class="hint">Por aprovar</div></article>
+  <article class="metric"><div class="label">Estornadas hoje</div><div class="value">{{ estornados }}</div><div class="hint">Canceladas no dia</div></article>
+</div>
+<section class="panel">
+  <h2>Formas de pagamento eletrónicas ativas</h2>
+  <p>{% for f in formas_ativas %}<span class="fin-badge fin-aprovado" style="margin-right:.4rem">{{ f.nome }} · {{ f.taxa_administracao|floatformat:2 }}%</span>{% empty %}Nenhuma.{% endfor %}</p>
+</section>
+<section class="panel">
+  <h2>Últimas transações</h2>
+  {% include "financeiro/cartao/_tabela.html" with pagamentos=recentes acoes=True %}
+</section>
+{% endblock %}

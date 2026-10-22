@@ -1,195 +1,194 @@
+{# templates/site/cliente/perfil.html #}
 {% extends "site/loja/base_loja.html" %}
 
 {% block titulo %}Minha conta{% endblock %}
 
 {% block conteudo %}
 <section class="pagina">
-
     <style>
-        /* ───────── Tokens (herdam do tema da loja, com valores de reserva) ───────── */
-        .perfil{
+        .perfil {
             --p-linha: var(--linha, #e5e7eb);
             --p-prim: var(--primaria, #4f46e5);
             --p-raio: var(--raio, 12px);
             --p-fundo: var(--fundo, #f8fafc);
-            --p-sup: var(--superficie, #ffffff);
+            --p-sup: var(--superficie, #fff);
             --p-texto: var(--texto, #0f172a);
             --p-suave: var(--texto-secundario, #64748b);
+            color: var(--p-texto);
         }
-        .perfil, .perfil *{ box-sizing: border-box; }
+        .perfil, .perfil * { box-sizing: border-box; }
         .perfil a:focus-visible,
-        .perfil button:focus-visible{ outline: 2px solid var(--p-prim); outline-offset: 2px; }
-
-        /* ───────── Cabeçalho + navegação rápida ───────── */
-        .perfil-topo{
+        .perfil button:focus-visible {
+            outline: 2px solid var(--p-prim);
+            outline-offset: 3px;
+        }
+        .perfil-topo {
             display: flex;
-            flex-wrap: wrap;
             align-items: center;
             justify-content: space-between;
+            flex-wrap: wrap;
             gap: 12px;
-            margin-bottom: 20px;
+            margin-bottom: 18px;
         }
-        .perfil-nav{
+        .perfil-nav {
             display: flex;
+            flex-wrap: nowrap;
             gap: 8px;
             overflow-x: auto;
-            padding-bottom: 4px;
+            padding: 3px 2px 8px;
+            margin-bottom: 20px;
             -webkit-overflow-scrolling: touch;
             scrollbar-width: thin;
         }
-        .perfil-nav a{
-            flex: 0 0 auto;
+        .perfil-nav a {
             display: inline-flex;
+            flex: 0 0 auto;
             align-items: center;
             gap: 7px;
-            padding: 8px 14px;
+            padding: 9px 13px;
             border: 1px solid var(--p-linha);
             border-radius: 999px;
             background: var(--p-sup);
             color: var(--p-texto);
-            font-size: .82rem;
-            font-weight: 600;
+            font-size: .84rem;
+            font-weight: 650;
             text-decoration: none;
             white-space: nowrap;
         }
-        .perfil-nav a:hover{ border-color: var(--p-prim); color: var(--p-prim); }
-
-        /* ───────── Grelha principal ───────── */
-        .perfil-grid{
+        .perfil-nav a:hover { border-color: var(--p-prim); color: var(--p-prim); }
+        .perfil-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr));
-            gap: 20px;
+            grid-template-columns: repeat(auto-fit, minmax(min(100%, 21rem), 1fr));
             align-items: start;
+            gap: 20px;
         }
-
-        /* Cartão da conta */
-        .perfil-conta{ display: flex; flex-direction: column; gap: 18px; }
-        .perfil-id{ display: flex; align-items: center; gap: 14px; min-width: 0; }
-        .perfil-avatar{
-            flex: 0 0 auto;
+        .perfil-conta { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
+        .perfil-id { display: flex; align-items: center; gap: 14px; min-width: 0; }
+        .perfil-avatar {
+            display: flex;
+            flex: 0 0 56px;
+            align-items: center;
+            justify-content: center;
             width: 56px;
             height: 56px;
             border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 1.35rem;
-            color: #fff;
             background: var(--p-prim);
+            color: #fff;
+            font-size: 1.3rem;
         }
-        .perfil-id h1{ margin: 2px 0 0; font-size: 1.3rem; line-height: 1.25; overflow-wrap: anywhere; }
-        .perfil-dados{
+        .perfil-id h1 { margin: 3px 0 0; font-size: 1.35rem; line-height: 1.25; overflow-wrap: anywhere; }
+        .perfil-dados {
+            padding: 4px 14px;
             border: 1px solid var(--p-linha);
             border-radius: var(--p-raio);
             background: var(--p-fundo);
-            padding: 4px 14px;
         }
-        .perfil-dados .resumo-linha{ overflow-wrap: anywhere; gap: 12px; }
-        .perfil-acoes{ display: flex; flex-wrap: wrap; gap: 8px; }
-        .perfil-acoes .btn{ flex: 1 1 auto; text-align: center; margin: 0; }
-
-        /* Cabeçalho de cada painel */
-        .perfil-cab{
+        .perfil-dados .resumo-linha { gap: 12px; overflow-wrap: anywhere; }
+        .perfil-dados .resumo-linha strong { text-align: right; overflow-wrap: anywhere; }
+        .perfil-acoes { display: flex; flex-wrap: wrap; gap: 8px; }
+        .perfil-acoes .btn { flex: 1 1 auto; margin: 0; text-align: center; }
+        .perfil-cab {
             display: flex;
-            flex-wrap: wrap;
             align-items: center;
             justify-content: space-between;
+            flex-wrap: wrap;
             gap: 12px 16px;
-            margin-bottom: 18px;
+            margin-bottom: 16px;
         }
-        .perfil-cab h2{ margin: 0; }
-        .perfil-cab .cat{ margin: 0 0 2px; }
-
-        /* Pedidos */
-        .perfil-pedidos .item-linha{ padding: 12px 0; gap: 12px; }
-        .perfil-pedidos .item-linha > div:first-child{ min-width: 0; }
-        .perfil-pedidos .item-nome{ overflow-wrap: anywhere; }
-        .perfil-pedidos .valor{ white-space: nowrap; }
-        .perfil-rodape{ margin-top: 14px; }
-
-        /* ───────── Cartões de mensagem / reclamação ───────── */
-        .perfil-cartao-mensagem{
+        .perfil-cab h2 { margin: 0; }
+        .perfil-cab .cat { margin: 0 0 3px; }
+        .perfil-cab-descricao { margin: 7px 0 0; color: var(--p-suave); font-size: .9rem; line-height: 1.5; }
+        .perfil-secao { margin-top: 24px; scroll-margin-top: 90px; }
+        .perfil-pedidos .item-linha { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 0; }
+        .perfil-pedidos .item-linha > div:first-child { min-width: 0; }
+        .perfil-pedidos .item-nome { overflow-wrap: anywhere; }
+        .perfil-pedidos .valor { white-space: nowrap; }
+        .perfil-rodape { margin-top: 14px; }
+        .perfil-lista-documentos { display: grid; gap: 12px; }
+        .perfil-documento {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 16px;
+            min-width: 0;
+            padding: 16px;
             border: 1px solid var(--p-linha);
             border-radius: var(--p-raio);
-            padding: 18px;
-            margin-bottom: 14px;
             background: var(--p-sup);
-            min-width: 0;
-            transition: box-shadow .15s, border-color .15s;
         }
-        .perfil-cartao-mensagem:last-child{ margin-bottom: 0; }
-        .perfil-cartao-mensagem:hover{ border-color: var(--p-prim); box-shadow: 0 4px 16px rgba(15,23,42,.06); }
-
-        .perfil-mensagem-cabecalho{
-            display: flex;
-            justify-content: space-between;
-            align-items: flex-start;
-            gap: 12px;
-            flex-wrap: wrap;
-        }
-        .perfil-titulo-grupo{ display: flex; align-items: flex-start; gap: 12px; min-width: 0; flex: 1 1 14rem; }
-        .perfil-ico{
-            flex: 0 0 auto;
-            width: 38px;
-            height: 38px;
-            border-radius: 10px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: .95rem;
-        }
-        .perfil-ico--msg{ background: #4f46e51f; color: #4f46e5; }
-        .perfil-ico--rec{ background: #dc26261f; color: #dc2626; }
-        .perfil-mensagem-cabecalho h3{
-            margin: 0 0 4px;
-            font-size: 1rem;
-            line-height: 1.35;
-            overflow-wrap: anywhere;
-        }
-
-        /* Estado (pílulas) */
-        .perfil-estado{
+        .perfil-documento:hover { border-color: var(--p-prim); }
+        .perfil-documento-info { display: flex; align-items: flex-start; gap: 12px; min-width: 0; flex: 1 1 auto; }
+        .perfil-documento-info > div:last-child { min-width: 0; }
+        .perfil-documento-titulo { display: block; margin: 0 0 4px; overflow-wrap: anywhere; }
+        .perfil-documento-meta { margin: 0; color: var(--p-suave); font-size: .82rem; line-height: 1.5; overflow-wrap: anywhere; }
+        .perfil-documento-total { display: block; margin-top: 7px; white-space: nowrap; }
+        .perfil-documento-acao { flex: 0 0 auto; }
+        .perfil-documento-acao .btn { display: inline-flex; align-items: center; justify-content: center; gap: 7px; margin: 0; white-space: nowrap; }
+        .perfil-contagem {
             display: inline-flex;
             align-items: center;
-            gap: 6px;
-            padding: 5px 12px;
+            gap: 7px;
+            padding: 6px 10px;
             border-radius: 999px;
-            font-size: .75rem;
+            background: color-mix(in srgb, var(--p-prim) 10%, white);
+            color: var(--p-prim);
+            font-size: .78rem;
             font-weight: 700;
             white-space: nowrap;
         }
-        .perfil-estado--ok{ background: #dcfce7; color: #166534; }
-        .perfil-estado--espera{ background: #fef3c7; color: #92400e; }
-        .perfil-estado--aberta{ background: #fee2e2; color: #991b1b; }
-
-        /* Mensagem original */
-        .perfil-bloco{ margin-top: 14px; }
-        .perfil-rotulo{
+        .perfil-cartao-mensagem {
+            min-width: 0;
+            margin-bottom: 14px;
+            padding: 18px;
+            border: 1px solid var(--p-linha);
+            border-radius: var(--p-raio);
+            background: var(--p-sup);
+            transition: box-shadow .15s, border-color .15s;
+        }
+        .perfil-cartao-mensagem:last-child { margin-bottom: 0; }
+        .perfil-cartao-mensagem:hover { border-color: var(--p-prim); box-shadow: 0 4px 16px rgba(15, 23, 42, .06); }
+        .perfil-mensagem-cabecalho { display: flex; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
+        .perfil-titulo-grupo { display: flex; flex: 1 1 14rem; align-items: flex-start; gap: 12px; min-width: 0; }
+        .perfil-ico {
+            display: flex;
+            flex: 0 0 38px;
+            align-items: center;
+            justify-content: center;
+            width: 38px;
+            height: 38px;
+            border-radius: 10px;
+            font-size: .95rem;
+        }
+        .perfil-ico--msg { background: #4f46e51f; color: #4f46e5; }
+        .perfil-ico--rec { background: #dc26261f; color: #dc2626; }
+        .perfil-ico--doc { background: #2563eb1a; color: #2563eb; }
+        .perfil-mensagem-cabecalho h3 { margin: 0 0 4px; font-size: 1rem; line-height: 1.35; overflow-wrap: anywhere; }
+        .perfil-estado {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 5px 11px;
+            border-radius: 999px;
+            font-size: .75rem;
+            font-weight: 700;
+        }
+        .perfil-estado--ok { background: #dcfce7; color: #166534; }
+        .perfil-estado--espera { background: #fef3c7; color: #92400e; }
+        .perfil-estado--aberta { background: #fee2e2; color: #991b1b; }
+        .perfil-bloco { margin-top: 14px; }
+        .perfil-rotulo {
             display: block;
             margin-bottom: 6px;
+            color: var(--p-suave);
             font-size: .68rem;
             font-weight: 700;
             letter-spacing: .06em;
             text-transform: uppercase;
-            color: var(--p-suave);
         }
-        .perfil-mensagem-texto{
-            padding: 12px 14px;
-            border-radius: 10px;
-            background: var(--p-fundo);
-            color: var(--p-texto);
-            line-height: 1.6;
-        }
-        .perfil-mensagem-corpo{
-            white-space: pre-wrap;
-            overflow-wrap: anywhere;
-            max-height: 16rem;
-            overflow-y: auto;
-        }
-        .perfil-meta{ margin-top: 10px; font-size: .78rem; color: var(--p-suave); overflow-wrap: anywhere; }
-
-        /* Resposta da empresa */
-        .perfil-resposta{
+        .perfil-mensagem-texto { padding: 12px 14px; border-radius: 10px; background: var(--p-fundo); color: var(--p-texto); line-height: 1.6; }
+        .perfil-mensagem-corpo { max-height: 16rem; overflow-y: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+        .perfil-meta { margin-top: 10px; color: var(--p-suave); font-size: .78rem; overflow-wrap: anywhere; }
+        .perfil-resposta {
             margin-top: 16px;
             padding: 14px 16px;
             border: 1px solid var(--p-linha);
@@ -198,448 +197,283 @@
             background: var(--p-fundo);
             overflow-wrap: anywhere;
         }
-        .perfil-resposta-titulo{
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            margin: 0;
-            font-weight: 700;
-            color: var(--p-texto);
+        .perfil-resposta-titulo { display: flex; align-items: center; gap: 8px; margin: 0; color: var(--p-texto); font-weight: 700; }
+        .perfil-resposta-titulo i { color: var(--p-prim); }
+        .perfil-resposta-texto { margin-top: 8px; color: var(--p-texto); line-height: 1.65; white-space: pre-wrap; overflow-wrap: anywhere; }
+        .perfil-resposta-data { margin-top: 10px; color: var(--p-suave); font-size: .78rem; }
+        .perfil-vazio { padding: 30px 16px; text-align: center; }
+        .perfil-vazio h3 { margin: 0 0 8px; }
+        .perfil-vazio p { margin: 0 0 16px; color: var(--p-suave); line-height: 1.55; }
+        @media (max-width: 640px) {
+            .perfil-grid { gap: 16px; }
+            .perfil-avatar { flex-basis: 48px; width: 48px; height: 48px; font-size: 1.1rem; }
+            .perfil-id h1 { font-size: 1.15rem; }
+            .perfil-acoes .btn { flex-basis: 100%; }
+            .perfil-cab .btn { width: 100%; text-align: center; }
+            .perfil-cartao-mensagem { padding: 14px; }
+            .perfil-resposta { padding: 12px; }
+            .perfil-documento { align-items: stretch; flex-direction: column; }
+            .perfil-documento-acao .btn { width: 100%; }
+            .perfil-documento-total { white-space: normal; }
+            .perfil-mensagem-corpo { max-height: 12rem; }
         }
-        .perfil-resposta-titulo i{ color: var(--p-prim); }
-        .perfil-resposta-texto{
-            margin-top: 8px;
-            color: var(--p-texto);
-            white-space: pre-wrap;
-            overflow-wrap: anywhere;
-            line-height: 1.65;
-        }
-        .perfil-resposta-data{
-            margin-top: 10px;
-            font-size: .78rem;
-            color: var(--p-suave);
-        }
-
-        /* Painéis em sequência */
-        .perfil-secao{ margin-top: 24px; scroll-margin-top: 90px; }
-
-        /* ───────── Mobile ───────── */
-        @media (max-width: 640px){
-            .perfil-grid{ gap: 16px; }
-            .perfil-avatar{ width: 48px; height: 48px; font-size: 1.15rem; }
-            .perfil-id h1{ font-size: 1.15rem; }
-            .perfil-cartao-mensagem{ padding: 14px; }
-            .perfil-resposta{ padding: 12px; }
-            .perfil-cab .btn{ width: 100%; text-align: center; }
-            .perfil-acoes .btn{ flex-basis: 100%; }
-            .perfil-estado{ white-space: normal; }
-            .perfil-mensagem-corpo{ max-height: 12rem; }
-        }
-        @media (prefers-reduced-motion: reduce){
-            .perfil-cartao-mensagem{ transition: none; }
+        @media (prefers-reduced-motion: reduce) {
+            .perfil-cartao-mensagem { transition: none; }
         }
     </style>
 
     <div class="perfil">
+        <header class="perfil-topo">
+            <div>
+                <p class="cat" style="margin:0;">Área do cliente</p>
+                <h1 style="margin:4px 0 0;">Minha conta</h1>
+            </div>
+        </header>
 
-        <!-- NAVEGAÇÃO RÁPIDA -->
         <nav class="perfil-nav" aria-label="Secções da conta">
             <a href="#conta"><i class="fas fa-user" aria-hidden="true"></i> Conta e pedidos</a>
+            <a href="#documentos"><i class="fas fa-file-invoice" aria-hidden="true"></i> Documentos</a>
             <a href="#mensagens"><i class="fas fa-envelope" aria-hidden="true"></i> Mensagens</a>
             <a href="#reclamacoes"><i class="fas fa-exclamation-circle" aria-hidden="true"></i> Reclamações</a>
         </nav>
 
-        <!-- DADOS DO CLIENTE E PEDIDOS -->
-        <div class="duas perfil-grid" id="conta" style="margin-top:20px;">
-
-            <div class="painel perfil-conta">
-
+        <div class="duas perfil-grid" id="conta">
+            <section class="painel perfil-conta" aria-labelledby="perfil-saudacao">
                 <div class="perfil-id">
                     <span class="perfil-avatar" aria-hidden="true"><i class="fas fa-user"></i></span>
                     <div>
-                        <p class="cat" style="margin:0;">Área do cliente</p>
-                        <h1>Olá, {{ cliente.nome }}</h1>
+                        <p class="cat" style="margin:0;">Dados da conta</p>
+                        <h2 id="perfil-saudacao" style="margin:3px 0 0;">Olá, {{ cliente.nome }}</h2>
                     </div>
                 </div>
 
                 <div class="perfil-dados">
-
                     <div class="resumo-linha">
                         <span>Email</span>
                         <strong>{{ cliente.email }}</strong>
                     </div>
-
                     {% if cliente.telefone %}
                         <div class="resumo-linha">
                             <span>Telefone</span>
                             <strong>{{ cliente.telefone }}</strong>
                         </div>
                     {% endif %}
-
                 </div>
 
                 <div class="perfil-acoes">
-
-                    <a class="btn"
-                       href="{% url 'site:cliente_pedidos' %}">
-                        Ver os meus pedidos
-                    </a>
-
-                    <a class="btn btn-sec"
-                       href="{% url 'site:cliente_recuperar_senha' %}">
-                        Redefinir senha
-                    </a>
-
-                    <a class="btn btn-sec"
-                       href="{% url 'site:cliente_logout' %}">
-                        Sair
-                    </a>
-
+                    <a class="btn" href="{% url 'site:cliente_pedidos' %}">Ver os meus pedidos</a>
+                    <a class="btn btn-sec" href="{% url 'site:cliente_recuperar_senha' %}">Redefinir senha</a>
+                    <a class="btn btn-sec" href="{% url 'site:cliente_logout' %}">Sair</a>
                 </div>
+            </section>
 
-            </div>
-
-
-            <!-- PEDIDOS RECENTES -->
-            <div class="painel perfil-pedidos">
-
+            <section class="painel perfil-pedidos" aria-labelledby="pedidos-recentes-titulo">
                 <div class="perfil-cab">
                     <div>
                         <p class="cat">Compras</p>
-                        <h2>Pedidos recentes</h2>
+                        <h2 id="pedidos-recentes-titulo">Pedidos recentes</h2>
                     </div>
                 </div>
 
                 {% if pedidos %}
-
                     {% for pedido in pedidos|slice:":5" %}
-
                         <div class="item-linha">
-
                             <div>
-                                <a class="item-nome"
-                                   href="{% url 'site:pedido_confirmacao' pedido.referencia %}">
-                                    {{ pedido.referencia }}
-                                </a>
-
+                                <a class="item-nome" href="{% url 'site:pedido_confirmacao' pedido.referencia %}">{{ pedido.referencia }}</a>
                                 <div class="item-meta">
                                     {{ pedido.created_at|date:"d/m/Y H:i" }}
                                     · {{ pedido.get_status_display }}
                                 </div>
                             </div>
-
                             <div class="valor">
                                 {{ pedido.total|floatformat:2 }}
                                 {{ pedido.moeda|default:config.moeda|default:"AOA" }}
                             </div>
-
                         </div>
-
                     {% endfor %}
-
                     <div class="perfil-rodape">
-                        <a class="btn btn-sec"
-                           href="{% url 'site:cliente_pedidos' %}">
-                            Ver todos os pedidos
-                        </a>
+                        <a class="btn btn-sec" href="{% url 'site:cliente_pedidos' %}">Ver todos os pedidos</a>
                     </div>
-
                 {% else %}
-
-                    <div class="vazio" style="padding:36px 12px;">
-
-                        <h2>Nenhum pedido ainda</h2>
-
-                        <p>
-                            Quando fizer uma encomenda,
-                            ela aparecerá aqui.
-                        </p>
-
-                        <a class="btn btn-auto"
-                           href="{% url 'site:loja' %}">
-                            Ir para a loja
-                        </a>
-
+                    <div class="vazio perfil-vazio">
+                        <h3>Nenhum pedido ainda</h3>
+                        <p>Quando fizer uma encomenda, ela aparecerá aqui.</p>
+                        <a class="btn btn-auto" href="{% url 'site:loja' %}">Ir para a loja</a>
                     </div>
-
                 {% endif %}
-
-            </div>
-
+            </section>
         </div>
 
-
-        <!-- =====================================================
-             CONTACTOS E RESPOSTAS DA EMPRESA
-             ===================================================== -->
-
-        <div class="painel perfil-secao" id="mensagens">
-
+        <section class="painel perfil-secao" id="documentos" aria-labelledby="documentos-comerciais-title">
             <div class="perfil-cab">
-
                 <div>
-                    <p class="cat">Comunicação</p>
-                    <h2>Minhas mensagens</h2>
+                    <p class="cat">Documentação</p>
+                    <h2 id="documentos-comerciais-title">Documentos comerciais</h2>
+                    <p class="perfil-cab-descricao">Consulte as faturas e proformas que a empresa partilhou consigo.</p>
                 </div>
-
-                <a class="btn btn-auto"
-                   href="{% url 'site:contato' %}">
-                    Enviar nova mensagem
-                </a>
-
+                <span class="perfil-contagem">
+                    <i class="fas fa-file-alt" aria-hidden="true"></i>
+                    {{ documentos_comerciais|length }} documento(s)
+                </span>
             </div>
 
+            {% if documentos_comerciais %}
+                <div class="perfil-lista-documentos">
+                    {% for documento in documentos_comerciais %}
+                        <article class="perfil-documento">
+                            <div class="perfil-documento-info">
+                                <span class="perfil-ico perfil-ico--doc" aria-hidden="true"><i class="fas fa-file-invoice"></i></span>
+                                <div>
+                                    <strong class="perfil-documento-titulo">
+                                        {% if documento.titulo %}
+                                            {{ documento.titulo }}
+                                        {% elif documento.numero_documento %}
+                                            {{ documento.numero_documento }}
+                                        {% else %}
+                                            Documento #{{ documento.pk }}
+                                        {% endif %}
+                                    </strong>
+                                    <p class="perfil-documento-meta">
+                                        {{ documento.get_tipo_documento_display }}
+                                        {% if documento.numero_documento %} · Nº {{ documento.numero_documento }}{% endif %}
+                                        · Partilhado em {{ documento.created_at|date:"d/m/Y H:i" }}
+                                    </p>
+                                    <strong class="perfil-documento-total">
+                                        {{ documento.total|floatformat:2 }} {{ config.moeda|default:"AOA" }}
+                                    </strong>
+                                </div>
+                            </div>
+                            <div class="perfil-documento-acao">
+                                <a class="btn" href="{% url 'site:cliente_documento_comercial_pdf' documento.pk %}" target="_blank" rel="noopener noreferrer">
+                                    <i class="fas fa-file-pdf" aria-hidden="true"></i> Abrir PDF
+                                </a>
+                            </div>
+                        </article>
+                    {% endfor %}
+                </div>
+            {% else %}
+                <div class="vazio perfil-vazio">
+                    <h3>Ainda não há documentos partilhados</h3>
+                    <p>Quando a empresa disponibilizar uma fatura ou proforma na sua conta, ela aparecerá nesta secção.</p>
+                </div>
+            {% endif %}
+        </section>
+
+        <section class="painel perfil-secao" id="mensagens" aria-labelledby="mensagens-titulo">
+            <div class="perfil-cab">
+                <div>
+                    <p class="cat">Comunicação</p>
+                    <h2 id="mensagens-titulo">Minhas mensagens</h2>
+                    <p class="perfil-cab-descricao">Acompanhe as mensagens enviadas e as respostas da empresa.</p>
+                </div>
+                <a class="btn btn-auto" href="{% url 'site:contato' %}">Enviar nova mensagem</a>
+            </div>
 
             {% if contactos %}
-
                 {% for contacto in contactos %}
-
                     <article class="perfil-cartao-mensagem">
-
                         <div class="perfil-mensagem-cabecalho">
-
                             <div class="perfil-titulo-grupo">
                                 <span class="perfil-ico perfil-ico--msg" aria-hidden="true"><i class="fas fa-envelope"></i></span>
                                 <div>
                                     <h3>{{ contacto.get_tipo_display }}</h3>
-
-                                    <div class="item-meta">
-                                        Enviada em:
-                                        {{ contacto.created_at|date:"d/m/Y H:i" }}
-                                    </div>
+                                    <div class="item-meta">Enviada em: {{ contacto.created_at|date:"d/m/Y H:i" }}</div>
                                 </div>
                             </div>
-
-
                             {% if contacto.atendido %}
-
-                                <span class="pilula perfil-estado perfil-estado--ok">
-                                    <i class="fas fa-check-circle" aria-hidden="true"></i>
-                                    Atendido
-                                </span>
-
+                                <span class="perfil-estado perfil-estado--ok"><i class="fas fa-check-circle" aria-hidden="true"></i> Atendido</span>
                             {% else %}
-
-                                <span class="pilula perfil-estado perfil-estado--espera">
-                                    <i class="fas fa-clock" aria-hidden="true"></i>
-                                    Pendente
-                                </span>
-
+                                <span class="perfil-estado perfil-estado--espera"><i class="fas fa-clock" aria-hidden="true"></i> Pendente</span>
                             {% endif %}
-
                         </div>
 
-
-                        <!-- Mensagem original do cliente -->
                         <div class="perfil-bloco">
                             <span class="perfil-rotulo">Mensagem enviada</span>
-
-                            <div class="perfil-mensagem-texto">
-                                <div class="perfil-mensagem-corpo">{{ contacto.mensagem }}</div>
-                            </div>
+                            <div class="perfil-mensagem-texto"><div class="perfil-mensagem-corpo">{{ contacto.mensagem }}</div></div>
                         </div>
+                        <div class="perfil-meta">Enviado para: {{ contacto.email }}</div>
 
-
-                        <div class="item-meta perfil-meta">
-                            Enviado para: {{ contacto.email }}
-                        </div>
-
-
-                        <!-- Feedback escrito pelo gestor -->
                         {% if contacto.feedback_gestor %}
-
                             <div class="perfil-resposta">
-
-                                <p class="perfil-resposta-titulo">
-                                    <i class="fas fa-reply"
-                                       aria-hidden="true"></i>
-                                    Resposta da empresa
-                                </p>
-
+                                <p class="perfil-resposta-titulo"><i class="fas fa-reply" aria-hidden="true"></i> Resposta da empresa</p>
                                 <div class="perfil-resposta-texto">{{ contacto.feedback_gestor }}</div>
-
                                 {% if contacto.atendido_em %}
-                                    <div class="perfil-resposta-data">
-                                        Respondido em:
-                                        {{ contacto.atendido_em|date:"d/m/Y H:i" }}
-                                    </div>
+                                    <div class="perfil-resposta-data">Respondido em: {{ contacto.atendido_em|date:"d/m/Y H:i" }}</div>
                                 {% endif %}
-
                             </div>
-
                         {% endif %}
-
                     </article>
-
                 {% endfor %}
-
-
             {% else %}
-
-                <div class="vazio" style="padding:42px 20px;">
-
-                    <h2>Nenhuma mensagem</h2>
-
-                    <p>
-                        As mensagens que enviar pelo formulário
-                        de contacto aparecerão aqui.
-                    </p>
-
+                <div class="vazio perfil-vazio">
+                    <h3>Nenhuma mensagem</h3>
+                    <p>As mensagens que enviar pelo formulário de contacto aparecerão aqui.</p>
+                    <a class="btn btn-auto" href="{% url 'site:contato' %}">Enviar mensagem</a>
                 </div>
-
             {% endif %}
+        </section>
 
-        </div>
-
-
-        <!-- =====================================================
-             RECLAMAÇÕES E RESPOSTAS DA EMPRESA
-             ===================================================== -->
-
-        <div class="painel perfil-secao" id="reclamacoes">
-
+        <section class="painel perfil-secao" id="reclamacoes" aria-labelledby="reclamacoes-titulo">
             <div class="perfil-cab">
-
                 <div>
                     <p class="cat">Atendimento</p>
-                    <h2>Minhas reclamações</h2>
+                    <h2 id="reclamacoes-titulo">Minhas reclamações</h2>
+                    <p class="perfil-cab-descricao">Consulte o estado das suas reclamações e as respostas recebidas.</p>
                 </div>
-
-                <a class="btn btn-auto"
-                   href="{% url 'site:reclamacao' %}">
-                    Fazer reclamação
-                </a>
-
+                <a class="btn btn-auto" href="{% url 'site:reclamacao' %}">Fazer reclamação</a>
             </div>
 
-
             {% if reclamacoes %}
-
                 {% for reclamacao in reclamacoes %}
-
                     <article class="perfil-cartao-mensagem">
-
                         <div class="perfil-mensagem-cabecalho">
-
                             <div class="perfil-titulo-grupo">
                                 <span class="perfil-ico perfil-ico--rec" aria-hidden="true"><i class="fas fa-exclamation-circle"></i></span>
                                 <div>
                                     <h3>{{ reclamacao.assunto }}</h3>
-
-                                    <div class="item-meta">
-                                        Enviada em:
-                                        {{ reclamacao.created_at|date:"d/m/Y H:i" }}
-                                    </div>
+                                    <div class="item-meta">Enviada em: {{ reclamacao.created_at|date:"d/m/Y H:i" }}</div>
                                 </div>
                             </div>
-
-
                             {% if reclamacao.atendido %}
-
-                                <span class="pilula perfil-estado perfil-estado--ok">
-                                    <i class="fas fa-check-circle" aria-hidden="true"></i>
-                                    Atendida
-                                </span>
-
+                                <span class="perfil-estado perfil-estado--ok"><i class="fas fa-check-circle" aria-hidden="true"></i> Atendida</span>
                             {% else %}
-
-                                <span class="pilula perfil-estado perfil-estado--aberta">
-                                    <i class="fas fa-hourglass-half" aria-hidden="true"></i>
-                                    Não atendida
-                                </span>
-
+                                <span class="perfil-estado perfil-estado--aberta"><i class="fas fa-hourglass-half" aria-hidden="true"></i> Não atendida</span>
                             {% endif %}
-
                         </div>
 
-
-                        <!-- Reclamação original -->
                         <div class="perfil-bloco">
                             <span class="perfil-rotulo">Reclamação enviada</span>
-
-                            <div class="perfil-mensagem-texto">
-                                <div class="perfil-mensagem-corpo">{{ reclamacao.mensagem }}</div>
-                            </div>
+                            <div class="perfil-mensagem-texto"><div class="perfil-mensagem-corpo">{{ reclamacao.mensagem }}</div></div>
                         </div>
 
-
                         {% if reclamacao.status %}
-
-                            <div class="item-meta perfil-meta">
-                                Estado:
-                                {{ reclamacao.get_status_display }}
-                            </div>
-
+                            <div class="perfil-meta">Estado: {{ reclamacao.get_status_display }}</div>
                         {% endif %}
 
-
-                        <!-- Feedback do gestor: campo preferencial -->
                         {% if reclamacao.feedback_gestor %}
-
                             <div class="perfil-resposta">
-
-                                <p class="perfil-resposta-titulo">
-                                    <i class="fas fa-reply"
-                                       aria-hidden="true"></i>
-                                    Resposta da empresa
-                                </p>
-
+                                <p class="perfil-resposta-titulo"><i class="fas fa-reply" aria-hidden="true"></i> Resposta da empresa</p>
                                 <div class="perfil-resposta-texto">{{ reclamacao.feedback_gestor }}</div>
-
                                 {% if reclamacao.atendido_em %}
-                                    <div class="perfil-resposta-data">
-                                        Respondido em:
-                                        {{ reclamacao.atendido_em|date:"d/m/Y H:i" }}
-                                    </div>
+                                    <div class="perfil-resposta-data">Respondido em: {{ reclamacao.atendido_em|date:"d/m/Y H:i" }}</div>
                                 {% endif %}
-
                             </div>
-
                         {% elif reclamacao.atendido and reclamacao.resposta %}
-
-                            <!-- Compatibilidade com respostas antigas -->
                             <div class="perfil-resposta">
-
-                                <p class="perfil-resposta-titulo">
-                                    <i class="fas fa-reply"
-                                       aria-hidden="true"></i>
-                                    Resposta da empresa
-                                </p>
-
+                                <p class="perfil-resposta-titulo"><i class="fas fa-reply" aria-hidden="true"></i> Resposta da empresa</p>
                                 <div class="perfil-resposta-texto">{{ reclamacao.resposta }}</div>
-
                             </div>
-
                         {% endif %}
-
                     </article>
-
                 {% endfor %}
-
-
             {% else %}
-
-                <div class="vazio" style="padding:42px 20px;">
-
-                    <h2>Nenhuma reclamação</h2>
-
-                    <p>
-                        As reclamações que enviar aparecerão aqui
-                        para acompanhar o atendimento.
-                    </p>
-
-                    <a class="btn btn-auto"
-                       href="{% url 'site:reclamacao' %}">
-                        Fazer reclamação
-                    </a>
-
+                <div class="vazio perfil-vazio">
+                    <h3>Nenhuma reclamação</h3>
+                    <p>As reclamações que enviar aparecerão aqui para acompanhar o atendimento.</p>
+                    <a class="btn btn-auto" href="{% url 'site:reclamacao' %}">Fazer reclamação</a>
                 </div>
-
             {% endif %}
-
-        </div>
-
+        </section>
     </div>
-
 </section>
 {% endblock %}

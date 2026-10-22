@@ -8,6 +8,7 @@ O bloqueio acontece em `process_view`, quando `resolver_match` já existe.
 from datetime import timedelta
 
 from django.contrib import messages
+from django.db import connection
 from django.shortcuts import redirect
 from django.utils import timezone
 
@@ -32,14 +33,16 @@ class ProtegeRegeneracaoChaveMiddleware:
         if not user or not user.is_authenticated or user.is_superuser:
             return None
 
-        # Uma linha por schema/tenant: não filtrar por empresa_id.
+        # Não consultar tabela tenant-local quando o pedido está em public.
+        if getattr(connection, "schema_name", "public") == "public":
+            return None
+
+        # Uma linha por tenant; o timestamp canónico é data_configuracao_chave.
         configuracao = AssinaturaDigital.objects.filter(pk=1).first()
-        momento = None
-        if configuracao:
-            for attr in ("configurada_em", "configured_at", "updated_at"):
-                momento = getattr(configuracao, attr, None)
-                if momento:
-                    break
+        momento = (
+            getattr(configuracao, "data_configuracao_chave", None)
+            or getattr(configuracao, "updated_at", None)
+        ) if configuracao else None
         if momento:
             if timezone.is_naive(momento):
                 momento = timezone.make_aware(momento, timezone.get_current_timezone())

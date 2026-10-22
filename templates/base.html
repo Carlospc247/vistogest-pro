@@ -321,9 +321,10 @@
                             <li><a href="{% url 'produtos:produto_list' %}" class="menu-subitem"><i class="fas fa-list menu-subicon"></i>Produtos</a></li>
                             {% url 'servicos:servico_dashboard' as SERVICOS_DASHBOARD_URL %}
                             {% if SERVICOS_DASHBOARD_URL %}
-                            <li><a href="{{ SERVICOS_DASHBOARD_URL }}" class="menu-subitem"><i class="fas fa-concierge-bell menu-subicon"></i>Dashboard de Serviços</a></li>
+                            <li><a href="{{ SERVICOS_DASHBOARD_URL }}" class="menu-subitem"><i class="fas fa-concierge-bell menu-subicon"></i>Serviços</a></li>
                             {% endif %}
-                            <li><a href="{% url 'servicos:servico_list' %}" class="menu-subitem"><i class="fas fa-hands-helping menu-subicon"></i>Serviços</a></li>
+                            {# <li><a href="{% url 'servicos:servico_list' %}" class="menu-subitem"><i class="fas fa-hands-helping menu-subicon"></i>Serviços</a></li> #}
+                            
                             <li><a href="{% url 'produtos:categoria_list' %}" class="menu-subitem"><i class="fas fa-tags menu-subicon"></i>Categorias</a></li>
                         </ul>
                     </li>

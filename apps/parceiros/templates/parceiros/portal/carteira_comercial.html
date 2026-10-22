@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block title %}Comissões do Parceiro{% endblock %}
+{% block content %}
+<section class="mx-auto max-w-6xl space-y-5 p-4 sm:p-6">
+  <div><h1 class="text-2xl font-bold">Carteira de comissões</h1><p class="mt-1 text-sm text-gray-500">A comissão de 10% só é reconhecida depois da confirmação do pagamento pela equipa SOTARQ.</p></div>
+  <div class="grid gap-4 sm:grid-cols-3"><article class="rounded-xl border bg-white p-5"><p class="text-sm text-gray-500">Previsto / por confirmar</p><p class="mt-2 text-2xl font-bold">{{ previsto|floatformat:2 }} AOA</p></article><article class="rounded-xl border bg-white p-5"><p class="text-sm text-gray-500">Confirmado</p><p class="mt-2 text-2xl font-bold text-blue-700">{{ confirmado|floatformat:2 }} AOA</p></article><article class="rounded-xl border bg-white p-5"><p class="text-sm text-gray-500">Liquidado</p><p class="mt-2 text-2xl font-bold text-emerald-700">{{ pago|floatformat:2 }} AOA</p></article></div>
+  <div class="overflow-x-auto rounded-xl border bg-white"><table class="min-w-full text-sm"><thead class="bg-gray-50 text-left"><tr><th class="p-3">Data</th><th class="p-3">Cliente</th><th class="p-3">Evento</th><th class="p-3">Base</th><th class="p-3">Comissão (10%)</th><th class="p-3">Estado</th></tr></thead><tbody class="divide-y">{% for c in comissoes %}<tr><td class="p-3">{{ c.created_at|date:"d/m/Y H:i" }}</td><td class="p-3">{{ c.partner_client.empresa.nome }}</td><td class="p-3">{{ c.get_tipo_display }}</td><td class="p-3">{{ c.base_calculo|floatformat:2 }} AOA</td><td class="p-3 font-semibold">{{ c.valor_comissao|floatformat:2 }} AOA</td><td class="p-3">{{ c.get_status_display }}</td></tr>{% empty %}<tr><td colspan="6" class="p-8 text-center text-gray-500">Ainda não existem comissões.</td></tr>{% endfor %}</tbody></table></div>
+</section>
+{% endblock %}

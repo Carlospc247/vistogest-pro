@@ -24,7 +24,7 @@ from django.contrib.auth.models import Group
 from django.core.exceptions import FieldDoesNotExist
 from django.core.mail import EmailMessage, send_mail
 from django.db import connection
-from django.db.models import Avg, Count, F, Q, Sum
+from django.db.models import Avg, Count, F, Q, Sum, Max
 from django.db.models.functions import ExtractHour, TruncDate, TruncMonth
 from django.http import (
     HttpResponse,
@@ -1488,15 +1488,15 @@ class BuscarDadosView(TenantLoginRequiredMixin, View):
 
 
 class ConfiguracoesRelatoriosView(RelatorioBaseView):
-    template_name = "templates/configuracoes/dashboard.html"; titulo = "Configurações de Relatórios"
+    template_name = "templates/relatorios/config_dashboard.html"; titulo = "Configurações de Relatórios"
 
 
 class ConfiguracoesFormatosView(RelatorioBaseView):
-    template_name = "templates/configuracoes/formatos.html"; titulo = "Formatos de Exportação"
+    template_name = "templates/relatorios/config_formatos.html"; titulo = "Formatos de Exportação"
 
 
 class ConfiguracoesPermissoesView(RelatorioBaseView):
-    template_name = "templates/configuracoes/permissoes.html"; titulo = "Permissões de Relatórios"
+    template_name = "templates/relatorios/config_permissoes.html"; titulo = "Permissões de Relatórios"
 
 
 class GerarRelatorioAPIView(APIView):

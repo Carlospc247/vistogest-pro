@@ -1,0 +1,48 @@
+{# financeiro/plano_contas/form.html #}
+{% extends "financeiro/base_financeiro.html" %}
+{% block title %}{% if object %}Editar conta {{ object.codigo }}{% else %}Nova conta do plano{% endif %}{% endblock %}
+{% block breadcrumb %}Plano de contas{% endblock %}
+{% block content %}
+<header class="page-head">
+  <div>
+    <h1>{% if object %}Editar conta {{ object.codigo }}{% else %}Nova conta do plano{% endif %}</h1>
+    <p>Use códigos PGC numéricos, com pontos apenas entre níveis (classes 1 a 8).</p>
+  </div>
+  <div class="actions"><a class="btn secondary" href="{% url 'financeiro:plano_conta_lista' %}"><i class="fas fa-arrow-left"></i> Voltar</a></div>
+</header>
+
+<section class="panel">
+  <form method="post" novalidate class="pc-form">
+    {% csrf_token %}
+    {% if form.non_field_errors %}<div class="pc-erro">{{ form.non_field_errors }}</div>{% endif %}
+    <div class="pc-grid">
+      {% for field in form %}
+      <div class="pc-campo{% if field.field.widget.input_type == 'checkbox' %} pc-check{% endif %}{% if field.name == 'descricao' %} pc-full{% endif %}">
+        {% if field.field.widget.input_type == 'checkbox' %}
+          <label>{{ field }} {{ field.label }}</label>
+        {% else %}
+          <label for="{{ field.id_for_label }}">{{ field.label }}{% if field.field.required %} *{% endif %}</label>
+          {{ field }}
+        {% endif %}
+        {% if field.help_text %}<small>{{ field.help_text }}</small>{% endif %}
+        {% for e in field.errors %}<div class="pc-erro">{{ e }}</div>{% endfor %}
+      </div>
+      {% endfor %}
+    </div>
+    <div class="form-actions">
+      <button class="btn" type="submit"><i class="fas fa-save"></i> Guardar</button>
+      <a class="btn secondary" href="{% url 'financeiro:plano_conta_lista' %}">Cancelar</a>
+    </div>
+  </form>
+</section>
+
+<style>
+  .pc-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:1rem}
+  .pc-full{grid-column:1/-1}
+  .pc-campo label{display:block;font-weight:600;margin-bottom:.25rem}
+  .pc-campo input:not([type=checkbox]),.pc-campo select,.pc-campo textarea{width:100%;padding:.5rem .65rem;border:1px solid #cbd5e1;border-radius:8px;background:#fff}
+  .pc-check label{font-weight:500}
+  .pc-campo small{color:#64748b;display:block;margin-top:.2rem}
+  .pc-erro{color:#dc2626;font-size:.85rem;margin-top:.2rem}
+</style>
+{% endblock %}

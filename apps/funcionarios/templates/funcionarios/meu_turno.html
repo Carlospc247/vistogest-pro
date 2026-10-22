@@ -42,7 +42,10 @@
   {% endif %}
 </div>
 
+<!--usar o static para offline quando quiseres funcionar offline (PWA), troca o-->
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+{# {% static 'vendor/chartjs/chart.umd.min.js' %} #}
+
 <script>
   const dados = {{ sales_chart_data|default:"[]"|safe }};
   new Chart(document.getElementById('graficoVendas'), {

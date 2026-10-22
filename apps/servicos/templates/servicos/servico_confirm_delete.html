@@ -1,18 +1,9 @@
-{% extends 'base.html' %}
-{% block title %}Eliminar Serviço{% endblock %}
+{% extends "base.html" %}
+{% block title %}Eliminar serviço{% endblock %}
 {% block content %}
-<div class="overflow-hidden rounded-lg bg-white dark:bg-gray-800 shadow-sm">
-    <form method="post">
-        {% csrf_token %}
-        <div class="p-6 text-center">
-            <i class="fas fa-exclamation-triangle text-5xl text-red-400 mb-4"></i>
-            <h3 class="text-lg font-medium">Tem a certeza?</h3>
-            <p class="mt-2 text-sm">Você está prestes a eliminar o serviço <strong>"{{ object.nome }}"</strong>.</p>
-        </div>
-        <div class="flex items-center justify-center gap-x-4 px-6 py-4 bg-gray-50 dark:bg-gray-800/50">
-            <a href="{% url 'servicos:servico_list' %}" class="rounded-md bg-white px-4 py-2 ...">Cancelar</a>
-            <button type="submit" class="rounded-md bg-red-600 px-4 py-2 ...">Sim, Eliminar</button>
-        </div>
-    </form>
+{% include "servicos/_styles.html" %}
+<div class="svc-page" style="max-width:850px">
+  <header class="svc-heading"><div><p class="svc-eyebrow">Serviços · Catálogo</p><h1>Eliminar serviço</h1><p class="svc-subtitle">Confirme a operação antes de remover o registo.</p></div></header>
+  <section class="svc-panel"><div class="svc-danger-box"><h2 style="margin:0 0 10px">Tem a certeza de que pretende eliminar este serviço?</h2><p>Serviço: <strong>{{ object.nome }}</strong></p><p>Categoria: <strong>{{ object.categoria }}</strong></p><p>Preço: <strong>{{ object.preco_com_desconto|floatformat:2 }} Kz</strong></p><p>Se o serviço estiver associado a agendamentos, a aplicação impedirá a eliminação para preservar o histórico.</p></div><form method="post" style="margin-top:18px">{% csrf_token %}<div class="svc-form-footer"><button class="svc-btn svc-btn--danger" type="submit">Sim, eliminar</button><a class="svc-btn svc-btn--light" href="{% url 'servicos:servico_list' %}">Não, voltar</a></div></form></section>
 </div>
 {% endblock %}

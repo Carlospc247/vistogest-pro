@@ -1,13 +1,6 @@
-{% extends 'base.html' %}
-{% block title %}Excluir Notificação{% endblock %}
-{% block page_title %}Excluir Notificação{% endblock %}
-
+{% extends "base.html" %}
+{% block title %}Eliminar notificação{% endblock %}
 {% block content %}
-<div class="overflow-hidden rounded-lg bg-white shadow-sm dark:bg-gray-800 p-6 text-center">
-    <p class="text-lg mb-4">Tem certeza que deseja excluir a notificação <strong>{{ notificacao.titulo }}</strong> para o cliente <strong>{{ notificacao.cliente.nome_completo }}</strong>?</p>
-    <form method="post">{% csrf_token %}
-        <button type="submit" class="inline-flex items-center rounded-md bg-red-600 px-4 py-2 text-white hover:bg-red-500">Sim, Excluir</button>
-        <a href="{% url 'notificacoes:notificacao_list' %}" class="ml-2 text-gray-600 hover:underline">Cancelar</a>
-    </form>
-</div>
+{% include "servicos/_styles.html" %}
+<div class="svc-page" style="max-width:800px"><header class="svc-heading"><div><p class="svc-eyebrow">Serviços · Comunicação</p><h1>Eliminar notificação</h1><p class="svc-subtitle">Reveja o registo antes de confirmar a operação.</p></div></header><section class="svc-panel"><div class="svc-danger-box"><h2 style="margin:0 0 12px">Confirma a eliminação desta notificação?</h2><p><strong>{{ notificacao.titulo }}</strong></p><p>Cliente: {{ notificacao.cliente.nome_completo }}</p><p>Canal: {{ notificacao.get_tipo_notificacao_display }}</p><p>Agendada para: {{ notificacao.data_agendada_envio|date:"d/m/Y H:i" }}</p><p>Estado: {{ notificacao.get_status_display }}</p></div><form method="post" style="margin-top:18px">{% csrf_token %}<div class="svc-form-footer"><button class="svc-btn svc-btn--danger" type="submit">Sim, eliminar</button><a class="svc-btn svc-btn--light" href="{% url 'servicos:notificacao_list' %}">Cancelar</a></div></form></section></div>
 {% endblock %}

@@ -1,0 +1,89 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Nova Movimentação de Estoque{% endblock %}
+
+{% block page_title %}Registar Nova Movimentação{% endblock %}
+
+{% block page_subtitle %}
+    <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+        Use este formulário para registar entradas, saídas ou ajustes no inventário.
+    </p>
+{% endblock %}
+
+{% block page_actions %}
+    <a href="{% url 'estoque:movimentacao_lista' %}" class="inline-flex items-center gap-x-2 rounded-md bg-white dark:bg-gray-700 px-3.5 py-2.5 text-sm font-semibold text-gray-900 dark:text-white shadow-sm hover:bg-gray-100 dark:hover:bg-gray-600">
+        &larr; Voltar para a Lista
+    </a>
+{% endblock %}
+
+{% block content %}
+<div class="overflow-hidden rounded-lg bg-white dark:bg-gray-800 shadow-sm">
+    <form method="post">
+        {% csrf_token %}
+        
+        <div class="p-6 space-y-6">
+            {# Este loop renderiza cada campo do seu MovimentacaoEstoqueForm #}
+            {% for field in form %}
+                <div>
+                    <label for="{{ field.id_for_label }}" class="block text-sm font-medium leading-6 text-gray-900 dark:text-gray-200 mb-1">
+                        {{ field.label }}
+                        {% if field.field.required %}
+                            <span class="text-red-500">*</span>
+                        {% endif %}
+                    </label>
+                    
+                    {{ field }}
+                    
+                    {% if field.help_text %}
+                        <p class="mt-2 text-sm text-gray-500 dark:text-gray-400">{{ field.help_text|safe }}</p>
+                    {% endif %}
+                    
+                    {% for error in field.errors %}
+                        <p class="mt-2 text-sm text-red-500">{{ error }}</p>
+                    {% endfor %}
+                </div>
+            {% endfor %}
+        </div>
+
+        <div class="flex items-center justify-end gap-x-4 border-t border-gray-900/10 dark:border-white/10 px-6 py-4">
+            <a href="{% url 'estoque:movimentacao_lista' %}" class="text-sm font-semibold leading-6 text-gray-900 dark:text-white">Cancelar</a>
+            <button type="submit" class="rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600">
+                <i class="fas fa-save mr-2"></i>
+                Salvar Movimentação
+            </button>
+        </div>
+    </form>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+{# Este script aplica as classes de estilo corretas aos campos do formulário #}
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const form = document.querySelector('form');
+        if (form) {
+            const fields = form.querySelectorAll('input, select, textarea');
+            fields.forEach(function(field) {
+                if (field.type !== 'file' && field.type !== 'checkbox' && field.type !== 'radio' && field.type !== 'hidden') {
+                    // Remove as classes antigas como 'form-control' se existirem
+                    field.classList.remove('form-control');
+                    // Adiciona as classes do Tailwind CSS
+                    field.classList.add('block', 'w-full', 'rounded-md', 'border-0', 'py-1.5', 'text-gray-900', 'dark:text-white', 'shadow-sm', 'ring-1', 'ring-inset', 'ring-gray-300', 'dark:ring-gray-600', 'placeholder:text-gray-400', 'focus:ring-2', 'focus:ring-inset', 'focus:ring-blue-600', 'sm:text-sm', 'sm:leading-6', 'dark:bg-gray-700');
+                }
+            });
+        }
+    });
+</script>
+
+{# Se você usa a biblioteca Select2.js para o campo de produto, o código de inicialização viria aqui.
+   Exemplo (descomente se estiver a usar Select2):
+<script>
+    $(document).ready(function() {
+        $('.select2').select2({
+            theme: "bootstrap-5" // ou outro tema
+        });
+    });
+</script>
+#}
+{% endblock %}

@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}Conversas de Parceiros{% endblock %}
+{% block content %}
+<section class="mx-auto max-w-6xl p-4 sm:p-6">
+  <div class="mb-5 flex flex-wrap items-center justify-between gap-3">
+    <div><h1 class="text-2xl font-bold">Conversas</h1><p class="mt-1 text-sm text-gray-500">Mensagens entre parceiros e equipa SOTARQ.</p></div>
+    <a class="rounded-lg bg-blue-600 px-4 py-2 font-semibold text-white" href="{% url 'parceiros:chat_criar' %}">Nova conversa</a>
+  </div>
+  <div class="overflow-hidden rounded-xl border bg-white">
+    {% for conversa in conversas %}
+      <a class="block border-b p-4 hover:bg-gray-50" href="{% url 'parceiros:chat_detalhe' conversa.pk %}">
+        <div class="flex items-center justify-between gap-3"><span class="font-semibold">{{ conversa.titulo }}</span><span class="text-xs text-gray-500">{{ conversa.ultimo_evento_em|date:"d/m/Y H:i" }}</span></div>
+        <p class="mt-1 text-sm text-gray-500">{{ conversa.get_tipo_display }}</p>
+      </a>
+    {% empty %}<p class="p-8 text-center text-gray-500">Ainda não existem conversas.</p>{% endfor %}
+  </div>
+</section>
+{% endblock %}

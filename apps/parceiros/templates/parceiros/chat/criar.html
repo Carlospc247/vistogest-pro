@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}Nova conversa de parceiro{% endblock %}
+{% block content %}
+<section class="mx-auto max-w-2xl p-4 sm:p-6">
+  <h1 class="mb-5 text-2xl font-bold">Nova conversa</h1>
+  <form method="post" class="space-y-4 rounded-xl border bg-white p-5">{% csrf_token %}
+    <label class="block"><span class="mb-1 block text-sm font-medium">Assunto</span><input required name="titulo" maxlength="180" class="w-full rounded-lg border p-2"></label>
+    {% if partner %}
+      <label class="block"><span class="mb-1 block text-sm font-medium">Tipo</span><select name="tipo" id="tipo" class="w-full rounded-lg border p-2"><option value="partner_staff">Falar com a equipa SOTARQ</option><option value="partner_partner">Falar com outro parceiro</option></select></label>
+      <label class="block" id="staff-label"><span class="mb-1 block text-sm font-medium">Funcionário SOTARQ</span><select name="usuario_id" class="w-full rounded-lg border p-2">{% for u in funcionarios %}<option value="{{ u.pk }}">{{ u.get_full_name|default:u.username }}</option>{% endfor %}</select></label>
+      <label class="hidden block" id="partner-label"><span class="mb-1 block text-sm font-medium">Parceiro</span><select name="partner_id" class="w-full rounded-lg border p-2">{% for p in outros_parceiros %}<option value="{{ p.pk }}">{{ p.nome }}</option>{% endfor %}</select></label>
+      <script>document.getElementById('tipo').addEventListener('change',function(){const grupo=this.value==='partner_partner';document.getElementById('staff-label').classList.toggle('hidden',grupo);document.getElementById('partner-label').classList.toggle('hidden',!grupo);});</script>
+    {% else %}
+      <input type="hidden" name="tipo" value="partner_staff">
+      <label class="block"><span class="mb-1 block text-sm font-medium">Parceiro</span><select name="partner_id" class="w-full rounded-lg border p-2">{% for p in outros_parceiros %}<option value="{{ p.pk }}">{{ p.nome }}</option>{% endfor %}</select></label>
+    {% endif %}
+    <button class="rounded-lg bg-blue-600 px-4 py-2 font-semibold text-white" type="submit">Criar conversa</button>
+  </form>
+</section>
+{% endblock %}

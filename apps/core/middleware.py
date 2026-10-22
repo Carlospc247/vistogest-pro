@@ -7,6 +7,8 @@ from django.db import connection
 import logging
 
 
+
+
 # ==============================================================
 # 🔹 1. REDIRECIONAMENTO DE PERFIL (Protegido)
 # ==============================================================

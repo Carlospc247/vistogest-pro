@@ -1,0 +1,713 @@
+{# financeiro/dashboard.html #}
+{% extends "financeiro/base_financeiro.html" %}
+{% block title %}Painel financeiro{% endblock %}
+{% block breadcrumb %}Painel financeiro{% endblock %}
+{% block content %}
+<header class="page-head">
+  <div><h1>Painel financeiro</h1><p>Resumo de tesouraria, cobranças, pagamentos e obrigações fiscais.</p></div>
+  <div class="actions">
+    <a class="btn" href="{% url 'financeiro:conta_receber_create' %}"><i class="fas fa-plus"></i> Conta a receber</a>
+    <a class="btn secondary" href="{% url 'financeiro:conta_pagar_create' %}"><i class="fas fa-plus"></i> Conta a pagar</a>
+  </div>
+</header>
+
+<div class="grid">
+ <article class="metric"><div class="label">Total a receber</div><div class="value">{{ total_receber|floatformat:2 }} AOA</div><div class="hint">Contas abertas e vencidas</div></article>
+ <article class="metric"><div class="label">Total a pagar</div><div class="value">{{ total_pagar|floatformat:2 }} AOA</div><div class="hint">Compromissos pendentes</div></article>
+ <article class="metric"><div class="label">Saldo de caixa</div><div class="value">{{ saldo_caixa|floatformat:2 }} AOA</div><div class="hint">Movimentos confirmados</div></article>
+ <article class="metric"><div class="label">Saldo bancário</div><div class="value">{{ saldo_bancos|floatformat:2 }} AOA</div><div class="hint">Contas bancárias activas</div></article>
+ <article class="metric"><div class="label">Vendas no mês</div><div class="value">{{ total_vendas_mes|floatformat:2 }} AOA</div><div class="hint">Vendas finalizadas</div></article>
+ <article class="metric"><div class="label">Resultado do mês</div><div class="value">{{ lucro_mes|floatformat:2 }} AOA</div><div class="hint">Receitas menos despesas registadas</div></article>
+ <article class="metric"><div class="label">Liquidez imediata</div><div class="value">{{ liquidez|floatformat:2 }} AOA</div><div class="hint">Caixa + bancos</div></article>
+ <article class="metric"><div class="label">Saldo líquido a receber</div><div class="value">{{ saldo_liquido|floatformat:2 }} AOA</div><div class="hint">A receber menos a pagar</div></article>
+</div>
+
+<div class="grid grid-2">
+ <article class="metric"><div class="label">Contas a receber vencidas</div><div class="value">{{ contas_receber_vencidas }}</div><a href="{% url 'financeiro:contas_vencidas' %}">Ver cobranças →</a></article>
+ <article class="metric"><div class="label">Contas a pagar vencidas</div><div class="value">{{ contas_pagar_vencidas }}</div><a href="{% url 'financeiro:conta_pagar_lista' %}?status=vencida">Ver pagamentos →</a></article>
+ <article class="metric"><div class="label">A receber nos próximos 7 dias</div><div class="value">{{ contas_receber_vencendo }}</div><a href="{% url 'financeiro:contas_vencendo' %}">Ver vencimentos →</a></article>
+ <article class="metric"><div class="label">A pagar nos próximos 7 dias</div><div class="value">{{ contas_pagar_vencendo }}</div><a href="{% url 'financeiro:agenda_pagamentos' %}">Ver agenda →</a></article>
+</div>
+
+<section class="panel" aria-labelledby="acoes-rapidas-title">
+  <h2 id="acoes-rapidas-title"><i class="fas fa-bolt" aria-hidden="true"></i> Acções rápidas</h2>
+  <div class="link-grid">
+    <a class="link-card" href="{% url 'financeiro:conta_receber_create' %}"><strong><i class="fas fa-circle-plus"></i> Nova conta a receber</strong><span>Registar cobrança de cliente</span></a>
+    <a class="link-card" href="{% url 'financeiro:conta_pagar_create' %}"><strong><i class="fas fa-circle-plus"></i> Nova conta a pagar</strong><span>Registar compromisso financeiro</span></a>
+    <a class="link-card" href="{% url 'financeiro:formas_pagamento' %}"><strong><i class="fas fa-wallet"></i> Formas de pagamento</strong><span>Escolher as que a empresa aceita</span></a>
+    <a class="link-card" href="{% url 'financeiro:movimentacao_create' %}"><strong><i class="fas fa-right-left"></i> Nova movimentação</strong><span>Entrada, saída ou transferência</span></a>
+    <a class="link-card" href="{% url 'financeiro:banco_lista' %}"><strong><i class="fas fa-building-columns"></i> Contas bancárias</strong><span>Saldos, extratos e conciliações</span></a>
+    <a class="link-card" href="{% url 'financeiro:imposto_list' %}"><strong><i class="fas fa-file-invoice-dollar"></i> Impostos e tributos</strong><span>Consultar obrigações fiscais</span></a>
+    <a class="link-card" href="{% url 'financeiro:relatorios' %}"><strong><i class="fas fa-chart-column"></i> Relatórios</strong><span>Análise do desempenho financeiro</span></a>
+  </div>
+
+  <div class="url-directory" id="financeiro-url-directory">
+    <h2><i class="fas fa-list-check" aria-hidden="true"></i> Todas as URLs da app Financeiro</h2>
+    <p class="url-directory-intro">Catálogo completo das 109 rotas declaradas em <code>apps/financeiro/urls.py</code>. Use a pesquisa para encontrar rapidamente uma página ou operação. Rotas com identificadores variáveis são mostradas com o exemplo ID 1; o acesso real depende dos registos e permissões disponíveis.</p>
+    <label class="url-search" for="financeiro-url-search"><i class="fas fa-search" aria-hidden="true"></i><input id="financeiro-url-search" type="search" placeholder="Pesquisar por nome, área ou URL…" autocomplete="off"></label>
+    <section class="url-category" data-url-category>
+      <div class="url-category-head"><h3><i class="fas fa-chart-line" aria-hidden="true"></i> Visão geral e fluxo de caixa</h3><span class="url-count">8 rotas</span></div>
+      <div class="endpoint-grid">
+        <a class="endpoint-card" data-url-item href="{% url 'financeiro:dashboard' %}">
+          <strong>Painel financeiro</strong>
+          <span class="endpoint-note">Resumo geral de tesouraria</span>
+          <code>{% url 'financeiro:dashboard' %}</code>
+        </a>
+        <a class="endpoint-card" data-url-item href="{% url 'financeiro:fluxo_caixa' %}">
+          <strong>Fluxo de caixa</strong>
+          <span class="endpoint-note">Consultar previsões e movimentos de caixa</span>
+          <code>{% url 'financeiro:fluxo_caixa' %}</code>
+        </a>
+        <a class="endpoint-card" data-url-item href="{% url 'financeiro:fluxo_caixa_create' %}">
+          <strong>Criar previsão de fluxo</strong>
+          <span class="endpoint-note">Registar nova previsão</span>
+          <code>{% url 'financeiro:fluxo_caixa_create' %}</code>
+        </a>
+        <a class="endpoint-card" data-url-item href="{% url 'financeiro:fluxo_caixa_update' 1 %}">
+          <strong>Editar previsão de fluxo</strong>
+          <span class="endpoint-note">Exemplo de rota com ID 1</span>
+          <code>{% url 'financeiro:fluxo_caixa_update' 1 %}</code>
+        </a>
+        <a class="endpoint-card" data-url-item href="{% url 'financeiro:fluxo_caixa_marcar_realizado' 1 %}">
+          <strong>Marcar fluxo como realizado</strong>
+          <span class="endpoint-note">Rota de operação com ID 1</span>
+          <code>{% url 'financeiro:fluxo_caixa_marcar_realizado' 1 %}</code>
+        </a>
+        <a class="endpoint-card" data-url-item href="{% url 'financeiro:fluxo_caixa_gerar' %}">
+          <strong>Gerar fluxo automaticamente</strong>
+          <span class="endpoint-note">Gerar previsões a partir dos dados financeiros</span>
+          <code>{% url 'financeiro:fluxo_caixa_gerar' %}</code>
+        </a>
+        <a class="endpoint-card" data-url-item href="{% url 'financeiro:dre' %}">
+          <strong>Demonstração de resultados (DRE)</strong>
+          <span class="endpoint-note">Ver receitas, despesas e resultado</span>
+          <code>{% url 'financeiro:dre' %}</code>
+        </a>
+        <a class="endpoint-card" data-url-item href="{% url 'financeiro:balanco' %}">
+          <strong>Balanço patrimonial</strong>
+          <span class="endpoint-note">Consultar a posição patrimonial</span>
+          <code>{% url 'financeiro:balanco' %}</code>
+        </a>
+      </div>
+    </section>
+    <section class="url-category" data-url-category>
+      <div class="url-category-head"><h3><i class="fas fa-exchange-alt" aria-hidden="true"></i> Movimentações financeiras</h3><span class="url-count">8 rotas</span></div>
+      <div class="endpoint-grid">
+        <a class="endpoint-card" data-url-item href="{% url 'financeiro:movimentacao_lista' %}">
+          <strong>Listar movimentações</strong>
+          <span class="endpoint-note">Consultar movimentos registados</span>
+          <code>{% url 'financeiro:movimentacao_lista' %}</code>
+        </a>
+        <a class="endpoint-card" data-url-item href="{% url 'financeiro:movimentacao_create' %}">
+          <strong>Nova movimentação</strong>
+          <span class="endpoint-note">Criar entrada, saída ou transferência</span>
+          <code>{% url 'financeiro:movimentacao_create' %}</code>
+        </a>
+        <a class="endpoint-card" data-url-item href="{% url 'financeiro:movimentacao_detail' 1 %}">
+          <strong>Detalhe da movimentação</strong>
+          <span class="endpoint-note">Exemplo de rota com ID 1</span>
+          <code>{% url 'financeiro:movimentacao_detail' 1 %}</code>
+        </a>
+        <a class="endpoint-card" data-url-item href="{% url 'financeiro:movimentacao_update' 1 %}">
+          <strong>Editar movimentação</strong>
+          <span class="endpoint-note">Exemplo de rota com ID 1</span>
+          <code>{% url 'financeiro:movimentacao_update' 1 %}</code>
+        </a>
+        <a class="endpoint-card" data-url-item href="{% url 'financeiro:movimentacao_confirmar' 1 %}">
+          <strong>Confirmar movimentação</strong>
+          <span class="endpoint-note">Rota de operação com ID 1</span>
+          <code>{% url 'financeiro:movimentacao_confirmar' 1 %}</code>
+        </a>
+        <a class="endpoint-card" data-url-item href="{% url 'financeiro:movimentacao_estornar' 1 %}">
+          <strong>Estornar movimentação</strong>
+          <span class="endpoint-note">Rota de operação com ID 1</span>
+          <code>{% url 'financeiro:movimentacao_estornar' 1 %}</code>
+        </a>
+        <a class="endpoint-card" data-url-item href="{% url 'financeiro:conciliar_movimentacao' 1 %}">
+          <strong>Conciliar movimentação</strong>
+          <span class="endpoint-note">Rota de operação com ID 1</span>
+          <code>{% url 'financeiro:conciliar_movimentacao' 1 %}</code>
+        </a>
+        <a class="endpoint-card" data-url-item href="{% url 'financeiro:desconciliar_movimentacao' 1 %}">
+          <strong>Desconciliar movimentação</strong>
+          <span class="endpoint-note">Rota de operação com ID 1</span>
+          <code>{% url 'financeiro:desconciliar_movimentacao' 1 %}</code>
+        </a>
+      </div>
+    </section>
+    <section class="url-category" data-url-category>
+      <div class="url-category-head"><h3><i class="fas fa-hand-holding-usd" aria-hidden="true"></i> Contas a receber</h3><span class="url-count">10 rotas</span></div>
+      <div class="endpoint-grid">
+        <a class="endpoint-card" data-url-item href="{% url 'financeiro:conta_receber_lista' %}">
+          <strong>Listar contas a receber</strong>
+          <span class="endpoint-note">Consultar cobranças de clientes</span>
+          <code>{% url 'financeiro:conta_receber_lista' %}</code>
+        </a>
+        <a class="endpoint-card" data-url-item href="{% url 'financeiro:conta_receber_create' %}">
+          <strong>Criar conta a receber</strong>
+          <span class="endpoint-note">Registar nova cobrança</span>
+          <code>{% url 'financeiro:conta_receber_create' %}</code>
+        </a>
+        <a class="endpoint-card" data-url-item href="{% url 'financeiro:conta_receber_detail' 1 %}">
+          <strong>Detalhe da conta a receber</strong>
+          <span class="endpoint-note">Exemplo de rota com ID 1</span>
+          <code>{% url 'financeiro:conta_receber_detail' 1 %}</code>
+        </a>
+        <a class="endpoint-card" data-url-item href="{% url 'financeiro:conta_receber_update' 1 %}">
+          <strong>Editar conta a receber</strong>
+          <span class="endpoint-note">Exemplo de rota com ID 1</span>
+          <code>{% url 'financeiro:conta_receber_update' 1 %}</code>
+        </a>
+        <a class="endpoint-card" data-url-item href="{% url 'financeiro:receber_conta' 1 %}">
+          <strong>Receber conta</strong>
+          <span class="endpoint-note">Rota de operação com ID 1</span>
+          <code>{% url 'financeiro:receber_conta' 1 %}</code>
+        </a>
+        <a class="endpoint-card" data-url-item href="{% url 'financeiro:parcelar_conta' 1 %}">
+          <strong>Parcelar conta</strong>
+          <span class="endpoint-note">Rota de operação com ID 1</span>
+          <code>{% url 'financeiro:parcelar_conta' 1 %}</code>
+        </a>
+        <a class="endpoint-card" data-url-item href="{% url 'financeiro:contas_vencidas' %}">
+          <strong>Contas vencidas</strong>
+          <span class="endpoint-note">Acompanhar cobranças vencidas</span>
+          <code>{% url 'financeiro:contas_vencidas' %}</code>
+        </a>
+        <a class="endpoint-card" data-url-item href="{% url 'financeiro:contas_vencendo' %}">
+          <strong>Contas a vencer</strong>
+          <span class="endpoint-note">Consultar contas com vencimento próximo</span>
+          <code>{% url 'financeiro:contas_vencendo' %}</code>
+        </a>
+        <a class="endpoint-card" data-url-item href="{% url 'financeiro:negociar_conta' 1 %}">
+          <strong>Negociar conta</strong>
+          <span class="endpoint-note">Rota de operação com ID 1</span>
+          <code>{% url 'financeiro:negociar_conta' 1 %}</code>
+        </a>
+        <a class="endpoint-card" data-url-item href="{% url 'financeiro:protestar_conta' 1 %}">
+          <strong>Protestar conta</strong>
+          <span class="endpoint-note">Rota de operação com ID 1</span>
+          <code>{% url 'financeiro:protestar_conta' 1 %}</code>
+        </a>
+      </div>
+    </section>
+    <section class="url-category" data-url-category>
+      <div class="url-category-head"><h3><i class="fas fa-file-invoice-dollar" aria-hidden="true"></i> Contas a pagar</h3><span class="url-count">9 rotas</span></div>
+      <div class="endpoint-grid">
+        <a class="endpoint-card" data-url-item href="{% url 'financeiro:conta_pagar_lista' %}">
+          <strong>Listar contas a pagar</strong>
+          <span class="endpoint-note">Consultar compromissos financeiros</span>
+          <code>{% url 'financeiro:conta_pagar_lista' %}</code>
+        </a>
+        <a class="endpoint-card" data-url-item href="{% url 'financeiro:conta_pagar_create' %}">
+          <strong>Criar conta a pagar</strong>
+          <span class="endpoint-note">Registar novo compromisso</span>
+          <code>{% url 'financeiro:conta_pagar_create' %}</code>
+        </a>
+        <a class="endpoint-card" data-url-item href="{% url 'financeiro:conta_pagar_detail' 1 %}">
+          <strong>Detalhe da conta a pagar</strong>
+          <span class="endpoint-note">Exemplo de rota com ID 1</span>
+          <code>{% url 'financeiro:conta_pagar_detail' 1 %}</code>
+        </a>
+        <a class="endpoint-card" data-url-item href="{% url 'financeiro:conta_pagar_update' 1 %}">
+          <strong>Editar conta a pagar</strong>
+          <span class="endpoint-note">Exemplo de rota com ID 1</span>
+          <code>{% url 'financeiro:conta_pagar_update' 1 %}</code>
+        </a>
+        <a class="endpoint-card" data-url-item href="{% url 'financeiro:pagar_conta' 1 %}">
+          <strong>Pagar conta</strong>
+          <span class="endpoint-note">Rota de operação com ID 1</span>
+          <code>{% url 'financeiro:pagar_conta' 1 %}</code>
+        </a>
+        <a class="endpoint-card" data-url-item href="{% url 'financeiro:agendar_pagamento' 1 %}">
+          <strong>Agendar pagamento</strong>
+          <span class="endpoint-note">Rota de operação com ID 1</span>
+          <code>{% url 'financeiro:agendar_pagamento' 1 %}</code>
+        </a>
+        <a class="endpoint-card" data-url-item href="{% url 'financeiro:agenda_pagamentos' %}">
+          <strong>Agenda de pagamentos</strong>
+          <span class="endpoint-note">Ver pagamentos programados</span>
+          <code>{% url 'financeiro:agenda_pagamentos' %}</code>
+        </a>
+        <a class="endpoint-card" data-url-item href="{% url 'financeiro:aprovacao_pagamentos' %}">
+          <strong>Aprovação de pagamentos</strong>
+          <span class="endpoint-note">Consultar pagamentos aguardando aprovação</span>
+          <code>{% url 'financeiro:aprovacao_pagamentos' %}</code>
+        </a>
+        <a class="endpoint-card" data-url-item href="{% url 'financeiro:pagamento_lote' %}">
+          <strong>Pagamentos em lote</strong>
+          <span class="endpoint-note">Gerir operações de pagamento em lote</span>
+          <code>{% url 'financeiro:pagamento_lote' %}</code>
+        </a>
+      </div>
+    </section>
+    <section class="url-category" data-url-category>
+      <div class="url-category-head"><h3><i class="fas fa-building-columns" aria-hidden="true"></i> Contas bancárias e bancos</h3><span class="url-count">13 rotas</span></div>
+      <div class="endpoint-grid">
+        <a class="endpoint-card" data-url-item href="{% url 'financeiro:conta_bancaria_lista' %}">
+          <strong>Listar contas bancárias</strong>
+          <span class="endpoint-note">Contas bancárias explícitas</span>
+          <code>{% url 'financeiro:conta_bancaria_lista' %}</code>
+        </a>
+        <a class="endpoint-card" data-url-item href="{% url 'financeiro:conta_bancaria_create' %}">
+          <strong>Criar conta bancária</strong>
+          <span class="endpoint-note">Registar nova conta bancária</span>
+          <code>{% url 'financeiro:conta_bancaria_create' %}</code>
+        </a>
+        <a class="endpoint-card" data-url-item href="{% url 'financeiro:conta_bancaria_detail' 1 %}">
+          <strong>Detalhe da conta bancária</strong>
+          <span class="endpoint-note">Exemplo de rota com ID 1</span>
+          <code>{% url 'financeiro:conta_bancaria_detail' 1 %}</code>
+        </a>
+        <a class="endpoint-card" data-url-item href="{% url 'financeiro:conta_bancaria_update' 1 %}">
+          <strong>Editar conta bancária</strong>
+          <span class="endpoint-note">Exemplo de rota com ID 1</span>
+          <code>{% url 'financeiro:conta_bancaria_update' 1 %}</code>
+        </a>
+        <a class="endpoint-card" data-url-item href="{% url 'financeiro:banco_lista' %}">
+          <strong>Listar bancos / contas</strong>
+          <span class="endpoint-note">Acesso legado ao módulo de bancos</span>
+          <code>{% url 'financeiro:banco_lista' %}</code>
+        </a>
+        <a class="endpoint-card" data-url-item href="{% url 'financeiro:banco_create' %}">
+          <strong>Criar banco</strong>
+          <span class="endpoint-note">Rota de criação do banco</span>
+          <code>{% url 'financeiro:banco_create' %}</code>
+        </a>
+        <a class="endpoint-card" data-url-item href="{% url 'financeiro:banco_detail' 1 %}">
+          <strong>Detalhe do banco</strong>
+          <span class="endpoint-note">Exemplo de rota com ID 1</span>
+          <code>{% url 'financeiro:banco_detail' 1 %}</code>
+        </a>
+        <a class="endpoint-card" data-url-item href="{% url 'financeiro:banco_update' 1 %}">
+          <strong>Editar banco</strong>
+          <span class="endpoint-note">Exemplo de rota com ID 1</span>
+          <code>{% url 'financeiro:banco_update' 1 %}</code>
+        </a>
+        <a class="endpoint-card" data-url-item href="{% url 'financeiro:extrato_bancario' 1 %}">
+          <strong>Extrato bancário</strong>
+          <span class="endpoint-note">Extrato do banco com ID 1</span>
+          <code>{% url 'financeiro:extrato_bancario' 1 %}</code>
+        </a>
+        <a class="endpoint-card" data-url-item href="{% url 'financeiro:conciliacao_bancaria' 1 %}">
+          <strong>Conciliação bancária do banco</strong>
+          <span class="endpoint-note">Exemplo de rota com ID 1</span>
+          <code>{% url 'financeiro:conciliacao_bancaria' 1 %}</code>
+        </a>
+        <a class="endpoint-card" data-url-item href="{% url 'financeiro:deposito_bancario' 1 %}">
+          <strong>Depósito bancário</strong>
+          <span class="endpoint-note">Rota de operação com ID 1</span>
+          <code>{% url 'financeiro:deposito_bancario' 1 %}</code>
+        </a>
+        <a class="endpoint-card" data-url-item href="{% url 'financeiro:saque_bancario' 1 %}">
+          <strong>Saque bancário</strong>
+          <span class="endpoint-note">Rota de operação com ID 1</span>
+          <code>{% url 'financeiro:saque_bancario' 1 %}</code>
+        </a>
+        <a class="endpoint-card" data-url-item href="{% url 'financeiro:transferencia_bancaria' 1 %}">
+          <strong>Transferência bancária</strong>
+          <span class="endpoint-note">Rota de operação com ID 1</span>
+          <code>{% url 'financeiro:transferencia_bancaria' 1 %}</code>
+        </a>
+      </div>
+    </section>
+    <section class="url-category" data-url-category>
+      <div class="url-category-head"><h3><i class="fas fa-cash-register" aria-hidden="true"></i> Caixa físico</h3><span class="url-count">9 rotas</span></div>
+      <div class="endpoint-grid">
+        <a class="endpoint-card" data-url-item href="{% url 'financeiro:caixa' %}">
+          <strong>Painel do caixa</strong>
+          <span class="endpoint-note">Aceder ao caixa físico</span>
+          <code>{% url 'financeiro:caixa' %}</code>
+        </a>
+        <a class="endpoint-card" data-url-item href="{% url 'financeiro:abrir_caixa' %}">
+          <strong>Abrir caixa</strong>
+          <span class="endpoint-note">Operação de abertura do caixa</span>
+          <code>{% url 'financeiro:abrir_caixa' %}</code>
+        </a>
+        <a class="endpoint-card" data-url-item href="{% url 'financeiro:fechar_caixa' %}">
+          <strong>Fechar caixa</strong>
+          <span class="endpoint-note">Operação de fecho do caixa</span>
+          <code>{% url 'financeiro:fechar_caixa' %}</code>
+        </a>
+        <a class="endpoint-card" data-url-item href="{% url 'financeiro:sangria_caixa' %}">
+          <strong>Sangria de caixa</strong>
+          <span class="endpoint-note">Registar retirada de numerário</span>
+          <code>{% url 'financeiro:sangria_caixa' %}</code>
+        </a>
+        <a class="endpoint-card" data-url-item href="{% url 'financeiro:suprimento_caixa' %}">
+          <strong>Suprimento de caixa</strong>
+          <span class="endpoint-note">Registar reforço de numerário</span>
+          <code>{% url 'financeiro:suprimento_caixa' %}</code>
+        </a>
+        <a class="endpoint-card" data-url-item href="{% url 'financeiro:conferencia_caixa' %}">
+          <strong>Conferência de caixa</strong>
+          <span class="endpoint-note">Conferir valores do caixa</span>
+          <code>{% url 'financeiro:conferencia_caixa' %}</code>
+        </a>
+        <a class="endpoint-card" data-url-item href="{% url 'financeiro:relatorio_caixa_diario' %}">
+          <strong>Relatório diário do caixa</strong>
+          <span class="endpoint-note">Consultar fecho e movimentos diários</span>
+          <code>{% url 'financeiro:relatorio_caixa_diario' %}</code>
+        </a>
+        <a class="endpoint-card" data-url-item href="{% url 'financeiro:movimento_caixa' %}">
+          <strong>Movimento de caixa</strong>
+          <span class="endpoint-note">Consultar ou registar movimento de caixa</span>
+          <code>{% url 'financeiro:movimento_caixa' %}</code>
+        </a>
+        <a class="endpoint-card" data-url-item href="{% url 'financeiro:historico_caixa' %}">
+          <strong>Histórico do caixa</strong>
+          <span class="endpoint-note">Consultar operações anteriores</span>
+          <code>{% url 'financeiro:historico_caixa' %}</code>
+        </a>
+      </div>
+    </section>
+    <section class="url-category" data-url-category>
+      <div class="url-category-head"><h3><i class="fas fa-credit-card" aria-hidden="true"></i> Cartões e TEF</h3><span class="url-count">8 rotas</span></div>
+      <div class="endpoint-grid">
+        <a class="endpoint-card" data-url-item href="{% url 'financeiro:cartao_lista' %}">
+          <strong>Cartões</strong>
+          <span class="endpoint-note">Lista e gestão de cartões</span>
+          <code>{% url 'financeiro:cartao_lista' %}</code>
+        </a>
+        <a class="endpoint-card" data-url-item href="{% url 'financeiro:vendas_cartao' %}">
+          <strong>Vendas com cartão</strong>
+          <span class="endpoint-note">Consultar vendas pagas por cartão</span>
+          <code>{% url 'financeiro:vendas_cartao' %}</code>
+        </a>
+        <a class="endpoint-card" data-url-item href="{% url 'financeiro:recebimentos_cartao' %}">
+          <strong>Recebimentos de cartões</strong>
+          <span class="endpoint-note">Consultar recebimentos</span>
+          <code>{% url 'financeiro:recebimentos_cartao' %}</code>
+        </a>
+        <a class="endpoint-card" data-url-item href="{% url 'financeiro:taxas_cartao' %}">
+          <strong>Taxas de cartão</strong>
+          <span class="endpoint-note">Consultar taxas aplicadas</span>
+          <code>{% url 'financeiro:taxas_cartao' %}</code>
+        </a>
+        <a class="endpoint-card" data-url-item href="{% url 'financeiro:conciliacao_cartao' %}">
+          <strong>Conciliação de cartões</strong>
+          <span class="endpoint-note">Conciliar operações com cartões</span>
+          <code>{% url 'financeiro:conciliacao_cartao' %}</code>
+        </a>
+        <a class="endpoint-card" data-url-item href="{% url 'financeiro:tef' %}">
+          <strong>Terminal TEF</strong>
+          <span class="endpoint-note">Aceder à integração TEF</span>
+          <code>{% url 'financeiro:tef' %}</code>
+        </a>
+        <a class="endpoint-card" data-url-item href="{% url 'financeiro:tef_transacoes' %}">
+          <strong>Transações TEF</strong>
+          <span class="endpoint-note">Consultar transações TEF</span>
+          <code>{% url 'financeiro:tef_transacoes' %}</code>
+        </a>
+        <a class="endpoint-card" data-url-item href="{% url 'financeiro:tef_cancelar' 1 %}">
+          <strong>Cancelar transação TEF</strong>
+          <span class="endpoint-note">Exemplo de rota com ID 1</span>
+          <code>{% url 'financeiro:tef_cancelar' 1 %}</code>
+        </a>
+      </div>
+    </section>
+    <section class="url-category" data-url-category>
+      <div class="url-category-head"><h3><i class="fas fa-scale-balanced" aria-hidden="true"></i> Centros de custo e conciliações</h3><span class="url-count">8 rotas</span></div>
+      <div class="endpoint-grid">
+        <a class="endpoint-card" data-url-item href="{% url 'financeiro:centro_custo_lista' %}">
+          <strong>Centros de custo</strong>
+          <span class="endpoint-note">Listar centros de custo</span>
+          <code>{% url 'financeiro:centro_custo_lista' %}</code>
+        </a>
+        <a class="endpoint-card" data-url-item href="{% url 'financeiro:centro_custo_create' %}">
+          <strong>Criar centro de custo</strong>
+          <span class="endpoint-note">Registar centro de custo</span>
+          <code>{% url 'financeiro:centro_custo_create' %}</code>
+        </a>
+        <a class="endpoint-card" data-url-item href="{% url 'financeiro:centro_custo_detail' 1 %}">
+          <strong>Detalhe do centro de custo</strong>
+          <span class="endpoint-note">Exemplo de rota com ID 1</span>
+          <code>{% url 'financeiro:centro_custo_detail' 1 %}</code>
+        </a>
+        <a class="endpoint-card" data-url-item href="{% url 'financeiro:conciliacao_lista' %}">
+          <strong>Lista de conciliações bancárias</strong>
+          <span class="endpoint-note">Consultar conciliações bancárias</span>
+          <code>{% url 'financeiro:conciliacao_lista' %}</code>
+        </a>
+        <a class="endpoint-card" data-url-item href="{% url 'financeiro:conciliacao_bancaria_create' %}">
+          <strong>Criar conciliação bancária</strong>
+          <span class="endpoint-note">Registar conciliação bancária</span>
+          <code>{% url 'financeiro:conciliacao_bancaria_create' %}</code>
+        </a>
+        <a class="endpoint-card" data-url-item href="{% url 'financeiro:conciliacao_detail' 1 %}">
+          <strong>Detalhe da conciliação</strong>
+          <span class="endpoint-note">Exemplo de rota com ID 1</span>
+          <code>{% url 'financeiro:conciliacao_detail' 1 %}</code>
+        </a>
+        <a class="endpoint-card" data-url-item href="{% url 'financeiro:conciliacao' %}">
+          <strong>Conciliação</strong>
+          <span class="endpoint-note">Aceder ao módulo de conciliação</span>
+          <code>{% url 'financeiro:conciliacao' %}</code>
+        </a>
+        <a class="endpoint-card" data-url-item href="{% url 'financeiro:conciliacao_automatica' %}">
+          <strong>Conciliação automática</strong>
+          <span class="endpoint-note">Executar o fluxo de conciliação automática</span>
+          <code>{% url 'financeiro:conciliacao_automatica' %}</code>
+        </a>
+      </div>
+    </section>
+    <section class="url-category" data-url-category>
+      <div class="url-category-head"><h3><i class="fas fa-calendar-check" aria-hidden="true"></i> Planeamento financeiro</h3><span class="url-count">3 rotas</span></div>
+      <div class="endpoint-grid">
+        <a class="endpoint-card" data-url-item href="{% url 'financeiro:projecoes' %}">
+          <strong>Projeções financeiras</strong>
+          <span class="endpoint-note">Consultar projeções</span>
+          <code>{% url 'financeiro:projecoes' %}</code>
+        </a>
+        <a class="endpoint-card" data-url-item href="{% url 'financeiro:cenarios' %}">
+          <strong>Cenários financeiros</strong>
+          <span class="endpoint-note">Comparar cenários</span>
+          <code>{% url 'financeiro:cenarios' %}</code>
+        </a>
+        <a class="endpoint-card" data-url-item href="{% url 'financeiro:metas' %}">
+          <strong>Metas financeiras</strong>
+          <span class="endpoint-note">Definir e acompanhar metas</span>
+          <code>{% url 'financeiro:metas' %}</code>
+        </a>
+      </div>
+    </section>
+    <section class="url-category" data-url-category>
+      <div class="url-category-head"><h3><i class="fas fa-file-invoice" aria-hidden="true"></i> Impostos e tributos</h3><span class="url-count">8 rotas</span></div>
+      <div class="endpoint-grid">
+        <a class="endpoint-card" data-url-item href="{% url 'financeiro:imposto_list' %}">
+          <strong>Listar impostos e tributos</strong>
+          <span class="endpoint-note">Consultar obrigações fiscais</span>
+          <code>{% url 'financeiro:imposto_list' %}</code>
+        </a>
+        <a class="endpoint-card" data-url-item href="{% url 'financeiro:imposto_create' %}">
+          <strong>Criar imposto / tributo</strong>
+          <span class="endpoint-note">Registar nova obrigação</span>
+          <code>{% url 'financeiro:imposto_create' %}</code>
+        </a>
+        <a class="endpoint-card" data-url-item href="{% url 'financeiro:imposto_detail' 1 %}">
+          <strong>Detalhe do imposto</strong>
+          <span class="endpoint-note">Exemplo de rota com ID 1</span>
+          <code>{% url 'financeiro:imposto_detail' 1 %}</code>
+        </a>
+        <a class="endpoint-card" data-url-item href="{% url 'financeiro:imposto_update' 1 %}">
+          <strong>Editar imposto</strong>
+          <span class="endpoint-note">Exemplo de rota com ID 1</span>
+          <code>{% url 'financeiro:imposto_update' 1 %}</code>
+        </a>
+        <a class="endpoint-card" data-url-item href="{% url 'financeiro:imposto_delete' 1 %}">
+          <strong>Excluir imposto</strong>
+          <span class="endpoint-note">Exemplo de rota com ID 1</span>
+          <code>{% url 'financeiro:imposto_delete' 1 %}</code>
+        </a>
+        <a class="endpoint-card" data-url-item href="{% url 'financeiro:imposto_calcular' 1 %}">
+          <strong>Calcular imposto</strong>
+          <span class="endpoint-note">Rota de operação com ID 1</span>
+          <code>{% url 'financeiro:imposto_calcular' 1 %}</code>
+        </a>
+        <a class="endpoint-card" data-url-item href="{% url 'financeiro:imposto_pagar' 1 %}">
+          <strong>Pagar imposto</strong>
+          <span class="endpoint-note">Rota de operação com ID 1</span>
+          <code>{% url 'financeiro:imposto_pagar' 1 %}</code>
+        </a>
+        <a class="endpoint-card" data-url-item href="{% url 'financeiro:estornar_imposto' 1 %}">
+          <strong>Estornar imposto</strong>
+          <span class="endpoint-note">Rota de operação com ID 1</span>
+          <code>{% url 'financeiro:estornar_imposto' 1 %}</code>
+        </a>
+      </div>
+    </section>
+    <section class="url-category" data-url-category>
+      <div class="url-category-head"><h3><i class="fas fa-chart-pie" aria-hidden="true"></i> Fechamento, relatórios e análises</h3><span class="url-count">14 rotas</span></div>
+      <div class="endpoint-grid">
+        <a class="endpoint-card" data-url-item href="{% url 'financeiro:fechamento_mensal' %}">
+          <strong>Fechamento mensal</strong>
+          <span class="endpoint-note">Aceder ao fecho financeiro mensal</span>
+          <code>{% url 'financeiro:fechamento_mensal' %}</code>
+        </a>
+        <a class="endpoint-card" data-url-item href="{% url 'financeiro:fechamento_detalhes' 1 2026 %}">
+          <strong>Detalhes do fechamento</strong>
+          <span class="endpoint-note">Exemplo de mês 1 e ano 2026</span>
+          <code>{% url 'financeiro:fechamento_detalhes' 1 2026 %}</code>
+        </a>
+        <a class="endpoint-card" data-url-item href="{% url 'financeiro:relatorios' %}">
+          <strong>Relatórios financeiros</strong>
+          <span class="endpoint-note">Painel de relatórios da área financeira</span>
+          <code>{% url 'financeiro:relatorios' %}</code>
+        </a>
+        <a class="endpoint-card" data-url-item href="{% url 'financeiro:relatorio_fluxo_caixa' %}">
+          <strong>Relatório de fluxo de caixa</strong>
+          <span class="endpoint-note">Analisar o fluxo de caixa</span>
+          <code>{% url 'financeiro:relatorio_fluxo_caixa' %}</code>
+        </a>
+        <a class="endpoint-card" data-url-item href="{% url 'financeiro:relatorio_dre' %}">
+          <strong>Relatório da DRE</strong>
+          <span class="endpoint-note">Analisar resultado do exercício</span>
+          <code>{% url 'financeiro:relatorio_dre' %}</code>
+        </a>
+        <a class="endpoint-card" data-url-item href="{% url 'financeiro:relatorio_balanco' %}">
+          <strong>Relatório do balanço</strong>
+          <span class="endpoint-note">Analisar posição patrimonial</span>
+          <code>{% url 'financeiro:relatorio_balanco' %}</code>
+        </a>
+        <a class="endpoint-card" data-url-item href="{% url 'financeiro:relatorio_inadimplencia' %}">
+          <strong>Relatório de inadimplência</strong>
+          <span class="endpoint-note">Acompanhar valores em atraso</span>
+          <code>{% url 'financeiro:relatorio_inadimplencia' %}</code>
+        </a>
+        <a class="endpoint-card" data-url-item href="{% url 'financeiro:relatorio_contas_receber' %}">
+          <strong>Relatório de contas a receber</strong>
+          <span class="endpoint-note">Analisar cobranças</span>
+          <code>{% url 'financeiro:relatorio_contas_receber' %}</code>
+        </a>
+        <a class="endpoint-card" data-url-item href="{% url 'financeiro:relatorio_contas_pagar' %}">
+          <strong>Relatório de contas a pagar</strong>
+          <span class="endpoint-note">Analisar compromissos a pagar</span>
+          <code>{% url 'financeiro:relatorio_contas_pagar' %}</code>
+        </a>
+        <a class="endpoint-card" data-url-item href="{% url 'financeiro:relatorio_movimento_bancario' %}">
+          <strong>Relatório de movimento bancário</strong>
+          <span class="endpoint-note">Analisar movimentos bancários</span>
+          <code>{% url 'financeiro:relatorio_movimento_bancario' %}</code>
+        </a>
+        <a class="endpoint-card" data-url-item href="{% url 'financeiro:analises' %}">
+          <strong>Análises financeiras</strong>
+          <span class="endpoint-note">Painel de análises</span>
+          <code>{% url 'financeiro:analises' %}</code>
+        </a>
+        <a class="endpoint-card" data-url-item href="{% url 'financeiro:analise_liquidez' %}">
+          <strong>Análise de liquidez</strong>
+          <span class="endpoint-note">Indicadores de liquidez</span>
+          <code>{% url 'financeiro:analise_liquidez' %}</code>
+        </a>
+        <a class="endpoint-card" data-url-item href="{% url 'financeiro:analise_rentabilidade' %}">
+          <strong>Análise de rentabilidade</strong>
+          <span class="endpoint-note">Indicadores de rentabilidade</span>
+          <code>{% url 'financeiro:analise_rentabilidade' %}</code>
+        </a>
+        <a class="endpoint-card" data-url-item href="{% url 'financeiro:analise_endividamento' %}">
+          <strong>Análise de endividamento</strong>
+          <span class="endpoint-note">Indicadores de endividamento</span>
+          <code>{% url 'financeiro:analise_endividamento' %}</code>
+        </a>
+      </div>
+    </section>
+    <section class="url-category" data-url-category>
+      <div class="url-category-head"><h3><i class="fas fa-code" aria-hidden="true"></i> Endpoints AJAX</h3><span class="url-count">4 rotas</span></div>
+      <div class="endpoint-grid">
+        <a class="endpoint-card" data-url-item href="{% url 'financeiro:calcular_juros' %}">
+          <strong>Calcular juros (AJAX)</strong>
+          <span class="endpoint-note">Endpoint técnico AJAX</span>
+          <code>{% url 'financeiro:calcular_juros' %}</code>
+        </a>
+        <a class="endpoint-card" data-url-item href="{% url 'financeiro:consultar_saldo' %}">
+          <strong>Consultar saldo (AJAX)</strong>
+          <span class="endpoint-note">Endpoint técnico AJAX</span>
+          <code>{% url 'financeiro:consultar_saldo' %}</code>
+        </a>
+        <a class="endpoint-card" data-url-item href="{% url 'financeiro:validar_conta' %}">
+          <strong>Validar conta (AJAX)</strong>
+          <span class="endpoint-note">Endpoint técnico AJAX</span>
+          <code>{% url 'financeiro:validar_conta' %}</code>
+        </a>
+        <a class="endpoint-card" data-url-item href="{% url 'financeiro:buscar_banco' %}">
+          <strong>Buscar banco (AJAX)</strong>
+          <span class="endpoint-note">Endpoint técnico AJAX</span>
+          <code>{% url 'financeiro:buscar_banco' %}</code>
+        </a>
+      </div>
+    </section>
+    <section class="url-category" data-url-category>
+      <div class="url-category-head"><h3><i class="fas fa-file-arrow-down" aria-hidden="true"></i> Importação e exportação</h3><span class="url-count">4 rotas</span></div>
+      <div class="endpoint-grid">
+        <a class="endpoint-card" data-url-item href="{% url 'financeiro:importar' %}">
+          <strong>Importar dados financeiros</strong>
+          <span class="endpoint-note">Aceder à importação</span>
+          <code>{% url 'financeiro:importar' %}</code>
+        </a>
+        <a class="endpoint-card" data-url-item href="{% url 'financeiro:importar_ofx' %}">
+          <strong>Importar ficheiro OFX</strong>
+          <span class="endpoint-note">Importação de extrato bancário OFX</span>
+          <code>{% url 'financeiro:importar_ofx' %}</code>
+        </a>
+        <a class="endpoint-card" data-url-item href="{% url 'financeiro:importar_cnab' %}">
+          <strong>Importar ficheiro CNAB</strong>
+          <span class="endpoint-note">Importação CNAB</span>
+          <code>{% url 'financeiro:importar_cnab' %}</code>
+        </a>
+        <a class="endpoint-card" data-url-item href="{% url 'financeiro:exportar' %}">
+          <strong>Exportar dados financeiros</strong>
+          <span class="endpoint-note">Aceder à exportação</span>
+          <code>{% url 'financeiro:exportar' %}</code>
+        </a>
+      </div>
+    </section>
+    <section class="url-category" data-url-category>
+      <div class="url-category-head"><h3><i class="fas fa-plug" aria-hidden="true"></i> API REST</h3><span class="url-count">3 rotas</span></div>
+      <div class="endpoint-grid">
+        <a class="endpoint-card" data-url-item href="{% url 'financeiro:api_saldo_atual' %}">
+          <strong>API — Saldo atual</strong>
+          <span class="endpoint-note">Endpoint REST de saldo</span>
+          <code>{% url 'financeiro:api_saldo_atual' %}</code>
+        </a>
+        <a class="endpoint-card" data-url-item href="{% url 'financeiro:api_projecao_fluxo' %}">
+          <strong>API — Projeção de fluxo</strong>
+          <span class="endpoint-note">Endpoint REST de projeção</span>
+          <code>{% url 'financeiro:api_projecao_fluxo' %}</code>
+        </a>
+        <a class="endpoint-card" data-url-item href="{% url 'financeiro:api_indicadores' %}">
+          <strong>API — Indicadores</strong>
+          <span class="endpoint-note">Endpoint REST de indicadores</span>
+          <code>{% url 'financeiro:api_indicadores' %}</code>
+        </a>
+      </div>
+    </section>
+    <div id="financeiro-url-empty" class="directory-empty">Nenhuma URL encontrada para essa pesquisa.</div>
+  </div>
+</section>
+
+<div class="two-col">
+  <section class="panel">
+    <h2><i class="fas fa-scale-balanced" aria-hidden="true"></i> Obrigações fiscais</h2>
+    <div class="detail-list">
+      <div class="detail-item"><div class="k">Impostos pendentes</div><div class="v">{{ impostos_pendentes|default:0 }}</div></div>
+      <div class="detail-item"><div class="k">Valor em dívida</div><div class="v">{{ impostos_valor_devido|floatformat:2|default:"0,00" }} AOA</div></div>
+    </div>
+    <div class="form-actions"><a class="btn" href="{% url 'financeiro:imposto_list' %}">Abrir módulo fiscal</a><a class="btn secondary" href="{% url 'financeiro:relatorio_fluxo_caixa' %}">Ver relatório de fluxo</a></div>
+  </section>
+  <section class="panel">
+    <h2><i class="fas fa-compass" aria-hidden="true"></i> Planeamento e análise</h2>
+    <div class="link-grid">
+      <a class="link-card" href="{% url 'financeiro:projecoes' %}"><strong>Projeções</strong><span>Antecipar fluxos financeiros</span></a>
+      <a class="link-card" href="{% url 'financeiro:analise_liquidez' %}"><strong>Liquidez</strong><span>Avaliar capacidade de pagamento</span></a>
+      <a class="link-card" href="{% url 'financeiro:fechamento_mensal' %}"><strong>Fechamento mensal</strong><span>Conferir o período financeiro</span></a>
+    </div>
+  </section>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  'use strict';
+  var input = document.getElementById('financeiro-url-search');
+  var directory = document.getElementById('financeiro-url-directory');
+  if (!input || !directory) return;
+  var cards = Array.prototype.slice.call(directory.querySelectorAll('[data-url-item]'));
+  var categories = Array.prototype.slice.call(directory.querySelectorAll('[data-url-category]'));
+  var empty = document.getElementById('financeiro-url-empty');
+  input.addEventListener('input', function () {
+    var query = input.value.trim().toLocaleLowerCase('pt');
+    var totalVisible = 0;
+    categories.forEach(function (category) {
+      var categoryVisible = 0;
+      category.querySelectorAll('[data-url-item]').forEach(function (card) {
+        var matches = !query || card.textContent.toLocaleLowerCase('pt').indexOf(query) !== -1;
+        card.classList.toggle('is-hidden', !matches);
+        if (matches) { categoryVisible += 1; totalVisible += 1; }
+      });
+      category.classList.toggle('is-empty', categoryVisible === 0);
+    });
+    if (empty) empty.classList.toggle('is-visible', totalVisible === 0);
+  });
+})();
+</script>
+{% endblock %}

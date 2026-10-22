@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}Registar novo tenant{% endblock %}
+{% block content %}
+<section class="mx-auto max-w-3xl p-4 sm:p-6">
+  <h1 class="mb-2 text-2xl font-bold">Registar novo cliente</h1>
+  <p class="mb-5 text-sm text-gray-600">Não existe quota de clientes para parceiros activos. O preço é calculado pelo plano oficial; a licença só fica activa depois da equipa SOTARQ confirmar o recebimento. A comissão é de 10% sobre o valor oficial confirmado.</p>
+  <form method="post" class="grid gap-4 rounded-xl border bg-white p-5 sm:grid-cols-2">{% csrf_token %}
+    <label class="block sm:col-span-2"><span class="mb-1 block text-sm font-medium">Nome da empresa *</span><input name="nome" required maxlength="255" class="w-full rounded-lg border p-2"></label>
+    <label class="block"><span class="mb-1 block text-sm font-medium">NIF</span><input name="nif" maxlength="30" class="w-full rounded-lg border p-2"></label>
+    <label class="block"><span class="mb-1 block text-sm font-medium">Telefone</span><input name="telefone" maxlength="40" class="w-full rounded-lg border p-2"></label>
+    <label class="block"><span class="mb-1 block text-sm font-medium">Email *</span><input name="email" type="email" required maxlength="254" class="w-full rounded-lg border p-2"></label>
+    <label class="block"><span class="mb-1 block text-sm font-medium">Domínio pretendido (opcional)</span><input name="dominio" maxlength="255" class="w-full rounded-lg border p-2"></label>
+    <label class="block sm:col-span-2"><span class="mb-1 block text-sm font-medium">Plano da licença do cliente</span><select name="plano_cliente_id" required class="w-full rounded-lg border p-2">{% for p in planos_cliente %}<option value="{{ p.pk }}">{{ p.nome }} — {{ p.preco_mensal }} AOA/mês</option>{% endfor %}</select></label>
+    <label class="block"><span class="mb-1 block text-sm font-medium">Período inicial (meses)</span><select name="meses" class="w-full rounded-lg border p-2"><option value="1">1 mês</option><option value="3">3 meses</option><option value="6">6 meses</option><option value="12">12 meses</option></select></label>
+    <div class="rounded-lg bg-blue-50 p-3 text-sm text-blue-900 sm:col-span-2">O sistema calcula o valor previsto com base no preço do plano × período. Não introduza o valor da comissão; a SOTARQ irá conciliar o pagamento e activar a licença.</div>
+    <label class="block sm:col-span-2"><span class="mb-1 block text-sm font-medium">Observações</span><textarea name="observacoes" rows="3" maxlength="2000" class="w-full rounded-lg border p-2"></textarea></label>
+    <div class="sm:col-span-2"><button type="submit" class="rounded-lg bg-blue-600 px-5 py-2 font-semibold text-white">Registar tenant</button></div>
+  </form>
+  <p class="mt-4 text-xs text-amber-700">Esta página chama o provisionador de tenants já existente na SOTARQ. Configure PARTNER_TENANT_PROVISIONER antes de a disponibilizar.</p>
+</section>
+{% endblock %}

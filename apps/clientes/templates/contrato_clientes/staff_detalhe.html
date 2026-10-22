@@ -1,0 +1,14 @@
+{% extends 'base.html' %}
+{% block title %}Contrato #{{ contrato.pk }}{% endblock %}
+{% block page_title %}Contrato #{{ contrato.pk }}{% endblock %}
+{% block content %}
+<main class="mx-auto max-w-5xl space-y-6">
+  <a class="text-blue-700 underline" href="{% url 'clientes:lista_contrato' %}">← Voltar à lista</a>
+  <section class="rounded-xl border bg-white p-6 shadow-sm">
+    <div class="flex flex-wrap items-start justify-between gap-3"><div><h1 class="text-xl font-bold">{{ contrato.cliente.nome_exibicao|default:contrato.cliente.nome_completo }}</h1><p class="mt-1 text-sm text-gray-500">Contrato #{{ contrato.pk }} · versão {{ contrato.versao }} · {{ contrato.get_status_display }}</p></div>{% if contrato.cliente.vip %}<span class="rounded-full bg-green-100 px-3 py-1 text-sm font-semibold text-green-800">VIP</span>{% endif %}</div>
+    <p class="mt-4 break-all font-mono text-xs">SHA-256: {{ contrato.hash_documento }}</p>
+    <article class="mt-5 whitespace-pre-wrap border-t pt-5">{{ contrato.conteudo_snapshot }}</article>
+  </section>
+  <section class="rounded-xl border bg-white p-6"><h2 class="mb-4 text-lg font-semibold">Histórico de eventos</h2>{% for evento in contrato.eventos.all %}<article class="border-l-2 border-blue-300 py-2 pl-4"><strong>{{ evento.get_tipo_display }}</strong><time class="ml-2 text-xs text-gray-500">{{ evento.created_at|date:'d/m/Y H:i' }}</time><p class="mt-1 whitespace-pre-wrap">{{ evento.descricao }}</p></article>{% empty %}<p class="text-gray-500">Ainda não existem eventos.</p>{% endfor %}</section>
+</main>
+{% endblock %}

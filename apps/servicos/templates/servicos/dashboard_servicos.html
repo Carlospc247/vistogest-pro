@@ -1,0 +1,135 @@
+{% extends "base.html" %}
+{% block title %}Dashboard de Serviços{% endblock %}
+{% block content %}
+{% include "servicos/_styles.html" %}
+<div class="svc-page">
+  <header class="svc-heading">
+    <div>
+      <p class="svc-eyebrow">Operações · Serviços</p>
+      <h1>Dashboard de serviços</h1>
+      <p class="svc-subtitle">Visão geral do catálogo, execução dos agendamentos e notificações. Os dados são consultados no schema da empresa activa.</p>
+    </div>
+    <div class="svc-actions">
+      <a class="svc-btn svc-btn--light" href="{% url 'servicos:servico_list' %}">Consultar catálogo</a>
+      <a class="svc-btn svc-btn--accent" href="{% url 'servicos:servico_create' %}">＋ Novo serviço</a>
+      <a class="svc-btn" href="{% url 'servicos:agendamento_create' %}">＋ Agendar serviço</a>
+    </div>
+  </header>
+
+  <section class="svc-metrics" aria-label="Indicadores do módulo">
+    <article class="svc-metric" style="--metric-tint:#dbeafe"><span class="svc-metric-label">Serviços no catálogo</span><div class="svc-metric-value">{{ total_servicos|default:0 }}</div><span class="svc-metric-note">Total registado</span></article>
+    <article class="svc-metric" style="--metric-tint:#dcfce7"><span class="svc-metric-label">Serviços activos</span><div class="svc-metric-value">{{ servicos_ativos|default:0 }}</div><span class="svc-metric-note">Disponíveis para agendamento</span></article>
+    <article class="svc-metric" style="--metric-tint:#fef3c7"><span class="svc-metric-label">Serviços inactivos</span><div class="svc-metric-value">{{ servicos_inativos|default:0 }}</div><span class="svc-metric-note">Ocultos da operação regular</span></article>
+    <article class="svc-metric" style="--metric-tint:#ffedd5"><span class="svc-metric-label">Agendamentos pendentes</span><div class="svc-metric-value">{{ agendamentos_pendentes|default:0 }}</div><span class="svc-metric-note">À espera de execução</span></article>
+    <article class="svc-metric" style="--metric-tint:#ede9fe"><span class="svc-metric-label">Em andamento</span><div class="svc-metric-value">{{ agendamentos_em_andamento|default:0 }}</div><span class="svc-metric-note">Serviços em execução</span></article>
+  </section>
+
+  <section class="svc-panel">
+    <div class="svc-panel-head">
+      <div><h2>Catálogo de serviços</h2><p>Os cartões mostram os dados comerciais, operacionais e fiscais de cada serviço.</p></div>
+      <a class="svc-btn svc-btn--light svc-btn--small" href="{% url 'servicos:servico_list' %}">Ver catálogo completo →</a>
+    </div>
+    <form class="svc-toolbar" method="get">
+      <div class="svc-field"><label for="svc-q">Pesquisar serviços</label><input id="svc-q" type="search" name="q" value="{{ filtro_q }}" placeholder="Nome ou instruções…"></div>
+      <div class="svc-field" style="max-width:230px"><label for="svc-estado">Estado</label><select id="svc-estado" name="estado"><option value="">Todos</option><option value="ativo" {% if filtro_estado == 'ativo' %}selected{% endif %}>Activos</option><option value="inativo" {% if filtro_estado == 'inativo' %}selected{% endif %}>Inactivos</option></select></div>
+      <button class="svc-btn" type="submit">Filtrar</button>
+      {% if filtro_q or filtro_estado %}<a class="svc-btn svc-btn--light" href="{% url 'servicos:servico_dashboard' %}">Limpar</a>{% endif %}
+    </form>
+
+    {% if servicos %}
+      <div class="svc-grid">
+        {% for servico in servicos %}
+          <article class="svc-service-card">
+            <div class="svc-service-visual">
+              {% if servico.foto %}<img src="{{ servico.foto.url }}" alt="Imagem do serviço {{ servico.nome }}" loading="lazy">{% else %}<span class="svc-placeholder" aria-hidden="true">✦</span>{% endif %}
+            </div>
+            <div class="svc-service-body">
+              <div class="svc-service-title">
+                <h3>{{ servico.nome|default:"Serviço sem nome" }}</h3>
+                {% if servico.ativo %}<span class="svc-chip svc-chip--ok">● Activo</span>{% else %}<span class="svc-chip svc-chip--warn">Inactivo</span>{% endif %}
+              </div>
+              <div><span class="svc-chip svc-chip--blue">{{ servico.categoria|default:"Sem categoria" }}</span></div>
+              <div class="svc-price"><strong>{{ servico.preco_com_desconto|floatformat:2 }} Kz</strong>{% if servico.desconto_percentual %}<s>{{ servico.preco_padrao|floatformat:2 }} Kz</s><span class="svc-chip svc-chip--purple">-{{ servico.desconto_percentual|floatformat:2 }}%</span>{% endif %}</div>
+              <div class="svc-facts">
+                <div><span class="svc-fact-label">Código</span><span class="svc-fact-value">#{{ servico.pk }}</span></div>
+                <div><span class="svc-fact-label">Preço base</span><span class="svc-fact-value">{{ servico.preco_padrao|floatformat:2 }} Kz</span></div>
+                <div><span class="svc-fact-label">Desconto</span><span class="svc-fact-value">{{ servico.desconto_percentual|default_if_none:0|floatformat:2 }}%</span></div>
+                <div><span class="svc-fact-label">IVA</span><span class="svc-fact-value">{{ servico.iva_percentual|default_if_none:0|floatformat:2 }}%</span></div>
+                <div><span class="svc-fact-label">Duração padrão</span><span class="svc-fact-value">{{ servico.duracao_padrao_minutos|default:"—" }} min</span></div>
+                <div><span class="svc-fact-label">Duração alternativa</span><span class="svc-fact-value">{{ servico.duracao_servico_padrao|default:"Não definida" }}</span></div>
+                <div><span class="svc-fact-label">Taxa fiscal</span><span class="svc-fact-value">{% if servico.taxa_iva %}{{ servico.taxa_iva }}{% else %}Não definida{% endif %}</span></div>
+                <div><span class="svc-fact-label">Criado em</span><span class="svc-fact-value">{{ servico.created_at|date:"d/m/Y H:i"|default:"—" }}</span></div>
+                <div><span class="svc-fact-label">Actualizado em</span><span class="svc-fact-value">{{ servico.updated_at|date:"d/m/Y H:i"|default:"—" }}</span></div>
+              </div>
+              <div class="svc-description"><strong>Instruções padrão:</strong> {{ servico.instrucoes_padrao|default:"Sem instruções padrão."|truncatechars:150 }}</div>
+              <div class="svc-description"><strong>Instruções alternativas:</strong> {{ servico.instrucoes_servico|default:"Sem instruções alternativas."|truncatechars:150 }}</div>
+              <div class="svc-card-actions">
+                <a class="svc-btn svc-btn--light svc-btn--small" href="{% url 'servicos:servico_update' servico.pk %}">Editar serviço</a>
+                <a class="svc-btn svc-btn--danger svc-btn--small" href="{% url 'servicos:servico_delete' servico.pk %}">Eliminar</a>
+              </div>
+            </div>
+          </article>
+        {% endfor %}
+      </div>
+      {% if is_paginated %}<div class="svc-pagination"><span>Página {{ page_obj.number }} de {{ page_obj.paginator.num_pages }}</span><div class="svc-actions">{% if page_obj.has_previous %}<a class="svc-btn svc-btn--light svc-btn--small" href="?page={{ page_obj.previous_page_number }}&q={{ filtro_q|urlencode }}&estado={{ filtro_estado|urlencode }}">← Anterior</a>{% endif %}{% if page_obj.has_next %}<a class="svc-btn svc-btn--light svc-btn--small" href="?page={{ page_obj.next_page_number }}&q={{ filtro_q|urlencode }}&estado={{ filtro_estado|urlencode }}">Seguinte →</a>{% endif %}</div></div>{% endif %}
+    {% else %}
+      <div class="svc-empty"><h3>Nenhum serviço encontrado</h3><p>Crie um serviço ou altere os filtros para consultar o catálogo.</p><a class="svc-btn" href="{% url 'servicos:servico_create' %}">Criar primeiro serviço</a></div>
+    {% endif %}
+  </section>
+
+  <section class="svc-panel">
+    <div class="svc-panel-head"><div><h2>Ações rápidas</h2><p>Atalhos para todas as rotas da app de serviços. As operações que alteram dados são submetidas por POST com CSRF.</p></div></div>
+    <div class="svc-quick-grid">
+      <a class="svc-quick" href="{% url 'servicos:servico_dashboard' %}"><span class="svc-quick-icon">⌂</span><span><strong>Dashboard</strong><small>Resumo do módulo</small></span></a>
+      <a class="svc-quick" href="{% url 'servicos:servico_list' %}"><span class="svc-quick-icon">▦</span><span><strong>Catálogo completo</strong><small>Pesquisar e filtrar serviços</small></span></a>
+      <a class="svc-quick" href="{% url 'servicos:servico_create' %}"><span class="svc-quick-icon">＋</span><span><strong>Novo serviço</strong><small>Adicionar item ao catálogo</small></span></a>
+      {% if servico_destaque %}<a class="svc-quick" href="{% url 'servicos:servico_update' servico_destaque.pk %}"><span class="svc-quick-icon">✎</span><span><strong>Editar serviço recente</strong><small>{{ servico_destaque.nome }}</small></span></a><a class="svc-quick" href="{% url 'servicos:servico_delete' servico_destaque.pk %}"><span class="svc-quick-icon">×</span><span><strong>Eliminar serviço recente</strong><small>Protegido se houver agendamentos</small></span></a>{% endif %}
+      <a class="svc-quick" href="{% url 'servicos:agendamento_list' %}"><span class="svc-quick-icon">▤</span><span><strong>Agendamentos</strong><small>Consultar agenda</small></span></a>
+      <a class="svc-quick" href="{% url 'servicos:agendamento_create' %}"><span class="svc-quick-icon">＋</span><span><strong>Novo agendamento</strong><small>Registar um atendimento</small></span></a>
+      <a class="svc-quick" href="{% url 'servicos:notificacao_list' %}"><span class="svc-quick-icon">✉</span><span><strong>Notificações</strong><small>Ver notificações programadas</small></span></a>
+      <a class="svc-quick" href="{% url 'servicos:notificacao_create' %}"><span class="svc-quick-icon">＋</span><span><strong>Criar notificação</strong><small>Preparar aviso ao cliente</small></span></a>
+      {% if notificacao_destaque %}<a class="svc-quick" href="{% url 'servicos:notificacao_update' notificacao_destaque.pk %}"><span class="svc-quick-icon">✎</span><span><strong>Editar notificação recente</strong><small>{{ notificacao_destaque.titulo }}</small></span></a><a class="svc-quick" href="{% url 'servicos:notificacao_delete' notificacao_destaque.pk %}"><span class="svc-quick-icon">×</span><span><strong>Eliminar notificação recente</strong><small>Remover um aviso</small></span></a>{% endif %}
+      <a class="svc-quick" href="{% url 'servicos:config_notificacao' %}"><span class="svc-quick-icon">⚙</span><span><strong>Configurar notificações</strong><small>Canais e antecedência</small></span></a>
+      <a class="svc-quick" href="{% url 'servicos:listar_servicos_api' %}" target="_blank" rel="noopener"><span class="svc-quick-icon">{ }</span><span><strong>API: listar serviços</strong><small>JSON de serviços activos</small></span></a>
+      <a class="svc-quick" href="{% url 'servicos:buscar_servicos_api' %}" target="_blank" rel="noopener"><span class="svc-quick-icon">⌕</span><span><strong>API: pesquisar serviços</strong><small>Filtro por nome e categoria</small></span></a>
+      <a class="svc-quick" href="{% url 'servicos:buscar_agendamento_api' %}" target="_blank" rel="noopener"><span class="svc-quick-icon">{ }</span><span><strong>API: agendamentos</strong><small>Pesquisar marcações</small></span></a>
+      <a class="svc-quick" href="{% url 'servicos:buscar_notificacao_api' %}" target="_blank" rel="noopener"><span class="svc-quick-icon">{ }</span><span><strong>API: notificações</strong><small>Consultar notificações</small></span></a>
+    </div>
+  </section>
+
+  <section class="svc-panel">
+    <div class="svc-panel-head"><div><h2>Agendamentos recentes</h2><p>Acompanhamento operacional e acesso às acções por agendamento.</p></div><a class="svc-btn svc-btn--light svc-btn--small" href="{% url 'servicos:agendamento_list' %}">Ver todos →</a></div>
+    {% if agendamentos_recentes %}
+      <div class="svc-table-wrap"><table class="svc-table"><thead><tr><th>Data e hora</th><th>Serviço / cliente</th><th>Estado</th><th>Valor</th><th>Acompanhamento</th></tr></thead><tbody>
+      {% for a in agendamentos_recentes %}<tr><td>{{ a.data_hora|date:"d/m/Y H:i" }}</td><td><strong>{{ a.servico.nome }}</strong><br><span class="svc-muted">{{ a.cliente.nome_completo }}</span></td><td><span class="svc-chip {% if a.status == 'finalizado' %}svc-chip--ok{% elif a.status == 'cancelado' or a.status == 'faltou' %}svc-chip--red{% elif a.status == 'em_andamento' %}svc-chip--blue{% else %}svc-chip--warn{% endif %}">{{ a.get_status_display }}</span></td><td>{{ a.valor_cobrado|floatformat:2 }} Kz</td><td><div class="svc-inline-actions"><a class="svc-btn svc-btn--light svc-btn--small" href="{% url 'servicos:agendamento_detail' a.pk %}">Detalhes</a><a class="svc-btn svc-btn--small" href="{% url 'servicos:acompanhamento_agendamento' a.pk %}">Timeline</a></div></td></tr>{% endfor %}
+      </tbody></table></div>
+    {% else %}<div class="svc-empty"><h3>Sem agendamentos registados</h3><p>Quando criar marcações, o acompanhamento aparecerá aqui.</p><a class="svc-btn" href="{% url 'servicos:agendamento_create' %}">Criar agendamento</a></div>{% endif %}
+  </section>
+
+  {% if agendamento_destaque %}
+  <section class="svc-panel">
+    <div class="svc-panel-head"><div><h2>Acções rápidas do agendamento seleccionado</h2><p>Agendamento #{{ agendamento_destaque.pk }} · {{ agendamento_destaque.servico.nome }} · {{ agendamento_destaque.cliente.nome_completo }}</p></div><a class="svc-btn svc-btn--light svc-btn--small" href="{% url 'servicos:acompanhamento_agendamento' agendamento_destaque.pk %}">Abrir acompanhamento</a></div>
+    <div class="svc-quick-grid">
+      <a class="svc-quick" href="{% url 'servicos:agendamento_detail' agendamento_destaque.pk %}"><span class="svc-quick-icon">▤</span><span><strong>Detalhes</strong><small>Ver registo completo</small></span></a>
+      <a class="svc-quick" href="{% url 'servicos:agendamento_update' agendamento_destaque.pk %}"><span class="svc-quick-icon">✎</span><span><strong>Editar agendamento</strong><small>Alterar dados da marcação</small></span></a>
+      <a class="svc-quick" href="{% url 'servicos:agendamento_delete' agendamento_destaque.pk %}"><span class="svc-quick-icon">×</span><span><strong>Eliminar agendamento</strong><small>Aplicam-se as protecções do histórico</small></span></a>
+      <a class="svc-quick" href="{% url 'servicos:acompanhamento_eventos_api' agendamento_destaque.pk %}" target="_blank" rel="noopener"><span class="svc-quick-icon">{ }</span><span><strong>API de eventos</strong><small>Timeline em JSON</small></span></a>
+    </div>
+    <div class="svc-detail-grid" style="margin-top:16px">
+      {% if agendamento_destaque.status == 'agendado' %}<div class="svc-detail-item"><small>Iniciar serviço</small><div><form method="post" action="{% url 'servicos:servico_iniciar' agendamento_destaque.pk %}">{% csrf_token %}<button class="svc-btn" type="submit">Iniciar agora</button></form></div></div>{% endif %}
+      {% if agendamento_destaque.status == 'em_andamento' or agendamento_destaque.status == 'pausado' %}<div class="svc-detail-item"><small>Finalizar serviço</small><form class="svc-form" method="post" action="{% url 'servicos:servico_finalizar' agendamento_destaque.pk %}">{% csrf_token %}<div class="svc-field"><label for="dash-resultado">Resultado do serviço</label><textarea id="dash-resultado" name="resultado_servico" required></textarea></div><div class="svc-field" style="margin-top:8px"><label for="dash-recomendacoes">Recomendações</label><textarea id="dash-recomendacoes" name="recomendacoes"></textarea></div><button class="svc-btn" type="submit" style="margin-top:10px">Finalizar</button></form></div>{% endif %}
+      {% if agendamento_destaque.status == 'em_andamento' %}<div class="svc-detail-item"><small>Pausar acompanhamento</small><form method="post" action="{% url 'servicos:acompanhamento_pausar' agendamento_destaque.pk %}">{% csrf_token %}<div class="svc-field"><label for="dash-pausa">Motivo (opcional)</label><input id="dash-pausa" name="motivo" placeholder="Motivo da pausa"></div><button class="svc-btn svc-btn--light" type="submit" style="margin-top:8px">Pausar</button></form></div>{% endif %}
+      {% if agendamento_destaque.status == 'pausado' %}<div class="svc-detail-item"><small>Retomar acompanhamento</small><form method="post" action="{% url 'servicos:acompanhamento_retomar' agendamento_destaque.pk %}">{% csrf_token %}<div class="svc-field"><label for="dash-retoma">Motivo (opcional)</label><input id="dash-retoma" name="motivo" placeholder="Nota de retoma"></div><button class="svc-btn" type="submit" style="margin-top:8px">Retomar</button></form></div>{% endif %}
+      {% if agendamento_destaque.status == 'agendado' %}<div class="svc-detail-item"><small>Adiar agendamento</small><form method="post" action="{% url 'servicos:acompanhamento_adiar' agendamento_destaque.pk %}">{% csrf_token %}<div class="svc-field"><label for="dash-adiar">Nova data e hora</label><input id="dash-adiar" type="datetime-local" name="nova_data_hora" required></div><button class="svc-btn svc-btn--light" type="submit" style="margin-top:8px">Adiar</button></form></div>{% endif %}
+      {% if agendamento_destaque.status != 'finalizado' and agendamento_destaque.status != 'cancelado' and agendamento_destaque.status != 'faltou' %}<div class="svc-detail-item"><small>Cancelar agendamento</small><form method="post" action="{% url 'servicos:acompanhamento_cancelar' agendamento_destaque.pk %}">{% csrf_token %}<div class="svc-field"><label for="dash-cancelar">Motivo (opcional)</label><input id="dash-cancelar" name="motivo" placeholder="Motivo do cancelamento"></div><button class="svc-btn svc-btn--danger" type="submit" style="margin-top:8px">Cancelar</button></form></div>{% endif %}
+      <div class="svc-detail-item"><small>Enviar mensagem ao cliente</small><form class="svc-form" method="post" enctype="multipart/form-data" action="{% url 'servicos:acompanhamento_mensagem' agendamento_destaque.pk %}">{% csrf_token %}<div class="svc-field"><label for="dash-msg">Mensagem</label><textarea id="dash-msg" name="mensagem" placeholder="Escreva uma mensagem"></textarea></div><div class="svc-field" style="margin-top:8px"><label for="dash-anexo">Anexo (opcional)</label><input id="dash-anexo" type="file" name="anexo"></div><button class="svc-btn svc-btn--light" type="submit" style="margin-top:8px">Enviar mensagem</button></form></div>
+    </div>
+  </section>
+  {% endif %}
+
+  <section class="svc-panel">
+    <div class="svc-panel-head"><div><h2>Notificações recentes</h2><p>Avisos associados a agendamentos.</p></div><div class="svc-actions"><a class="svc-btn svc-btn--light svc-btn--small" href="{% url 'servicos:notificacao_list' %}">Ver notificações</a><a class="svc-btn svc-btn--small" href="{% url 'servicos:notificacao_create' %}">＋ Nova</a></div></div>
+    {% if notificacoes_recentes %}<div class="svc-table-wrap"><table class="svc-table"><thead><tr><th>Título</th><th>Cliente</th><th>Canal</th><th>Data de envio</th><th>Estado</th><th></th></tr></thead><tbody>{% for n in notificacoes_recentes %}<tr><td><strong>{{ n.titulo }}</strong></td><td>{{ n.cliente.nome_completo }}</td><td>{{ n.get_tipo_notificacao_display }}</td><td>{{ n.data_agendada_envio|date:"d/m/Y H:i" }}</td><td>{{ n.get_status_display }}</td><td><div class="svc-inline-actions"><a class="svc-btn svc-btn--light svc-btn--small" href="{% url 'servicos:notificacao_update' n.pk %}">Editar</a><a class="svc-btn svc-btn--danger svc-btn--small" href="{% url 'servicos:notificacao_delete' n.pk %}">Eliminar</a></div></td></tr>{% endfor %}</tbody></table></div>{% else %}<div class="svc-empty"><h3>Ainda não existem notificações</h3><p>Crie notificações e configure os canais de envio.</p><a class="svc-btn" href="{% url 'servicos:notificacao_create' %}">Criar notificação</a></div>{% endif %}
+  </section>
+</div>
+{% endblock %}

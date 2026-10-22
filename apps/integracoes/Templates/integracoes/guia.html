@@ -1,4 +1,7 @@
 {% extends "integracoes/_base.html" %}
+{% block vendor_libs %}
+  {% include 'partials/vendor_select2.html' %}
+{% endblock %}
 {% block title %}Guia de integrações{% endblock %}
 {% block ig_content %}
 <div class="grid lg:grid-cols-4 gap-6">

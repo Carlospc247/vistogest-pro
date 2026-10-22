@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}Administração de Parceiros — SOTARQ{% endblock %}
+{% block content %}
+<section class="mx-auto max-w-7xl space-y-6 p-4 sm:p-6">
+  <div><h1 class="text-2xl font-bold">Rede de Parceiros SOTARQ</h1><p class="mt-1 text-sm text-gray-500">Visão global de clientes, comissões, expirados e alertas.</p></div>
+  <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+    <article class="rounded-xl border bg-white p-5"><p class="text-sm text-gray-500">Parceiros</p><p class="mt-2 text-3xl font-bold">{{ total_parceiros }}</p><p class="text-xs text-gray-500">{{ parceiros_activos }} activos · {{ parceiros_inactivos }} inactivos</p></article>
+    <article class="rounded-xl border bg-white p-5"><p class="text-sm text-gray-500">Tenants associados</p><p class="mt-2 text-3xl font-bold">{{ total_tenants_associados }}</p><p class="text-xs text-gray-500">{{ novos_tenants_mes }} novos este mês</p></article>
+    <article class="rounded-xl border bg-white p-5"><p class="text-sm text-gray-500">Clientes perto do vencimento</p><p class="mt-2 text-3xl font-bold text-amber-600">{{ clientes_a_vencer }}</p></article>
+    <article class="rounded-xl border bg-white p-5"><p class="text-sm text-gray-500">Clientes expirados</p><p class="mt-2 text-3xl font-bold text-red-600">{{ clientes_expirados }}</p></article>
+    <article class="rounded-xl border bg-white p-5"><p class="text-sm text-gray-500">Comissões por confirmar</p><p class="mt-2 text-2xl font-bold">{{ comissao_aguarda_confirmacao|floatformat:2 }} AOA</p></article>
+    <article class="rounded-xl border bg-white p-5"><p class="text-sm text-gray-500">Comissões confirmadas</p><p class="mt-2 text-2xl font-bold text-blue-700">{{ comissao_confirmada|floatformat:2 }} AOA</p></article>
+    <article class="rounded-xl border bg-white p-5"><p class="text-sm text-gray-500">Comissões pagas</p><p class="mt-2 text-2xl font-bold text-emerald-700">{{ comissao_paga|floatformat:2 }} AOA</p></article>
+    <article class="rounded-xl border bg-white p-5"><p class="text-sm text-gray-500">Alertas por tratar</p><p class="mt-2 text-3xl font-bold">{{ eventos_nao_resolvidos }}</p></article>
+  </div>
+  <section class="overflow-x-auto rounded-xl border bg-white"><div class="border-b p-4"><h2 class="font-semibold">Últimos eventos comerciais</h2></div><table class="min-w-full text-sm"><thead class="bg-gray-50 text-left"><tr><th class="p-3">Data</th><th class="p-3">Parceiro</th><th class="p-3">Evento</th><th class="p-3">Cliente</th><th class="p-3">Situação</th><th class="p-3">Detalhes</th></tr></thead><tbody class="divide-y">{% for e in ultimos_eventos_staff %}<tr><td class="p-3">{{ e.created_at|date:"d/m/Y H:i" }}</td><td class="p-3">{{ e.partner.nome }}</td><td class="p-3">{{ e.get_tipo_display }}</td><td class="p-3">{{ e.partner_client.empresa.nome|default:"—" }}</td><td class="p-3">{% if e.resolvido %}Resolvido{% else %}<span class="font-semibold text-red-600">Por tratar</span>{% endif %}</td><td class="p-3">{{ e.descricao }}</td></tr>{% empty %}<tr><td colspan="6" class="p-8 text-center text-gray-500">Sem eventos.</td></tr>{% endfor %}</tbody></table></section>
+</section>
+{% endblock %}

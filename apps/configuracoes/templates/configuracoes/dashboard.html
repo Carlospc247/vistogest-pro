@@ -1,8 +1,470 @@
+{# templates/configuracoes/dashboard.html #}
 {% extends 'base.html' %}
 {% load humanize %}
-{% block title %}{{ title }} - {{ block.super }}{% endblock %}{% block page_title %}{{ title }}{% endblock %}{% block page_subtitle %}<p class="text-sm text-gray-500 dark:text-gray-400">Gestão das informações fiscais, aparência do sistema, suporte e segurança dos dados.</p>
-{% endblock %}{% block content %}<div class="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-3"><a href="{% url 'configuracoes:fiscal_detail' %}" class="rounded-xl border bg-white p-6 shadow-sm transition hover:-translate-y-0.5 dark:border-gray-700 dark:bg-gray-800"><i class="fas fa-landmark text-2xl text-indigo-600"></i><h2 class="mt-4 font-semibold">Dados fiscais</h2><p class="mt-2 text-sm text-gray-500">Razão social, NIF, endereço e contas bancárias.</p><span class="mt-4 inline-block text-sm font-semibold text-indigo-600">Abrir →</span><p class="mt-2 text-xs {% if config_fiscal_exists %}text-emerald-600{% else %}text-amber-600{% endif %}">{% if config_fiscal_exists %}Configurado{% else %}Por configurar{% endif %}</p></a>
-<a href="{% url 'configuracoes:interface' %}" class="rounded-xl border bg-white p-6 shadow-sm transition hover:-translate-y-0.5 dark:border-gray-700 dark:bg-gray-800"><i class="fas fa-palette text-2xl text-purple-600"></i><h2 class="mt-4 font-semibold">Personalização da conta</h2><p class="mt-2 text-sm text-gray-500">Tema, cor primária e logótipo do utilizador.</p><span class="mt-4 inline-block text-sm font-semibold text-indigo-600">Personalizar →</span></a>
-<a href="{% url 'configuracoes:backup_config' %}" class="rounded-xl border bg-white p-6 shadow-sm transition hover:-translate-y-0.5 dark:border-gray-700 dark:bg-gray-800"><i class="fas fa-shield-alt text-2xl text-teal-600"></i><h2 class="mt-4 font-semibold">Backups</h2><p class="mt-2 text-sm text-gray-500">Frequência, horário, retenção e alertas de erro.</p><span class="mt-4 inline-block text-sm font-semibold text-indigo-600">Configurar →</span><p class="mt-2 text-xs {% if config_backup_exists %}text-emerald-600{% else %}text-amber-600{% endif %}">{% if config_backup_exists %}Política definida{% else %}Usará os valores padrão até guardar{% endif %}</p></a>
-<a href="{% url 'configuracoes:backup_historico' %}" class="rounded-xl border bg-white p-6 shadow-sm transition hover:-translate-y-0.5 dark:border-gray-700 dark:bg-gray-800"><i class="fas fa-history text-2xl text-blue-600"></i><h2 class="mt-4 font-semibold">Histórico de backups</h2><p class="mt-2 text-sm text-gray-500">Consultar, descarregar ou restaurar uma cópia autorizada.</p><span class="mt-4 inline-block text-sm font-semibold text-indigo-600">Ver histórico →</span><p class="mt-2 text-xs text-gray-500">{% if ultimo_backup %}Último: {{ ultimo_backup.data_criacao|date:'d/m/Y H:i' }}{% else %}Nenhum backup executado{% endif %}</p></a>
-<a href="{% url 'configuracoes:suporte' %}" class="rounded-xl border bg-white p-6 shadow-sm transition hover:-translate-y-0.5 dark:border-gray-700 dark:bg-gray-800"><i class="fas fa-headset text-2xl text-rose-600"></i><h2 class="mt-4 font-semibold">Ajuda e suporte</h2><p class="mt-2 text-sm text-gray-500">Enviar uma mensagem à equipa de suporte.</p><span class="mt-4 inline-block text-sm font-semibold text-indigo-600">Contactar →</span></a></div>{% endblock %}
+
+{% block title %}{{ title }} - {{ block.super }}{% endblock %}
+
+{% block page_title %}{{ title }}{% endblock %}
+
+{% block page_subtitle %}
+<p class="text-sm text-gray-500 dark:text-gray-400">
+    Gestão das informações fiscais, personalização, suporte,
+    segurança e cópias de segurança dos dados.
+</p>
+{% endblock %}
+
+{% block content %}
+
+<div class="space-y-8">
+
+    {# CABEÇALHO E NAVEGAÇÃO #}
+    <div class="flex flex-col gap-4 sm:flex-row sm:items-center
+                sm:justify-between">
+        <div>
+            <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
+                Visão geral
+            </h2>
+            <p class="text-sm text-gray-500 dark:text-gray-400">
+                Estado actual das configurações da empresa.
+            </p>
+        </div>
+
+        <a href="{% url 'configuracoes:dashboard_configuracoes' %}"
+           class="inline-flex items-center justify-center gap-2 rounded-lg
+                  bg-indigo-600 px-4 py-2 text-sm font-semibold text-white
+                  hover:bg-indigo-700">
+            <i class="fas fa-sync-alt"></i>
+            Actualizar painel
+        </a>
+    </div>
+
+    {# CARTÕES DE ESTADO #}
+    <div class="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-3">
+
+        <div class="rounded-xl border border-gray-200 bg-white p-5
+                    shadow-sm dark:border-gray-700 dark:bg-gray-800">
+            <div class="flex items-center justify-between">
+                <div>
+                    <p class="text-sm text-gray-500 dark:text-gray-400">
+                        Dados fiscais
+                    </p>
+                    <h3 class="mt-2 text-xl font-bold text-gray-900
+                               dark:text-white">
+                        {% if config_fiscal_exists %}
+                            Configurado
+                        {% else %}
+                            Por configurar
+                        {% endif %}
+                    </h3>
+                </div>
+                <div class="rounded-lg bg-indigo-100 p-3
+                            dark:bg-indigo-900/40">
+                    <i class="fas fa-landmark text-xl text-indigo-600
+                              dark:text-indigo-400"></i>
+                </div>
+            </div>
+
+            {% if config_fiscal_exists %}
+                <p class="mt-3 text-sm text-gray-500 dark:text-gray-400">
+                    {{ config_fiscal.razao_social }}
+                </p>
+            {% else %}
+                <p class="mt-3 text-sm text-amber-600">
+                    Ainda não existe uma configuração fiscal.
+                </p>
+            {% endif %}
+        </div>
+
+        <div class="rounded-xl border border-gray-200 bg-white p-5
+                    shadow-sm dark:border-gray-700 dark:bg-gray-800">
+            <div class="flex items-center justify-between">
+                <div>
+                    <p class="text-sm text-gray-500 dark:text-gray-400">
+                        Política de backups
+                    </p>
+                    <h3 class="mt-2 text-xl font-bold text-gray-900
+                               dark:text-white">
+                        {% if config_backup_exists %}
+                            {% if config_backup.backup_automatico %}
+                                Automático activo
+                            {% else %}
+                                Automático inactivo
+                            {% endif %}
+                        {% else %}
+                            Padrão do sistema
+                        {% endif %}
+                    </h3>
+                </div>
+                <div class="rounded-lg bg-teal-100 p-3
+                            dark:bg-teal-900/40">
+                    <i class="fas fa-shield-alt text-xl text-teal-600
+                              dark:text-teal-400"></i>
+                </div>
+            </div>
+
+            <p class="mt-3 text-sm text-gray-500 dark:text-gray-400">
+                {% if config_backup_exists %}
+                    Frequência:
+                    {{ config_backup.get_frequencia_backup_display }}
+                {% else %}
+                    Ainda não foi guardada uma política personalizada.
+                {% endif %}
+            </p>
+        </div>
+
+        <div class="rounded-xl border border-gray-200 bg-white p-5
+                    shadow-sm dark:border-gray-700 dark:bg-gray-800">
+            <div class="flex items-center justify-between">
+                <div>
+                    <p class="text-sm text-gray-500 dark:text-gray-400">
+                        Backups concluídos
+                    </p>
+                    <h3 class="mt-2 text-2xl font-bold text-gray-900
+                               dark:text-white">
+                        {{ total_backups }}
+                    </h3>
+                </div>
+                <div class="rounded-lg bg-blue-100 p-3
+                            dark:bg-blue-900/40">
+                    <i class="fas fa-database text-xl text-blue-600
+                              dark:text-blue-400"></i>
+                </div>
+            </div>
+
+            <p class="mt-3 text-sm text-gray-500 dark:text-gray-400">
+                {% if ultimo_backup %}
+                    Último sucesso:
+                    {{ ultimo_backup.data_criacao|date:"d/m/Y H:i" }}
+                {% else %}
+                    Ainda não existe um backup concluído com sucesso.
+                {% endif %}
+            </p>
+        </div>
+
+    </div>
+
+    {# TODAS AS ROTAS ESTÁTICAS COMO ACÇÕES RÁPIDAS #}
+    <section>
+        <div class="mb-4">
+            <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
+                Acções rápidas
+            </h2>
+            <p class="text-sm text-gray-500 dark:text-gray-400">
+                Acesso directo aos módulos de configuração.
+            </p>
+        </div>
+
+        <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+
+            <a href="{% url 'configuracoes:fiscal_detail' %}"
+               class="group rounded-xl border border-gray-200 bg-white p-5
+                      transition hover:border-indigo-300 hover:shadow-md
+                      dark:border-gray-700 dark:bg-gray-800">
+                <i class="fas fa-file-invoice text-2xl text-indigo-600"></i>
+                <h3 class="mt-3 font-semibold text-gray-900 dark:text-white">
+                    Consultar dados fiscais
+                </h3>
+                <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                    Consultar os dados fiscais registados.
+                </p>
+            </a>
+
+            <a href="{% url 'configuracoes:fiscal_update' %}"
+               class="group rounded-xl border border-gray-200 bg-white p-5
+                      transition hover:border-indigo-300 hover:shadow-md
+                      dark:border-gray-700 dark:bg-gray-800">
+                <i class="fas fa-edit text-2xl text-indigo-600"></i>
+                <h3 class="mt-3 font-semibold text-gray-900 dark:text-white">
+                    Editar dados fiscais
+                </h3>
+                <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                    Actualizar NIF, endereço, regime tributário e contactos.
+                </p>
+            </a>
+
+            <a href="{% url 'configuracoes:dados_bancarios_create' %}"
+               class="group rounded-xl border border-gray-200 bg-white p-5
+                      transition hover:border-indigo-300 hover:shadow-md
+                      dark:border-gray-700 dark:bg-gray-800">
+                <i class="fas fa-university text-2xl text-indigo-600"></i>
+                <h3 class="mt-3 font-semibold text-gray-900 dark:text-white">
+                    Adicionar conta bancária
+                </h3>
+                <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                    Registar dados bancários para a empresa.
+                </p>
+            </a>
+
+            <a href="{% url 'configuracoes:interface' %}"
+               class="group rounded-xl border border-gray-200 bg-white p-5
+                      transition hover:border-purple-300 hover:shadow-md
+                      dark:border-gray-700 dark:bg-gray-800">
+                <i class="fas fa-palette text-2xl text-purple-600"></i>
+                <h3 class="mt-3 font-semibold text-gray-900 dark:text-white">
+                    Personalizar interface
+                </h3>
+                <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                    Gerir tema, cor primária e logótipo.
+                </p>
+            </a>
+
+            <a href="{% url 'configuracoes:suporte' %}"
+               class="group rounded-xl border border-gray-200 bg-white p-5
+                      transition hover:border-rose-300 hover:shadow-md
+                      dark:border-gray-700 dark:bg-gray-800">
+                <i class="fas fa-headset text-2xl text-rose-600"></i>
+                <h3 class="mt-3 font-semibold text-gray-900 dark:text-white">
+                    Ajuda e suporte
+                </h3>
+                <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                    Contactar a equipa de suporte.
+                </p>
+            </a>
+
+            <a href="{% url 'configuracoes:backup_config' %}"
+               class="group rounded-xl border border-gray-200 bg-white p-5
+                      transition hover:border-teal-300 hover:shadow-md
+                      dark:border-gray-700 dark:bg-gray-800">
+                <i class="fas fa-sliders-h text-2xl text-teal-600"></i>
+                <h3 class="mt-3 font-semibold text-gray-900 dark:text-white">
+                    Configurar backups
+                </h3>
+                <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                    Definir frequência, horário, retenção e notificações.
+                </p>
+            </a>
+
+            <a href="{% url 'configuracoes:backup_historico' %}"
+               class="group rounded-xl border border-gray-200 bg-white p-5
+                      transition hover:border-blue-300 hover:shadow-md
+                      dark:border-gray-700 dark:bg-gray-800">
+                <i class="fas fa-history text-2xl text-blue-600"></i>
+                <h3 class="mt-3 font-semibold text-gray-900 dark:text-white">
+                    Histórico de backups
+                </h3>
+                <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                    Consultar o histórico completo de execuções.
+                </p>
+            </a>
+
+            
+            {# Backup manual — executar exclusivamente por POST #}
+            <form method="post"
+                action="{% url 'configuracoes:backup_manual' %}"
+                onsubmit="return confirm('Deseja executar um backup manual agora?');"
+                class="h-full">
+
+                {% csrf_token %}
+
+                <button type="submit"
+                        class="group h-full w-full rounded-xl border
+                            border-gray-200 bg-white p-5 text-left
+                            transition hover:border-amber-300 hover:shadow-md
+                            dark:border-gray-700 dark:bg-gray-800">
+
+                    <i class="fas fa-save text-2xl text-amber-600"></i>
+
+                    <h3 class="mt-3 font-semibold text-gray-900 dark:text-white">
+                        Backup manual
+                    </h3>
+
+                    <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                        Criar uma cópia de segurança dos dados do sistema.
+                    </p>
+
+                    <span class="mt-3 inline-block text-sm font-semibold
+                                text-amber-700 dark:text-amber-400">
+                        Executar backup →
+                    </span>
+
+                </button>
+            </form>
+
+            {% if config_fiscal_exists %}
+            <a href="{% url 'configuracoes:fiscal_delete' %}"
+               class="group rounded-xl border border-red-200 bg-white p-5
+                      transition hover:border-red-400 hover:shadow-md
+                      dark:border-red-900 dark:bg-gray-800">
+                <i class="fas fa-trash-alt text-2xl text-red-600"></i>
+                <h3 class="mt-3 font-semibold text-gray-900 dark:text-white">
+                    Eliminar dados fiscais
+                </h3>
+                <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                    Aceder à operação de eliminação da configuração fiscal.
+                </p>
+            </a>
+            {% endif %}
+
+        </div>
+    </section>
+
+    {# CONTAS BANCÁRIAS: ROTAS QUE PRECISAM DO PK #}
+    <section>
+        <div class="mb-4 flex flex-col gap-3 sm:flex-row
+                    sm:items-center sm:justify-between">
+            <div>
+                <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
+                    Dados bancários
+                </h2>
+                <p class="text-sm text-gray-500 dark:text-gray-400">
+                    {{ total_dados_bancarios }} registo(s) bancário(s).
+                </p>
+            </div>
+
+            <a href="{% url 'configuracoes:dados_bancarios_create' %}"
+               class="inline-flex items-center justify-center gap-2
+                      rounded-lg border border-gray-300 px-4 py-2
+                      text-sm font-medium text-gray-700 hover:bg-gray-50
+                      dark:border-gray-600 dark:text-gray-200
+                      dark:hover:bg-gray-700">
+                <i class="fas fa-plus"></i>
+                Adicionar banco
+            </a>
+        </div>
+
+        <div class="overflow-hidden rounded-xl border border-gray-200
+                    bg-white shadow-sm dark:border-gray-700
+                    dark:bg-gray-800">
+
+            {% for banco in dados_bancarios %}
+            <div class="flex flex-col gap-3 border-b border-gray-100 p-4
+                        last:border-b-0 sm:flex-row sm:items-center
+                        sm:justify-between dark:border-gray-700">
+
+                <div class="min-w-0">
+                    <p class="font-semibold text-gray-900 dark:text-white">
+                        {{ banco.nome_banco }}
+                    </p>
+                    <p class="text-sm text-gray-500 dark:text-gray-400">
+                        Conta: {{ banco.numero_conta }}
+                    </p>
+                    <p class="text-xs text-gray-500 dark:text-gray-400">
+                        IBAN: {{ banco.iban }}
+                    </p>
+                </div>
+
+                <div class="flex flex-wrap gap-2">
+                    <a href="{% url 'configuracoes:dados_bancarios_update' banco.pk %}"
+                       class="rounded-lg bg-indigo-50 px-3 py-2 text-sm
+                              font-medium text-indigo-700 hover:bg-indigo-100
+                              dark:bg-indigo-900/30 dark:text-indigo-300">
+                        <i class="fas fa-edit mr-1"></i> Editar
+                    </a>
+
+                    <a href="{% url 'configuracoes:dados_bancarios_delete' banco.pk %}"
+                       class="rounded-lg bg-red-50 px-3 py-2 text-sm
+                              font-medium text-red-700 hover:bg-red-100
+                              dark:bg-red-900/30 dark:text-red-300">
+                        <i class="fas fa-trash-alt mr-1"></i> Eliminar
+                    </a>
+                </div>
+            </div>
+            {% empty %}
+            <div class="p-8 text-center">
+                <i class="fas fa-university mb-3 text-3xl text-gray-400"></i>
+                <p class="font-medium text-gray-800 dark:text-white">
+                    Nenhum dado bancário registado
+                </p>
+                <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                    Utiliza a acção de adicionar banco para criar o primeiro
+                    registo.
+                </p>
+            </div>
+            {% endfor %}
+
+        </div>
+    </section>
+
+    {# BACKUPS: DOWNLOAD E RESTAURO COM PK #}
+    <section>
+        <div class="mb-4 flex flex-col gap-3 sm:flex-row
+                    sm:items-center sm:justify-between">
+            <div>
+                <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
+                    Backups recentes
+                </h2>
+                <p class="text-sm text-gray-500 dark:text-gray-400">
+                    Acesso às operações disponíveis para cada cópia.
+                </p>
+            </div>
+
+            <a href="{% url 'configuracoes:backup_historico' %}"
+               class="text-sm font-semibold text-indigo-600 hover:text-indigo-800
+                      dark:text-indigo-400">
+                Ver histórico completo →
+            </a>
+        </div>
+
+        <div class="overflow-hidden rounded-xl border border-gray-200
+                    bg-white shadow-sm dark:border-gray-700
+                    dark:bg-gray-800">
+
+            {% for backup in backups %}
+            <div class="flex flex-col gap-4 border-b border-gray-100 p-4
+                        last:border-b-0 sm:flex-row sm:items-center
+                        sm:justify-between dark:border-gray-700">
+
+                <div class="min-w-0">
+                    <p class="font-semibold text-gray-900 dark:text-white">
+                        {{ backup.get_tipo_display }} —
+                        {{ backup.data_criacao|date:"d/m/Y H:i" }}
+                    </p>
+
+                    <p class="mt-1 text-sm
+                        {% if backup.status == 'sucesso' %}
+                            text-emerald-600
+                        {% elif backup.status == 'erro' %}
+                            text-red-600
+                        {% else %}
+                            text-amber-600
+                        {% endif %}">
+                        Estado: {{ backup.get_status_display }}
+                    </p>
+
+                    {% if backup.ficheiro_backup %}
+                    <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                        Ficheiro: {{ backup.nome_ficheiro }}
+                    </p>
+                    {% endif %}
+                </div>
+
+                <div class="flex flex-wrap gap-2">
+                    {% if backup.ficheiro_backup %}
+                    <a href="{% url 'configuracoes:backup_download' backup.pk %}"
+                       class="rounded-lg bg-blue-50 px-3 py-2 text-sm
+                              font-medium text-blue-700 hover:bg-blue-100
+                              dark:bg-blue-900/30 dark:text-blue-300">
+                        <i class="fas fa-download mr-1"></i> Descarregar
+                    </a>
+                    {% endif %}
+
+                    {% if backup.status == 'sucesso' and backup.ficheiro_backup %}
+                    <a href="{% url 'configuracoes:backup_restore' backup.pk %}"
+                       class="rounded-lg bg-amber-50 px-3 py-2 text-sm
+                              font-medium text-amber-800 hover:bg-amber-100
+                              dark:bg-amber-900/30 dark:text-amber-300">
+                        <i class="fas fa-undo mr-1"></i> Restaurar
+                    </a>
+                    {% endif %}
+                </div>
+            </div>
+
+            {% empty %}
+            <div class="p-8 text-center">
+                <i class="fas fa-database mb-3 text-3xl text-gray-400"></i>
+                <p class="font-medium text-gray-800 dark:text-white">
+                    Nenhum backup encontrado
+                </p>
+                <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                    Consulta a configuração de backups ou acede à operação
+                    de backup manual.
+                </p>
+            </div>
+            {% endfor %}
+
+        </div>
+    </section>
+
+</div>
+
+{% endblock %}

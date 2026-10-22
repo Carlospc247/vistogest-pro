@@ -93,6 +93,7 @@ class AgendamentoServico(TimeStampedModel):
     STATUS_CHOICES = [
         ('agendado', 'Agendado'),
         ('em_andamento', 'Em Andamento'),
+        ('pausado', 'Pausado'),
         ('finalizado', 'Finalizado'),
         ('cancelado', 'Cancelado'),
         ('faltou', 'Cliente Faltou'),
@@ -305,4 +306,4 @@ Atenciosamente,
             return [15, 7, 3, 1]  # Padrão
 
 
-
+from .tracking_models import EventoAgendamento

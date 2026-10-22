@@ -1,18 +1,25 @@
 # apps/funcionarios/forms.py
-from decimal import Decimal
-from django import forms
-from django.core.exceptions import ValidationError
-from django.contrib.auth import get_user_model
-from django.db import models
-from .models import Funcionario, Cargo, Departamento, EscalaTrabalho, Ferias, Capacitacao, AvaliacaoDesempenho, JornadaTrabalho, RegistroPonto, Comunicado
 from datetime import date, timedelta
+from decimal import Decimal
+
+from django import forms
+from django.contrib.auth import get_user_model, password_validation
+from django.core.exceptions import ValidationError
+from django.db import models, transaction
+from django.db.models import Q
 from django.utils import timezone
 
+from .models import (
+    Funcionario, Cargo, Departamento, EscalaTrabalho, Ferias, Capacitacao,
+    AvaliacaoDesempenho, JornadaTrabalho, RegistroPonto, Comunicado,
+)
 
 User = get_user_model()
 
 
-
+# ============================================================
+# FUNCIONÁRIO (edição genérica)
+# ============================================================
 
 class FuncionarioForm(forms.ModelForm):
     class Meta:
@@ -39,7 +46,6 @@ class FuncionarioForm(forms.ModelForm):
             raise ValidationError("Data de demissão deve ser posterior à data de admissão.")
         return data_demissao
 
-
     def clean(self):
         cleaned_data = super().clean()
         data_admissao = cleaned_data.get('data_admissao')
@@ -52,9 +58,136 @@ class FuncionarioForm(forms.ModelForm):
 
 
 # ============================================================
-# ADMISSÃO DE CANDIDATOS
+# CRIAÇÃO DE FUNCIONÁRIO COM ACESSO AO SISTEMA
+# ------------------------------------------------------------
+# Usuario vive no schema public (SHARED_APPS) e é comum a todos os
+# tenants: o username/email é único globalmente e a empresa tem de
+# vir SEMPRE do tenant ativo (connection.tenant), nunca do request.user.
 # ============================================================
 
+MSG_EMAIL = "Este email não está disponível para criar acesso."
+
+
+def _email_em_uso(email, excluir_pk=None):
+    qs = User.objects.filter(Q(username__iexact=email) | Q(email__iexact=email))
+    if excluir_pk:
+        qs = qs.exclude(pk=excluir_pk)
+    return qs.exists()
+
+
+def _validar_senhas(form, email=""):
+    p1, p2 = form.cleaned_data.get("password1"), form.cleaned_data.get("password2")
+    if p1 and p2:
+        if p1 != p2:
+            form.add_error("password2", "As senhas não coincidem.")
+        else:
+            try:
+                password_validation.validate_password(p1, User(username=email, email=email))
+            except ValidationError as e:
+                form.add_error("password1", e)
+
+
+def _criar_usuario(funcionario, email, senha, empresa):
+    if empresa is None:
+        raise ValueError("A empresa (tenant) é obrigatória para criar o utilizador.")
+    nome = funcionario.nome_completo.split()
+    user = User(
+        username=email,
+        email=email,
+        first_name=nome[0] if nome else "",
+        last_name=" ".join(nome[1:]),
+        empresa=empresa,
+        is_active=funcionario.ativo,
+    )
+    user.set_password(senha)
+    user.save()
+    return user
+
+
+class FuncionarioCreateForm(forms.ModelForm):
+    password1 = forms.CharField(
+        label="Senha de acesso",
+        widget=forms.PasswordInput(attrs={"autocomplete": "new-password"}),
+        help_text="O funcionário entra no sistema com o email pessoal e esta senha.",
+    )
+    password2 = forms.CharField(
+        label="Confirmar senha",
+        widget=forms.PasswordInput(attrs={"autocomplete": "new-password"}),
+    )
+
+    class Meta:
+        model = Funcionario
+        fields = [
+            'nome_completo', 'bi', 'data_nascimento', 'sexo', 'estado_civil',
+            'endereco', 'numero', 'bairro', 'cidade', 'provincia', 'postal',
+            'telefone', 'whatsapp', 'email_pessoal', 'email_corporativo',
+            'cargo', 'departamento', 'supervisor',
+            'tipo_contrato', 'data_admissao', 'salario_atual',
+            'vale_alimentacao', 'vale_transporte', 'escolaridade',
+        ]
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['email_pessoal'].required = True   # é o login
+        self.fields['cargo'].required = True           # Funcionario.save() exige cargo
+
+    def clean_email_pessoal(self):
+        email = self.cleaned_data['email_pessoal'].strip().lower()
+        if _email_em_uso(email):
+            raise ValidationError(MSG_EMAIL)
+        return email
+
+    def clean(self):
+        cleaned = super().clean()
+        _validar_senhas(self, cleaned.get("email_pessoal", ""))
+        return cleaned
+
+    def save(self, commit=True, empresa=None):
+        with transaction.atomic():
+            func = super().save(commit=False)
+            func.usuario = _criar_usuario(
+                func, self.cleaned_data['email_pessoal'],
+                self.cleaned_data['password1'], empresa,
+            )
+            func.save()
+            self.save_m2m()
+        return func
+
+
+class CriarAcessoForm(forms.Form):
+    """Para funcionários antigos que ainda não têm utilizador."""
+    email = forms.EmailField(label="Email de login")
+    password1 = forms.CharField(label="Nova senha", widget=forms.PasswordInput(attrs={"autocomplete": "new-password"}))
+    password2 = forms.CharField(label="Confirmar senha", widget=forms.PasswordInput(attrs={"autocomplete": "new-password"}))
+
+    def __init__(self, *args, funcionario=None, empresa=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.funcionario, self.empresa = funcionario, empresa
+        if not self.is_bound:
+            self.initial['email'] = funcionario.email_pessoal
+
+    def clean_email(self):
+        email = self.cleaned_data['email'].strip().lower()
+        if _email_em_uso(email):
+            raise ValidationError(MSG_EMAIL)
+        return email
+
+    def clean(self):
+        cleaned = super().clean()
+        _validar_senhas(self, cleaned.get("email", ""))
+        return cleaned
+
+    def save(self):
+        with transaction.atomic():
+            f = self.funcionario
+            f.usuario = _criar_usuario(f, self.cleaned_data['email'], self.cleaned_data['password1'], self.empresa)
+            f.save()
+        return f
+
+
+# ============================================================
+# ADMISSÃO DE CANDIDATOS
+# ============================================================
 
 class AdmissaoCandidatoForm(forms.ModelForm):
     """Recolhe os dados obrigatórios de RH para converter uma candidatura em funcionário."""
@@ -155,8 +288,12 @@ class AdmissaoCandidatoForm(forms.ModelForm):
         return cleaned
 
 
+# ============================================================
+# CARGO
+# ============================================================
+
 # O formulário acompanha automaticamente os campos booleanos pode_* declarados
-# em Cargo, evitando esquecer as permissões novas adicionadas ao modelo.
+# em Cargo (incluindo pode_gerir_senhas), evitando esquecer permissões novas.
 CARGO_BOOLEAN_FIELDS = tuple(
     field.name
     for field in Cargo._meta.fields
@@ -277,7 +414,11 @@ class CargoForm(forms.ModelForm):
             instance.save()
             self.save_m2m()
         return instance
-        
+
+
+# ============================================================
+# ESCALAS, FÉRIAS, CAPACITAÇÃO, AVALIAÇÃO, ETC.
+# ============================================================
 
 class EscalaTrabalhoForm(forms.ModelForm):
     class Meta:
@@ -333,44 +474,45 @@ class CapacitacaoForm(forms.ModelForm):
         }
 
 
+
 class AvaliacaoDesempenhoForm(forms.ModelForm):
+    """O funcionário avaliado vem da URL; avaliador e data são definidos na view."""
+
     class Meta:
         model = AvaliacaoDesempenho
         fields = [
-            'funcionario', 'tipo_avaliacao', 'periodo_inicio', 'periodo_fim', 'data_avaliacao',
-            'avaliador', 'pontualidade', 'assiduidade', 'qualidade_trabalho', 'produtividade',
+            'tipo_avaliacao', 'periodo_inicio', 'periodo_fim',
+            'pontualidade', 'assiduidade', 'qualidade_trabalho', 'produtividade',
             'iniciativa', 'relacionamento_interpessoal', 'conhecimento_tecnico', 'lideranca',
             'pontos_fortes', 'pontos_melhorar', 'metas_objetivos', 'plano_desenvolvimento',
-            'recomenda_promocao', 'recomenda_aumento', 'recomenda_capacitacao', 'observacoes'
+            'recomenda_promocao', 'recomenda_aumento', 'recomenda_capacitacao', 'observacoes',
         ]
         widgets = {
             'periodo_inicio': forms.DateInput(attrs={'type': 'date'}),
             'periodo_fim': forms.DateInput(attrs={'type': 'date'}),
-            'data_avaliacao': forms.DateInput(attrs={'type': 'date'}),
+            'pontos_fortes': forms.Textarea(attrs={'rows': 3}),
+            'pontos_melhorar': forms.Textarea(attrs={'rows': 3}),
+            'metas_objetivos': forms.Textarea(attrs={'rows': 3}),
+            'plano_desenvolvimento': forms.Textarea(attrs={'rows': 3}),
+            'observacoes': forms.Textarea(attrs={'rows': 2}),
         }
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        for nome in ('pontualidade', 'assiduidade', 'qualidade_trabalho', 'produtividade',
+                     'iniciativa', 'relacionamento_interpessoal', 'conhecimento_tecnico', 'lideranca'):
+            self.fields[nome].widget.attrs.update({'min': 1, 'max': 5})
+            self.fields[nome].help_text = 'Nota de 1 a 5'
+
     def clean(self):
-        cleaned_data = super().clean()
-        # Nota geral calculada automaticamente
-        notas = [
-            cleaned_data.get('pontualidade'),
-            cleaned_data.get('assiduidade'),
-            cleaned_data.get('qualidade_trabalho'),
-            cleaned_data.get('produtividade'),
-            cleaned_data.get('iniciativa'),
-            cleaned_data.get('relacionamento_interpessoal'),
-            cleaned_data.get('conhecimento_tecnico')
-        ]
-        lideranca = cleaned_data.get('lideranca')
-        if lideranca:
-            notas.append(lideranca)
-
-        if None not in notas:
-            cleaned_data['nota_geral'] = sum(notas) / len(notas)
-
-        return cleaned_data
+        cleaned = super().clean()
+        ini, fim = cleaned.get('periodo_inicio'), cleaned.get('periodo_fim')
+        if ini and fim and fim < ini:
+            self.add_error('periodo_fim', 'O fim do período deve ser igual ou posterior ao início.')
+        return cleaned
 
 
+     
 class DepartamentoForm(forms.ModelForm):
     class Meta:
         model = Departamento
@@ -379,7 +521,6 @@ class DepartamentoForm(forms.ModelForm):
             'codigo',
             'descricao',
             'responsavel',
-
             'centro_custo',
             'ativo',
         ]
@@ -484,7 +625,7 @@ class JornadaTrabalhoForm(forms.ModelForm):
 class PlanejarFeriasForm(forms.ModelForm):
     class Meta:
         model = Ferias
-        # Selecionamos apenas os campos que o usuário deve preencher ao planejar férias
+        # Apenas os campos que o utilizador deve preencher ao planejar férias
         fields = [
             'funcionario',
             'periodo_aquisitivo_inicio',
@@ -512,22 +653,21 @@ class PlanejarFeriasForm(forms.ModelForm):
         data_fim = cleaned_data.get('data_fim')
         dias_ferias = cleaned_data.get('dias_ferias')
 
-        # Validação básica de datas
         if data_inicio and data_fim and data_inicio > data_fim:
             self.add_error('data_fim', 'A data de fim deve ser maior ou igual à data de início.')
 
-        # Validação de dias de férias
         if dias_ferias and data_inicio and data_fim:
             total_dias = (data_fim - data_inicio).days + 1
             if dias_ferias != total_dias:
                 self.add_error('dias_ferias', f'Os dias de férias ({dias_ferias}) não correspondem ao período informado ({total_dias} dias).')
 
+        return cleaned_data
 
 
 class ComunicadoForm(forms.ModelForm):
     class Meta:
         model = Comunicado
-        fields = ["titulo", "mensagem"] 
+        fields = ["titulo", "mensagem"]
         widgets = {
             "titulo": forms.TextInput(attrs={
                 "class": "form-control",
@@ -543,7 +683,3 @@ class ComunicadoForm(forms.ModelForm):
             "titulo": "Título",
             "mensagem": "Mensagem",
         }
-
-
-
-

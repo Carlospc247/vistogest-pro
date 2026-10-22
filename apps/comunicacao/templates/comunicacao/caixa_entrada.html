@@ -1,0 +1,6 @@
+{% extends 'base.html' %}
+{% block title %}Conversas{% endblock %}
+{% block page_title %}Conversas{% endblock %}
+{% block content %}
+<section class="mx-auto max-w-4xl space-y-4"><div class="flex items-center justify-between"><h1 class="text-xl font-semibold">Conversas</h1><a href="{% url 'clientes:criar_grupo' %}" class="rounded bg-blue-600 px-3 py-2 text-white">Novo grupo de funcionários</a></div><div class="divide-y rounded-xl border bg-white">{% for conversa in conversas %}<a href="{% url 'clientes:conversa' conversa.pk %}" class="block p-4 hover:bg-gray-50"><strong>{{ conversa.titulo|default:conversa.cliente.nome_exibicao|default:conversa.cliente.nome_completo|default:conversa }}</strong><p class="mt-1 text-sm text-gray-500">{{ conversa.updated_at|date:'d/m/Y H:i' }}</p></a>{% empty %}<p class="p-6 text-gray-500">Não existem conversas para esta conta.</p>{% endfor %}</div></section>
+{% endblock %}

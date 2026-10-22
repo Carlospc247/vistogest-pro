@@ -1,4 +1,7 @@
-{% extends 'core/base.html' %}
+{% extends 'base.html' %}
+{% block vendor_libs %}
+  {% include 'partials/vendor_select2.html' %}
+{% endblock %}
 {% load static %}
 
 {% block title %}Configurações Avançadas - vistoGEST{% endblock %}

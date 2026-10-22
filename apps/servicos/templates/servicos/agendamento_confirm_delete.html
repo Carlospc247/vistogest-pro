@@ -1,18 +1,6 @@
-{% extends 'base.html' %}
-{% block title %}Eliminar Agendamento{% endblock %}
+{% extends "base.html" %}
+{% block title %}Eliminar agendamento{% endblock %}
 {% block content %}
-<div class="overflow-hidden rounded-lg bg-white dark:bg-gray-800 shadow-sm">
-    <form method="post">
-        {% csrf_token %}
-        <div class="p-6 text-center">
-            <i class="fas fa-exclamation-triangle text-5xl text-red-400 mb-4"></i>
-            <h3 class="text-lg font-medium">Tem a certeza?</h3>
-            <p class="mt-2 text-sm">Você está prestes a eliminar o agendamento de <strong>"{{ object.servico.nome }}"</strong>.</p>
-        </div>
-        <div class="flex items-center justify-center gap-x-4 px-6 py-4 bg-gray-50 dark:bg-gray-800/50">
-            <a href="{% url 'servicos:agendamento_list' %}" class="rounded-md bg-white px-4 py-2 ...">Cancelar</a>
-            <button type="submit" class="rounded-md bg-red-600 px-4 py-2 ...">Sim, Eliminar</button>
-        </div>
-    </form>
-</div>
+{% include "servicos/_styles.html" %}
+<div class="svc-page" style="max-width:850px"><header class="svc-heading"><div><p class="svc-eyebrow">Serviços · Agenda</p><h1>Eliminar agendamento</h1><p class="svc-subtitle">Esta operação pode ser bloqueada quando existirem notificações ou registos relacionados.</p></div></header><section class="svc-panel"><div class="svc-danger-box"><h2 style="margin:0 0 10px">Confirma a eliminação?</h2><p><strong>Serviço:</strong> {{ object.servico.nome }}</p><p><strong>Cliente:</strong> {{ object.cliente.nome_completo }}</p><p><strong>Data:</strong> {{ object.data_hora|date:"d/m/Y H:i" }}</p><p><strong>Estado:</strong> {{ object.get_status_display }}</p></div><form method="post" style="margin-top:18px">{% csrf_token %}<div class="svc-form-footer"><button class="svc-btn svc-btn--danger" type="submit">Sim, eliminar</button><a class="svc-btn svc-btn--light" href="{% url 'servicos:agendamento_detail' object.pk %}">Voltar aos detalhes</a></div></form></section></div>
 {% endblock %}

@@ -1,19 +1,8 @@
-{% extends 'base.html' %}
-{% block title %}{% if form.instance.pk %}Editar{% else %}Nova{% endif %} Notificação{% endblock %}
-{% block page_title %}{% if form.instance.pk %}Editar{% else %}Nova{% endif %} Notificação{% endblock %}
-
+{% extends "base.html" %}
+{% block title %}{{ titulo|default:"Notificação" }}{% endblock %}
 {% block content %}
-<div class="overflow-hidden rounded-lg bg-white shadow-sm dark:bg-gray-800 p-6">
-    <form method="post">{% csrf_token %}
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {{ form.as_p }}
-        </div>
-        <div class="mt-4">
-            <button type="submit" class="inline-flex items-center rounded-md bg-blue-600 px-4 py-2 text-white hover:bg-blue-500">
-                Salvar
-            </button>
-            <a href="{% url 'notificacoes:notificacao_list' %}" class="ml-2 text-gray-600 hover:underline">Cancelar</a>
-        </div>
-    </form>
+{% include "servicos/_styles.html" %}
+<div class="svc-page" style="max-width:1000px"><header class="svc-heading"><div><p class="svc-eyebrow">Serviços · Comunicação</p><h1>{{ titulo|default:"Notificação de agendamento" }}</h1><p class="svc-subtitle">Defina o agendamento associado, o canal, o conteúdo e a data prevista para envio.</p></div><div class="svc-actions"><a class="svc-btn svc-btn--light" href="{% url 'servicos:notificacao_list' %}">← Voltar às notificações</a></div></header>
+  <section class="svc-panel">{% if form.non_field_errors %}<div class="svc-alert">{{ form.non_field_errors }}</div>{% endif %}<form method="post" class="svc-form">{% csrf_token %}{% for hidden in form.hidden_fields %}{{ hidden }}{% endfor %}{% for field in form.visible_fields %}<div class="svc-field" style="margin-bottom:17px"><label for="{{ field.id_for_label }}">{{ field.label }}{% if field.field.required %} <span style="color:#b91c1c">*</span>{% endif %}</label>{{ field }}{% if field.help_text %}<small class="svc-muted">{{ field.help_text }}</small>{% endif %}{% for error in field.errors %}<small style="color:#b91c1c">{{ error }}</small>{% endfor %}</div>{% endfor %}<div class="svc-form-footer"><button class="svc-btn" type="submit">Guardar notificação</button><a class="svc-btn svc-btn--light" href="{% url 'servicos:notificacao_list' %}">Cancelar</a></div></form></section>
 </div>
 {% endblock %}

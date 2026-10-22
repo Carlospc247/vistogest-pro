@@ -1,4 +1,5 @@
 # apps/fiscal/utility/crypto.py
+"""Serviço de Cofre Mestre para chaves privadas RSA (Padrão AGT)."""
 import base64
 import os
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
@@ -44,4 +45,4 @@ class AESService:
             decryptor = cipher.decryptor()
             return (decryptor.update(ct) + decryptor.finalize()).decode()
         except Exception as e:
-            raise ValueError(f"Falha ao abrir o cofre fiscal (Chave Mestra Inválida ou Corrompida): {e}")
+            raise ValueError(f"Falha ao abrir o cofre fiscal (Chave Mestra Inválida ou Corrompida): {e}") 

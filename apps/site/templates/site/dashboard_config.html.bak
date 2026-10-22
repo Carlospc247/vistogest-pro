@@ -1,0 +1,917 @@
+<!--dashboard_config.html-->
+{% extends "base.html" %}
+{% block title %}Gestão do Site — {{ config.nome_exibicao }}{% endblock %}
+
+{# O base.html já renderiza um page_header ("Dashboard"); aqui usamos o nosso próprio cabeçalho. #}
+{% block page_header %}{% endblock %}
+
+{# ATENÇÃO: o base.html declara "extra_css" (não "extra_head"). #}
+{% block extra_css %}
+<style>
+  [hidden]{ display:none !important; }
+
+  /* =========================================================
+     LAYOUT DA PÁGINA
+     ========================================================= */
+
+  .sb-page{
+    display:flex;
+    flex-direction:column;
+    gap:1.25rem;
+    min-width:0;
+    padding-bottom:2rem;
+  }
+
+  .sb-head{
+    display:flex;
+    flex-wrap:wrap;
+    align-items:center;
+    justify-content:space-between;
+    gap:.75rem;
+  }
+  .sb-title{ margin:0; font-size:1.25rem; line-height:1.3; font-weight:800; color:#111827; }
+  .dark .sb-title{ color:#f3f4f6; }
+  .sb-sub{ margin:.15rem 0 0; font-size:.85rem; color:#6b7280; }
+  .dark .sb-sub{ color:#9ca3af; }
+
+  .sb-row-wrap{ display:flex; flex-wrap:wrap; align-items:center; gap:.5rem; }
+  .sb-muted{ font-size:.75rem; color:#9ca3af; }
+
+  /* =========================================================
+     CARDS
+     ========================================================= */
+
+  .sb-card{
+    border:1px solid #e5e7eb;
+    border-radius:.75rem;
+    background:#fff;
+    min-width:0;
+  }
+  .dark .sb-card{ background:#1f2937; border-color:#374151; color:#e5e7eb; }
+
+  .sb-pad{ padding:1rem; }
+
+  .sb-card-head{
+    display:flex;
+    flex-wrap:wrap;
+    align-items:center;
+    justify-content:space-between;
+    gap:.75rem;
+    padding:1rem 1.25rem;
+    border-bottom:1px solid #e5e7eb;
+  }
+  .dark .sb-card-head{ border-bottom-color:#374151; }
+
+  .sb-card-title{ margin:0; font-size:1rem; font-weight:700; color:#111827; }
+  .dark .sb-card-title{ color:#f3f4f6; }
+
+  .sb-label{
+    display:block;
+    font-size:.7rem;
+    font-weight:700;
+    text-transform:uppercase;
+    letter-spacing:.03em;
+    color:#6b7280;
+    margin-bottom:.25rem;
+  }
+  .dark .sb-label{ color:#9ca3af; }
+
+  /* =========================================================
+     BOTÕES / CAMPOS
+     ========================================================= */
+
+  .sb-btn{
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    gap:.4rem;
+    min-height:2.1rem;
+    padding:.45rem .9rem;
+    border-radius:.5rem;
+    font-size:.8rem;
+    font-weight:600;
+    border:1px solid #d1d5db;
+    color:#374151;
+    background:#fff;
+    cursor:pointer;
+    text-decoration:none;
+    white-space:nowrap;
+    transition:background .15s ease, border-color .15s ease, color .15s ease;
+  }
+  .sb-btn:hover{ background:#f3f4f6; }
+  .sb-btn-primary{ background:#4f46e5; border-color:#4f46e5; color:#fff; }
+  .sb-btn-primary:hover{ background:#4338ca; }
+  .sb-btn-success{ background:#16a34a; border-color:#16a34a; color:#fff; }
+  .sb-btn-success:hover{ background:#15803d; }
+  .sb-btn-warn{ background:#f59e0b; border-color:#f59e0b; color:#fff; }
+  .sb-btn-warn:hover{ background:#d97706; }
+  .sb-btn-block{ width:100%; }
+
+  .dark .sb-btn{ background:#1f2937; color:#e5e7eb; border-color:#4b5563; }
+  .dark .sb-btn:hover{ background:#374151; }
+  .dark .sb-btn-primary{ background:#4f46e5; border-color:#4f46e5; color:#fff; }
+  .dark .sb-btn-success{ background:#16a34a; border-color:#16a34a; color:#fff; }
+  .dark .sb-btn-warn{ background:#f59e0b; border-color:#f59e0b; color:#fff; }
+
+  .sb-icon{
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    min-width:2.1rem;
+    min-height:2.1rem;
+    padding:.4rem;
+    border-radius:.4rem;
+    color:#6b7280;
+    background:transparent;
+    border:0;
+    cursor:pointer;
+  }
+  .sb-icon:hover{ background:#eef2ff; color:#4f46e5; }
+  .sb-icon.danger:hover{ background:#fef2f2; color:#dc2626; }
+  .dark .sb-icon:hover{ background:#374151; }
+
+  .sb-input{
+    display:block;
+    width:100%;
+    border:1px solid #d1d5db;
+    border-radius:.5rem;
+    padding:.5rem .65rem;
+    font-size:.85rem;
+    font-family:inherit;
+    background:#fff;
+    color:#111827;
+  }
+  .sb-input:focus{ outline:none; border-color:#818cf8; box-shadow:0 0 0 3px rgba(99,102,241,.12); }
+  textarea.sb-input{ resize:vertical; }
+  .dark .sb-input{ background:#1f2937; color:#f3f4f6; border-color:#4b5563; }
+
+  .sb-pill{
+    display:inline-block;
+    font-size:.72rem;
+    font-weight:700;
+    padding:.2rem .5rem;
+    border-radius:.35rem;
+  }
+
+  /* =========================================================
+     ENDEREÇO PÚBLICO
+     ========================================================= */
+
+  .sb-addr{ display:flex; flex-wrap:wrap; align-items:center; gap:1rem; }
+  .sb-addr-main{ flex:1 1 260px; min-width:0; }
+  .sb-addr-actions{ display:flex; flex-wrap:wrap; align-items:center; gap:.5rem; }
+  .sb-link{ color:#4f46e5; text-decoration:none; overflow-wrap:anywhere; }
+  .sb-link:hover{ text-decoration:underline; }
+  .sb-url{ font-size:.85rem; font-weight:600; }
+  .sb-inline-form{ display:inline; margin:0; }
+
+  /* =========================================================
+     INDICADORES
+     ========================================================= */
+
+  .sb-stats{
+    display:grid;
+    grid-template-columns:repeat(2,minmax(0,1fr));
+    gap:.75rem;
+  }
+  @media (min-width:768px){ .sb-stats{ grid-template-columns:repeat(3,minmax(0,1fr)); } }
+  @media (min-width:1280px){ .sb-stats{ grid-template-columns:repeat(6,minmax(0,1fr)); } }
+
+  .sb-stat{
+    display:block;
+    padding:1rem;
+    text-decoration:none;
+    color:inherit;
+    transition:box-shadow .15s ease;
+  }
+  .sb-stat:hover{ box-shadow:0 4px 12px rgba(15,23,42,.08); }
+  .sb-stat-top{ display:flex; align-items:center; justify-content:space-between; gap:.5rem; }
+  .sb-stat-top .sb-label{ margin:0; }
+  .sb-stat-val{ margin:.25rem 0 0; font-size:1.5rem; font-weight:800; color:#111827; }
+  .dark .sb-stat-val{ color:#f3f4f6; }
+
+  /* =========================================================
+     ESTRUTURA + SEO
+     ========================================================= */
+
+  .sb-main{
+    display:grid;
+    grid-template-columns:minmax(0,1fr);
+    gap:1.5rem;
+    align-items:start;
+  }
+  @media (min-width:1024px){ .sb-main{ grid-template-columns:minmax(0,2fr) minmax(0,1fr); } }
+
+  .sb-list{ display:flex; flex-direction:column; gap:.5rem; padding:1rem; }
+
+  .sb-item{
+    display:flex;
+    align-items:center;
+    gap:.5rem;
+    padding:.65rem .75rem;
+    border:1px solid #e5e7eb;
+    border-radius:.6rem;
+    background:#fff;
+  }
+  .dark .sb-item{ background:#1f2937; border-color:#374151; }
+  .sb-item.off{ opacity:.6; }
+
+  .drag-handle{ cursor:grab; color:#9ca3af; padding:.35rem; touch-action:none; }
+  .sb-item-main{ flex:1 1 auto; min-width:0; }
+  .sb-item-tipo{
+    font-size:.7rem;
+    font-weight:800;
+    text-transform:uppercase;
+    letter-spacing:.04em;
+    color:#4f46e5;
+  }
+  .sb-item-sub{
+    margin:0;
+    font-size:.85rem;
+    color:#4b5563;
+    overflow:hidden;
+    text-overflow:ellipsis;
+    white-space:nowrap;
+  }
+  .dark .sb-item-sub{ color:#d1d5db; }
+  .sb-item-actions{ display:flex; align-items:center; flex-shrink:0; }
+
+  .sb-empty{ padding:2.5rem 1rem; text-align:center; font-size:.88rem; color:#6b7280; }
+  .sb-empty i{ display:block; margin-bottom:.75rem; font-size:1.9rem; color:#d1d5db; }
+
+  .sb-form-stack{ display:flex; flex-direction:column; gap:1rem; padding:1.25rem; }
+
+  #status-save{
+    margin-left:.5rem;
+    font-size:.72rem;
+    font-weight:700;
+    padding:.12rem .5rem;
+    border-radius:.35rem;
+  }
+
+  .sortable-ghost{ opacity:.4; }
+
+  /* =========================================================
+     MODAIS
+     ========================================================= */
+
+  .sb-modal{
+    display:none;
+    position:fixed;
+    top:0; right:0; bottom:0; left:0;
+    z-index:1050;
+    align-items:center;
+    justify-content:center;
+    padding:1rem;
+    background:rgba(15,23,42,.58);
+    backdrop-filter:blur(3px);
+    -webkit-backdrop-filter:blur(3px);
+  }
+  .sb-modal.open{ display:flex; }
+
+  .sb-modal-panel{
+    display:flex;
+    flex-direction:column;
+    width:100%;
+    max-height:90vh;
+    max-height:90dvh;
+    overflow:hidden;
+    box-shadow:0 25px 60px rgba(15,23,42,.2), 0 8px 20px rgba(15,23,42,.08);
+  }
+  .sb-w-md{ max-width:42rem; }
+  .sb-w-lg{ max-width:48rem; }
+
+  .sb-modal-head{
+    flex-shrink:0;
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:1rem;
+    padding:1rem 1.25rem;
+    border-bottom:1px solid #e5e7eb;
+  }
+  .dark .sb-modal-head{ border-bottom-color:#374151; }
+  .sb-modal-head h3{ margin:0; font-size:1rem; font-weight:700; }
+
+  .sb-modal-body{
+    flex:1 1 auto;
+    min-height:0;
+    overflow-y:auto;
+    padding:1.25rem;
+    -webkit-overflow-scrolling:touch;
+  }
+
+  .sb-modal-foot{
+    flex-shrink:0;
+    display:flex;
+    justify-content:flex-end;
+    gap:.5rem;
+    padding:1rem 1.25rem;
+    border-top:1px solid #e5e7eb;
+  }
+  .dark .sb-modal-foot{ border-top-color:#374151; }
+
+  .sb-blocos{
+    display:grid;
+    grid-template-columns:repeat(2,minmax(0,1fr));
+    gap:.75rem;
+  }
+  @media (min-width:640px){ .sb-blocos{ grid-template-columns:repeat(3,minmax(0,1fr)); } }
+  @media (min-width:768px){ .sb-blocos{ grid-template-columns:repeat(4,minmax(0,1fr)); } }
+
+  .bloco-btn{
+    padding:.85rem .5rem;
+    text-align:center;
+    cursor:pointer;
+    color:inherit;
+    font-family:inherit;
+    transition:box-shadow .15s ease, border-color .15s ease;
+  }
+  .bloco-btn:hover{ box-shadow:0 4px 12px rgba(15,23,42,.08); border-color:#c7d2fe; }
+  .bloco-btn i{ display:block; margin-bottom:.5rem; font-size:1.25rem; color:#4f46e5; }
+  .bloco-btn span{ font-size:.75rem; font-weight:600; }
+
+  .sb-form-grid{
+    display:grid;
+    grid-template-columns:minmax(0,1fr);
+    gap:1rem;
+  }
+  @media (min-width:640px){ .sb-form-grid{ grid-template-columns:repeat(2,minmax(0,1fr)); } }
+  .sb-span2{ grid-column:1 / -1; }
+  .sb-color{ height:2.4rem; padding:.2rem; }
+  .sb-checks{ display:flex; flex-wrap:wrap; gap:.75rem 1.5rem; font-size:.85rem; }
+  .sb-checks label{ display:flex; align-items:center; gap:.5rem; }
+
+  /* =========================================================
+     PAINEL LATERAL (editar bloco)
+     ========================================================= */
+
+  .sb-panel-bg{
+    display:none;
+    position:fixed;
+    top:0; right:0; bottom:0; left:0;
+    z-index:1055;
+    background:rgba(15,23,42,.45);
+  }
+  .sb-panel-bg.open{ display:block; }
+
+  .sb-panel{
+    position:fixed;
+    top:0; right:0;
+    z-index:1060;
+    display:flex;
+    flex-direction:column;
+    width:100%;
+    max-width:28rem;
+    height:100vh;
+    height:100dvh;
+    background:#fff;
+    box-shadow:-10px 0 40px rgba(15,23,42,.25);
+    transform:translateX(100%);
+    visibility:hidden;
+    transition:transform .2s ease, visibility .2s ease;
+  }
+  .dark .sb-panel{ background:#111827; color:#e5e7eb; }
+  .sb-panel.open{ transform:none; visibility:visible; }
+
+  .sb-panel-head{
+    flex-shrink:0;
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:1rem;
+    padding:1rem 1.25rem;
+    background:#111827;
+    color:#fff;
+  }
+  .sb-panel-head h3{ margin:0; font-size:1rem; font-weight:700; overflow-wrap:anywhere; }
+  .sb-panel-head .sb-icon{ color:#fff; }
+  .sb-panel-head .sb-icon:hover{ background:rgba(255,255,255,.12); color:#fff; }
+
+  .sb-panel-form{ flex:1 1 auto; min-height:0; display:flex; flex-direction:column; }
+  #campos{
+    flex:1 1 auto;
+    min-height:0;
+    overflow-y:auto;
+    padding:1.25rem;
+    display:flex;
+    flex-direction:column;
+    gap:1rem;
+    -webkit-overflow-scrolling:touch;
+  }
+  .sb-panel-foot{ flex-shrink:0; padding:1rem; border-top:1px solid #e5e7eb; }
+  .dark .sb-panel-foot{ border-top-color:#374151; }
+  .sb-check-line{ display:flex; align-items:center; gap:.5rem; font-size:.85rem; }
+
+  /* =========================================================
+     TOAST
+     ========================================================= */
+
+  .sb-toast{
+    display:none;
+    position:fixed;
+    bottom:1.25rem;
+    left:50%;
+    transform:translateX(-50%);
+    z-index:1100;
+    max-width:calc(100vw - 2rem);
+    padding:.55rem 1rem;
+    border-radius:.6rem;
+    color:#fff;
+    font-size:.85rem;
+    box-shadow:0 10px 25px rgba(15,23,42,.25);
+  }
+  .sb-toast.on{ display:block; }
+
+  /* =========================================================
+     RESPONSIVO
+     ========================================================= */
+
+  @media (max-width:640px){
+
+    .sb-title{ font-size:1.1rem; }
+
+    .sb-card-head{ padding:.85rem .9rem; }
+    .sb-list{ padding:.75rem; }
+    .sb-item{ padding:.55rem .6rem; }
+
+    /* Modais como "bottom sheet" */
+    .sb-modal{ align-items:flex-end; padding:0; }
+    .sb-modal-panel{
+      max-height:92vh;
+      max-height:92dvh;
+      border-radius:1rem 1rem 0 0;
+      border-bottom:0;
+    }
+    .sb-modal-head{ padding:.85rem .9rem; }
+    .sb-modal-body{ padding:.9rem; }
+    .sb-modal-foot{ padding:.8rem .9rem; }
+    .sb-modal-foot .sb-btn{ flex:1 1 0; min-height:2.4rem; }
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="sb-page">
+
+  <!-- ░░ Cabeçalho ░░ -->
+  <div class="sb-head">
+    <div>
+      <h1 class="sb-title">Gestão do Site</h1>
+      <p class="sb-sub">
+        Presença digital de <strong>{{ empresa_atual.nome|default:config.nome_exibicao }}</strong>
+      </p>
+    </div>
+    <div class="sb-row-wrap">
+      <a href="{{ url_interacoes }}" class="sb-btn">
+        <i class="fas fa-inbox"></i> Interações
+        {% if pendentes_total %}<span style="background:#dc2626;color:#fff;border-radius:999px;padding:0 .45rem;font-size:.7rem">{{ pendentes_total }}</span>{% endif %}
+      </a>
+      <a href="{{ url_editor }}" class="sb-btn"><i class="fas fa-columns"></i> Editor visual</a>
+      <button type="button" class="sb-btn" data-open="modal-design"><i class="fas fa-palette"></i> Design Global</button>
+    </div>
+  </div>
+
+  <!-- ░░ Endereço público + estado ░░ -->
+  <div class="sb-card sb-pad">
+    <div class="sb-addr">
+      <div class="sb-addr-main">
+        <p class="sb-label">Endereço público do site</p>
+        <a id="url-site" href="{{ url_site }}" target="_blank" rel="noopener" class="sb-link sb-url">{{ url_site }}</a>
+        <p class="sb-muted" style="margin:.25rem 0 0">
+          Loja: <a href="{{ url_loja }}" target="_blank" rel="noopener" class="sb-link">{{ url_loja }}</a>
+        </p>
+        {% if pagina.em_rascunho %}
+        <p class="sb-muted" style="margin:.5rem 0 0;color:#b45309">
+          <i class="fas fa-exclamation-triangle"></i>
+          O site está em <strong>rascunho</strong>: o público vê “em construção” até publicares.
+        </p>
+        {% endif %}
+      </div>
+
+      <div class="sb-addr-actions">
+        {% if pagina.em_rascunho %}
+          <span class="sb-pill" style="background:#fef3c7;color:#92400e">Rascunho</span>
+        {% else %}
+          <span class="sb-pill" style="background:#dcfce7;color:#166534">Publicado</span>
+        {% endif %}
+        <button type="button" id="btn-copiar" class="sb-btn"><i class="fas fa-copy"></i> Copiar link</button>
+        <a href="{{ url_preview }}" target="_blank" rel="noopener" class="sb-btn"><i class="fas fa-eye"></i> Preview</a>
+        {% if not pagina.em_rascunho %}
+        <a href="{{ url_site }}" target="_blank" rel="noopener" class="sb-btn"><i class="fas fa-external-link-alt"></i> Ver site</a>
+        {% endif %}
+        <form method="post" action="{% url 'site:publicar' pagina.pk %}" class="sb-inline-form">
+          {% csrf_token %}
+          {% if pagina.em_rascunho %}
+            <button type="submit" class="sb-btn sb-btn-success"><i class="fas fa-rocket"></i> Publicar</button>
+          {% else %}
+            <input type="hidden" name="acao" value="despublicar">
+            <button type="submit" class="sb-btn sb-btn-warn" onclick="return confirm('Voltar a rascunho? O site deixa de ser visível ao público.')">
+              <i class="fas fa-eye-slash"></i> Despublicar
+            </button>
+          {% endif %}
+        </form>
+      </div>
+    </div>
+    {% if ultima_alteracao %}
+    <p class="sb-muted" style="margin:.75rem 0 0">Última alteração há {{ ultima_alteracao|timesince }}</p>
+    {% endif %}
+  </div>
+
+  <!-- ░░ Indicadores ░░ -->
+  <div class="sb-stats">
+    {% for c in cards %}
+    <a href="{{ c.url }}" class="sb-card sb-stat" style="border-left:4px solid {{ c.cor }}">
+      <div class="sb-stat-top">
+        <span class="sb-label">{{ c.rotulo }}</span>
+        <i class="{{ c.icone }}" style="color:{{ c.cor }}"></i>
+      </div>
+      <p class="sb-stat-val">{{ c.valor }}</p>
+    </a>
+    {% endfor %}
+  </div>
+
+  <div class="sb-main">
+
+    <!-- ░░ Estrutura da página ░░ -->
+    <div class="sb-card">
+      <div class="sb-card-head">
+        <h2 class="sb-card-title">
+          Estrutura da Página <span id="status-save" style="display:none"></span>
+        </h2>
+        <button type="button" class="sb-btn sb-btn-primary" data-open="modal-add"><i class="fas fa-plus"></i> Adicionar bloco</button>
+      </div>
+
+      <p id="lista-vazia" class="sb-empty" {% if secoes %}hidden{% endif %}>
+        <i class="fas fa-layer-group"></i>
+        Nenhum bloco ainda. Clica em <strong>Adicionar bloco</strong> para começar.
+      </p>
+
+      <div id="secoes-list" class="sb-list">
+        {% for secao in secoes %}
+        <div class="secao-item sb-item {% if not secao.ativo %}off{% endif %}" data-id="{{ secao.pk }}">
+          <span class="drag-handle" title="Arrastar"><i class="fas fa-grip-vertical"></i></span>
+          <div class="sb-item-main">
+            <span class="sb-item-tipo">{{ secao.get_tipo_display }}</span>
+            <p class="sb-item-sub">
+              Bloco <span class="secao-ordem">{{ forloop.counter }}</span><span class="oculto-tag">{% if not secao.ativo %} · oculto{% endif %}</span>
+            </p>
+          </div>
+          <div class="sb-item-actions">
+            <button type="button" class="sb-icon" data-action="toggle"    title="Mostrar / ocultar"><i class="fas {% if secao.ativo %}fa-eye{% else %}fa-eye-slash{% endif %}"></i></button>
+            <button type="button" class="sb-icon" data-action="editar"    title="Editar conteúdo"><i class="fas fa-pen"></i></button>
+            <button type="button" class="sb-icon" data-action="duplicar"  title="Duplicar"><i class="fas fa-copy"></i></button>
+            <button type="button" class="sb-icon danger" data-action="eliminar" title="Eliminar"><i class="fas fa-trash"></i></button>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+
+    <!-- ░░ SEO ░░ -->
+    <div class="sb-card">
+      <div class="sb-card-head">
+        <h2 class="sb-card-title">Configurações de SEO</h2>
+      </div>
+      <form method="post" action="{% url 'site:seo_pagina' pagina.pk %}" class="sb-form-stack">
+        {% csrf_token %}
+        <div>
+          <label class="sb-label">Título da aba (browser)</label>
+          <input type="text" name="titulo" value="{{ pagina.titulo }}" maxlength="200" class="sb-input" required>
+        </div>
+        <div>
+          <label class="sb-label">Descrição (Google, máx. 160)</label>
+          <textarea name="meta_descricao" rows="3" maxlength="160" class="sb-input">{{ pagina.meta_descricao }}</textarea>
+        </div>
+        <div>
+          <label class="sb-label">URL amigável</label>
+          <input type="text" value="{{ pagina.slug }}" class="sb-input" readonly style="opacity:.7">
+        </div>
+        <button type="submit" class="sb-btn sb-btn-primary sb-btn-block"><i class="fas fa-save"></i> Guardar SEO</button>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- ═════════ Modal: adicionar bloco ═════════ -->
+<div id="modal-add" class="sb-modal" data-modal>
+  <div class="sb-card sb-modal-panel sb-w-lg">
+    <div class="sb-modal-head">
+      <h3>Adicionar bloco</h3>
+      <button type="button" class="sb-icon" data-close aria-label="Fechar"><i class="fas fa-times"></i></button>
+    </div>
+    <div class="sb-modal-body">
+      <div class="sb-blocos">
+        {% for b in blocos %}
+        <button type="button" data-tipo="{{ b.tipo }}" class="bloco-btn sb-card">
+          <i class="fas fa-{{ b.icone }}"></i>
+          <span>{{ b.nome }}</span>
+        </button>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═════════ Modal: design global ═════════ -->
+<div id="modal-design" class="sb-modal" data-modal>
+  <form id="form-design" class="sb-card sb-modal-panel sb-w-md">
+    <div class="sb-modal-head">
+      <h3><i class="fas fa-palette" style="color:#a855f7;margin-right:.5rem"></i>Design Global</h3>
+      <button type="button" class="sb-icon" data-close aria-label="Fechar"><i class="fas fa-times"></i></button>
+    </div>
+    <div class="sb-modal-body">
+      <div class="sb-form-grid">
+        <div>
+          <label class="sb-label">Tema</label>
+          <select name="tema_layout" class="sb-input">
+            <option value="moderno"     {% if config.tema_layout == 'moderno' %}selected{% endif %}>Moderno</option>
+            <option value="classico"    {% if config.tema_layout == 'classico' %}selected{% endif %}>Clássico</option>
+            <option value="minimalista" {% if config.tema_layout == 'minimalista' %}selected{% endif %}>Minimalista</option>
+            <option value="arrojado"    {% if config.tema_layout == 'arrojado' %}selected{% endif %}>Arrojado</option>
+            <option value="escuro"      {% if config.tema_layout == 'escuro' %}selected{% endif %}>Escuro</option>
+          </select>
+        </div>
+        <div>
+          <label class="sb-label">Raio dos cantos</label>
+          <select name="raio_bordas" class="sb-input">
+            <option value="none" {% if config.raio_bordas == 'none' %}selected{% endif %}>Sem raio</option>
+            <option value="sm"   {% if config.raio_bordas == 'sm' %}selected{% endif %}>Pequeno</option>
+            <option value="md"   {% if config.raio_bordas == 'md' %}selected{% endif %}>Médio</option>
+            <option value="lg"   {% if config.raio_bordas == 'lg' %}selected{% endif %}>Grande</option>
+            <option value="full" {% if config.raio_bordas == 'full' %}selected{% endif %}>Redondo</option>
+          </select>
+        </div>
+        <div>
+          <label class="sb-label">Cor primária</label>
+          <input type="color" name="cor_primaria" value="{{ config.cor_primaria }}" class="sb-input sb-color">
+        </div>
+        <div>
+          <label class="sb-label">Cor secundária</label>
+          <input type="color" name="cor_secundaria" value="{{ config.cor_secundaria }}" class="sb-input sb-color">
+        </div>
+        <div>
+          <label class="sb-label">Fonte dos títulos</label>
+          <select name="fonte_titulos" class="sb-input">
+            <option {% if config.fonte_titulos == 'Inter' %}selected{% endif %}>Inter</option>
+            <option {% if config.fonte_titulos == 'Poppins' %}selected{% endif %}>Poppins</option>
+            <option {% if config.fonte_titulos == 'Montserrat' %}selected{% endif %}>Montserrat</option>
+            <option {% if config.fonte_titulos == 'Roboto' %}selected{% endif %}>Roboto</option>
+            <option {% if config.fonte_titulos == 'Playfair Display' %}selected{% endif %}>Playfair Display</option>
+            <option {% if config.fonte_titulos == 'Lato' %}selected{% endif %}>Lato</option>
+            <option {% if config.fonte_titulos == 'Open Sans' %}selected{% endif %}>Open Sans</option>
+          </select>
+        </div>
+        <div>
+          <label class="sb-label">Fonte do corpo</label>
+          <select name="fonte_corpo" class="sb-input">
+            <option {% if config.fonte_corpo == 'Inter' %}selected{% endif %}>Inter</option>
+            <option {% if config.fonte_corpo == 'Roboto' %}selected{% endif %}>Roboto</option>
+            <option {% if config.fonte_corpo == 'Lato' %}selected{% endif %}>Lato</option>
+            <option {% if config.fonte_corpo == 'Open Sans' %}selected{% endif %}>Open Sans</option>
+            <option {% if config.fonte_corpo == 'Nunito' %}selected{% endif %}>Nunito</option>
+          </select>
+        </div>
+        <div>
+          <label class="sb-label">Rodapé — fundo</label>
+          <input type="color" name="rodape_cor" value="{{ config.rodape_cor }}" class="sb-input sb-color">
+        </div>
+        <div>
+          <label class="sb-label">Rodapé — texto</label>
+          <input type="color" name="rodape_texto_cor" value="{{ config.rodape_texto_cor }}" class="sb-input sb-color">
+        </div>
+        <div>
+          <label class="sb-label">Texto botão principal</label>
+          <input type="text" name="texto_botao_primario" value="{{ config.texto_botao_primario }}" maxlength="30" class="sb-input">
+        </div>
+        <div>
+          <label class="sb-label">Texto WhatsApp flutuante</label>
+          <input type="text" name="texto_whatsapp_flutuante" value="{{ config.texto_whatsapp_flutuante }}" maxlength="60" class="sb-input">
+        </div>
+        <div class="sb-span2 sb-checks">
+          <label><input type="checkbox" name="sombras_activas" {% if config.sombras_activas %}checked{% endif %}> Sombras nos cards</label>
+          <label><input type="checkbox" name="animacoes_activas" {% if config.animacoes_activas %}checked{% endif %}> Animações de entrada</label>
+          <label><input type="checkbox" name="header_transparente" {% if config.header_transparente %}checked{% endif %}> Header transparente</label>
+        </div>
+      </div>
+    </div>
+    <div class="sb-modal-foot">
+      <button type="button" class="sb-btn" data-close>Cancelar</button>
+      <button type="submit" class="sb-btn sb-btn-primary"><i class="fas fa-save"></i> Guardar design</button>
+    </div>
+  </form>
+</div>
+
+<!-- ═════════ Painel lateral: editar bloco ═════════ -->
+<div id="panel-bg" class="sb-panel-bg"></div>
+<aside id="panel" class="sb-panel" aria-hidden="true">
+  <div class="sb-panel-head">
+    <h3 id="panel-titulo">Editar bloco</h3>
+    <button type="button" id="panel-fechar" class="sb-icon" aria-label="Fechar"><i class="fas fa-times"></i></button>
+  </div>
+  <form id="form-bloco" class="sb-panel-form">
+    <div id="campos"></div>
+    <div class="sb-panel-foot">
+      <button type="submit" class="sb-btn sb-btn-primary sb-btn-block"><i class="fas fa-save"></i> Aplicar alterações</button>
+    </div>
+  </form>
+</aside>
+
+<div id="toast" class="sb-toast"></div>
+{% endblock %}
+
+{% block extra_js %}
+{# O Sortable tem de vir do block extra_js (antes ficava num block que o base ignorava). #}
+<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
+<script>
+(() => {
+  const CSRF = '{{ csrf_token }}';
+  const URLS = {
+    adicionar: "{% url 'site:adicionar_secao' pagina.pk %}",
+    reordenar: "{% url 'site:reordenar_secoes' %}",
+    dados:     "{% url 'site:get_secao_dados' 0 %}",
+    editar:    "{% url 'site:editar_secao' 0 %}",
+    duplicar:  "{% url 'site:duplicar_secao' 0 %}",
+    eliminar:  "{% url 'site:eliminar_secao' 0 %}",
+    design:    "{% url 'site:design_global' %}",
+  };
+  const u = (base, id) => base.replace('/0/', `/${id}/`);
+  const $  = (s, r = document) => r.querySelector(s);
+  const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+  const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const HEADERS = {'X-CSRFToken': CSRF, 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest'};
+
+  async function api(url, data) {
+    try {
+      const opts = data === undefined
+        ? {headers: HEADERS}
+        : {method: 'POST', headers: HEADERS, body: JSON.stringify(data)};
+      const r = await fetch(url, opts);
+      if (!r.ok) return {ok: false, error: `HTTP ${r.status}`};
+      return await r.json();
+    } catch (e) { return {ok: false, error: e.message}; }
+  }
+
+  function toast(msg, ok = true) {
+    const t = $('#toast');
+    t.textContent = msg;
+    t.style.background = ok ? '#16a34a' : '#dc2626';
+    t.classList.add('on');
+    clearTimeout(toast._t);
+    toast._t = setTimeout(() => t.classList.remove('on'), 2800);
+  }
+
+  function setStatus(msg, cor) {
+    const b = $('#status-save');
+    b.style.display = msg ? 'inline-block' : 'none';
+    b.textContent = msg;
+    b.style.background = {warn: '#fef3c7', ok: '#dcfce7', err: '#fee2e2'}[cor] || '';
+    b.style.color = {warn: '#92400e', ok: '#166534', err: '#991b1b'}[cor] || '';
+    if (cor === 'ok') setTimeout(() => setStatus(''), 2000);
+  }
+
+  /* ── modais ── */
+  const openModal   = id => $('#' + id).classList.add('open');
+  const closeModals = () => $$('[data-modal]').forEach(m => m.classList.remove('open'));
+  $$('[data-open]').forEach(b => b.addEventListener('click', () => openModal(b.dataset.open)));
+  $$('[data-close]').forEach(b => b.addEventListener('click', closeModals));
+  $$('[data-modal]').forEach(m => m.addEventListener('mousedown', e => { if (e.target === m) closeModals(); }));
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') { closeModals(); fecharPainel(); }
+  });
+
+  /* ── copiar link ── */
+  $('#btn-copiar').addEventListener('click', async () => {
+    try { await navigator.clipboard.writeText($('#url-site').href); toast('Link copiado!'); }
+    catch { toast('Não foi possível copiar', false); }
+  });
+
+  /* ── adicionar bloco ── */
+  $$('.bloco-btn').forEach(b => b.addEventListener('click', async () => {
+    const r = await api(URLS.adicionar, {tipo: b.dataset.tipo});
+    if (r.ok) location.reload(); else toast(r.error || 'Erro ao adicionar', false);
+  }));
+
+  /* ── arrastar & soltar ── */
+  const lista = $('#secoes-list');
+  const renumerar = () => $$('.secao-ordem', lista).forEach((el, i) => el.textContent = i + 1);
+
+  if (window.Sortable) {
+    Sortable.create(lista, {
+      animation: 150, handle: '.drag-handle', ghostClass: 'sortable-ghost',
+      onEnd: async () => {
+        const ordem = $$('.secao-item', lista).map((el, i) => ({id: +el.dataset.id, ordem: i + 1}));
+        setStatus('A guardar…', 'warn');
+        const r = await api(URLS.reordenar, {ordem});
+        if (r.ok) { renumerar(); setStatus('Ordem guardada', 'ok'); } else setStatus('Erro ao guardar', 'err');
+      },
+    });
+  } else {
+    // Se a CDN falhar, o resto da página continua a funcionar (só o arrastar fica indisponível).
+    console.warn('SortableJS não carregou: reordenação por arrastar indisponível.');
+  }
+
+  /* ── acções por bloco ── */
+  lista.addEventListener('click', async e => {
+    const btn = e.target.closest('[data-action]'); if (!btn) return;
+    const item = btn.closest('.secao-item'); const id = item.dataset.id;
+    const acao = btn.dataset.action;
+
+    if (acao === 'editar') return abrirEditor(id);
+
+    if (acao === 'toggle') {
+      const r = await api(u(URLS.editar, id), {toggle_ativo: true});
+      if (!r.ok) return toast('Erro', false);
+      item.classList.toggle('off', !r.ativo);
+      $('i', btn).className = 'fas ' + (r.ativo ? 'fa-eye' : 'fa-eye-slash');
+      $('.oculto-tag', item).textContent = r.ativo ? '' : ' · oculto';
+    }
+    if (acao === 'duplicar') {
+      const r = await api(u(URLS.duplicar, id), {});
+      if (r.ok) location.reload(); else toast('Erro ao duplicar', false);
+    }
+    if (acao === 'eliminar') {
+      if (!confirm('Eliminar este bloco?')) return;
+      const r = await api(u(URLS.eliminar, id), {});
+      if (!r.ok) return toast('Erro ao eliminar', false);
+      item.remove(); renumerar();
+      if (!$$('.secao-item', lista).length) $('#lista-vazia').hidden = false;
+      toast('Bloco eliminado');
+    }
+  });
+
+  /* ── painel lateral (editor de conteúdo) ── */
+  let atual = null;
+  const painel = $('#panel'), fundo = $('#panel-bg');
+
+  function abrirPainel() {
+    fundo.classList.add('open');
+    painel.classList.add('open');
+    painel.setAttribute('aria-hidden', 'false');
+  }
+  function fecharPainel() {
+    fundo.classList.remove('open');
+    painel.classList.remove('open');
+    painel.setAttribute('aria-hidden', 'true');
+  }
+  fundo.addEventListener('click', fecharPainel);
+  $('#panel-fechar').addEventListener('click', fecharPainel);
+
+  const rotulo = k => k.replaceAll('_', ' ');
+
+  function campoHtml(k, v) {
+    const lbl = `<label class="sb-label">${esc(rotulo(k))}</label>`;
+    if (typeof v === 'boolean')
+      return `<label class="sb-check-line"><input type="checkbox" data-key="${esc(k)}" data-kind="bool" ${v ? 'checked' : ''}> ${esc(rotulo(k))}</label>`;
+    if (typeof v === 'number')
+      return `<div>${lbl}<input type="number" class="sb-input" data-key="${esc(k)}" data-kind="number" value="${esc(v)}"></div>`;
+    if (v !== null && typeof v === 'object')
+      return `<div>${lbl}<textarea rows="8" class="sb-input" data-key="${esc(k)}" data-kind="json" style="font-family:monospace">${esc(JSON.stringify(v, null, 2))}</textarea>
+              <p class="sb-muted" style="margin:.25rem 0 0">Lista/objeto em formato JSON</p></div>`;
+    const s = String(v ?? '');
+    if (s.length > 70 || /[<\n]/.test(s))
+      return `<div>${lbl}<textarea rows="5" class="sb-input" data-key="${esc(k)}" data-kind="text">${esc(s)}</textarea></div>`;
+    return `<div>${lbl}<input type="text" class="sb-input" data-key="${esc(k)}" data-kind="text" value="${esc(s)}"></div>`;
+  }
+
+  async function abrirEditor(id) {
+    const r = await api(u(URLS.dados, id));
+    if (r.status !== 'success') return toast('Não foi possível carregar o bloco', false);
+    atual = {id, tipo: r.tipo};
+    $('#panel-titulo').textContent = 'Editar — ' + r.tipo;
+    const entradas = Object.entries(r.dados || {});
+    $('#campos').innerHTML = entradas.length
+      ? entradas.map(([k, v]) => campoHtml(k, v)).join('')
+      : '<p class="sb-muted" style="font-size:.85rem">Este bloco ainda não tem campos editáveis.</p>';
+    abrirPainel();
+  }
+
+  $('#form-bloco').addEventListener('submit', async e => {
+    e.preventDefault(); if (!atual) return;
+    const dados = {}; let erro = '';
+    $$('[data-key]', e.target).forEach(el => {
+      const k = el.dataset.key, kind = el.dataset.kind;
+      if (kind === 'bool') dados[k] = el.checked;
+      else if (kind === 'number') dados[k] = el.value === '' ? '' : Number(el.value);
+      else if (kind === 'json') { try { dados[k] = JSON.parse(el.value || 'null'); } catch { erro = `Campo “${rotulo(k)}”: JSON inválido`; } }
+      else dados[k] = el.value;
+    });
+    if (erro) return toast(erro, false);
+    const r = await api(u(URLS.editar, atual.id), {dados});
+    if (r.ok) { toast('Bloco guardado'); fecharPainel(); } else toast(r.error || 'Erro ao guardar', false);
+  });
+
+  /* ── design global ── */
+  $('#form-design').addEventListener('submit', async e => {
+    e.preventDefault();
+    const data = {};
+    $$('input, select', e.target).forEach(el => {
+      if (!el.name) return;
+      data[el.name] = el.type === 'checkbox' ? el.checked : el.value;
+    });
+    const r = await api(URLS.design, data);
+    if (r.ok) { toast('Design guardado'); closeModals(); } else toast('Erro ao guardar design', false);
+  });
+})();
+</script>
+{% endblock %}

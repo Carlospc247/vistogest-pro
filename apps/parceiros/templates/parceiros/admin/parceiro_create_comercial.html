@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block title %}Criar parceiro{% endblock %}
+{% block content %}
+<section class="mx-auto max-w-3xl p-4 sm:p-6"><h1 class="mb-5 text-2xl font-bold">Criar parceiro comercial</h1>
+<form method="post" class="grid gap-4 rounded-xl border bg-white p-5 sm:grid-cols-2">{% csrf_token %}
+<label class="block sm:col-span-2"><span class="mb-1 block text-sm font-medium">Nome completo / empresa *</span><input required name="nome" maxlength="200" class="w-full rounded-lg border p-2"></label>
+<label class="block"><span class="mb-1 block text-sm font-medium">Tipo</span><select name="tipo" class="w-full rounded-lg border p-2"><option value="empresa">Empresa</option><option value="pessoa_singular">Pessoa singular</option></select></label>
+<label class="block"><span class="mb-1 block text-sm font-medium">NIF</span><input name="nif" maxlength="20" class="w-full rounded-lg border p-2"></label>
+<label class="block"><span class="mb-1 block text-sm font-medium">Email *</span><input required type="email" name="email" maxlength="254" class="w-full rounded-lg border p-2"></label>
+<label class="block"><span class="mb-1 block text-sm font-medium">Telefone</span><input name="telefone" maxlength="20" class="w-full rounded-lg border p-2"></label>
+<label class="block"><span class="mb-1 block text-sm font-medium">Username *</span><input required name="username" maxlength="150" class="w-full rounded-lg border p-2"></label>
+<label class="block"><span class="mb-1 block text-sm font-medium">Morada</span><input name="endereco" class="w-full rounded-lg border p-2"></label>
+<label class="block"><span class="mb-1 block text-sm font-medium">Password temporária *</span><input required type="password" name="password" autocomplete="new-password" class="w-full rounded-lg border p-2"></label>
+<label class="block"><span class="mb-1 block text-sm font-medium">Confirmar password *</span><input required type="password" name="confirmar_password" autocomplete="new-password" class="w-full rounded-lg border p-2"></label>
+<label class="block sm:col-span-2"><span class="mb-1 block text-sm font-medium">Observações internas</span><textarea name="observacoes" rows="3" class="w-full rounded-lg border p-2"></textarea></label>
+<p class="text-sm text-gray-600 sm:col-span-2">Os parceiros não pagam uma subscrição de acesso e não têm limite de clientes. A inactividade comercial é verificada automaticamente.</p>
+<div class="sm:col-span-2"><button type="submit" class="rounded-lg bg-blue-600 px-5 py-2 font-semibold text-white">Criar parceiro</button></div>
+</form></section>
+{% endblock %}

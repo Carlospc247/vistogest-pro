@@ -1,0 +1,55 @@
+{# financeiro/formas_pagamento.html #}
+{% extends "financeiro/base_financeiro.html" %}
+{% block title %}Formas de pagamento{% endblock %}
+{% block breadcrumb %}Formas de pagamento{% endblock %}
+{% block content %}
+<style>
+  .fp-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:1rem;margin-top:1rem}
+  .fp-card{border:1px solid #e5e7eb;border-radius:12px;padding:1rem 1.1rem;background:#fff;display:flex;flex-direction:column;gap:.6rem}
+  .fp-card.is-on{border-color:#16a34a;box-shadow:0 0 0 1px #16a34a22}
+  .fp-card.is-off{opacity:.85}
+  .fp-top{display:flex;justify-content:space-between;align-items:center;gap:.5rem}
+  .fp-top h3{margin:0;font-size:1.05rem}
+  .fp-badge{font-size:.75rem;font-weight:600;padding:.15rem .6rem;border-radius:999px}
+  .fp-badge.on{background:#dcfce7;color:#166534}
+  .fp-badge.off{background:#f3f4f6;color:#6b7280}
+  .fp-meta{font-size:.8rem;color:#6b7280;margin:0}
+</style>
+
+<header class="page-head">
+  <div>
+    <h1>Formas de pagamento</h1>
+    <p>Escolha as formas que a sua empresa aceita. As <strong>ativas</strong> ficam disponíveis nas vendas; as <strong>inativas</strong> ficam indisponíveis.</p>
+  </div>
+  <div class="actions">
+    <span class="fp-badge {% if total_ativas %}on{% else %}off{% endif %}">{{ total_ativas }} de {{ total }} ativas</span>
+  </div>
+</header>
+
+<div class="fp-grid">
+  {% for f in formas %}
+  <article class="fp-card {% if f.ativa %}is-on{% else %}is-off{% endif %}">
+    <div class="fp-top">
+      <h3>{{ f.rotulo }}</h3>
+      <span class="fp-badge {% if f.ativa %}on{% else %}off{% endif %}">{% if f.ativa %}Ativa{% else %}Inativa{% endif %}</span>
+    </div>
+    <p class="fp-meta">
+      {% if f.ativa %}Disponível para vendas e recebimentos.{% else %}Indisponível para a empresa.{% endif %}
+    </p>
+    <form method="post" action="{% url 'financeiro:forma_pagamento_alternar' f.tipo %}">
+      {% csrf_token %}
+      {% if f.ativa %}
+        <input type="hidden" name="acao" value="desativar">
+        <button type="submit" class="btn secondary"
+                onclick="return confirm('Desativar «{{ f.rotulo }}»? Deixa de estar disponível para novas vendas.');">
+          <i class="fas fa-toggle-on"></i> Desativar
+        </button>
+      {% else %}
+        <input type="hidden" name="acao" value="ativar">
+        <button type="submit" class="btn"><i class="fas fa-toggle-off"></i> Ativar</button>
+      {% endif %}
+    </form>
+  </article>
+  {% endfor %}
+</div>
+{% endblock %}

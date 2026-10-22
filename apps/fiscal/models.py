@@ -1,5 +1,5 @@
 # apps/fiscal/models.py
-from django.db import models
+from django.db import connection, models
 from decimal import Decimal
 from apps.core.models import TimeStampedModel
 from apps.core.choices import TIPO_RETENCAO_CHOICES
@@ -16,7 +16,6 @@ from decimal import Decimal
 from datetime import datetime
 from apps.core.models import TimeStampedModel
 from apps.clientes.models import Cliente
-#from apps.fiscal.services.utils import gerar_numero_documento
 from apps.produtos.models import Produto
 from django.contrib.postgres.fields import JSONField
 import base64
@@ -38,6 +37,26 @@ from decimal import Decimal
 logger = logging.getLogger(__name__)
 
 
+def _validar_empresa_no_schema(empresa):
+    """Impede que um registo fiscal de tenant aponte para outra empresa/schema."""
+    schema_actual = getattr(connection, "schema_name", "public")
+    if schema_actual == "public":
+        raise ValidationError("Documentos fiscais só podem ser criados no schema de um tenant.")
+    if empresa is None:
+        raise ValidationError({"empresa": "A empresa do tenant actual é obrigatória."})
+    schema_empresa = getattr(empresa, "schema_name", None)
+    if not schema_empresa:
+        raise ValidationError({"empresa": "A empresa seleccionada não identifica um schema de tenant válido."})
+    if schema_empresa != schema_actual:
+        raise ValidationError({
+            "empresa": (
+                f"A empresa seleccionada pertence ao schema '{schema_empresa}', "
+                f"mas a operação está a decorrer no schema '{schema_actual}'."
+            )
+        })
+
+
+
 
 class AuditLog(models.Model):
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True)
@@ -45,6 +64,7 @@ class AuditLog(models.Model):
     empresa_id = models.IntegerField()
     timestamp = models.DateTimeField(auto_now_add=True)
     ip_address = models.GenericIPAddressField()
+
 
 
 class TaxaIVAAGT(TimeStampedModel):
@@ -65,6 +85,7 @@ class TaxaIVAAGT(TimeStampedModel):
         ('IVA', 'Imposto sobre o Valor Acrescentado (IVA)'),
         ('IS', 'Isenção'),
         ('NS', 'Não Sujeição'),
+        ('IEC', 'Imposto Especial de Consumo (IEC)'),
     ]
     
     TAX_CODE_CHOICES = [
@@ -237,7 +258,7 @@ class ContadorDocumento(models.Model):
         verbose_name_plural = 'Contadores de Documentos'
 
     def __str__(self):
-        return f"{self.empresa.nome} - {self.tipo_documento} {self.serie}/{self.ano}: {self.ultimo_numero}"
+        return f"{self.tipo_documento} {self.serie}/{self.ano}: {self.ultimo_numero}"
 
 
 
@@ -402,6 +423,7 @@ class SerieFiscalAGT(TimeStampedModel):
                 )
 
 
+
 class AssinaturaDigital(TimeStampedModel):
     """
     Configuração da assinatura digital do CONTRIBUINTE (a empresa deste
@@ -540,6 +562,10 @@ class AssinaturaDigital(TimeStampedModel):
         return f"Assinatura Fiscal do Contribuinte{nif} ({status})"
 
 
+
+
+
+
 class RetencaoFonte(TimeStampedModel):
     """
     Registo das Retenções na Fonte efetuadas pela empresa (pagador).
@@ -598,13 +624,15 @@ class RetencaoFonte(TimeStampedModel):
         ordering = ['-data_retencao']
 
     def save(self, *args, **kwargs):
-        # 🚨 Lógica de Negócio Obrigatória: Cálculo do valor retido
-        if self.valor_base and self.taxa_retencao:
-            self.valor_retido = self.valor_base * (self.taxa_retencao / Decimal('100.00'))
-        
-        # 🚨 Hook Contábil: Deve ser gerado um LançamentoFinanceiro aqui (ex: Débito em Passivo (Impostos a Pagar), Crédito em ContaPagar)
-        self.gerar_lancamento_contabil() 
-        
+        # Calcular sempre, inclusive para taxa 0%, e arredondar à precisão monetária.
+        if self.valor_base is not None and self.taxa_retencao is not None:
+            self.valor_retido = (
+                self.valor_base * self.taxa_retencao / Decimal("100.00")
+            ).quantize(Decimal("0.01"))
+
+        # Não chamar `gerar_lancamento_contabil`: esse método não existe neste modelo.
+        # A contabilização deve ser feita por um serviço explícito de Financeiro,
+        # na mesma transação do fluxo que regista a retenção.
         super().save(*args, **kwargs)
         
     def __str__(self):
@@ -1120,8 +1148,13 @@ class DocumentoFiscal(TimeStampedModel):
         """
         super().clean()
 
+        # As linhas/documentos são tenant-local; a FK Empresa aponta para o
+        # registo global em public e tem de corresponder ao schema activo.
+        if self.empresa_id:
+            _validar_empresa_no_schema(self.empresa)
+
         # Validar datas
-        if self.data_vencimento and self.data_vencimento < self.data_emissao:
+        if self.data_vencimento and self.data_emissao and self.data_vencimento < self.data_emissao:
             raise ValidationError({
                 'data_vencimento': 'Data de vencimento não pode ser anterior à data de emissão.'
             })
@@ -1157,31 +1190,47 @@ class DocumentoFiscal(TimeStampedModel):
 
     def save(self, *args, _skip_immutability_check=False, **kwargs):
         """
-        Pipeline de persistência fiscal SOTARQ.
-        Ordem: Validação de imutabilidade → Numeração → ATCUD → Assinatura.
+        Pipeline de persistência fiscal.
 
-        O parâmetro _skip_immutability_check=True é reservado exclusivamente
-        para os métodos internos de transição de estado (emitir, cancelar, etc.)
-        que precisam de actualizar apenas campos operacionais de forma legítima.
-        NUNCA usar externamente.
+        Em novos documentos, a empresa/cliente e os campos gerados (número,
+        ATCUD e período) são preparados ANTES de full_clean(), pois esses
+        campos são obrigatórios no modelo mas são atribuídos pelo servidor.
+        _skip_immutability_check continua reservado às transições internas.
         """
-        # Executar validações de imutabilidade (excepto quando chamado internamente)
+        is_new = self._state.adding
+
+        # Não permitir gravações fiscais no public nem associação cruzada entre tenants.
+        _validar_empresa_no_schema(self.empresa if self.empresa_id else None)
+
+        if is_new:
+            if not self.data_emissao:
+                self.data_emissao = timezone.now().date()
+            if not self.cliente_id and not (self.cliente_nome or "").strip():
+                # O modelo permite documento sem FK Cliente (venda a consumidor final).
+                self.cliente_nome = "Consumidor final"
+
+        # Copiar os dados do cliente para o snapshot antes da validação.
+        self._atualizar_campos_calculados()
+
+        if is_new:
+            if not self.numero or not self.numero_documento:
+                self._gerar_numero_documento()
+            if not self.atcud:
+                self._gerar_atcud()
+            if not self.periodo_tributacao:
+                self._definir_periodo_tributacao()
+
+        # Agora os campos geridos pelo servidor já estão preenchidos.
         if not _skip_immutability_check:
             self.full_clean()
 
-        # 1. Fase de Inserção (Novo Registo)
-        if not self.pk:
-            self._gerar_numero_documento()
-            self._gerar_atcud()
-            self._definir_periodo_tributacao()
-
-        # 2. Fase de Confirmação (Criptografia)
+        # Hash/assinatura antes de persistir uma transição legítima para confirmed.
         if self.status == 'confirmed' and not self.hash_documento:
             doc_anterior = DocumentoFiscal.objects.filter(
                 tipo_documento=self.tipo_documento,
                 serie=self.serie,
                 numero__lt=self.numero,
-                status='confirmed'
+                status='confirmed',
             ).order_by('-numero').first()
 
             if doc_anterior:
@@ -1190,42 +1239,75 @@ class DocumentoFiscal(TimeStampedModel):
             self._gerar_hash_documento()
             self._aplicar_assinatura_digital()
 
-        # Atualizar campos calculados (dados do cliente, se vinculado)
-        self._atualizar_campos_calculados()
-
         super().save(*args, **kwargs)
 
-        # Atualizar hash da cadeia após salvar
+        # Actualizar hash da cadeia após salvar.
         if self.status == 'confirmed':
             self._atualizar_cadeia_integridade()
 
     def _gerar_numero_documento(self):
-        """
-        Integração com o motor de sequencialidade centralizado do Core.
-        Garante conformidade com a estrutura de dicionário retornada pelo service.
-        """
-        
-        # Só gera se o número ainda não tiver sido atribuído (evita re-geração no save)
-        if not self.numero:
-            from apps.fiscal.services.utils import gerar_numero_documento
+        """Obtém um número do motor central e valida o formato devolvido."""
+        if self.numero and self.numero_documento:
+            return
+        if not self.empresa_id:
+            raise ValidationError({"empresa": "Associe o documento à empresa do tenant antes de numerar."})
 
+        from apps.fiscal.services.utils import gerar_numero_documento
+
+        try:
             dados = gerar_numero_documento(
                 empresa=self.empresa,
                 tipo_documento=self.tipo_documento,
-                serie=self.serie
+                serie=self.serie,
             )
-            
-            # Mapeamento rigoroso conforme o retorno do service unificado
-            self.numero = dados['sequencial']
-            self.numero_documento = dados['formatado']
+        except Exception as exc:
+            raise ValidationError({
+                "numero_documento": f"O motor de numeração falhou: {exc}"
+            }) from exc
+
+        if not isinstance(dados, dict):
+            raise ValidationError({"numero_documento": "O motor de numeração devolveu um resultado inválido."})
+
+        # Compatibilidade com as chaves mais usadas pelo motor e pelos serviços antigos.
+        numero = (
+            dados.get("sequencial") or dados.get("numero")
+            or dados.get("numero_sequencial") or dados.get("ultimo_numero")
+        )
+        formatado = (
+            dados.get("formatado") or dados.get("numero_documento")
+            or dados.get("numero_completo") or dados.get("numero_formatado")
+        )
+        if numero is None and formatado:
+            # Extrai o último componente numérico quando o motor fornece só o número formatado.
+            import re
+            match = re.search(r"(\d+)\s*$", str(formatado))
+            if match:
+                numero = match.group(1)
+        if not formatado and numero is not None:
+            formatado = f"{self.tipo_documento} {self.serie}/{numero}"
+
+        try:
+            self.numero = int(numero)
+        except (TypeError, ValueError) as exc:
+            raise ValidationError({
+                "numero_documento": "O motor de numeração não devolveu um número sequencial válido."
+            }) from exc
+        self.numero_documento = str(formatado or "").strip()
+        if not self.numero_documento:
+            raise ValidationError({"numero_documento": "O motor de numeração devolveu um número vazio."})
 
     def _gerar_atcud(self):
         """Gera ATCUD conforme especificação AGT."""
         from django.utils import timezone
         
-        # Formato: EMPRESA_SERIE_NUMERO_TIMESTAMP
+        # O NIF vem do registo global da empresa do tenant activo.
+        if not self.empresa_id:
+            raise ValidationError({"empresa": "A empresa é obrigatória para gerar o ATCUD."})
+        nif = (getattr(self.empresa, "nif", "") or "").strip()
+        if not nif:
+            raise ValidationError({"empresa": "Configure o NIF da empresa antes de gerar o ATCUD."})
         timestamp = int(timezone.now().timestamp())
-        self.atcud = f"{self.empresa.nif}_{self.tipo_documento}_{self.serie}_{self.numero}_{timestamp}"
+        self.atcud = f"{nif}_{self.tipo_documento}_{self.serie}_{self.numero}_{timestamp}"
 
     def _definir_periodo_tributacao(self):
         """Define período de tributação para SAF-T."""
@@ -1279,14 +1361,24 @@ class DocumentoFiscal(TimeStampedModel):
             logger.warning(f"Não foi possível assinar digitalmente o documento {self.numero_documento}: {e}")
 
     def _atualizar_campos_calculados(self):
-        """Atualiza campos calculados automaticamente."""
-        # Atualizar dados do cliente se vinculado
-        if self.cliente:
-            self.cliente_nome = self.cliente.nome_exibicao
-            self.cliente_nif = self.cliente.nif or ''
-            self.cliente_endereco = str(self.cliente.endereco) if hasattr(self.cliente, 'endereco') else ''
-            self.cliente_email = self.cliente.email or ''
-            self.cliente_telefone = self.cliente.telefone or ''
+        """Actualiza os snapshots do cliente usando os campos disponíveis."""
+        if not self.cliente:
+            return
+
+        cliente = self.cliente
+        nome = (
+            getattr(cliente, "nome_exibicao", None)
+            or getattr(cliente, "nome_completo", None)
+            or getattr(cliente, "razao_social", None)
+            or getattr(cliente, "nome", None)
+            or str(cliente)
+        )
+        self.cliente_nome = str(nome)[:200]
+        self.cliente_nif = getattr(cliente, "nif", "") or ""
+        endereco = getattr(cliente, "endereco", "")
+        self.cliente_endereco = str(endereco or "")
+        self.cliente_email = getattr(cliente, "email", "") or ""
+        self.cliente_telefone = getattr(cliente, "telefone", "") or ""
 
     def _atualizar_cadeia_integridade(self):
         """
@@ -1583,6 +1675,8 @@ def _registar_auditoria_documento(
     )
 
 
+
+
 class DocumentoFiscalLinha(TimeStampedModel):
     """
     Linhas/itens de um documento fiscal.
@@ -1652,7 +1746,7 @@ class DocumentoFiscalLinha(TimeStampedModel):
         max_digits=12,
         decimal_places=2,
         verbose_name="Valor Líquido",
-        help_text="Quantidade × Preço - Desconto",
+        help_text="Quantidade x Preço - Desconto",
         editable=False
     )
     
@@ -1681,6 +1775,28 @@ class DocumentoFiscalLinha(TimeStampedModel):
     observacoes_linha = models.TextField(
         blank=True,
         verbose_name="Observações da Linha"
+    )
+
+    # operationType é usado pelo payload AGT por linha e também existe em ItemVenda.
+    operation_type = models.CharField(
+        max_length=3,
+        choices=[
+            ('SE', 'SE — Serviços em território nacional'),
+            ('SS', 'SS — Serviços no estrangeiro'),
+            ('STP', 'STP — Telecomunicações/via electrónica'),
+            ('SR', 'SR — Serviços relacionados com imóveis'),
+            ('SIF', 'SIF — Intermediação financeira'),
+            ('SHS', 'SHS — Hotelaria e similares'),
+            ('ST', 'ST — Transporte'),
+            ('SG', 'SG — Serviços em geral'),
+            ('TB', 'TB — Transmissão de bens'),
+            ('AS', 'AS — Aquisição de serviços'),
+            ('QT', 'QT — Outras operações tributáveis'),
+            ('RD', 'RD — Regularizações e devoluções'),
+        ],
+        default='TB',
+        verbose_name="Tipo de Operação (operationType)",
+        help_text="Tipo de operação por linha no payload fiscal/AGT.",
     )
 
     class Meta:
@@ -1730,30 +1846,39 @@ class DocumentoFiscalLinha(TimeStampedModel):
         self._atualizar_totais_documento()
 
     def _atualizar_totais_documento(self):
-        """Atualiza os totais do documento pai."""
-        from django.db.models import Sum
-        
+        """Recalcula cabeçalho a partir das linhas persistidas.
+
+        ``valor_base`` é a base bruta antes dos descontos. ``valor_desconto``
+        é deduzido uma única vez, e ``valor_total`` soma os totais líquidos das
+        linhas. Esta convenção coincide com DocumentoFiscal.clean().
+        """
+        from django.db.models import Sum, F, ExpressionWrapper, DecimalField
+
         documento = self.documento
-        
-        # Somar todas as linhas
+        # Usa os valores a 2 casas já persistidos por linha, para manter a
+        # identidade exacta: base bruta + IVA - desconto = total.
+        base_bruta = ExpressionWrapper(
+            F('valor_liquido') + F('valor_desconto_linha'),
+            output_field=DecimalField(max_digits=24, decimal_places=2),
+        )
         totais = documento.linhas.aggregate(
-            total_base=Sum('valor_liquido'),
+            total_base=Sum(base_bruta),
             total_iva=Sum('valor_iva_linha'),
             total_desconto=Sum('valor_desconto_linha'),
-            total_geral=Sum('valor_total_linha')
+            total_geral=Sum('valor_total_linha'),
         )
-        
-        documento.valor_base = totais['total_base'] or Decimal('0.00')
-        documento.valor_iva = totais['total_iva'] or Decimal('0.00')
-        documento.valor_desconto = totais['total_desconto'] or Decimal('0.00')
-        documento.valor_total = totais['total_geral'] or Decimal('0.00')
-        
-        # Salvar sem triggerar signals para evitar loop
+
+        documento.valor_base = (totais['total_base'] or Decimal('0.00')).quantize(Decimal('0.01'))
+        documento.valor_iva = (totais['total_iva'] or Decimal('0.00')).quantize(Decimal('0.01'))
+        documento.valor_desconto = (totais['total_desconto'] or Decimal('0.00')).quantize(Decimal('0.01'))
+        documento.valor_total = (totais['total_geral'] or Decimal('0.00')).quantize(Decimal('0.01'))
+
+        # QuerySet.update evita recursão no save de DocumentoFiscal.
         DocumentoFiscal.objects.filter(pk=documento.pk).update(
             valor_base=documento.valor_base,
             valor_iva=documento.valor_iva,
             valor_desconto=documento.valor_desconto,
-            valor_total=documento.valor_total
+            valor_total=documento.valor_total,
         )
 
     def __str__(self):
@@ -1857,6 +1982,10 @@ class SAFTExport(TimeStampedModel):
             models.Index(fields=['hash_arquivo']),
         ]
 
+    def save(self, *args, **kwargs):
+        _validar_empresa_no_schema(self.empresa if self.empresa_id else None)
+        return super().save(*args, **kwargs)
+
     def __str__(self):
         return f"SAFT {self.periodo_tributacao} - {self.empresa.nome} ({self.status})"
 
@@ -1883,3 +2012,9 @@ class SAFTExport(TimeStampedModel):
             self.log_geracao += f"{timezone.now().isoformat()} - {log_texto}\n"
             self.status = 'falhou'
             self.save(update_fields=['log_geracao', 'status', 'updated_at'])
+
+
+
+# Catálogos legais por tenant: Tabelas 1, 2 e 3 do Decreto Executivo n.º 683/25.
+from .models_referencia import CAE, ImpostoSelo, ImpostoEspecialConsumo  # noqa: F401
+

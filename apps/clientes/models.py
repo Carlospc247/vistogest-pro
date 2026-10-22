@@ -14,6 +14,13 @@ from django.core.exceptions import ValidationError
 from django.db.models import Sum
 from django.db import models, transaction
 from cloudinary.models import CloudinaryField
+import hashlib
+from django.conf import settings
+from django.db import models
+from django.utils import timezone
+from django.core.exceptions import ValidationError
+from apps.core.models import TimeStampedModel
+
 
 
 
@@ -643,3 +650,113 @@ class ProgramaFidelidade(models.Model):
     def __str__(self):
         return f"{self.cliente.nome_exibicao} - {self.pontos} pontos"
 
+##########################
+# Models de Contratos
+##########################
+"""Tenant-local customer contract models. Add app to TENANT_APPS before migrating."""
+
+class ModeloContrato(TimeStampedModel):
+    nome = models.CharField(max_length=160)
+    cliente_vip = models.BooleanField(default=False, db_index=True)
+    conteudo = models.TextField(help_text="Template Django; variáveis disponíveis incluem cliente, empresa e data_emissao.")
+    ativo = models.BooleanField(default=True)
+    atualizado_por = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="modelos_contrato_editados")
+
+    class Meta:
+        ordering = ["cliente_vip", "nome"]
+        constraints = [models.UniqueConstraint(fields=["cliente_vip"], name="uniq_modelo_contrato_vip")]
+
+    def __str__(self):
+        return f"{self.nome}{' (VIP)' if self.cliente_vip else ''}"
+
+
+class ContratoCliente(TimeStampedModel):
+    STATUS_CHOICES = [
+        ("rascunho", "Rascunho"),
+        ("enviado", "Pendente de resposta"),
+        ("lido", "Lido pelo cliente"),
+        ("assinado", "Aceite/assinado"),
+        ("rejeitado", "Rejeitado"),
+        ("correcao_solicitada", "Correção solicitada"),
+        ("cancelado", "Cancelado"),
+    ]
+
+    cliente = models.ForeignKey("clientes.Cliente", on_delete=models.PROTECT, related_name="contratos")
+    modelo = models.ForeignKey(ModeloContrato, null=True, blank=True, on_delete=models.SET_NULL, related_name="contratos_emitidos")
+    contrato_anterior = models.ForeignKey("self", null=True, blank=True, on_delete=models.SET_NULL, related_name="revisoes")
+    versao = models.PositiveIntegerField(default=1)
+    conteudo_snapshot = models.TextField(help_text="Cópia imutável do conteúdo no momento do envio.")
+    hash_documento = models.CharField(max_length=64, db_index=True, blank=True)
+    status = models.CharField(max_length=24, choices=STATUS_CHOICES, default="rascunho", db_index=True)
+    enviado_por = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="contratos_enviados")
+    enviado_em = models.DateTimeField(null=True, blank=True)
+    lido_em = models.DateTimeField(null=True, blank=True)
+    respondido_em = models.DateTimeField(null=True, blank=True)
+    aceite_em = models.DateTimeField(null=True, blank=True)
+    aceite_ip = models.GenericIPAddressField(null=True, blank=True)
+    aceite_user_agent = models.CharField(max_length=512, blank=True)
+    hash_aceite = models.CharField(max_length=64, blank=True)
+    comentario_cliente = models.TextField(blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [models.Index(fields=["status", "created_at"]), models.Index(fields=["cliente", "status"])]
+
+    def save(self, *args, **kwargs):
+        # After a contract has been sent, freeze its content. Corrections are new rows.
+        if self.pk:
+            anterior = type(self).objects.filter(pk=self.pk).only(
+                "conteudo_snapshot", "enviado_em"
+            ).first()
+            if anterior and anterior.enviado_em and anterior.conteudo_snapshot != self.conteudo_snapshot:
+                raise ValidationError(
+                    "O conteúdo de um contrato enviado é imutável; crie uma nova versão."
+                )
+        if self.conteudo_snapshot:
+            self.hash_documento = hashlib.sha256(self.conteudo_snapshot.encode("utf-8")).hexdigest()
+        super().save(*args, **kwargs)
+
+    def registar_aceite(self, *, ip, user_agent):
+        """Store auditable electronic acceptance. This is not a qualified PKI signature."""
+        instante = timezone.now()
+        payload = f"{self.hash_documento}|{self.cliente_id}|{instante.isoformat()}|aceite"
+        self.status = "assinado"
+        self.respondido_em = instante
+        self.aceite_em = instante
+        self.aceite_ip = ip
+        self.aceite_user_agent = (user_agent or "")[:512]
+        self.hash_aceite = hashlib.sha256(payload.encode("utf-8")).hexdigest()
+        self.save(update_fields=["status", "respondido_em", "aceite_em", "aceite_ip", "aceite_user_agent", "hash_aceite", "updated_at"])
+
+    def __str__(self):
+        return f"Contrato #{self.pk} — {self.cliente} — {self.get_status_display()}"
+
+
+class EventoContrato(TimeStampedModel):
+    TIPO_CHOICES = [
+        ("criado", "Criado"),
+        ("enviado", "Enviado"),
+        ("lido", "Lido"),
+        ("assinado", "Aceite registado"),
+        ("rejeitado", "Rejeitado"),
+        ("correcao", "Correção solicitada"),
+        ("resposta_empresa", "Resposta da empresa"),
+        ("nova_versao", "Nova versão emitida"),
+    ]
+    contrato = models.ForeignKey(ContratoCliente, on_delete=models.CASCADE, related_name="eventos")
+    tipo = models.CharField(max_length=24, choices=TIPO_CHOICES, db_index=True)
+    descricao = models.TextField(blank=True)
+    autor_usuario = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="eventos_contrato_criados")
+    autor_cliente_site = models.ForeignKey("site.ClienteSite", null=True, blank=True, on_delete=models.SET_NULL, related_name="eventos_contrato_criados")
+    ip = models.GenericIPAddressField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["created_at", "pk"]
+        indexes = [models.Index(fields=["contrato", "created_at"])]
+
+    def __str__(self):
+        return f"{self.get_tipo_display()} — contrato {self.contrato_id}"
+
+#######################
+# Fim modelo Contrato
+#######################

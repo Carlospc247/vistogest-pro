@@ -1,18 +1,42 @@
+{# funcionarios/perfil.html #}
 {% extends "funcionarios/_rh_base.html" %}
 {% block title %}Perfil — {{ funcionario.nome_completo }}{% endblock %}
 {% block rh_content %}
 <div class="max-w-3xl mx-auto rh-card text-sm">
   <div class="flex items-center gap-4 mb-4">
     {% if funcionario.foto %}<img src="{{ funcionario.foto.url }}" class="w-20 h-20 rounded-full object-cover" alt="">{% endif %}
-    <div><h1 class="text-2xl font-bold">{{ funcionario.nome_completo }}</h1>
-      <p class="rh-muted">{{ funcionario.cargo.nome|default:"—" }} • {{ funcionario.departamento.nome }}</p><p class="rh-muted">{{ funcionario.matricula }}</p></div>
+    <div>
+      <h1 class="text-2xl font-bold">{{ funcionario.nome_completo }}</h1>
+      <p class="rh-muted">{{ funcionario.cargo.nome|default:"—" }} • {{ funcionario.departamento.nome }}</p>
+      <p class="rh-muted">{{ funcionario.matricula }}</p>
+    </div>
   </div>
+
   <div class="grid md:grid-cols-2 gap-4">
     <div><h2 class="font-semibold mb-1">Contactos</h2><p>{{ funcionario.telefone|default:"—" }}</p><p>{{ funcionario.email_corporativo|default:funcionario.email_pessoal|default:"—" }}</p></div>
     <div><h2 class="font-semibold mb-1">Morada</h2><p>{{ funcionario.endereco_completo }}</p></div>
     <div><h2 class="font-semibold mb-1">Admissão</h2><p>{{ funcionario.data_admissao|date:"d/m/Y" }}</p></div>
     <div><h2 class="font-semibold mb-1">Supervisor</h2><p>{{ funcionario.supervisor.nome_completo|default:"—" }}</p></div>
   </div>
-  <div class="mt-5 flex gap-2"><a class="rh-btn" href="{% url 'funcionarios:foto' pk=funcionario.pk %}">Alterar foto</a><a class="rh-btn" href="{% url 'funcionarios:detail' pk=funcionario.pk %}">Ficha completa</a></div>
+
+  <div class="mt-5 pt-4 border-t border-gray-100">
+    <h2 class="font-semibold mb-1">Acesso ao sistema</h2>
+    {% if funcionario.usuario %}
+      <p>Login: <strong>{{ funcionario.usuario.username }}</strong>
+        {% if not funcionario.usuario.is_active %}<span class="text-red-600">(conta desativada)</span>{% endif %}</p>
+    {% else %}
+      <p class="rh-muted">Este funcionário ainda não tem acesso ao sistema.</p>
+    {% endif %}
+    {% if pode_gerir_senha %}
+      <a class="rh-btn mt-2 inline-block" href="{% url 'funcionarios:senha' pk=funcionario.pk %}">
+        {% if not funcionario.usuario %}Criar acesso{% elif proprio_perfil %}Alterar a minha senha{% else %}Redefinir senha{% endif %}
+      </a>
+    {% endif %}
+  </div>
+
+  <div class="mt-5 flex gap-2">
+    <a class="rh-btn" href="{% url 'funcionarios:foto' pk=funcionario.pk %}">Alterar foto</a>
+    <a class="rh-btn" href="{% url 'funcionarios:detail' pk=funcionario.pk %}">Ficha completa</a>
+  </div>
 </div>
 {% endblock %}

@@ -1,49 +1,20 @@
-{% extends 'base.html' %}
-{% load humanize %}
-
-{% block title %}{{ title }}{% endblock %}
-{% block page_title %}{{ title }}{% endblock %}
-{% block page_subtitle %}<p class="mt-1 text-sm text-gray-500 dark:text-gray-400">Status atual: {{ agendamento.get_status_display }}</p>{% endblock %}
-
-{% block page_actions %}
-<div class="flex items-center space-x-2" x-data="{ openModal: false }">
-    <a href="{% url 'servicos:agendamento_list' %}" class="inline-flex items-center ... rounded-md bg-white ...">&larr; Voltar</a>
-    
-    {% if agendamento.status == 'agendado' %}
-    <form action="{% url 'servicos:servico_iniciar' agendamento.pk %}" method="post">
-        {% csrf_token %}
-        <button type="submit" class="inline-flex items-center ... rounded-md bg-green-600 ...">
-            <i class="fas fa-play-circle ..."></i> Iniciar Serviço
-        </button>
-    </form>
-    {% elif agendamento.status == 'em_andamento' %}
-    <button @click="openModal = true" type="button" class="inline-flex items-center ... rounded-md bg-blue-600 ...">
-        <i class="fas fa-check-circle ..."></i> Finalizar Serviço
-    </button>
-    {% endif %}
-
-    <div x-show="openModal" x-cloak class="fixed inset-0 z-50 ... bg-gray-900/75 backdrop-blur-sm">
-        <div @click.away="openModal = false" x-show="openModal" x-transition class="relative ... max-w-2xl bg-white dark:bg-gray-800 rounded-lg shadow-xl">
-             <div class="flex items-center justify-between p-4 border-b dark:border-gray-700">
-                <h3 class="text-lg font-semibold">Finalizar Serviço</h3>
-                <button @click="openModal = false">&times;</button>
-             </div>
-             <form action="{% url 'servicos:servico_finalizar' agendamento.pk %}" method="post">
-                {% csrf_token %}
-                <div class="p-6 space-y-4">
-                    {% for field in finalizar_form %}
-                        <div>
-                            <label for="{{ field.id_for_label }}" class="block text-sm ...">{{ field.label }}</label>
-                            <div class="mt-1">{{ field }}</div>
-                        </div>
-                    {% endfor %}
-                </div>
-                <div class="flex justify-end p-4 bg-gray-50 dark:bg-gray-800/50">
-                    <button @click="openModal = false" type="button" class="bg-white ...">Cancelar</button>
-                    <button type="submit" class="ml-3 bg-blue-600 text-white ...">Confirmar Finalização</button>
-                </div>
-             </form>
-        </div>
-    </div>
+{% extends "base.html" %}
+{% block title %}Agendamento #{{ agendamento.pk }}{% endblock %}
+{% block content %}
+{% include "servicos/_styles.html" %}
+<div class="svc-page">
+  <header class="svc-heading"><div><p class="svc-eyebrow">Serviços · Ficha de atendimento</p><h1>{{ agendamento.servico.nome }}</h1><p class="svc-subtitle">Agendamento #{{ agendamento.pk }} · {{ agendamento.cliente.nome_completo }}</p></div><div class="svc-actions"><a class="svc-btn svc-btn--light" href="{% url 'servicos:agendamento_list' %}">← Agenda</a><a class="svc-btn svc-btn--light" href="{% url 'servicos:agendamento_update' agendamento.pk %}">Editar</a><a class="svc-btn" href="{% url 'servicos:acompanhamento_agendamento' agendamento.pk %}">Abrir acompanhamento</a></div></header>
+  <section class="svc-metrics" style="grid-template-columns:repeat(4,minmax(0,1fr))"><article class="svc-metric"><span class="svc-metric-label">Estado</span><div style="margin-top:8px"><span class="svc-chip {% if agendamento.status == 'finalizado' %}svc-chip--ok{% elif agendamento.status == 'cancelado' %}svc-chip--red{% else %}svc-chip--blue{% endif %}">{{ agendamento.get_status_display }}</span></div></article><article class="svc-metric"><span class="svc-metric-label">Data e hora</span><div class="svc-metric-value" style="font-size:1.35rem">{{ agendamento.data_hora|date:"d/m/Y" }}</div><span class="svc-metric-note">{{ agendamento.data_hora|date:"H:i" }}</span></article><article class="svc-metric"><span class="svc-metric-label">Valor cobrado</span><div class="svc-metric-value" style="font-size:1.35rem">{{ agendamento.valor_cobrado|floatformat:2 }}</div><span class="svc-metric-note">Kz</span></article><article class="svc-metric"><span class="svc-metric-label">Funcionário</span><div style="font-size:1rem;font-weight:800;margin-top:8px">{% if agendamento.funcionario %}{{ agendamento.funcionario.nome_completo }}{% else %}Por atribuir{% endif %}</div></article></section>
+  <div class="svc-two-col"><section class="svc-panel"><div class="svc-panel-head"><div><h2>Dados do agendamento</h2><p>Informações registadas na marcação.</p></div></div><div class="svc-detail-grid"><div class="svc-detail-item"><small>Cliente</small><div>{{ agendamento.cliente.nome_completo }}</div></div><div class="svc-detail-item"><small>Contacto</small><div>{{ agendamento.cliente.email|default:"Email não registado" }}<br>{{ agendamento.cliente.telefone|default:"Telefone não registado" }}</div></div><div class="svc-detail-item"><small>Serviço</small><div>{{ agendamento.servico.nome }} · {{ agendamento.servico.categoria }}</div></div><div class="svc-detail-item"><small>Duração padrão</small><div>{% if agendamento.servico.duracao_servico_padrao %}{{ agendamento.servico.duracao_servico_padrao }}{% else %}{{ agendamento.servico.duracao_padrao_minutos|default:"—" }} min{% endif %}</div></div><div class="svc-detail-item"><small>Início real</small><div>{{ agendamento.data_inicio_real|date:"d/m/Y H:i"|default:"Ainda não iniciado" }}</div></div><div class="svc-detail-item"><small>Fim real</small><div>{{ agendamento.data_fim_real|date:"d/m/Y H:i"|default:"Ainda não finalizado" }}</div></div><div class="svc-detail-item" style="grid-column:1/-1"><small>Observações</small><div>{{ agendamento.observacoes|default:"Sem observações."|linebreaksbr }}</div></div>{% if agendamento.resultado %}<div class="svc-detail-item" style="grid-column:1/-1"><small>Resultado do serviço</small><div>{{ agendamento.resultado|linebreaksbr }}</div></div>{% endif %}</div></section>
+    <aside>
+      <section class="svc-panel"><div class="svc-panel-head"><div><h2>Acções operacionais</h2><p>As operações são validadas pelo estado actual.</p></div></div>
+        {% if agendamento.status == 'agendado' %}<form method="post" action="{% url 'servicos:servico_iniciar' agendamento.pk %}">{% csrf_token %}<button class="svc-btn" type="submit">▶ Iniciar serviço</button></form>{% endif %}
+        {% if agendamento.status == 'em_andamento' or agendamento.status == 'pausado' %}<form method="post" action="{% url 'servicos:servico_finalizar' agendamento.pk %}" class="svc-form" style="margin-top:16px">{% csrf_token %}<div class="svc-field"><label for="resultado_servico">Resultado do serviço</label><textarea id="resultado_servico" name="resultado_servico" required></textarea></div><div class="svc-field" style="margin-top:10px"><label for="recomendacoes">Recomendações</label><textarea id="recomendacoes" name="recomendacoes"></textarea></div><button class="svc-btn" type="submit" style="margin-top:10px">Finalizar serviço</button></form>{% endif %}
+        {% if agendamento.status != 'finalizado' and agendamento.status != 'cancelado' and agendamento.status != 'faltou' %}<form method="post" action="{% url 'servicos:acompanhamento_cancelar' agendamento.pk %}" style="margin-top:16px">{% csrf_token %}<div class="svc-field"><label for="motivo-cancel">Motivo do cancelamento</label><input id="motivo-cancel" name="motivo" placeholder="Motivo (opcional)"></div><button class="svc-btn svc-btn--danger" type="submit" style="margin-top:9px">Cancelar agendamento</button></form>{% endif %}
+        <div class="svc-form-footer"><a class="svc-btn svc-btn--light" href="{% url 'servicos:acompanhamento_agendamento' agendamento.pk %}">Timeline</a><a class="svc-btn svc-btn--light" href="{% url 'servicos:agendamento_delete' agendamento.pk %}">Eliminar</a></div>
+      </section>
+      <section class="svc-panel"><div class="svc-panel-head"><div><h2>Enviar mensagem</h2><p>Mensagem ou anexo para o cliente.</p></div></div><form class="svc-form" method="post" enctype="multipart/form-data" action="{% url 'servicos:acompanhamento_mensagem' agendamento.pk %}">{% csrf_token %}<div class="svc-field"><label for="mensagem">Mensagem</label><textarea id="mensagem" name="mensagem" placeholder="Escreva uma mensagem"></textarea></div><div class="svc-field" style="margin-top:10px"><label for="anexo">Anexo (opcional)</label><input id="anexo" type="file" name="anexo"></div><button class="svc-btn svc-btn--light" type="submit" style="margin-top:10px">Enviar mensagem</button></form></section>
+    </aside>
+  </div>
 </div>
 {% endblock %}

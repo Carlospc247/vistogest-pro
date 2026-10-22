@@ -1,25 +1,16 @@
-{% extends 'base.html' %}
-
-{% block title %}{{ title|default:"Formulário de Serviço" }}{% endblock %}
-{% block page_title %}{{ title|default:"Formulário de Serviço" }}{% endblock %}
-
+{% extends "base.html" %}
+{% block title %}{% if object %}Editar serviço{% else %}Novo serviço{% endif %}{% endblock %}
 {% block content %}
-<div class="overflow-hidden rounded-lg bg-white dark:bg-gray-800 shadow-sm">
-    <form method="post">
-        {% csrf_token %}
-        <div class="p-6 space-y-6">
-            {% for field in form %}
-                <div>
-                    <label for="{{ field.id_for_label }}" class="block text-sm font-medium leading-6 text-gray-900 dark:text-gray-200 mb-1">{{ field.label }}</label>
-                    {{ field }}
-                    {% for error in field.errors %}<p class="mt-2 text-sm text-red-500">{{ error }}</p>{% endfor %}
-                </div>
-            {% endfor %}
-        </div>
-        <div class="flex items-center justify-end gap-x-4 border-t border-gray-200 dark:border-gray-700 px-6 py-4 bg-gray-50 dark:bg-gray-800/50">
-            <a href="{% url 'servicos:servico_list' %}" class="text-sm font-semibold text-gray-900 dark:text-white">Cancelar</a>
-            <button type="submit" class="rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-500">Salvar Serviço</button>
-        </div>
+{% include "servicos/_styles.html" %}
+<div class="svc-page">
+  <header class="svc-heading"><div><p class="svc-eyebrow">Serviços · Catálogo</p><h1>{% if object %}Editar serviço{% else %}Criar serviço{% endif %}</h1><p class="svc-subtitle">Defina a informação do serviço, preço, duração, desconto, IVA e instruções de execução.</p></div><div class="svc-actions"><a class="svc-btn svc-btn--light" href="{% url 'servicos:servico_list' %}">← Voltar ao catálogo</a></div></header>
+  <section class="svc-panel">
+    {% if form.non_field_errors %}<div class="svc-alert">{{ form.non_field_errors }}</div>{% endif %}
+    <form method="post" enctype="multipart/form-data" class="svc-form">{% csrf_token %}
+      {% for hidden in form.hidden_fields %}{{ hidden }}{% endfor %}
+      {% for field in form.visible_fields %}<div class="svc-field" style="margin-bottom:17px"><label for="{{ field.id_for_label }}">{{ field.label }}{% if field.field.required %} <span style="color:#b91c1c">*</span>{% endif %}</label>{{ field }}{% if field.help_text %}<small class="svc-muted">{{ field.help_text }}</small>{% endif %}{% for error in field.errors %}<small style="color:#b91c1c">{{ error }}</small>{% endfor %}</div>{% endfor %}
+      <div class="svc-form-footer"><button class="svc-btn" type="submit">Guardar serviço</button><a class="svc-btn svc-btn--light" href="{% url 'servicos:servico_list' %}">Cancelar</a></div>
     </form>
+  </section>
 </div>
 {% endblock %}

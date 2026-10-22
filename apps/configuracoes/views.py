@@ -56,14 +56,95 @@ def _backup_config():
     obj=BackupConfiguracao.objects.first()
     return obj or BackupConfiguracao()
 
-class ConfiguracoesDashboardView(ConfiguracoesBaseView,TemplateView):
-    template_name="configuracoes/dashboard.html"
-    def get_context_data(self,**kwargs):
-        c=super().get_context_data(**kwargs); c["title"]="Painel de Configurações"
-        c["config_fiscal_exists"]=ConfiguracaoFiscal.objects.exists(); c["config_backup_exists"]=BackupConfiguracao.objects.exists()
-        c["config_interface_exists"]=PersonalizacaoInterface.objects.filter().exists()
-        c["ultimo_backup"]=HistoricoBackup.objects.filter(status="sucesso").order_by("-data_criacao").first()
-        return c
+
+
+# apps/configuracoes/views.py
+
+from django.views.generic import TemplateView
+
+from .models import (
+    ConfiguracaoFiscal,
+    DadosBancarios,
+    BackupConfiguracao,
+    PersonalizacaoInterface,
+    HistoricoBackup,
+)
+
+
+class ConfiguracoesDashboardView(
+    ConfiguracoesBaseView,
+    TemplateView,
+):
+    template_name = "configuracoes/dashboard.html"
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+
+        # Título apresentado pelo template e pelo layout base.
+        context["title"] = "Painel de Configurações"
+
+        # Configuração fiscal mais recente.
+        configuracao_fiscal = (
+            ConfiguracaoFiscal.objects
+            .order_by("-created_at", "-pk")
+            .first()
+        )
+
+        context["config_fiscal"] = configuracao_fiscal
+        context["config_fiscal_exists"] = (
+            configuracao_fiscal is not None
+        )
+
+        # Configuração de backup mais recente.
+        configuracao_backup = (
+            BackupConfiguracao.objects
+            .order_by("-created_at", "-pk")
+            .first()
+        )
+
+        context["config_backup"] = configuracao_backup
+        context["config_backup_exists"] = (
+            configuracao_backup is not None
+        )
+
+        # Personalização: o modelo fornecido não possui FK de utilizador.
+        context["config_interface_exists"] = (
+            PersonalizacaoInterface.objects.exists()
+        )
+
+        # Todos os dados bancários existentes no schema do tenant.
+        context["dados_bancarios"] = (
+            DadosBancarios.objects
+            .select_related("configuracao_fiscal")
+            .order_by("nome_banco", "pk")
+        )
+
+        # Último backup concluído com sucesso.
+        context["ultimo_backup"] = (
+            HistoricoBackup.objects
+            .filter(status="sucesso")
+            .order_by("-data_criacao", "-pk")
+            .first()
+        )
+
+        # Backups recentes para as acções rápidas.
+        context["backups"] = (
+            HistoricoBackup.objects
+            .order_by("-data_criacao", "-pk")[:10]
+        )
+
+        # Indicadores para os cartões do dashboard.
+        context["total_dados_bancarios"] = (
+            DadosBancarios.objects.count()
+        )
+
+        context["total_backups"] = (
+            HistoricoBackup.objects.count()
+        )
+
+        return context
+
+
 
 class ConfiguracaoFiscalUpdateView(ConfiguracoesBaseView,UpdateView):
     acao_requerida="alterar_dados_fiscais"; model=ConfiguracaoFiscal; form_class=ConfiguracaoFiscalForm; template_name="configuracoes/fiscal.html"
@@ -128,16 +209,66 @@ class BackupListView(ConfiguracoesBaseView,ListView):
     def get_queryset(self): return HistoricoBackup.objects.order_by("-data_criacao")
     def get_context_data(self,**kwargs): c=super().get_context_data(**kwargs); c["title"]="Histórico de Backups"; return c
 
-class BackupManualCreateView(ConfiguracoesBaseView,View):
-    acao_requerida="fazer_backup_manual"
-    http_method_names=["post"]
-    def post(self,request,*args,**kwargs):
+
+
+###
+import logging
+
+from django.contrib import messages
+from django.shortcuts import redirect
+from django.views import View
+
+logger = logging.getLogger(__name__)
+
+
+class BackupManualCreateView(ConfiguracoesBaseView, View):
+    acao_requerida = "fazer_backup_manual"
+    http_method_names = ["get", "post"]
+
+    def get(self, request, *args, **kwargs):
+        """
+        GET não executa backups.
+        Redirecciona para o dashboard e informa o utilizador.
+        """
+        messages.warning(
+            request,
+            "Para executar um backup manual, utilize o botão "
+            "Executar backup no painel de configurações."
+        )
+
+        return redirect("configuracoes:dashboard_configuracoes")
+
+    def post(self, request, *args, **kwargs):
         try:
-            backup=executar_backup(tipo="manual",user=request.user,tenant=self.get_empresa())
-            messages.success(request,f"Backup '{backup.nome_ficheiro}' criado com sucesso.")
-        except Exception as exc:
-            messages.error(request,f"Falha na criação do backup: {exc}")
+            backup = executar_backup(
+                tipo="manual",
+                user=request.user,
+                tenant=self.get_empresa(),
+            )
+
+            messages.success(
+                request,
+                f"Backup '{backup.nome_ficheiro}' criado com sucesso."
+            )
+
+        except Exception:
+            logger.exception(
+                "Falha na criação de backup manual. "
+                "Utilizador ID=%s",
+                request.user.pk,
+            )
+
+            messages.error(
+                request,
+                "Não foi possível criar o backup manual. "
+                "Consulta os logs do servidor para identificar a causa."
+            )
+
         return redirect("configuracoes:backup_historico")
+
+
+#######
+
 
 class BackupDownloadView(ConfiguracoesBaseView,View):
     acao_requerida="descarregar_backup"

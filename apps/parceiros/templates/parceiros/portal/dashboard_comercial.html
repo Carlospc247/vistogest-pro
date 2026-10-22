@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}Portal do Parceiro{% endblock %}
+{% block content %}
+<section class="mx-auto max-w-7xl space-y-6 p-4 sm:p-6">
+  <div class="flex flex-wrap items-start justify-between gap-3"><div><p class="text-sm text-gray-500">Portal comercial</p><h1 class="text-2xl font-bold">Olá, {{ partner.nome }}</h1><p class="mt-1 text-sm text-gray-500">Registo ilimitado de clientes · Licenças activadas após confirmação de pagamento · Comissão de 10%</p></div><div class="flex flex-wrap gap-2"><a href="{% url 'parceiros:portal-cliente-criar' %}" class="rounded-lg bg-blue-600 px-4 py-2 font-semibold text-white">Novo cliente</a><a href="{% url 'parceiros:chat_inbox' %}" class="rounded-lg border px-4 py-2 font-semibold">Bate-papo</a></div></div>
+  <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+    <article class="rounded-xl border bg-white p-5"><p class="text-sm text-gray-500">Total de tenants</p><p class="mt-2 text-3xl font-bold">{{ clientes_total }}</p><p class="mt-1 text-xs text-gray-500">{{ clientes_activos }} activos</p></article>
+    <article class="rounded-xl border bg-white p-5"><p class="text-sm text-gray-500">Pagamentos por confirmar</p><p class="mt-2 text-3xl font-bold text-amber-600">{{ clientes_pendentes_pagamento }}</p><p class="mt-1 text-xs text-gray-500">A licença fica pendente até a SOTARQ confirmar o recebimento.</p></article>
+    <article class="rounded-xl border bg-white p-5"><p class="text-sm text-gray-500">Licenças a vencer (30 dias)</p><p class="mt-2 text-3xl font-bold text-amber-600">{{ clientes_a_vencer }}</p></article>
+    <article class="rounded-xl border bg-white p-5"><p class="text-sm text-gray-500">Licenças expiradas</p><p class="mt-2 text-3xl font-bold text-red-600">{{ clientes_expirados }}</p></article>
+    <article class="rounded-xl border bg-white p-5"><p class="text-sm text-gray-500">Renovações registadas</p><p class="mt-2 text-3xl font-bold">{{ licencas_renovadas }}</p></article>
+    <article class="rounded-xl border bg-white p-5"><p class="text-sm text-gray-500">Comissão prevista</p><p class="mt-2 text-2xl font-bold">{{ comissao_prevista|floatformat:2 }} AOA</p><p class="mt-1 text-xs text-gray-500">Ainda aguarda confirmação</p></article>
+    <article class="rounded-xl border bg-white p-5"><p class="text-sm text-gray-500">Comissão confirmada</p><p class="mt-2 text-2xl font-bold text-blue-700">{{ comissao_confirmada|floatformat:2 }} AOA</p></article>
+    <article class="rounded-xl border bg-white p-5"><p class="text-sm text-gray-500">Comissão paga</p><p class="mt-2 text-2xl font-bold text-emerald-700">{{ comissao_paga|floatformat:2 }} AOA</p></article>
+    <article class="rounded-xl border bg-white p-5"><p class="text-sm text-gray-500">Dias desde última actividade comercial</p><p class="mt-2 text-3xl font-bold">{{ dias_sem_atividade }}</p><p class="mt-1 text-xs text-gray-500">Novo tenant ou renovação mantém a conta activa.</p></article>
+    <article class="rounded-xl border bg-white p-5"><p class="text-sm text-gray-500">Tempo registado activo</p><p class="mt-2 text-2xl font-bold">{{ dias_registados_activo }} dias</p></article>
+    <article class="rounded-xl border bg-white p-5"><p class="text-sm text-gray-500">Tempo registado inactivo</p><p class="mt-2 text-2xl font-bold">{{ dias_registados_inactivo }} dias</p></article>
+  </div>
+
+  <p class="text-xs text-gray-500">O tempo activo/inactivo é calculado pelas transições auditadas disponíveis. Períodos anteriores sem auditoria não podem ser reconstruídos com rigor.</p>
+  <div class="grid gap-6 lg:grid-cols-2">
+    <section class="overflow-hidden rounded-xl border bg-white"><div class="flex items-center justify-between border-b p-4"><h2 class="font-semibold">Clientes recentes</h2><a class="text-sm text-blue-700" href="{% url 'parceiros:portal-clientes' %}">Ver todos</a></div>
+      <div class="divide-y">{% for cliente in clientes_recentes %}<article class="p-4"><div class="flex flex-wrap items-start justify-between gap-2"><div><h3 class="font-semibold">{{ cliente.empresa.nome }}</h3><p class="mt-1 text-xs text-gray-500">Registado {{ cliente.created_at|date:"d/m/Y H:i" }}</p></div><span class="rounded-full bg-gray-100 px-2 py-1 text-xs">{{ cliente.get_status_display }}</span></div><div class="mt-2 grid gap-1 text-sm text-gray-600 sm:grid-cols-2"><p>Email: {{ cliente.empresa.email|default:"Não disponível" }}</p><p>Telefone: {{ cliente.empresa.telefone|default:"Não disponível" }}</p><p>NIF: {{ cliente.empresa.nif|default:"Não disponível" }}</p><p>Vencimento: {{ cliente.licenca_cliente.data_vencimento|date:"d/m/Y"|default:"Sem licença ligada" }}</p></div><a class="mt-2 inline-block text-sm font-medium text-blue-700" href="{% url 'parceiros:portal-cliente-detalhe' cliente.pk %}">Ver cliente e histórico</a></article>{% empty %}<p class="p-8 text-center text-sm text-gray-500">Ainda não registou clientes.</p>{% endfor %}</div>
+    </section>
+    <section class="overflow-hidden rounded-xl border bg-white"><div class="border-b p-4"><h2 class="font-semibold">Últimos eventos e alertas</h2></div><div class="divide-y">{% for evento in ultimos_eventos %}<article class="p-4"><div class="flex flex-wrap justify-between gap-2"><strong class="text-sm">{{ evento.titulo }}</strong><time class="text-xs text-gray-500">{{ evento.created_at|date:"d/m/Y H:i" }}</time></div><p class="mt-1 text-sm text-gray-600">{{ evento.descricao }}</p>{% if evento.partner_client %}<p class="mt-1 text-xs text-gray-500">Cliente: {{ evento.partner_client.empresa.nome }}</p>{% endif %}</article>{% empty %}<p class="p-8 text-center text-sm text-gray-500">Sem eventos comerciais.</p>{% endfor %}</div></section>
+  </div>
+  <div><a href="{% url 'parceiros:portal-carteira' %}" class="font-semibold text-blue-700">Abrir livro-razão de comissões →</a></div>
+</section>
+{% endblock %}

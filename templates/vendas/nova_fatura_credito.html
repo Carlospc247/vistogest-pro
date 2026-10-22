@@ -1,0 +1,23 @@
+{% extends 'base.html' %}
+{% load static %}
+{% block title %}Nova Fatura a Crédito (FT){% endblock %}
+{% block page_title %}Nova Fatura a Crédito (FT){% endblock %}
+{% block extra_css %}
+<style>:root{--doc-primary:#dc2626;--doc-primary-dark:#991b1b;--doc-soft:#fef2f2;--doc-deep:#991b1b;--doc-soft-border:#fecaca;--doc-shadow-color:rgba(220,38,38,.17);--doc-focus:rgba(220,38,38,.15);}</style>
+{% include 'vendas/_comercial_styles.html' %}
+{% endblock %}
+{% block content %}
+{% url 'produtos:listar_categorias_api' as categories_url %}
+{% url 'produtos:buscar_produtos_api' as products_url %}
+{% url 'servicos:listar_servicos_api' as services_url %}
+{% url 'clientes:api_buscar_clientes' as clients_url %}
+{% url 'vendas:proforma_pdf' 0 as proforma_pdf_template %}
+{% url 'vendas:fatura_credito_pdf' 0 as fatura_credito_pdf_template %}
+{% url 'vendas:fatura_pdf' 0 'a4' as fatura_pdf_a4_template %}
+{% url 'vendas:fatura_pdf' 0 '80mm' as fatura_pdf_thermal_template %}
+{% url 'vendas:api_formas_pagamento' as payment_url %}
+{% url 'vendas:api_finalizar_fatura_credito' as create_url %}
+{% with modo='fatura_credito' titulo_doc='Nova Fatura a Crédito (FT)' pdf_template=fatura_credito_pdf_template pdf_a4_template=fatura_credito_pdf_template pdf_thermal_template=fatura_credito_pdf_template %}
+{% include 'vendas/_documento_comercial_workspace.html' with modo=modo titulo_doc=titulo_doc regime=regime categories_url=categories_url products_url=products_url services_url=services_url clients_url=clients_url create_url=create_url payment_url=payment_url pdf_template=pdf_template pdf_a4_template=pdf_a4_template pdf_thermal_template=pdf_thermal_template produtos_json=produtos_json servicos_json=servicos_json %}
+{% endwith %}
+{% endblock %}

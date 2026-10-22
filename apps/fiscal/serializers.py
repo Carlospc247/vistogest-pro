@@ -46,13 +46,13 @@ class TaxaIVAAGTSerializer(serializers.ModelSerializer):
     
     def validate(self, data):
         """Validações SAF-T específicas"""
-        tax_type = data.get('tax_type')
-        tax_percentage = data.get('tax_percentage')
-        exemption_reason = data.get('exemption_reason')
+        tax_type = data.get('tax_type', getattr(self.instance, 'tax_type', None))
+        tax_percentage = data.get('tax_percentage', getattr(self.instance, 'tax_percentage', None))
+        exemption_reason = data.get('exemption_reason', getattr(self.instance, 'exemption_reason', None))
         
         # Se for IVA, deve ter tax_percentage
         if tax_type == 'IVA':
-            if not tax_percentage or tax_percentage < 0:
+            if tax_percentage is None or tax_percentage < 0:
                 raise serializers.ValidationError({
                     'tax_percentage': 'IVA deve ter uma taxa percentual válida maior ou igual a 0'
                 })
@@ -88,7 +88,7 @@ class TaxaIVAAGTSerializer(serializers.ModelSerializer):
     
     def validate_tax_code(self, value):
         """Valida códigos SAF-T permitidos"""
-        codigos_validos = ['NOR', 'INT', 'RED', 'ISE', 'NSU']
+        codigos_validos = ['NOR', 'INT', 'RED', 'ISE', 'OUT', 'NS', 'NA']
         if value not in codigos_validos:
             raise serializers.ValidationError(
                 f"Código deve ser um dos seguintes: {', '.join(codigos_validos)}"
@@ -157,6 +157,55 @@ class AssinaturaDigitalSerializer(serializers.ModelSerializer):
                 'help_text': 'Chave pública PEM do contribuinte (emitida pela AGT).',
             },
         }
+
+    def create(self, validated_data):
+        # AssinaturaDigital é singleton por schema; nunca criar uma segunda linha.
+        chave_privada = validated_data.pop('chave_privada', None)
+        nif = (validated_data.get('nif_contribuinte') or '').strip()
+        chave_publica = (validated_data.get('chave_contribuinte_publica') or '').strip()
+        if not chave_privada or not nif or not chave_publica:
+            raise serializers.ValidationError({
+                'chave_privada': 'Para configurar a assinatura, envie NIF, chave privada e chave pública.'
+            })
+        instance = AssinaturaDigital.get_solo()
+        request = self.context.get('request')
+        instance.definir_chaves(
+            nif=nif,
+            chave_privada_pem=chave_privada,
+            chave_publica_pem=chave_publica,
+            usuario=getattr(request, 'user', None),
+        )
+        return instance
+
+    def update(self, instance, validated_data):
+        chave_privada = validated_data.pop('chave_privada', None)
+        nif = (validated_data.get('nif_contribuinte') or instance.nif_contribuinte or '').strip()
+        chave_publica = (
+            validated_data.get('chave_contribuinte_publica')
+            or instance.chave_contribuinte_publica
+            or ''
+        ).strip()
+        key_fields_sent = any(
+            name in self.initial_data
+            for name in ('nif_contribuinte', 'chave_contribuinte_publica', 'chave_privada')
+        )
+        if key_fields_sent and not chave_privada:
+            raise serializers.ValidationError({
+                'chave_privada': 'Por segurança, envie novamente a chave privada quando alterar NIF ou chaves.'
+            })
+        if chave_privada:
+            if not nif or not chave_publica:
+                raise serializers.ValidationError({
+                    'chave_contribuinte_publica': 'NIF e chave pública são obrigatórios para configurar a assinatura.'
+                })
+            request = self.context.get('request')
+            instance.definir_chaves(
+                nif=nif,
+                chave_privada_pem=chave_privada,
+                chave_publica_pem=chave_publica,
+                usuario=getattr(request, 'user', None),
+            )
+        return instance
 
     def get_configurada(self, obj):
         return obj.esta_configurada
@@ -250,7 +299,7 @@ class RetencaoFonteSerializer(serializers.ModelSerializer):
             'tipo_retencao_display', 'valor_base_formatado', 'valor_retido_formatado',
             'taxa_retencao_formatado', 'status_pagamento'
         ]
-        read_only_fields = ['id', 'valor_retido', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'valor_retido', 'paga_ao_estado', 'created_at', 'updated_at']
     
     def get_valor_base_formatado(self, obj):
         """Formata valor base para exibição"""
@@ -333,11 +382,15 @@ class RetencaoFonteSerializer(serializers.ModelSerializer):
         valor_base = validated_data['valor_base']
         taxa_retencao = validated_data['taxa_retencao']
         validated_data['valor_retido'] = valor_base * (taxa_retencao / Decimal('100.00'))
-        # Nota: RetencaoFonte ainda tem campo `empresa` no modelo (pendente de
-        # migração para isolamento físico — ver PLANO_IMPLEMENTACAO.md Fase 5).
-        # Usar request.user.empresa como fallback até essa migração ocorrer.
-        if 'empresa' not in validated_data:
-            validated_data['empresa'] = self.context['request'].user.empresa
+        # RetencaoFonte é tenant-local e o modelo fornecido não possui FK `empresa`.
+        # O schema activo faz o isolamento; não injectar um argumento que não existe no modelo.
+        field_names = {field.name for field in RetencaoFonte._meta.get_fields() if getattr(field, 'concrete', False)}
+        if 'empresa' in field_names and 'empresa' not in validated_data:
+            request = self.context.get('request')
+            empresa = getattr(getattr(request, 'user', None), 'empresa', None)
+            if empresa is None:
+                raise serializers.ValidationError({'empresa': 'O utilizador não está associado a uma empresa.'})
+            validated_data['empresa'] = empresa
         return super().create(validated_data)
     
     def update(self, instance, validated_data):
@@ -445,10 +498,12 @@ class DocumentoFiscalSerializer(serializers.ModelSerializer):
         model  = DocumentoFiscal
         fields = '__all__'
         read_only_fields = [
-            # Campos sempre read-only (gerados pelo sistema)
-            'numero_documento', 'atcud', 'hash_documento', 'hash_anterior',
+            # Campos controlados pelo servidor; não podem ser falsificados pela API.
+            'empresa', 'usuario_criacao', 'usuario_modificacao', 'status',
+            'numero', 'numero_documento', 'atcud', 'hash_documento', 'hash_anterior',
             'assinatura_digital', 'saft_hash', 'periodo_tributacao',
             'hora_emissao', 'data_confirmacao', 'usuario_confirmacao',
+            'valor_base', 'valor_iva', 'valor_desconto', 'valor_retencao', 'valor_total',
             # Campos calculados
             'pode_editar', 'pode_cancelar', 'pode_rectificar',
             'esta_emitido', 'documentos_correctivos_count',

@@ -199,43 +199,176 @@ class Venda(TimeStampedModel):
         self.iva_valor = sum((item.iva_valor for item in self.itens.all()), Decimal('0.00'))
         self.total = self.subtotal - self.desconto_valor + self.iva_valor
 
+
     def gerar_documento_fiscal(self, usuario):
         """
-        Gera número, hash e ATCUD da venda.
-        Deve ser chamado apenas **após adicionar todos os itens**.
-        """
-        if not usuario:
-            raise ValueError("Usuário é obrigatório para gerar Documento Fiscal")
-        if not self.itens.exists():
-            raise ValueError("Não é possível gerar documento sem itens")
-        if self.total <= 0:
-            raise ValueError("Total da venda inválido para gerar documento")
+        Gera o documento fiscal da venda com os campos obrigatórios
+        de cada linha: código, descrição, quantidade, preço e taxa de IVA.
 
+        Deve ser chamado apenas após a criação de todos os itens da venda.
+        """
         from apps.fiscal.services import DocumentoFiscalService
-        service = DocumentoFiscalService()
-        documento = service.criar_documento(
-            empresa=connection.tenant,
-            tipo_documento='FR',
-            cliente=self.cliente,
-            usuario=usuario,
-            linhas=[{
-                'produto': item.produto,
-                'quantidade': item.quantidade,
-                'preco_unitario': item.preco_unitario,
-                'desconto': item.desconto_item,
-                'iva_valor': item.iva_valor,
-            } for item in self.itens.all()],
-            dados_extra={'data_emissao': self.data_venda, 'valor_total': self.total},
+
+        if not usuario:
+            raise ValueError(
+                "Usuário é obrigatório para gerar Documento Fiscal."
+            )
+
+        itens = list(
+            self.itens.select_related(
+                "produto",
+                "servico",
+                "taxa_iva",
+            ).all()
         )
 
-        # Fase 2: guardar a FK para DocumentoFiscal (fonte de verdade)
-        # e sincronizar os campos de cache locais.
+        if not itens:
+            raise ValidationError(
+                "Não é possível gerar documento fiscal sem itens."
+            )
+
+        if self.total <= 0:
+            raise ValidationError(
+                "Total da venda inválido para gerar documento fiscal."
+            )
+
+        linhas_fiscais = []
+
+        for item in itens:
+            produto = item.produto
+            servico = item.servico
+
+            # Identificar o produto ou serviço e obter o respetivo código
+            # e descrição para a linha fiscal.
+            if produto:
+                codigo = (
+                    getattr(produto, "codigo_produto", None)
+                    or getattr(produto, "codigo_interno", None)
+                    or getattr(produto, "codigo", None)
+                    or f"PROD-{produto.pk}"
+                )
+
+                descricao = (
+                    item.nome_produto
+                    or getattr(produto, "nome_produto", None)
+                    or getattr(produto, "nome", None)
+                    or str(produto)
+                )
+
+            elif servico:
+                codigo = (
+                    getattr(servico, "codigo_servico", None)
+                    or getattr(servico, "codigo_interno", None)
+                    or getattr(servico, "codigo", None)
+                    or f"SRV-{servico.pk}"
+                )
+
+                descricao = (
+                    item.nome_servico
+                    or getattr(servico, "nome", None)
+                    or getattr(servico, "nome_servico", None)
+                    or str(servico)
+                )
+
+            else:
+                raise ValidationError(
+                    f"O item de venda {item.pk} não está associado "
+                    "a um produto nem a um serviço."
+                )
+
+            # Limites reais do modelo DocumentoFiscalLinha:
+            # codigo_produto = 50, descricao = 200.
+            codigo = str(codigo or "").strip()[:50]
+            descricao = str(descricao or "").strip()[:200]
+
+            if not codigo:
+                raise ValidationError(
+                    f"O item de venda {item.pk} não possui código válido."
+                )
+
+            if not descricao:
+                raise ValidationError(
+                    f"O item de venda {item.pk} não possui descrição válida."
+                )
+
+            # O serviço fiscal exige uma taxa de IVA em cada linha.
+            if not item.taxa_iva:
+                raise ValidationError(
+                    f"O item de venda {item.pk} não possui uma taxa de IVA "
+                    "configurada. Associe uma TaxaIVAAGT antes de emitir "
+                    "o documento fiscal."
+                )
+
+            # No modelo ItemVenda, o desconto é aplicado por unidade.
+            # Aqui calculamos o desconto total da linha.
+            desconto_unitario = Decimal(
+                str(item.desconto_item or Decimal("0.00"))
+            )
+            quantidade = Decimal(str(item.quantidade))
+
+            desconto_linha = (
+                desconto_unitario * quantidade
+            ).quantize(Decimal("0.01"))
+
+            # operationType por linha: serviços não podem ficar com 'TB'.
+            operation_type = item.operation_type or (
+                "SE" if servico else "TB"
+            )
+
+            if servico and operation_type == "TB":
+                operation_type = "SE"
+
+            # Chaves = nomes reais dos campos de DocumentoFiscalLinha.
+            # (valor_iva_linha NÃO é enviado: é calculado no save() da linha.)
+            linha_fiscal = {
+                "codigo_produto": codigo,
+                "descricao": descricao,
+                "quantidade": item.quantidade,
+                "preco_unitario": item.preco_unitario,
+                "taxa_iva": item.taxa_iva,
+                "valor_desconto_linha": desconto_linha,
+                "operation_type": operation_type,
+            }
+
+            # Associar o produto apenas quando existir.
+            if produto:
+                linha_fiscal["produto"] = produto
+
+            linhas_fiscais.append(linha_fiscal)
+
+        # Criar o documento fiscal com todas as linhas validadas.
+        service = DocumentoFiscalService()
+
+        documento = service.criar_documento(
+            empresa=connection.tenant,
+            tipo_documento="FR",
+            cliente=self.cliente,
+            usuario=usuario,
+            linhas=linhas_fiscais,
+            dados_extra={
+                "data_emissao": self.data_venda.date(),
+            },
+        )
+
+        # Guardar a referência para o documento fiscal e sincronizar
+        # os campos locais de consulta da venda.
         self.documento_fiscal = documento
         self.numero_documento = documento.numero_documento
-        self.hash_documento = documento.hash_documento
-        self.atcud = documento.atcud
-        self.save(update_fields=['documento_fiscal', 'numero_documento', 'hash_documento', 'atcud'])
+        self.hash_documento = documento.hash_documento or None
+        self.atcud = documento.atcud or None
 
+        self.save(
+            update_fields=[
+                "documento_fiscal",
+                "numero_documento",
+                "hash_documento",
+                "atcud",
+            ]
+        )
+
+
+    
+        
     def desconto_percentual(self):
         if self.subtotal > Decimal('0.00'):
             return (self.desconto_valor / self.subtotal) * Decimal('100.00')
@@ -992,37 +1125,180 @@ class FaturaCredito(TimeStampedModel):
     tem_nota_liquidacao = models.BooleanField(default=False)
     tem_fatura_proforma = models.BooleanField(default=False)
 
-    def gerar_documento_fiscal(self, usuario):
-        if not usuario:
-            raise ValueError("Usuário obrigatório para gerar Documento Fiscal")
-        if not self.itens.exists():
-            raise ValueError("Não é possível gerar documento sem itens")
-        if self.total <= 0:
-            raise ValueError("Total da fatura inválido")
 
-        from apps.fiscal.services import DocumentoFiscalService
-        service = DocumentoFiscalService()
-        documento = service.criar_documento(
-            empresa=connection.tenant,
-            tipo_documento='FT',
-            cliente=self.cliente,
-            usuario=usuario,
-            linhas=[{
-                'produto': item.produto,
-                'quantidade': item.quantidade,
-                'preco_unitario': item.preco_unitario,
-                'desconto': item.desconto_item,
-                'iva_valor': item.iva_valor,
-            } for item in self.itens.all()],
-            dados_extra={'data_emissao': self.data_fatura, 'valor_total': self.total},
+    def _construir_linhas_fiscais(self):
+        """
+        Converte os ItemFatura em linhas aceites pelo DocumentoFiscalService.
+
+        O serviço exige codigo_produto, descricao, quantidade,
+        preco_unitario e taxa_iva em cada linha.
+        """
+        itens = list(
+            self.itens.select_related(
+                "produto",
+                "servico",
+                "taxa_iva",
+            ).all()
         )
 
-        # Fase 2: guardar a FK para DocumentoFiscal (fonte de verdade)
+        if not itens:
+            raise ValidationError(
+                "Não é possível gerar documento fiscal sem itens."
+            )
+
+        linhas_fiscais = []
+
+        for item in itens:
+            produto = item.produto
+            servico = item.servico
+
+            # Obter o código do produto, serviço ou item genérico.
+            if produto:
+                codigo = (
+                    getattr(produto, "codigo", None)
+                    or getattr(produto, "codigo_produto", None)
+                    or getattr(produto, "codigo_interno", None)
+                    or f"PROD-{produto.pk}"
+                )
+
+            elif servico:
+                codigo = (
+                    getattr(servico, "codigo", None)
+                    or getattr(servico, "codigo_servico", None)
+                    or getattr(servico, "codigo_interno", None)
+                    or f"SRV-{servico.pk}"
+                )
+
+            else:
+                codigo = f"ITEM-{item.pk}"
+
+            # ItemFatura já possui o campo nome_item.
+            descricao = (
+                getattr(item, "nome_item", None)
+                or (
+                    getattr(produto, "nome_produto", None)
+                    if produto else None
+                )
+                or (
+                    getattr(servico, "nome", None)
+                    if servico else None
+                )
+                or f"Item {item.pk}"
+            )
+
+            # Limites reais do modelo DocumentoFiscalLinha:
+            # codigo_produto = 50, descricao = 200.
+            codigo = str(codigo or "").strip()[:50]
+            descricao = str(descricao or "").strip()[:200]
+
+            if not codigo:
+                raise ValidationError(
+                    f"O item da fatura {item.pk} não possui código válido."
+                )
+
+            if not descricao:
+                raise ValidationError(
+                    f"O item da fatura {item.pk} não possui descrição válida."
+                )
+
+            # O serviço fiscal exige uma taxa de IVA por linha.
+            if not item.taxa_iva:
+                raise ValidationError(
+                    f"O item da fatura {item.pk} não possui taxa de IVA "
+                    "configurada. Associe uma TaxaIVAAGT antes de emitir."
+                )
+
+            # Em ItemFatura, desconto_item é um desconto TOTAL da linha:
+            # subtotal = preco_unitario * quantidade
+            # valor_liquido = subtotal - desconto_item
+            desconto_linha = Decimal(
+                str(item.desconto_item or Decimal("0.00"))
+            ).quantize(Decimal("0.01"))
+
+            # Para serviços, não deixar o default 'TB' representar
+            # incorretamente uma prestação de serviços.
+            operation_type = item.operation_type or (
+                "TB" if produto else "SE"
+            )
+
+            if servico and operation_type == "TB":
+                operation_type = "SE"
+
+            # Chaves = nomes reais dos campos de DocumentoFiscalLinha.
+            # (valor_iva_linha NÃO é enviado: é calculado no save() da linha.)
+            linha_fiscal = {
+                "codigo_produto": codigo,
+                "descricao": descricao,
+                "quantidade": item.quantidade,
+                "preco_unitario": item.preco_unitario,
+                "taxa_iva": item.taxa_iva,
+                "valor_desconto_linha": desconto_linha,
+                "operation_type": operation_type,
+            }
+
+            # Só associar um produto quando existe essa relação.
+            if produto:
+                linha_fiscal["produto"] = produto
+
+            linhas_fiscais.append(linha_fiscal)
+
+        return linhas_fiscais
+
+            
+    def gerar_documento_fiscal(self, usuario, *, tipo_documento="FT"):
+        """
+        Gera o documento fiscal da fatura.
+
+        O tipo documental pode ser FT, GF ou AF, conforme a classe
+        que invoca o método.
+        """
+        if not usuario:
+            raise ValueError(
+                "Usuário obrigatório para gerar Documento Fiscal."
+            )
+
+        # Evitar a criação de um segundo documento para a mesma fatura.
+        if self.documento_fiscal_id:
+            return self.documento_fiscal
+
+        if self.total <= 0:
+            raise ValidationError(
+                "Total da fatura inválido para gerar documento fiscal."
+            )
+
+        linhas_fiscais = self._construir_linhas_fiscais()
+
+        from apps.fiscal.services import DocumentoFiscalService
+
+        service = DocumentoFiscalService()
+
+        documento = service.criar_documento(
+            empresa=connection.tenant,
+            tipo_documento=tipo_documento,
+            cliente=self.cliente,
+            usuario=usuario,
+            linhas=linhas_fiscais,
+            dados_extra={
+                "data_emissao": self.data_fatura.date(),
+            },
+        )
+
+        # DocumentoFiscal é a fonte de verdade fiscal.
         self.documento_fiscal = documento
         self.numero_documento = documento.numero_documento
-        self.hash_documento = documento.hash_documento
-        self.atcud = documento.atcud
-        self.save(update_fields=['documento_fiscal', 'numero_documento', 'hash_documento', 'atcud'])
+        self.hash_documento = documento.hash_documento or None
+        self.atcud = documento.atcud or None
+
+        self.save(
+            update_fields=[
+                "documento_fiscal",
+                "numero_documento",
+                "hash_documento",
+                "atcud",
+            ]
+        )
+
+        return documento
 
     def __str__(self):
         return f"Fatura {self.numero_documento}"
@@ -1102,35 +1378,74 @@ class Recibo(TimeStampedModel):
     tem_nota_liquidacao = models.BooleanField(default=False)
     tem_fatura_proforma = models.BooleanField(default=False)
 
-    def gerar_documento_fiscal(self):
-        if not self.vendedor:
-            raise ValueError("Vendedor obrigatório para gerar Documento Fiscal")
-        if not self.total > 0:
-            raise ValueError("Total do recibo inválido")
+    
+    def gerar_documento_fiscal(self, usuario=None):
+        """
+        Gera o documento fiscal do recibo.
+
+        O Recibo atual não possui itens próprios. Por isso, cria-se
+        o documento sem linhas e mantém-se o valor do recibo no cabeçalho.
+        """
+        if self.documento_fiscal_id:
+            return self.documento_fiscal
+
+        if not self.total or self.total <= 0:
+            raise ValidationError(
+                "Total do recibo inválido para gerar documento fiscal."
+            )
+
+        # Preservar a compatibilidade com as chamadas existentes,
+        # que invocam o método sem passar o utilizador.
+        if usuario is None and self.vendedor:
+            usuario = getattr(self.vendedor, "usuario", None)
+
+        # Se o recibo estiver associado a uma fatura, tentar obter
+        # o utilizador através do vendedor dessa fatura.
+        if (
+            usuario is None
+            and self.fatura
+            and self.fatura.vendedor
+        ):
+            usuario = getattr(self.fatura.vendedor, "usuario", None)
+
+        if not usuario:
+            raise ValidationError(
+                "É necessário um utilizador para gerar o documento fiscal "
+                "do recibo."
+            )
 
         from apps.fiscal.services import DocumentoFiscalService
+
         service = DocumentoFiscalService()
+
         documento = service.criar_documento(
             empresa=connection.tenant,
-            tipo_documento='REC',
+            tipo_documento="REC",
             cliente=self.cliente,
-            usuario=self.vendedor.usuario,
-            linhas=[{
-                'produto': item.produto,
-                'quantidade': item.quantidade,
-                'preco_unitario': item.preco_unitario,
-                'desconto': item.desconto_item,
-                'iva_valor': item.iva_valor,
-            } for item in getattr(self, 'itens', [])],
-            dados_extra={'data_emissao': self.data_recibo, 'valor_total': self.total},
+            usuario=usuario,
+            linhas=[],
+            dados_extra={
+                "data_emissao": self.data_recibo.date(),
+                "valor_total": self.total,
+            },
         )
 
-        # Fase 2: guardar a FK para DocumentoFiscal (fonte de verdade)
         self.documento_fiscal = documento
         self.numero_recibo = documento.numero_documento
-        self.hash_documento = documento.hash_documento
-        self.atcud = documento.atcud
-        self.save(update_fields=['documento_fiscal', 'numero_recibo', 'hash_documento', 'atcud'])
+        self.hash_documento = documento.hash_documento or None
+        self.atcud = documento.atcud or None
+
+        self.save(
+            update_fields=[
+                "documento_fiscal",
+                "numero_recibo",
+                "hash_documento",
+                "atcud",
+            ]
+        )
+
+        return documento
+
 
     def __str__(self):
         return f"Recibo {self.numero_recibo}"
@@ -1176,38 +1491,134 @@ class FaturaGenerica(FaturaCredito):
             pass
         super().save(*args, **kwargs)
 
-    def gerar_documento_fiscal(self, usuario):
-        """Usa tipo_documento='GF' em vez de 'FT'."""
-        if not usuario:
-            raise ValueError("Usuário obrigatório para gerar Documento Fiscal")
-        if not self.itens.exists():
-            raise ValueError("Não é possível gerar documento sem itens")
-        if self.total <= 0:
-            raise ValueError("Total da factura inválido")
+    def _construir_linhas_fiscais(self):
+        """
+        Converte os ItemFatura em linhas aceites pelo DocumentoFiscalService.
 
-        from django.db import connection
-        from apps.fiscal.services import DocumentoFiscalService
-        service = DocumentoFiscalService()
-        documento = service.criar_documento(
-            empresa=connection.tenant,
-            tipo_documento='GF',   # ← diferença crítica
-            cliente=self.cliente,
-            usuario=usuario,
-            linhas=[{
-                'produto': item.produto,
-                'quantidade': item.quantidade,
-                'preco_unitario': item.preco_unitario,
-                'desconto': item.desconto_item,
-                'iva_valor': item.iva_valor,
-            } for item in self.itens.all()],
-            dados_extra={'data_emissao': self.data_fatura, 'valor_total': self.total},
+        O serviço exige codigo_produto, descricao, quantidade,
+        preco_unitario e taxa_iva em cada linha.
+        """
+        itens = list(
+            self.itens.select_related(
+                "produto",
+                "servico",
+                "taxa_iva",
+            ).all()
         )
-        self.documento_fiscal = documento
-        self.numero_documento = documento.numero_documento
-        self.hash_documento = documento.hash_documento
-        self.atcud = documento.atcud
-        self.save(update_fields=['documento_fiscal', 'numero_documento', 'hash_documento', 'atcud'])
 
+        if not itens:
+            raise ValidationError(
+                "Não é possível gerar documento fiscal sem itens."
+            )
+
+        linhas_fiscais = []
+
+        for item in itens:
+            produto = item.produto
+            servico = item.servico
+
+            # Obter o código do produto, serviço ou item genérico.
+            if produto:
+                codigo = (
+                    getattr(produto, "codigo", None)
+                    or getattr(produto, "codigo_produto", None)
+                    or getattr(produto, "codigo_interno", None)
+                    or f"PROD-{produto.pk}"
+                )
+
+            elif servico:
+                codigo = (
+                    getattr(servico, "codigo", None)
+                    or getattr(servico, "codigo_servico", None)
+                    or getattr(servico, "codigo_interno", None)
+                    or f"SRV-{servico.pk}"
+                )
+
+            else:
+                codigo = f"ITEM-{item.pk}"
+
+            # ItemFatura já possui o campo nome_item.
+            descricao = (
+                getattr(item, "nome_item", None)
+                or (
+                    getattr(produto, "nome_produto", None)
+                    if produto else None
+                )
+                or (
+                    getattr(servico, "nome", None)
+                    if servico else None
+                )
+                or f"Item {item.pk}"
+            )
+
+            # Limites reais do modelo DocumentoFiscalLinha:
+            # codigo_produto = 50, descricao = 200.
+            codigo = str(codigo or "").strip()[:50]
+            descricao = str(descricao or "").strip()[:200]
+
+            if not codigo:
+                raise ValidationError(
+                    f"O item da fatura {item.pk} não possui código válido."
+                )
+
+            if not descricao:
+                raise ValidationError(
+                    f"O item da fatura {item.pk} não possui descrição válida."
+                )
+
+            # O serviço fiscal exige uma taxa de IVA por linha.
+            if not item.taxa_iva:
+                raise ValidationError(
+                    f"O item da fatura {item.pk} não possui taxa de IVA "
+                    "configurada. Associe uma TaxaIVAAGT antes de emitir."
+                )
+
+            # Em ItemFatura, desconto_item é um desconto TOTAL da linha:
+            # subtotal = preco_unitario * quantidade
+            # valor_liquido = subtotal - desconto_item
+            desconto_linha = Decimal(
+                str(item.desconto_item or Decimal("0.00"))
+            ).quantize(Decimal("0.01"))
+
+            # Para serviços, não deixar o default 'TB' representar
+            # incorretamente uma prestação de serviços.
+            operation_type = item.operation_type or (
+                "TB" if produto else "SE"
+            )
+
+            if servico and operation_type == "TB":
+                operation_type = "SE"
+
+            # Chaves = nomes reais dos campos de DocumentoFiscalLinha.
+            # (valor_iva_linha NÃO é enviado: é calculado no save() da linha.)
+            linha_fiscal = {
+                "codigo_produto": codigo,
+                "descricao": descricao,
+                "quantidade": item.quantidade,
+                "preco_unitario": item.preco_unitario,
+                "taxa_iva": item.taxa_iva,
+                "valor_desconto_linha": desconto_linha,
+                "operation_type": operation_type,
+            }
+
+            # Só associar um produto quando existe essa relação.
+            if produto:
+                linha_fiscal["produto"] = produto
+
+            linhas_fiscais.append(linha_fiscal)
+
+        return linhas_fiscais
+
+
+        
+    def gerar_documento_fiscal(self, usuario):
+        """
+        Gera uma fatura genérica com tipo documental GF.
+        """
+        return super().gerar_documento_fiscal(
+            usuario,
+            tipo_documento="GF",
+        )
 
 # =====================================
 # FACTURA DE AUTOFACTURAÇÃO (AF) — Proxy de FaturaCredito
@@ -1227,37 +1638,15 @@ class FaturaAutofacturacao(FaturaCredito):
         verbose_name = 'Factura de Autofacturação (AF)'
         verbose_name_plural = 'Facturas de Autofacturação (AF)'
 
+    
     def gerar_documento_fiscal(self, usuario):
-        """Usa tipo_documento='AF' em vez de 'FT'."""
-        if not usuario:
-            raise ValueError("Usuário obrigatório para gerar Documento Fiscal")
-        if not self.itens.exists():
-            raise ValueError("Não é possível gerar documento sem itens")
-        if self.total <= 0:
-            raise ValueError("Total da factura inválido")
-
-        from django.db import connection
-        from apps.fiscal.services import DocumentoFiscalService
-        service = DocumentoFiscalService()
-        documento = service.criar_documento(
-            empresa=connection.tenant,
-            tipo_documento='AF',   # ← diferença crítica
-            cliente=self.cliente,
-            usuario=usuario,
-            linhas=[{
-                'produto': item.produto,
-                'quantidade': item.quantidade,
-                'preco_unitario': item.preco_unitario,
-                'desconto': item.desconto_item,
-                'iva_valor': item.iva_valor,
-            } for item in self.itens.all()],
-            dados_extra={'data_emissao': self.data_fatura, 'valor_total': self.total},
+        """
+        Gera uma fatura de autofacturação com tipo documental AF.
+        """
+        return super().gerar_documento_fiscal(
+            usuario,
+            tipo_documento="AF",
         )
-        self.documento_fiscal = documento
-        self.numero_documento = documento.numero_documento
-        self.hash_documento = documento.hash_documento
-        self.atcud = documento.atcud
-        self.save(update_fields=['documento_fiscal', 'numero_documento', 'hash_documento', 'atcud'])
 
 
 class ItemFatura(models.Model):
@@ -1422,8 +1811,8 @@ class FaturaProforma(TimeStampedModel):
             # Fase 2: guardar a FK para DocumentoFiscal (fonte de verdade)
             self.documento_fiscal = documento
             self.numero_documento = documento.numero_documento
-            self.hash_documento = documento.hash_documento
-            self.atcud = documento.atcud
+            self.hash_documento = documento.hash_documento or None
+            self.atcud = documento.atcud or None
             super().save(update_fields=['documento_fiscal', 'numero_documento', 'hash_documento', 'atcud'])
 
     def __str__(self):
@@ -1579,8 +1968,8 @@ class NotaCredito(TimeStampedModel):
             # Fase 2: guardar a FK para DocumentoFiscal (fonte de verdade)
             self.documento_fiscal = documento
             self.numero_nota = documento.numero_documento
-            self.hash_documento = documento.hash_documento
-            self.atcud = documento.atcud
+            self.hash_documento = documento.hash_documento or None
+            self.atcud = documento.atcud or None
             super().save(update_fields=['documento_fiscal', 'numero_nota', 'hash_documento', 'atcud'])
 
     def __str__(self):
@@ -1805,8 +2194,8 @@ class NotaDebito(TimeStampedModel):
             # Fase 2: guardar a FK para DocumentoFiscal (fonte de verdade)
             self.documento_fiscal = documento
             self.numero_nota = documento.numero_documento
-            self.hash_documento = documento.hash_documento
-            self.atcud = documento.atcud
+            self.hash_documento = documento.hash_documento or None
+            self.atcud = documento.atcud or None
             super().save(update_fields=['documento_fiscal', 'numero_nota', 'hash_documento', 'atcud'])
 
     def __str__(self):
@@ -2072,8 +2461,8 @@ class DocumentoTransporte(TimeStampedModel):
             # Fase 2: guardar a FK para DocumentoFiscal (fonte de verdade)
             self.documento_fiscal = documento
             self.numero_documento = documento.numero_documento
-            self.hash_documento = documento.hash_documento
-            self.atcud = documento.atcud
+            self.hash_documento = documento.hash_documento or None
+            self.atcud = documento.atcud or None
             super().save(update_fields=['documento_fiscal', 'numero_documento', 'hash_documento', 'atcud'])
 
     def __str__(self):

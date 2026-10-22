@@ -7,6 +7,7 @@ filtradas pela empresa do utilizador; modelos singleton/tenant-local são lidos
 no esquema actual.
 """
 from datetime import date
+from decimal import Decimal
 from inspect import signature
 
 from django.conf import settings
@@ -14,15 +15,16 @@ from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import FieldDoesNotExist, PermissionDenied, ValidationError
 from django.core.paginator import Paginator
-from django.db import transaction
+from django.db import transaction, connection
 from django.db.models import DateTimeField, Q
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse_lazy
 from django.utils import timezone
 from django.views import View
-from django.views.generic import CreateView, DetailView, ListView, TemplateView, UpdateView
+from django.views.generic import CreateView, DeleteView, DetailView, ListView, TemplateView, UpdateView
 
 from .forms_web import DateRangeForm, DocumentoFiscalWebForm, RetencaoFonteWebForm, TaxaIVAWebForm
+from .views import PermissaoAcaoMixin
 from .models import (
     AssinaturaDigital,
     DocumentoFiscal,
@@ -53,10 +55,27 @@ def _empresa_do_utilizador(user):
 
 
 def _exigir_empresa(request):
-    empresa = _empresa_do_utilizador(request.user)
-    if empresa is None:
-        raise PermissionDenied("O utilizador não está associado a uma empresa.")
-    return empresa
+    """Resolve a empresa pelo schema activo e rejeita vínculos cruzados."""
+    schema_actual = getattr(connection, "schema_name", "public")
+    if schema_actual == "public":
+        raise PermissionDenied("Esta operação fiscal só está disponível no schema de um tenant.")
+
+    empresa_utilizador = _empresa_do_utilizador(request.user)
+    tenant_actual = getattr(connection, "tenant", None)
+
+    if tenant_actual is not None and getattr(tenant_actual, "schema_name", None) == schema_actual:
+        if empresa_utilizador is not None:
+            schema_utilizador = getattr(empresa_utilizador, "schema_name", None)
+            if schema_utilizador and schema_utilizador != schema_actual:
+                raise PermissionDenied("O utilizador está associado a uma empresa diferente do tenant activo.")
+            if getattr(empresa_utilizador, "pk", None) != getattr(tenant_actual, "pk", None):
+                raise PermissionDenied("O vínculo do utilizador não corresponde ao tenant activo.")
+        return tenant_actual
+
+    if empresa_utilizador is not None and getattr(empresa_utilizador, "schema_name", None) == schema_actual:
+        return empresa_utilizador
+
+    raise PermissionDenied("O utilizador não está associado ao tenant activo.")
 
 
 def _por_empresa(queryset, model, empresa, *, relacoes=()):
@@ -149,7 +168,8 @@ def _assinar_estado_configuracao(configuracao):
 # ---------------------------------------------------------------------------
 # Dashboard e documentos
 # ---------------------------------------------------------------------------
-class FiscalDashboardView(LoginRequiredMixin, TemplateView):
+class FiscalDashboardView(LoginRequiredMixin, PermissaoAcaoMixin, TemplateView):
+    acao_requerida = "acessar_dashboard_fiscal"
     template_name = "fiscal/dashboard.html"
 
     def get_context_data(self, **kwargs):
@@ -159,7 +179,11 @@ class FiscalDashboardView(LoginRequiredMixin, TemplateView):
         taxas = _por_empresa(TaxaIVAAGT.objects.all(), TaxaIVAAGT, empresa)
         retencoes = _retencoes_empresa(empresa)
         state_field = _campo_estado(DocumentoFiscal)
-        rascunhos = docs.filter(**{state_field: "rascunho"}).count() if state_field else 0
+        draft_values = []
+        if state_field:
+            choices = {value for value, _label in DocumentoFiscal._meta.get_field(state_field).choices}
+            draft_values = [value for value in ("draft", "rascunho") if value in choices]
+        rascunhos = docs.filter(**{f"{state_field}__in": draft_values}).count() if state_field and draft_values else 0
         ativo_field = "ativo" if _field_exists(TaxaIVAAGT, "ativo") else None
         context.update({
             "empresa": empresa,
@@ -173,7 +197,8 @@ class FiscalDashboardView(LoginRequiredMixin, TemplateView):
         return context
 
 
-class DocumentoFiscalListView(LoginRequiredMixin, ListView):
+class DocumentoFiscalListView(LoginRequiredMixin, PermissaoAcaoMixin, ListView):
+    acao_requerida = "acessar_painel_principal_fiscal"
     template_name = "fiscal/documentos/lista.html"
     context_object_name = "documentos"
     paginate_by = 25
@@ -195,7 +220,8 @@ class DocumentoFiscalListView(LoginRequiredMixin, ListView):
         return context
 
 
-class DocumentoFiscalDetailView(LoginRequiredMixin, DetailView):
+class DocumentoFiscalDetailView(LoginRequiredMixin, PermissaoAcaoMixin, DetailView):
+    acao_requerida = "acessar_painel_principal_fiscal"
     template_name = "fiscal/documentos/detalhe.html"
     context_object_name = "documento"
     model = DocumentoFiscal
@@ -215,7 +241,8 @@ class DocumentoFiscalDetailView(LoginRequiredMixin, DetailView):
         return context
 
 
-class DocumentoFiscalCreateView(LoginRequiredMixin, CreateView):
+class DocumentoFiscalCreateView(LoginRequiredMixin, PermissaoAcaoMixin, CreateView):
+    acao_requerida = "acessar_painel_principal_fiscal"
     model = DocumentoFiscal
     form_class = DocumentoFiscalWebForm
     template_name = "fiscal/documentos/formulario.html"
@@ -230,10 +257,14 @@ class DocumentoFiscalCreateView(LoginRequiredMixin, CreateView):
         obj = form.save(commit=False)
         if _field_exists(DocumentoFiscal, "empresa"):
             obj.empresa = empresa
-        if _field_exists(DocumentoFiscal, "criado_por"):
+        if _field_exists(DocumentoFiscal, "usuario_criacao"):
+            obj.usuario_criacao = self.request.user
+        elif _field_exists(DocumentoFiscal, "criado_por"):
             obj.criado_por = self.request.user
         elif _field_exists(DocumentoFiscal, "created_by"):
             obj.created_by = self.request.user
+        if _field_exists(DocumentoFiscal, "origem") and not obj.origem:
+            obj.origem = "manual"
         state_field = _campo_estado(DocumentoFiscal)
         if state_field and not getattr(obj, state_field, None):
             field = DocumentoFiscal._meta.get_field(state_field)
@@ -257,7 +288,8 @@ class DocumentoFiscalCreateView(LoginRequiredMixin, CreateView):
         return context
 
 
-class DocumentoFiscalUpdateView(LoginRequiredMixin, UpdateView):
+class DocumentoFiscalUpdateView(LoginRequiredMixin, PermissaoAcaoMixin, UpdateView):
+    acao_requerida = "acessar_painel_principal_fiscal"
     model = DocumentoFiscal
     form_class = DocumentoFiscalWebForm
     template_name = "fiscal/documentos/formulario.html"
@@ -292,7 +324,8 @@ class DocumentoFiscalUpdateView(LoginRequiredMixin, UpdateView):
 # ---------------------------------------------------------------------------
 # Taxas de imposto
 # ---------------------------------------------------------------------------
-class TaxaIVAListView(LoginRequiredMixin, ListView):
+class TaxaIVAListView(LoginRequiredMixin, PermissaoAcaoMixin, ListView):
+    acao_requerida = "ver_taxas_iva"
     template_name = "fiscal/taxas_iva/lista.html"
     context_object_name = "taxas"
     paginate_by = 50
@@ -313,16 +346,17 @@ class TaxaIVAListView(LoginRequiredMixin, ListView):
         return context
 
 
-class TaxaIVACreateView(LoginRequiredMixin, CreateView):
+class TaxaIVACreateView(LoginRequiredMixin, PermissaoAcaoMixin, CreateView):
+    acao_requerida = "criar_taxas_iva"
     model = TaxaIVAAGT
     form_class = TaxaIVAWebForm
     template_name = "fiscal/taxas_iva/formulario.html"
     success_url = reverse_lazy("fiscal:taxas_iva")
 
     def form_valid(self, form):
-        empresa = _exigir_empresa(self.request)
+        # TaxaIVAAGT não possui FK Empresa: o schema activo já isola os registos.
+        _exigir_empresa(self.request)
         obj = form.save(commit=False)
-        obj.empresa = empresa
         try:
             obj.full_clean()
             obj.save()
@@ -333,7 +367,8 @@ class TaxaIVACreateView(LoginRequiredMixin, CreateView):
         return redirect(self.success_url)
 
 
-class TaxaIVAUpdateView(LoginRequiredMixin, UpdateView):
+class TaxaIVAUpdateView(LoginRequiredMixin, PermissaoAcaoMixin, UpdateView):
+    acao_requerida = "criar_taxas_iva"
     model = TaxaIVAAGT
     form_class = TaxaIVAWebForm
     template_name = "fiscal/taxas_iva/formulario.html"
@@ -357,7 +392,8 @@ class TaxaIVAUpdateView(LoginRequiredMixin, UpdateView):
 # ---------------------------------------------------------------------------
 # Retenções na fonte
 # ---------------------------------------------------------------------------
-class RetencaoFonteListView(LoginRequiredMixin, ListView):
+class RetencaoFonteListView(LoginRequiredMixin, PermissaoAcaoMixin, ListView):
+    acao_requerida = "gerir_retencoes_na_fonte"
     template_name = "fiscal/retencoes/lista.html"
     context_object_name = "retencoes"
     paginate_by = 25
@@ -387,7 +423,8 @@ class RetencaoFonteListView(LoginRequiredMixin, ListView):
         return context
 
 
-class RetencaoFonteCreateView(LoginRequiredMixin, CreateView):
+class RetencaoFonteCreateView(LoginRequiredMixin, PermissaoAcaoMixin, CreateView):
+    acao_requerida = "criar_retencoes_na_fonte"
     model = RetencaoFonte
     form_class = RetencaoFonteWebForm
     template_name = "fiscal/retencoes/formulario.html"
@@ -398,10 +435,12 @@ class RetencaoFonteCreateView(LoginRequiredMixin, CreateView):
             obj = form.save(commit=False)
             if _field_exists(RetencaoFonte, "criado_por"):
                 obj.criado_por = self.request.user
+            # O valor é calculado antes de full_clean porque não é editável no formulário.
+            obj.valor_retido = (obj.valor_base * obj.taxa_retencao / Decimal("100.00")).quantize(Decimal("0.01"))
             obj.full_clean()
-            # A transação garante rollback se o hook contabilístico falhar.
+            # A transação evita gravação parcial durante o registo.
             with transaction.atomic():
-                obj.save()  # o model calcula o valor retido
+                obj.save()
         except (ValidationError, ValueError, AttributeError) as exc:
             form.add_error(None, str(exc))
             return self.form_invalid(form)
@@ -409,7 +448,8 @@ class RetencaoFonteCreateView(LoginRequiredMixin, CreateView):
         return redirect(self.success_url)
 
 
-class RetencaoFonteUpdateView(LoginRequiredMixin, UpdateView):
+class RetencaoFonteUpdateView(LoginRequiredMixin, PermissaoAcaoMixin, UpdateView):
+    acao_requerida = "criar_retencoes_na_fonte"
     model = RetencaoFonte
     form_class = RetencaoFonteWebForm
     template_name = "fiscal/retencoes/formulario.html"
@@ -421,6 +461,7 @@ class RetencaoFonteUpdateView(LoginRequiredMixin, UpdateView):
     def form_valid(self, form):
         try:
             obj = form.save(commit=False)
+            obj.valor_retido = (obj.valor_base * obj.taxa_retencao / Decimal("100.00")).quantize(Decimal("0.01"))
             obj.full_clean()
             with transaction.atomic():
                 obj.save()
@@ -432,9 +473,81 @@ class RetencaoFonteUpdateView(LoginRequiredMixin, UpdateView):
 
 
 # ---------------------------------------------------------------------------
+# Detalhe/exclusão e acções de retenção, sempre limitados ao schema activo
+# ---------------------------------------------------------------------------
+class TaxaIVADetailView(LoginRequiredMixin, PermissaoAcaoMixin, DetailView):
+    acao_requerida = "ver_taxas_iva"
+    model = TaxaIVAAGT
+    template_name = "fiscal/taxaiva_detail.html"
+    context_object_name = "taxa"
+
+    def get_queryset(self):
+        _exigir_empresa(self.request)
+        return TaxaIVAAGT.objects.all()
+
+
+class TaxaIVADeleteView(LoginRequiredMixin, PermissaoAcaoMixin, DeleteView):
+    acao_requerida = "apagar_taxas_iva"
+    model = TaxaIVAAGT
+    template_name = "fiscal/taxaiva_confirm_delete.html"
+    context_object_name = "taxa"
+    success_url = reverse_lazy("fiscal:taxas_iva")
+
+    def get_queryset(self):
+        _exigir_empresa(self.request)
+        return TaxaIVAAGT.objects.all()
+
+    def form_valid(self, form):
+        messages.success(self.request, "Taxa de imposto eliminada.")
+        return super().form_valid(form)
+
+
+class RetencaoFonteDetailView(LoginRequiredMixin, PermissaoAcaoMixin, DetailView):
+    acao_requerida = "gerir_retencoes_na_fonte"
+    model = RetencaoFonte
+    template_name = "fiscal/retencao_detail.html"
+    context_object_name = "retencao"
+
+    def get_queryset(self):
+        return _retencoes_empresa(_exigir_empresa(self.request))
+
+
+class RetencaoFonteDeleteView(LoginRequiredMixin, PermissaoAcaoMixin, DeleteView):
+    acao_requerida = "apagar_retencoes_na_fonte"
+    model = RetencaoFonte
+    template_name = "fiscal/retencao_confirm_delete.html"
+    context_object_name = "retencao"
+    success_url = reverse_lazy("fiscal:retencoes")
+
+    def get_queryset(self):
+        return _retencoes_empresa(_exigir_empresa(self.request))
+
+    def form_valid(self, form):
+        messages.success(self.request, "Retenção eliminada.")
+        return super().form_valid(form)
+
+
+class RetencaoMarcarPagaView(LoginRequiredMixin, PermissaoAcaoMixin, View):
+    acao_requerida = "marcar_retencoes_como_pago"
+    def post(self, request, *args, **kwargs):
+        empresa = _exigir_empresa(request)
+        retencao = get_object_or_404(_retencoes_empresa(empresa), pk=kwargs["pk"])
+        try:
+            from .services.utils import RetencaoFonteService, FiscalServiceError
+            actualizada = RetencaoFonteService.processar_pagamento_estado(retencao.pk, timezone.localdate())
+            if actualizada is None:
+                raise FiscalServiceError("O serviço não devolveu a retenção actualizada.")
+            messages.success(request, "Pagamento da retenção registado.")
+        except Exception as exc:
+            messages.error(request, f"Não foi possível confirmar o pagamento: {exc}")
+        return redirect("fiscal:retencoes")
+
+
+# ---------------------------------------------------------------------------
 # Configuração, relatórios, SAF-T, integridade e homologação
 # ---------------------------------------------------------------------------
-class AssinaturaDigitalConfigView(LoginRequiredMixin, TemplateView):
+class AssinaturaDigitalConfigView(LoginRequiredMixin, PermissaoAcaoMixin, TemplateView):
+    acao_requerida = "ver_status_atual_assinatura_digital"
     template_name = "fiscal/assinatura_digital.html"
 
     def get_context_data(self, **kwargs):
@@ -455,7 +568,8 @@ class AssinaturaDigitalConfigView(LoginRequiredMixin, TemplateView):
         return redirect("fiscal:assinatura_digital")
 
 
-class RelatoriosFiscaisView(LoginRequiredMixin, TemplateView):
+class RelatoriosFiscaisView(LoginRequiredMixin, PermissaoAcaoMixin, TemplateView):
+    acao_requerida = "ver_relatorio_fiscal"
     template_name = "fiscal/relatorios/index.html"
 
     def get_context_data(self, **kwargs):
@@ -486,7 +600,8 @@ class RelatoriosFiscaisView(LoginRequiredMixin, TemplateView):
         return context
 
 
-class SAFTExportWebView(LoginRequiredMixin, View):
+class SAFTExportWebView(LoginRequiredMixin, PermissaoAcaoMixin, View):
+    acao_requerida = "exportar_saft"
     template_name = "fiscal/saft/exportar.html"
 
     def get(self, request, *args, **kwargs):
@@ -555,7 +670,8 @@ class SAFTExportWebView(LoginRequiredMixin, View):
         return render(request, self.template_name, context)
 
 
-class VerificarIntegridadeView(LoginRequiredMixin, View):
+class VerificarIntegridadeView(LoginRequiredMixin, PermissaoAcaoMixin, View):
+    acao_requerida = "verificar_integridade_cadeia_hash_fiscal"
     template_name = "fiscal/integridade.html"
 
     def get(self, request, *args, **kwargs):
@@ -587,7 +703,8 @@ class VerificarIntegridadeView(LoginRequiredMixin, View):
             return render(request, self.template_name, {"resultado": {"ok": False, "mensagem": str(exc)}, "falhas": [], "total_falhas": 1, "ultima_execucao": timezone.now()}, status=422)
 
 
-class ValidacaoFiscalView(LoginRequiredMixin, TemplateView):
+class ValidacaoFiscalView(LoginRequiredMixin, PermissaoAcaoMixin, TemplateView):
+    acao_requerida = "validar_documentos_fiscais"
     template_name = "fiscal/validacao.html"
 
     def get_context_data(self, **kwargs):
@@ -607,7 +724,8 @@ class ValidacaoFiscalView(LoginRequiredMixin, TemplateView):
         return context
 
 
-class ConfiguracoesFiscalView(LoginRequiredMixin, TemplateView):
+class ConfiguracoesFiscalView(LoginRequiredMixin, PermissaoAcaoMixin, TemplateView):
+    acao_requerida = "acessar_configuracao_fiscal"
     template_name = "fiscal/configuracoes.html"
 
     def get_context_data(self, **kwargs):
@@ -622,7 +740,8 @@ class ConfiguracoesFiscalView(LoginRequiredMixin, TemplateView):
         return context
 
 
-class HomologacaoDashboardView(LoginRequiredMixin, TemplateView):
+class HomologacaoDashboardView(LoginRequiredMixin, PermissaoAcaoMixin, TemplateView):
+    acao_requerida = "ver_status_atual_assinatura_digital"
     template_name = "fiscal/homologacao.html"
 
     def get_context_data(self, **kwargs):
@@ -659,3 +778,10 @@ class HomologacaoDashboardView(LoginRequiredMixin, TemplateView):
             response["estado_agt"] = "Sem resposta"
             response["mensagem"] = "O serviço de estado não devolveu informação. Consulte os logs de integração."
         return render(request, self.template_name, response)
+ # apps/fiscal/utility/__init__.py
+import hashlib
+import base64
+import logging
+from typing import Dict, Optional, Any
+
+logger = logging.getLogger(__name__)

@@ -13,6 +13,7 @@ from datetime import date, datetime, timedelta
 from decimal import Decimal
 import json
 
+
 from apps.funcionarios.utils import funcionario_tem_turno_aberto
 from apps.vendas.models import FaturaCredito, PagamentoVenda, Venda
 
@@ -25,6 +26,13 @@ from .models import (
     HistoricoSalarial
 )
 from django.contrib.auth.mixins import AccessMixin
+from django.core.exceptions import PermissionDenied
+from django.contrib.auth import update_session_auth_hash
+from django.contrib.auth.forms import SetPasswordForm, PasswordChangeForm
+from django.db import connection
+from django.views.generic import FormView
+from .forms import AvaliacaoDesempenhoForm, FuncionarioCreateForm, CriarAcessoForm
+
 
 
 # =====================================
@@ -95,6 +103,66 @@ def permissao_acao_required(acao_requerida=None):
             return view_func(request, *args, **kwargs)
         return _wrapped_view
     return decorator
+
+
+# =====================================
+# HELPERS MULTI-TENANT / SENHAS
+# Usuario vive no schema public (partilhado): tudo o que mexe em contas
+# tem de confirmar que a conta pertence ao tenant ativo.
+# =====================================
+
+def _empresa_atual():
+    """Tenant ativo; None se estivermos no schema public."""
+    if connection.schema_name == 'public':
+        return None
+    return connection.tenant
+
+
+def _funcionario_de(user):
+    try:
+        return user.funcionario
+    except Exception:
+        return None
+
+
+def _e_admin_da_empresa(user):
+    emp = _empresa_atual()
+    return bool(emp and user.e_administrador_empresa and user.empresa_id == emp.pk)
+
+
+def _tem_acao(user, acao):
+    """Admin da empresa passa sempre; os restantes dependem do cargo."""
+    if _e_admin_da_empresa(user):
+        return True
+    f = _funcionario_de(user)
+    return bool(f and f.pode_realizar_acao(acao))
+
+
+def _conta_do_tenant(usuario):
+    emp = _empresa_atual()
+    return bool(emp and usuario.empresa_id == emp.pk)
+
+
+def _pode_gerir_senha(user, funcionario):
+    """Própria conta, ou quem tem pode_gerir_senhas (ou é admin da empresa)."""
+    if not _empresa_atual():
+        return False
+    if funcionario.usuario_id:
+        if not _conta_do_tenant(funcionario.usuario):
+            return False
+        if funcionario.usuario_id == user.pk:
+            return True
+    return _tem_acao(user, 'gerir_senhas')
+
+
+def _sincronizar_login(funcionario):
+    """Mantém Usuario.is_active alinhado com Funcionario.ativo."""
+    u = funcionario.usuario
+    if u and _conta_do_tenant(u) and u.is_active != funcionario.ativo:
+        u.is_active = funcionario.ativo
+        u.save(update_fields=['is_active'])
+
+
 
 
 class FuncionarioDashboardView(LoginRequiredMixin, PermissaoAcaoMixin,  TemplateView):
@@ -186,26 +254,84 @@ class FuncionarioDetailView(LoginRequiredMixin, PermissaoAcaoMixin, DetailView):
         })
         return context
 
+
 class FuncionarioCreateView(LoginRequiredMixin, PermissaoAcaoMixin, CreateView):
     acao_requerida = 'acessar_rh'
     model = Funcionario
+    form_class = FuncionarioCreateForm
     template_name = 'funcionarios/form.html'
-    fields = [
-        'nome_completo', 'bi', 'data_nascimento', 'sexo', 'estado_civil',
-        'endereco', 'numero', 'bairro', 'cidade', 'provincia', 'postal',
-        'telefone', 'whatsapp', 'email_pessoal', 'email_corporativo',
-        'cargo', 'departamento', 'supervisor',
-        'tipo_contrato', 'data_admissao', 'salario_atual',
-        'vale_alimentacao', 'vale_transporte', 'escolaridade'
-    ]
-    
+
+    def dispatch(self, request, *args, **kwargs):
+        # Criar funcionário = definir uma senha inicial. Sem esta verificação,
+        # quem só tem acessar_rh podia criar uma conta com um cargo mais alto.
+        if request.user.is_authenticated and not _tem_acao(request.user, 'gerir_senhas'):
+            messages.error(request, "Criar funcionários com acesso requer a permissão de gestão de senhas.")
+            return redirect('core_tenants:dashboard')
+        return super().dispatch(request, *args, **kwargs)
+
     def form_valid(self, form):
-        form.instance.empresa = self.request.user.empresa
-        messages.success(self.request, 'Funcionário criado com sucesso!')
-        return super().form_valid(form)
-    
+        empresa = _empresa_atual()
+        if not empresa:
+            messages.error(self.request, "Operação indisponível fora de uma empresa.")
+            return redirect('core_tenants:dashboard')
+        self.object = form.save(empresa=empresa)
+        messages.success(self.request, 'Funcionário criado com acesso ao sistema!')
+        return redirect(self.get_success_url())
+
     def get_success_url(self):
         return reverse_lazy('funcionarios:detail', kwargs={'pk': self.object.pk})
+
+
+class FuncionarioSenhaView(LoginRequiredMixin, FormView):
+    """
+    - Sem utilizador            -> criar acesso (email + senha)
+    - O próprio funcionário     -> alterar senha (pede a senha atual)
+    - Gestor de senhas / admin  -> redefinir senha (sem senha atual)
+    """
+    template_name = 'funcionarios/senha_form.html'
+
+    def dispatch(self, request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return self.handle_no_permission()
+        self.funcionario = get_object_or_404(Funcionario, pk=kwargs['pk'])
+        if not _pode_gerir_senha(request.user, self.funcionario):
+            messages.error(request, "Não tem permissão para gerir esta senha.")
+            return redirect('core_tenants:dashboard')
+        self.proprio = bool(self.funcionario.usuario_id) and self.funcionario.usuario_id == request.user.pk
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_form_class(self):
+        if not self.funcionario.usuario_id:
+            return CriarAcessoForm
+        return PasswordChangeForm if self.proprio else SetPasswordForm
+
+    def get_form_kwargs(self):
+        kwargs = {}
+        if self.request.method in ('POST', 'PUT'):
+            kwargs['data'] = self.request.POST
+        if not self.funcionario.usuario_id:
+            kwargs.update(funcionario=self.funcionario, empresa=_empresa_atual())
+        else:
+            kwargs['user'] = self.funcionario.usuario
+        return kwargs
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        ctx['funcionario'] = self.funcionario
+        ctx['titulo'] = (
+            "Criar acesso ao sistema" if not self.funcionario.usuario_id
+            else "Alterar a minha senha" if self.proprio else "Redefinir senha"
+        )
+        return ctx
+
+    def form_valid(self, form):
+        form.save()
+        if self.proprio:
+            # form.user é a instância já com a nova senha; evita terminar a sessão
+            update_session_auth_hash(self.request, form.user)
+        messages.success(self.request, "Senha guardada com sucesso.")
+        return redirect('funcionarios:perfil', pk=self.funcionario.pk)
+
 
 class FuncionarioUpdateView(LoginRequiredMixin, PermissaoAcaoMixin, UpdateView):
     acao_requerida = 'acessar_rh'
@@ -238,13 +364,13 @@ class FuncionarioDeleteView(LoginRequiredMixin, PermissaoAcaoMixin, DeleteView):
 # =====================================
 # STATUS DO FUNCIONÁRIO
 # =====================================
-
 @login_required
 @permissao_acao_required(acao_requerida='acessar_rh')
 def ativar_funcionario(request, pk):
     funcionario = get_object_or_404(Funcionario, pk=pk)
     funcionario.ativo = True
     funcionario.save()
+    _sincronizar_login(funcionario)
     messages.success(request, f'{funcionario.nome_completo} foi ativado.')
     return redirect('funcionarios:detail', pk=pk)
 
@@ -254,8 +380,10 @@ def desativar_funcionario(request, pk):
     funcionario = get_object_or_404(Funcionario, pk=pk)
     funcionario.ativo = False
     funcionario.save()
+    _sincronizar_login(funcionario)
     messages.warning(request, f'{funcionario.nome_completo} foi desativado.')
     return redirect('funcionarios:detail', pk=pk)
+
 
 class AtivarFuncionarioView(LoginRequiredMixin, PermissaoAcaoMixin, TemplateView):
     acao_requerida = 'acessar_rh'
@@ -278,6 +406,7 @@ class SuspenderFuncionarioView(LoginRequiredMixin, PermissaoAcaoMixin, TemplateV
         messages.warning(request, f'{funcionario.nome_completo} foi suspenso.')
         return redirect('funcionarios:detail', pk=pk)
 
+
 class DemitirFuncionarioView(LoginRequiredMixin, PermissaoAcaoMixin, TemplateView):
     acao_requerida = 'acessar_rh'
     def post(self, request, pk):
@@ -285,9 +414,11 @@ class DemitirFuncionarioView(LoginRequiredMixin, PermissaoAcaoMixin, TemplateVie
         funcionario.ativo = False
         funcionario.data_demissao = timezone.now().date()
         funcionario.save()
+        _sincronizar_login(funcionario)
         messages.error(request, f'{funcionario.nome_completo} foi demitido.')
         return redirect('funcionarios:detail', pk=pk)
 
+    
 # =====================================
 # PERFIL E DADOS PESSOAIS
 # =====================================
@@ -296,6 +427,21 @@ class PerfilFuncionarioView(LoginRequiredMixin, DetailView):
     model = Funcionario
     template_name = 'funcionarios/perfil.html'
     context_object_name = 'funcionario'
+
+    def get_object(self, queryset=None):
+        obj = super().get_object(queryset)
+        meu = _funcionario_de(self.request.user)
+        self.proprio = bool(meu and meu.pk == obj.pk)
+        if not (self.proprio or _tem_acao(self.request.user, 'acessar_rh')):
+            raise PermissionDenied
+        return obj
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        ctx['pode_gerir_senha'] = _pode_gerir_senha(self.request.user, self.object)
+        ctx['proprio_perfil'] = self.proprio
+        return ctx
+    
 
 class DocumentosFuncionarioView(LoginRequiredMixin, PermissaoAcaoMixin, DetailView):
     acao_requerida = 'acessar_rh'
@@ -1035,13 +1181,13 @@ class ResponsabilidadeTecnicaView(LoginRequiredMixin, PermissaoAcaoMixin, ListVi
 class AvaliacaoDesempenhoListView(LoginRequiredMixin, PermissaoAcaoMixin, ListView):
     acao_requerida = 'acessar_rh'
     model = AvaliacaoDesempenho
-    template_name = 'avaliacoes/lista.html'
+    template_name = 'avaliacoes_funcionarios/lista.html'
     context_object_name = 'avaliacoes'
 
 class AvaliacoesFuncionarioView(LoginRequiredMixin, PermissaoAcaoMixin, DetailView):
     acao_requerida = 'acessar_rh'
     model = Funcionario
-    template_name = 'avaliacoes/funcionario.html'
+    template_name = 'avaliacoes_funcionarios/funcionario.html'
     context_object_name = 'funcionario'
     
     def get_context_data(self, **kwargs):
@@ -1049,24 +1195,39 @@ class AvaliacoesFuncionarioView(LoginRequiredMixin, PermissaoAcaoMixin, DetailVi
         context['avaliacoes'] = self.object.avaliacoes.order_by('-data_avaliacao')
         return context
 
+
+
 class NovaAvaliacaoView(LoginRequiredMixin, PermissaoAcaoMixin, CreateView):
     acao_requerida = 'acessar_rh'
     model = AvaliacaoDesempenho
-    template_name = 'avaliacoes/form.html'
-    fields = [
-        'funcionario', 'tipo_avaliacao', 'periodo_inicio', 'periodo_fim',
-        'pontualidade', 'assiduidade', 'qualidade_trabalho', 'produtividade',
-        'iniciativa', 'relacionamento_interpessoal', 'conhecimento_tecnico',
-        'lideranca', 'pontos_fortes', 'pontos_melhorar', 'metas_objetivos'
-    ]
-    
+    form_class = AvaliacaoDesempenhoForm
+    template_name = 'avaliacoes_funcionarios/form.html'
+
+    def get_funcionario(self):
+        if not hasattr(self, '_funcionario'):
+            self._funcionario = get_object_or_404(Funcionario, pk=self.kwargs['pk'])
+        return self._funcionario
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        ctx['funcionario'] = self.get_funcionario()
+        return ctx
+
     def form_valid(self, form):
-        form.instance.avaliador = get_object_or_404(Funcionario, usuario=self.request.user)
+        avaliador = _funcionario_de(self.request.user)
+        if not avaliador:
+            messages.error(self.request, "Só um funcionário pode registar avaliações.")
+            return redirect('funcionarios:detail', pk=self.get_funcionario().pk)
+        form.instance.funcionario = self.get_funcionario()
+        form.instance.avaliador = avaliador
         form.instance.data_avaliacao = timezone.now().date()
+        messages.success(self.request, 'Avaliação registada com sucesso!')
         return super().form_valid(form)
-    
+
     def get_success_url(self):
         return reverse_lazy('funcionarios:funcionario_avaliacoes', kwargs={'pk': self.object.funcionario.pk})
+
+
 
 class MetasFuncionarioView(LoginRequiredMixin, PermissaoAcaoMixin, ListView):
     acao_requerida = 'acessar_rh'
@@ -1182,13 +1343,13 @@ class DeclaracoesView(LoginRequiredMixin, PermissaoAcaoMixin, DetailView):
 class ComunicadoListView(LoginRequiredMixin, PermissaoAcaoMixin, ListView):
     acao_requerida = 'acessar_rh'
     model = Comunicado
-    template_name = 'comunicados/lista.html'
+    template_name = 'funcionarios/comunicados/lista.html'
     context_object_name = 'comunicados'
 
 class ComunicadoCreateView(LoginRequiredMixin, PermissaoAcaoMixin, CreateView):
     acao_requerida = 'acessar_rh'
     model = Comunicado
-    template_name = 'comunicados/form.html'
+    template_name = 'funcionarios/comunicados/form.html'
     fields = ['titulo', 'mensagem']
     
     def form_valid(self, form):
@@ -1199,13 +1360,17 @@ class ComunicadoCreateView(LoginRequiredMixin, PermissaoAcaoMixin, CreateView):
 
 class EnviarComunicadoView(LoginRequiredMixin, PermissaoAcaoMixin, TemplateView):
     acao_requerida = 'acessar_rh'
-    template_name = 'comunicados/enviar.html'
+    template_name = 'funcionarios/comunicados/enviar.html'
 
 class MuralEletronicoView(LoginRequiredMixin, PermissaoAcaoMixin, ListView):
     acao_requerida = 'acessar_rh'
     model = Comunicado
     template_name = 'funcionarios/mural.html'
     context_object_name = 'comunicados'
+
+    def form_valid(self, form):
+            form.instance.autor = self.request.user
+            return super().form_valid(form)
     
     def get_queryset(self):
         return Comunicado.objects.order_by('-created_at')[:10]

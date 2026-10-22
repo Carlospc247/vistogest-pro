@@ -1,5 +1,8 @@
 <!--dashboard_config.html-->
 {% extends "base.html" %}
+{% block vendor_libs %}
+  {% include 'partials/vendor_jquery.html' %}
+{% endblock %}
 {% block title %}Gestão do Site — {{ config.nome_exibicao }}{% endblock %}
 
 {# O base.html já renderiza um page_header ("Dashboard"); aqui usamos o nosso próprio cabeçalho. #}

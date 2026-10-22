@@ -4,42 +4,50 @@ Views da app site — site institucional + loja online.
 """
 import copy
 import hashlib
+import hmac
 import json
 import logging
 import re
+import secrets
+from uuid import UUID
 from datetime import timedelta
 from decimal import Decimal
 
 from django.conf import settings
 from django.contrib import messages
+from django.contrib.auth.hashers import check_password, make_password
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib.messages.views import SuccessMessageMixin
-from django.core.exceptions import ObjectDoesNotExist, PermissionDenied
+from django.core.exceptions import ObjectDoesNotExist, PermissionDenied, ValidationError as DjangoValidationError
 from django.core.mail import send_mail
+from django.core.validators import validate_email
 from django.core.signing import BadSignature, SignatureExpired, TimestampSigner
-from django.db import connection, models, transaction
+from django.db import IntegrityError, connection, models, transaction
 from django.db.models import Avg, Count, DurationField, ExpressionWrapper, F, Max
 from django.db.models.functions import TruncDate
-from django.http import JsonResponse
+from django.http import FileResponse, Http404, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.text import slugify
+from django.utils.dateparse import parse_datetime
+from django.utils.http import url_has_allowed_host_and_scheme
 from django.views import View
 from django.views.generic import CreateView
 from django_tenants.utils import get_public_schema_name
-from rest_framework import permissions, viewsets
+from rest_framework import permissions, serializers, viewsets
 
-from apps.clientes.models import Cliente
+from apps.clientes.models import Cliente, ContratoCliente
+from apps.comunicacao.models import Conversa
 from apps.produtos.models import Produto
 from apps.servicos.models import AgendamentoServico, Servico
 
 from .forms import CandidaturaForm
 from .models import (
     Candidatura, Carrinho, ClienteSite, ComprovativoCompra, ConfiguracaoSite,
-    Concurso, EventoSite, ItemCarrinho, ItemPedidoOnline, Pagina, PedidoOnline,
-    ProdutoSite, Reclamacao, Secao, ServicoSite, SolicitacaoContato,
-    formatar_duracao,
+    Concurso, DocumentoPartilhado, EventoSite, ItemCarrinho, ItemPedidoOnline,
+    Pagina, PedidoOnline, ProdutoSite, Reclamacao, Secao, ServicoSite,
+    SolicitacaoContato, formatar_duracao,
 )
 from .serializers import (
     CandidaturaSerializer, CarrinhoSerializer, ClienteSiteSerializer,
@@ -61,23 +69,32 @@ def _obter_config():
 
 
 def _esta_no_public():
-    return getattr(connection, 'schema_name', None) == get_public_schema_name()
+    """Falha de forma segura se o schema actual não puder ser identificado."""
+    schema = getattr(connection, 'schema_name', None)
+    return not schema or schema == get_public_schema_name()
 
 
 def _pode_gerir_site(user):
-    """
-    True se o utilizador pode gerir o site:
-    superuser, ou funcionário ativo cujo cargo tenha pode_gerir_site.
-    """
-    if not user.is_authenticated:
+    """Verifica superuser ou funcionário activo com a acção gerir_site."""
+    if not getattr(user, 'is_authenticated', False):
         return False
-    if user.is_superuser:
+    if getattr(user, 'is_superuser', False):
         return True
-    try:
-        funcionario = user.funcionario_relacionado
-    except ObjectDoesNotExist:
-        return False   # utilizador sem funcionário associado
-    return funcionario.pode_realizar_acao('gerir_site')
+
+    # O nome da relação inversa pode variar entre versões do model Usuario.
+    for relacao in ('funcionario_relacionado', 'funcionario'):
+        try:
+            funcionario = getattr(user, relacao, None)
+        except (ObjectDoesNotExist, AttributeError):
+            funcionario = None
+        if funcionario is not None:
+            if not getattr(funcionario, 'ativo', True):
+                return False
+            try:
+                return bool(funcionario.pode_realizar_acao('gerir_site'))
+            except (AttributeError, TypeError):
+                return False
+    return False
 
 
 class TenantOnlyMixin:
@@ -96,18 +113,17 @@ class TenantOnlyMixin:
 
     def dispatch(self, request, *args, **kwargs):
         if _esta_no_public():
+            mensagem = "Operação permitida apenas no domínio da empresa."
             if self._e_ajax(request):
-                raise PermissionDenied("Operação permitida apenas no domínio da empresa.")
-            messages.error(
-                request,
-                "O gestor do site só está disponível no domínio da sua empresa."
-            )
+                return JsonResponse({'ok': False, 'error': mensagem}, status=403)
+            messages.error(request, "O gestor do site só está disponível no domínio da sua empresa.")
             return redirect(self.redirect_url_name)
 
         if not _pode_gerir_site(request.user):
+            mensagem = "Não tem permissão para gerir o site."
             if self._e_ajax(request):
-                raise PermissionDenied("Não tem permissão para gerir o site.")
-            messages.error(request, "Não tem permissão para gerir o site.")
+                return JsonResponse({'ok': False, 'error': mensagem}, status=403)
+            messages.error(request, mensagem)
             return redirect(self.redirect_sem_permissao)
 
         return super().dispatch(request, *args, **kwargs)
@@ -117,15 +133,16 @@ class PodeGerirSite(permissions.BasePermission):
     message = "Não tem permissão para gerir o site."
 
     def has_permission(self, request, view):
-        return _pode_gerir_site(request.user)
+        return not _esta_no_public() and _pode_gerir_site(request.user)
 
 
 class TenantBaseViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticated, PodeGerirSite]
 
     def get_queryset(self):
-        return self.queryset
-    
+        queryset = super().get_queryset()
+        return queryset.all() if queryset is not None else queryset
+
 def _obter_carrinho(request):
     """Obtém ou cria o carrinho activo para a sessão/cliente."""
     if not request.session.session_key:
@@ -151,7 +168,7 @@ def _contexto_base(request):
         'config':         config,
         'carrinho':       carrinho,
         'carrinho_total': carrinho.total_itens,
-        'cliente_logado': ClienteSite.objects.filter(pk=cliente_site_id, ativo=True).first() if cliente_site_id else None,
+        'cliente_logado': ClienteSite.objects.filter(pk=cliente_site_id, ativo=True).first() if cliente_site_id and str(cliente_site_id).isdigit() else None,
     }
 
 
@@ -181,11 +198,50 @@ def registar_evento(request, tipo, referencia=''):
         logger.warning("registar_evento falhou: %s", exc)
 
 
+def _limitar_vitrine(limite, padrao=8, maximo=50):
+    try:
+        limite = int(limite)
+    except (TypeError, ValueError):
+        limite = padrao
+    return max(1, min(limite, maximo))
+
+
+def _preco_base_servico(servico):
+    """Compatibilidade com models Servico que usam preco_padrao ou preco."""
+    valor = getattr(servico, 'preco_padrao', None)
+    if valor is None:
+        valor = getattr(servico, 'preco', Decimal('0.00'))
+    return valor if valor is not None else Decimal('0.00')
+
+
+def _preco_config_servico(configuracao):
+    """Preço do serviço: preço customizado ou preço-base actual do model Servico."""
+    if configuracao.preco_customizado is not None:
+        return configuracao.preco_customizado
+    return _preco_base_servico(configuracao.servico)
+
+
+class _ConfiguracaoServicoContexto:
+    """Proxy de leitura: preserva a interface do model e corrige `preco_final` na view."""
+    def __init__(self, configuracao):
+        self._configuracao = configuracao
+        self.preco_final = _preco_config_servico(configuracao)
+
+    def __getattr__(self, nome):
+        return getattr(self._configuracao, nome)
+
+
+def _config_servico_contexto(configuracao):
+    return _ConfiguracaoServicoContexto(configuracao)
+
+
 def _vitrine_produtos(limite, so_destaque=False):
+    limite = _limitar_vitrine(limite)
     ocultos = set(ProdutoSite.objects.filter(visivel_na_loja=False).values_list('produto_id', flat=True))
     cfg = {c.produto_id: c for c in ProdutoSite.objects.filter(visivel_na_loja=True)}
     itens = []
-    for p in Produto.objects.filter(ativo=True).exclude(id__in=ocultos):
+    produtos = Produto.objects.filter(ativo=True).exclude(id__in=ocultos).order_by('nome_produto')
+    for p in produtos:
         c = cfg.get(p.id)
         if so_destaque and not (c and c.destaque):
             continue
@@ -193,24 +249,33 @@ def _vitrine_produtos(limite, so_destaque=False):
         try:
             img = p.imagem.url if getattr(p, 'imagem', None) else ''
         except Exception:
-            pass
-        itens.append({'id': p.id, 'nome': p.nome_produto, 'imagem': img,
-                      'preco': c.preco_final if c else getattr(p, 'preco_venda', Decimal('0.00'))})
+            img = ''
+        itens.append({
+            'id': p.id,
+            'nome': p.nome_produto,
+            'imagem': img,
+            'preco': c.preco_final if c else getattr(p, 'preco_venda', Decimal('0.00')),
+        })
         if len(itens) >= limite:
             break
     return itens
 
 
 def _vitrine_servicos(limite):
+    limite = _limitar_vitrine(limite, padrao=6)
     ocultos = set(ServicoSite.objects.filter(visivel_na_loja=False).values_list('servico_id', flat=True))
     cfg = {c.servico_id: c for c in ServicoSite.objects.filter(visivel_na_loja=True)}
     itens = []
-    for s in Servico.objects.filter(ativo=True).exclude(id__in=ocultos)[:limite]:
-        c = cfg.get(s.id)
-        itens.append({'id': s.id, 'nome': s.nome, 'descricao': getattr(s, 'descricao', ''),
-                      'preco': c.preco_final if c else getattr(s, 'preco', Decimal('0.00'))})
+    servicos = Servico.objects.filter(ativo=True).exclude(id__in=ocultos).order_by('nome')
+    for servico in servicos[:limite]:
+        configuracao = cfg.get(servico.pk)
+        itens.append({
+            'id': servico.pk,
+            'nome': servico.nome,
+            'descricao': getattr(servico, 'descricao', '') or '',
+            'preco': _preco_config_servico(configuracao) if configuracao else _preco_base_servico(servico),
+        })
     return itens
-
 
 
 def _preparar_secoes(qs):
@@ -284,10 +349,89 @@ def _preparar_secoes(qs):
 
 
 def _json_body(request):
-    try:
-        return json.loads(request.body or b'{}')
-    except Exception:
+    """Lê JSON de objecto; para formulários normais, devolve os campos POST."""
+    if not request.body:
         return request.POST.dict()
+    try:
+        data = json.loads(request.body.decode(request.encoding or 'utf-8'))
+    except (UnicodeDecodeError, json.JSONDecodeError, TypeError, ValueError):
+        return request.POST.dict()
+    return data if isinstance(data, dict) else {}
+
+
+def _redirect_retorno_seguro(request, fallback='site:pagina_home'):
+    """Usa o Referer apenas se for um URL permitido no host actual."""
+    referer = request.META.get('HTTP_REFERER', '')
+    if referer and url_has_allowed_host_and_scheme(
+        referer,
+        allowed_hosts={request.get_host()},
+        require_https=request.is_secure(),
+    ):
+        return redirect(referer)
+    return redirect(fallback)
+
+
+def _verificar_senha_cliente(cliente, senha):
+    """Verifica hashes Django e migra, no login, hashes SHA-256 legados."""
+    armazenada = (getattr(cliente, 'senha_hash', '') or '').strip()
+    if not armazenada:
+        return False
+
+    if re.fullmatch(r'[0-9a-fA-F]{64}', armazenada):
+        legada = hashlib.sha256(senha.encode('utf-8')).hexdigest()
+        if not hmac.compare_digest(armazenada.lower(), legada.lower()):
+            return False
+        cliente.senha_hash = make_password(senha)
+        cliente.save(update_fields=['senha_hash', 'updated_at'])
+        return True
+
+    try:
+        return check_password(senha, armazenada)
+    except (ValueError, TypeError):
+        return False
+
+
+def _iniciar_sessao_cliente(request, cliente):
+    """Rotaciona a sessão ao autenticar e preserva o carrinho anónimo existente."""
+    chave_antiga = request.session.session_key
+    request.session.cycle_key()
+    chave_nova = request.session.session_key
+    if not chave_antiga or not chave_nova or chave_antiga == chave_nova:
+        return
+
+    with transaction.atomic():
+        carrinho_visitante = Carrinho.objects.select_for_update().filter(
+            session_key=chave_antiga, ativo=True, cliente_site__isnull=True,
+        ).first()
+        if not carrinho_visitante:
+            return
+
+        carrinho_cliente = Carrinho.objects.select_for_update().filter(
+            cliente_site=cliente, ativo=True,
+        ).exclude(pk=carrinho_visitante.pk).first()
+        if not carrinho_cliente:
+            carrinho_visitante.cliente_site = cliente
+            carrinho_visitante.session_key = chave_nova
+            carrinho_visitante.save(update_fields=['cliente_site', 'session_key', 'updated_at'])
+            return
+
+        for item_visitante in carrinho_visitante.itens.select_for_update().all():
+            item_cliente = ItemCarrinho.objects.select_for_update().filter(
+                carrinho=carrinho_cliente,
+                produto_id=item_visitante.produto_id,
+                servico_id=item_visitante.servico_id,
+            ).first()
+            if item_cliente:
+                item_cliente.quantidade += item_visitante.quantidade
+                item_cliente.preco_unitario = item_visitante.preco_unitario
+                item_cliente.save(update_fields=['quantidade', 'preco_unitario', 'updated_at'])
+                item_visitante.delete()
+            else:
+                item_visitante.carrinho = carrinho_cliente
+                item_visitante.save(update_fields=['carrinho', 'updated_at'])
+
+        carrinho_visitante.ativo = False
+        carrinho_visitante.save(update_fields=['ativo', 'updated_at'])
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -309,15 +453,23 @@ class SecaoViewSet(TenantBaseViewSet):
     serializer_class  = SecaoSerializer
 
 class ProdutoSiteViewSet(TenantBaseViewSet):
-    queryset          = ProdutoSite.objects.filter(visivel_na_loja=True)
+    queryset          = ProdutoSite.objects.all()
     serializer_class  = ProdutoSiteSerializer
 
+class ServicoSiteAPISerializer(ServicoSiteSerializer):
+    """Corrige o preço apresentado pela API sem depender da property do model."""
+    preco_final = serializers.SerializerMethodField()
+
+    def get_preco_final(self, obj):
+        return str(_preco_config_servico(obj))
+
+
 class ServicoSiteViewSet(TenantBaseViewSet):
-    queryset          = ServicoSite.objects.filter(visivel_na_loja=True)
-    serializer_class  = ServicoSiteSerializer
+    queryset          = ServicoSite.objects.all()
+    serializer_class  = ServicoSiteAPISerializer
 
 class ConcursoViewSet(TenantBaseViewSet):
-    queryset          = Concurso.objects.filter(ativo=True)
+    queryset          = Concurso.objects.all()
     serializer_class  = ConcursoSerializer
 
 class CandidaturaViewSet(TenantBaseViewSet):
@@ -373,7 +525,13 @@ class SitePreviewView(LoginRequiredMixin, View):
     template_name = 'site/index.html'
 
     def get(self, request, slug, token):
-        pagina = get_object_or_404(Pagina, slug=slug, preview_token=token)
+        if _esta_no_public():
+            raise Http404('Pré-visualização disponível apenas no domínio da empresa.')
+        try:
+            token_uuid = UUID(str(token))
+        except (ValueError, TypeError, AttributeError):
+            raise Http404('Token de pré-visualização inválido.')
+        pagina = get_object_or_404(Pagina, slug=slug, preview_token=token_uuid)
         ctx = _contexto_base(request)
         ctx.update({
             'pagina':               pagina,
@@ -417,7 +575,10 @@ class LojaView(View):
         ).values_list('servico_id', flat=True)
 
         servicos = Servico.objects.filter(ativo=True).exclude(id__in=ocultos_servico)
-        config_servico = {s.servico_id: s for s in ServicoSite.objects.filter(visivel_na_loja=True)}
+        config_servico = {
+            c.servico_id: _config_servico_contexto(c)
+            for c in ServicoSite.objects.filter(visivel_na_loja=True).select_related('servico')
+        }
 
         registar_evento(request, 'visita')  # loja
         ctx = _contexto_base(request)
@@ -438,14 +599,14 @@ class ProdutoDetalheView(View):
 
     def get(self, request, pk):
         produto = get_object_or_404(Produto, pk=pk, ativo=True)
-        # Verificar se está oculto
-        config_p = ProdutoSite.objects.filter(produto=produto, visivel_na_loja=False).first()
-        if config_p:
+        config_p = ProdutoSite.objects.filter(produto=produto).first()
+        if config_p and not config_p.visivel_na_loja:
             return redirect('site:loja')
-        try:
-            preco = ProdutoSite.objects.get(produto=produto).preco_final
-        except ProdutoSite.DoesNotExist:
-            preco = getattr(produto, 'preco_venda', Decimal('0.00'))
+        preco = (
+            config_p.preco_final
+            if config_p
+            else getattr(produto, 'preco_venda', Decimal('0.00'))
+        )
 
         ctx = _contexto_base(request)
         registar_evento(request, 'produto', produto.nome_produto)  # track-produto
@@ -459,10 +620,14 @@ class ServicoDetalheView(View):
 
     def get(self, request, pk):
         servico = get_object_or_404(Servico, pk=pk, ativo=True)
-        try:
-            preco = ServicoSite.objects.get(servico=servico).preco_final
-        except ServicoSite.DoesNotExist:
-            preco = getattr(servico, 'preco', Decimal('0.00'))
+        configuracao_servico = ServicoSite.objects.filter(servico=servico).first()
+        if configuracao_servico and not configuracao_servico.visivel_na_loja:
+            return redirect('site:loja')
+        preco = (
+            _preco_config_servico(configuracao_servico)
+            if configuracao_servico
+            else _preco_base_servico(servico)
+        )
         ctx = _contexto_base(request)
         ctx.update({'servico': servico, 'preco': preco})
         return render(request, self.template_name, ctx)
@@ -485,52 +650,58 @@ class CarrinhoView(View):
 
 
 class AdicionarCarrinhoView(View):
-    """Adicionar item ao carrinho (AJAX ou POST normal)."""
+    """Adiciona um produto/serviço visível ao carrinho com validação de entrada."""
 
     def post(self, request):
-        carrinho  = _obter_carrinho(request)
-        tipo      = request.POST.get('tipo', 'produto')  # 'produto' ou 'servico'
-        item_id   = request.POST.get('item_id')
+        tipo = request.POST.get('tipo', 'produto').strip().lower()
+        item_id = request.POST.get('item_id')
         try:
-            quantidade = max(1, int(request.POST.get('quantidade', 1)))
+            quantidade = int(request.POST.get('quantidade', 1))
         except (TypeError, ValueError):
             return JsonResponse({'success': False, 'error': 'Quantidade inválida.'}, status=400)
 
+        if tipo not in {'produto', 'servico'}:
+            return JsonResponse({'success': False, 'error': 'Tipo de item inválido.'}, status=400)
+        if quantidade < 1 or quantidade > 1000:
+            return JsonResponse({'success': False, 'error': 'A quantidade deve estar entre 1 e 1000.'}, status=400)
         if not item_id:
-            return JsonResponse({'success': False, 'error': 'item_id obrigatório'}, status=400)
+            return JsonResponse({'success': False, 'error': 'item_id obrigatório.'}, status=400)
+
+        if tipo == 'produto':
+            item_catalogo = Produto.objects.filter(pk=item_id, ativo=True).first()
+            if not item_catalogo:
+                return JsonResponse({'success': False, 'error': 'Produto não encontrado.'}, status=404)
+            config_item = ProdutoSite.objects.filter(produto=item_catalogo).first()
+            if config_item and not config_item.visivel_na_loja:
+                return JsonResponse({'success': False, 'error': 'Este produto não está disponível na loja.'}, status=404)
+            preco = config_item.preco_final if config_item else getattr(item_catalogo, 'preco_venda', Decimal('0.00'))
+            filtros = {'carrinho': _obter_carrinho(request), 'produto': item_catalogo, 'servico': None}
+        else:
+            item_catalogo = Servico.objects.filter(pk=item_id, ativo=True).first()
+            if not item_catalogo:
+                return JsonResponse({'success': False, 'error': 'Serviço não encontrado.'}, status=404)
+            config_item = ServicoSite.objects.filter(servico=item_catalogo).first()
+            if config_item and not config_item.visivel_na_loja:
+                return JsonResponse({'success': False, 'error': 'Este serviço não está disponível na loja.'}, status=404)
+            preco = _preco_config_servico(config_item) if config_item else _preco_base_servico(item_catalogo)
+            filtros = {'carrinho': _obter_carrinho(request), 'produto': None, 'servico': item_catalogo}
 
         try:
-            if tipo == 'produto':
-                produto = get_object_or_404(Produto, pk=item_id, ativo=True)
-                try:
-                    preco = ProdutoSite.objects.get(produto=produto).preco_final
-                except ProdutoSite.DoesNotExist:
-                    preco = getattr(produto, 'preco_venda', Decimal('0.00'))
-                item, created = ItemCarrinho.objects.get_or_create(
-                    carrinho=carrinho, produto=produto,
-                    defaults={'preco_unitario': preco, 'quantidade': quantidade}
+            with transaction.atomic():
+                item, created = ItemCarrinho.objects.select_for_update().get_or_create(
+                    **filtros,
+                    defaults={'preco_unitario': preco, 'quantidade': quantidade},
                 )
                 if not created:
                     item.quantidade += quantidade
-                    item.save(update_fields=['quantidade'])
-            else:
-                servico = get_object_or_404(Servico, pk=item_id, ativo=True)
-                try:
-                    preco = ServicoSite.objects.get(servico=servico).preco_final
-                except ServicoSite.DoesNotExist:
-                    preco = getattr(servico, 'preco', Decimal('0.00'))
-                item, created = ItemCarrinho.objects.get_or_create(
-                    carrinho=carrinho, servico=servico,
-                    defaults={'preco_unitario': preco, 'quantidade': quantidade}
-                )
-                if not created:
-                    item.quantidade += quantidade
-                    item.save(update_fields=['quantidade'])
+                    item.preco_unitario = preco
+                    item.save(update_fields=['quantidade', 'preco_unitario', 'updated_at'])
+        except Exception:
+            logger.exception('Erro ao adicionar item ao carrinho (tipo=%s, item_id=%s).', tipo, item_id)
+            return JsonResponse({'success': False, 'error': 'Não foi possível adicionar o item ao carrinho.'}, status=500)
 
-        except Exception as exc:
-            return JsonResponse({'success': False, 'error': str(exc)}, status=400)
-
-        registar_evento(request, "carrinho", f"{tipo}:{item_id}")  # track-carrinho
+        carrinho = filtros['carrinho']
+        registar_evento(request, 'carrinho', f'{tipo}:{item_id}')
         return JsonResponse({
             'success': True,
             'total_itens': carrinho.total_itens,
@@ -568,28 +739,65 @@ class CheckoutView(View):
     @transaction.atomic
     def post(self, request):
         carrinho = _obter_carrinho(request)
-        if not carrinho.itens.exists():
+        itens_carrinho = list(carrinho.itens.select_related('produto', 'servico').all())
+        if not itens_carrinho:
+            messages.warning(request, "O seu carrinho está vazio.")
             return redirect('site:loja')
 
-        nome     = request.POST.get('nome', '').strip()
-        email    = request.POST.get('email', '').strip()
+        nome = request.POST.get('nome', '').strip()
+        email = request.POST.get('email', '').strip().lower()
         telefone = request.POST.get('telefone', '').strip()
         endereco = request.POST.get('endereco_entrega', '').strip()
-        notas    = request.POST.get('notas', '').strip()
+        notas = request.POST.get('notas', '').strip()
 
         if not nome or not email or not endereco:
             messages.error(request, "Nome, email e endereço de entrega são obrigatórios.")
             return redirect('site:checkout')
+        try:
+            validate_email(email)
+        except DjangoValidationError:
+            messages.error(request, "Indique um endereço de email válido.")
+            return redirect('site:checkout')
 
-        # Obter ou criar ClienteSite
-        cliente_site, _ = ClienteSite.objects.get_or_create(
-            email=email,
-            defaults={'nome': nome, 'telefone': telefone}
-        )
-        # Guardar na sessão
-        request.session['cliente_site_id'] = cliente_site.pk
+        cliente_sessao = None
+        cliente_sessao_id = request.session.get('cliente_site_id')
+        if cliente_sessao_id:
+            cliente_sessao = ClienteSite.objects.filter(pk=cliente_sessao_id, ativo=True).first()
+            if cliente_sessao is None:
+                request.session.pop('cliente_site_id', None)
 
-        # Criar PedidoOnline
+        if cliente_sessao:
+            # Um cliente autenticado não pode associar o seu pedido a outro email.
+            if cliente_sessao.email.strip().casefold() != email.casefold():
+                messages.error(request, "Use o email associado à sua conta ou termine a sessão antes de continuar.")
+                return redirect('site:checkout')
+            cliente_site = cliente_sessao
+        else:
+            existente = ClienteSite.objects.filter(email__iexact=email).first()
+            if existente:
+                messages.info(
+                    request,
+                    "Este email já está associado a uma conta. Entre na sua conta para concluir o pedido.",
+                )
+                return redirect('site:cliente_login')
+
+            # Conta de serviço para guardar o pedido de visitante. Não autentica
+            # automaticamente o visitante; o acesso à conta exige redefinição por email.
+            try:
+                with transaction.atomic():
+                    cliente_site = ClienteSite.objects.create(
+                        nome=nome,
+                        email=email,
+                        telefone=telefone,
+                        senha_hash=make_password(secrets.token_urlsafe(32)),
+                    )
+            except IntegrityError:
+                messages.info(
+                    request,
+                    "Este email já está associado a uma conta. Entre na sua conta para concluir o pedido.",
+                )
+                return redirect('site:cliente_login')
+
         pedido = PedidoOnline.objects.create(
             cliente_site=cliente_site,
             nome_destinatario=nome,
@@ -599,8 +807,7 @@ class CheckoutView(View):
             moeda=_obter_config().moeda,
         )
 
-        # Criar ItemPedidoOnline a partir do carrinho
-        for item in carrinho.itens.all():
+        for item in itens_carrinho:
             ItemPedidoOnline.objects.create(
                 pedido=pedido,
                 produto=item.produto,
@@ -611,12 +818,14 @@ class CheckoutView(View):
             )
 
         pedido.recalcular_total()
-
-        # Fechar carrinho
         carrinho.ativo = False
         carrinho.save(update_fields=['ativo'])
 
+        # Autoriza a página de confirmação apenas nesta sessão, sem criar uma
+        # sessão autenticada para a conta do checkout convidado.
+        request.session['pedido_confirmacao_ref'] = pedido.referencia
         return redirect('site:pedido_confirmacao', referencia=pedido.referencia)
+
 
 
 class PedidoConfirmacaoView(View):
@@ -625,6 +834,13 @@ class PedidoConfirmacaoView(View):
 
     def get(self, request, referencia):
         pedido = get_object_or_404(PedidoOnline, referencia=referencia)
+        cliente_site_id = request.session.get('cliente_site_id')
+        tem_acesso = (
+            request.session.get('pedido_confirmacao_ref') == pedido.referencia
+            or (cliente_site_id and str(cliente_site_id) == str(pedido.cliente_site_id))
+        )
+        if not tem_acesso:
+            raise Http404('Pedido não encontrado.')
         ctx = _contexto_base(request)
         ctx.update({
             'pedido':         pedido,
@@ -646,23 +862,40 @@ class ClienteRegistoView(View):
         return render(request, self.template_name, _contexto_base(request))
 
     def post(self, request):
-        nome     = request.POST.get('nome', '').strip()
-        email    = request.POST.get('email', '').strip()
+        nome = request.POST.get('nome', '').strip()
+        email = request.POST.get('email', '').strip().lower()
         telefone = request.POST.get('telefone', '').strip()
-        senha    = request.POST.get('senha', '').strip()
+        senha = request.POST.get('senha', '')
 
         if not nome or not email or not senha:
             messages.error(request, "Nome, email e senha são obrigatórios.")
             return redirect('site:cliente_registo')
+        if len(senha) < 6:
+            messages.error(request, "A senha deve ter pelo menos 6 caracteres.")
+            return redirect('site:cliente_registo')
+        try:
+            validate_email(email)
+        except DjangoValidationError:
+            messages.error(request, "Indique um endereço de email válido.")
+            return redirect('site:cliente_registo')
 
-        if ClienteSite.objects.filter(email=email).exists():
-            messages.error(request, "Este email já está registado.")
+        if ClienteSite.objects.filter(email__iexact=email).exists():
+            messages.error(request, "Este email já está registado. Entre ou recupere a senha.")
             return redirect('site:cliente_login')
 
-        senha_hash = hashlib.sha256(senha.encode()).hexdigest()
-        cliente = ClienteSite.objects.create(
-            nome=nome, email=email, telefone=telefone, senha_hash=senha_hash
-        )
+        try:
+            with transaction.atomic():
+                cliente = ClienteSite.objects.create(
+                    nome=nome,
+                    email=email,
+                    telefone=telefone,
+                    senha_hash=make_password(senha),
+                )
+        except IntegrityError:
+            messages.error(request, "Este email já está registado. Entre ou recupere a senha.")
+            return redirect('site:cliente_login')
+
+        _iniciar_sessao_cliente(request, cliente)
         request.session['cliente_site_id'] = cliente.pk
         messages.success(request, f"Bem-vindo(a), {nome}!")
         return redirect('site:cliente_perfil')
@@ -676,24 +909,31 @@ class ClienteLoginView(View):
         return render(request, self.template_name, _contexto_base(request))
 
     def post(self, request):
-        email = request.POST.get('email', '').strip()
-        senha = request.POST.get('senha', '').strip()
+        email = request.POST.get('email', '').strip().lower()
+        senha = request.POST.get('senha', '')
+        cliente = ClienteSite.objects.filter(email__iexact=email, ativo=True).first()
 
-        senha_hash = hashlib.sha256(senha.encode()).hexdigest()
-        try:
-            cliente = ClienteSite.objects.get(email=email, senha_hash=senha_hash, ativo=True)
+        if cliente and _verificar_senha_cliente(cliente, senha):
+            _iniciar_sessao_cliente(request, cliente)
             request.session['cliente_site_id'] = cliente.pk
             messages.success(request, f"Bem-vindo(a) de volta, {cliente.nome}!")
             return redirect('site:cliente_perfil')
-        except ClienteSite.DoesNotExist:
-            messages.error(request, "Email ou senha incorrectos.")
-            return redirect('site:cliente_login')
+
+        messages.error(request, "Email ou senha incorrectos.")
+        return redirect('site:cliente_login')
 
 
 class ClienteLogoutView(View):
-    def get(self, request):
-        request.session.pop('cliente_site_id', None)
+    def _logout(self, request):
+        request.session.flush()
         return redirect('site:loja')
+
+    # GET é mantido para compatibilidade com templates que já usam um link.
+    def get(self, request):
+        return self._logout(request)
+
+    def post(self, request):
+        return self._logout(request)
 
 
 class ClienteRecuperarSenhaView(View):
@@ -870,7 +1110,7 @@ class ClienteRedefinirSenhaView(View):
             return redirect('site:cliente_recuperar_senha')
 
         # Manter compatibilidade com o sistema actual (SHA-256 para ClienteSite).
-        cliente.senha_hash = hashlib.sha256(senha.encode('utf-8')).hexdigest()
+        cliente.senha_hash = make_password(senha)
         cliente.save(update_fields=['senha_hash', 'updated_at'])
 
         # Autenticar automaticamente o cliente após a redefinição.
@@ -881,7 +1121,7 @@ class ClienteRedefinirSenhaView(View):
 
 
 class ClientePerfilView(View):
-    """Área pessoal do cliente — pedidos, contactos e reclamações (com feedback do gestor)."""
+    """Área pessoal do cliente: pedidos, mensagens, serviços e documentos partilhados."""
     template_name = 'site/cliente/perfil.html'
 
     def dispatch(self, request, *args, **kwargs):
@@ -893,30 +1133,118 @@ class ClientePerfilView(View):
         cliente = get_object_or_404(
             ClienteSite,
             pk=request.session['cliente_site_id'],
-            ativo=True
+            ativo=True,
         )
-
         pedidos = PedidoOnline.objects.filter(cliente_site=cliente).order_by('-created_at')
-
-        # Os campos atendido, atendido_em, feedback_gestor e tempo_resposta_fmt
-        # (RastreioAtendimento) já vêm nos objetos — o template só os mostra.
         contactos = SolicitacaoContato.objects.filter(
-            email__iexact=cliente.email
+            email__iexact=cliente.email,
         ).order_by('-created_at')
-
         reclamacoes = Reclamacao.objects.filter(
-            cliente_email__iexact=cliente.email
+            cliente_email__iexact=cliente.email,
         ).order_by('-created_at')
 
+        # A conta pública liga-se ao cliente interno pelo e-mail, sempre no schema
+        # do tenant actual. Não usar um ID de cliente enviado pelo browser.
+        cliente_interno = Cliente.objects.filter(
+            email__iexact=cliente.email,
+            ativo=True,
+        ).order_by('pk').first()
+
+        # Inicializar o contexto ANTES de acrescentar serviços/contratos/conversas.
+        # O ficheiro recebido tentava usar ctx antes desta atribuição.
         ctx = _contexto_base(request)
         ctx.update({
             'cliente': cliente,
             'pedidos': pedidos,
             'contactos': contactos,
             'reclamacoes': reclamacoes,
+            'servicos_portal': (
+                AgendamentoServico.objects.filter(cliente=cliente_interno)
+                .select_related('servico').order_by('-data_hora')[:8]
+                if cliente_interno else AgendamentoServico.objects.none()
+            ),
+            'contratos_portal': (
+                ContratoCliente.objects.filter(cliente=cliente_interno).order_by('-created_at')[:8]
+                if cliente_interno else ContratoCliente.objects.none()
+            ),
+            'conversas_portal': (
+                Conversa.objects.filter(tipo='cliente', cliente=cliente_interno, ativa=True)
+                if cliente_interno else Conversa.objects.none()
+            ),
+            'documentos_comerciais': DocumentoPartilhado.objects.filter(
+                cliente_site=cliente,
+                ativo=True,
+            ).order_by('-created_at')[:50],
         })
         return render(request, self.template_name, ctx)
 
+
+class ClienteDocumentoComercialPDFView(View):
+    """Entrega apenas documentos partilhados com a conta autenticada no portal."""
+
+    def dispatch(self, request, *args, **kwargs):
+        if not request.session.get('cliente_site_id'):
+            return redirect('site:cliente_login')
+        return super().dispatch(request, *args, **kwargs)
+
+    def get(self, request, documento_id):
+        cliente_site = get_object_or_404(
+            ClienteSite,
+            pk=request.session['cliente_site_id'],
+            ativo=True,
+        )
+        partilha = get_object_or_404(
+            DocumentoPartilhado,
+            pk=documento_id,
+            cliente_site=cliente_site,
+            ativo=True,
+        )
+
+        # Imports locais evitam ciclos entre a app site, vendas e fiscal.
+        from apps.vendas.models import Venda, FaturaProforma, FaturaCredito
+        from apps.fiscal.services.pdf_agt_service import PDFDocumentoService
+
+        modelos = {
+            'venda': Venda,
+            'proforma': FaturaProforma,
+            'fatura_credito': FaturaCredito,
+        }
+        model = modelos.get(partilha.tipo_documento)
+        if model is None:
+            raise Http404('Tipo de documento inválido.')
+
+        documento = get_object_or_404(
+            model.objects.select_related('cliente'),
+            pk=partilha.documento_id,
+        )
+        cliente_interno = getattr(documento, 'cliente', None)
+        email_interno = (getattr(cliente_interno, 'email', '') or '').strip().casefold()
+        email_portal = (cliente_site.email or '').strip().casefold()
+        if not email_interno or email_interno != email_portal:
+            raise Http404('Documento indisponível para esta conta.')
+
+        try:
+            pdf = PDFDocumentoService(documento).gerar()
+        except Exception as exc:
+            logger.exception(
+                'Falha ao gerar PDF do documento partilhado %s (tipo=%s, id=%s).',
+                partilha.pk, partilha.tipo_documento, partilha.documento_id,
+            )
+            raise Http404('Não foi possível abrir este documento.') from exc
+
+        numero = str(getattr(documento, 'numero_documento', '') or documento.pk)
+        prefixo = {'venda': 'FR', 'proforma': 'FP', 'fatura_credito': 'FT'}[partilha.tipo_documento]
+        safe_numero = re.sub(r'[^A-Za-z0-9_.-]+', '_', numero).strip('._') or str(documento.pk)
+        response = FileResponse(
+            pdf,
+            as_attachment=False,
+            content_type='application/pdf',
+            filename=f'{prefixo}_{safe_numero}.pdf',
+        )
+        response['Cache-Control'] = 'private, no-store, max-age=0'
+        response['Pragma'] = 'no-cache'
+        response['X-Content-Type-Options'] = 'nosniff'
+        return response
 
 class MeusPedidosView(View):
     """Lista de pedidos do cliente autenticado no site."""
@@ -980,7 +1308,12 @@ class SolicitacaoContatoCreateView(View):
 
         if not nome or not email or not mensagem:
             messages.error(request, "Nome, email e mensagem são obrigatórios.")
-            return redirect(request.META.get('HTTP_REFERER', '/'))
+            return _redirect_retorno_seguro(request)
+        try:
+            validate_email(email)
+        except DjangoValidationError:
+            messages.error(request, "Indique um endereço de email válido.")
+            return _redirect_retorno_seguro(request)
 
         SolicitacaoContato.objects.create(
             nome=nome,
@@ -991,7 +1324,7 @@ class SolicitacaoContatoCreateView(View):
         )
 
         messages.success(request, "Mensagem enviada com sucesso!")
-        return redirect(request.META.get('HTTP_REFERER', '/'))
+        return _redirect_retorno_seguro(request)
 
 
 class ReclamacaoCreateView(View):
@@ -1027,7 +1360,12 @@ class ReclamacaoCreateView(View):
 
         if not cliente_nome or not cliente_email or not assunto or not mensagem:
             messages.error(request, "Nome, email, assunto e mensagem são obrigatórios.")
-            return redirect(request.META.get('HTTP_REFERER', '/'))
+            return _redirect_retorno_seguro(request)
+        try:
+            validate_email(cliente_email)
+        except DjangoValidationError:
+            messages.error(request, "Indique um endereço de email válido.")
+            return _redirect_retorno_seguro(request)
 
         Reclamacao.objects.create(
             cliente_nome=cliente_nome,
@@ -1038,7 +1376,7 @@ class ReclamacaoCreateView(View):
         )
 
         messages.success(request, "Reclamação registada com sucesso.")
-        return redirect(request.META.get('HTTP_REFERER', '/'))
+        return _redirect_retorno_seguro(request)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1116,6 +1454,7 @@ SECAO_DEFAULTS = {
 }
 
 
+
 class UploadImagemSecaoView(LoginRequiredMixin, TenantOnlyMixin, View):
     """Recebe uma imagem do editor e guarda-a no Cloudinary para uma secção."""
     MAX_BYTES = 8 * 1024 * 1024
@@ -1127,6 +1466,8 @@ class UploadImagemSecaoView(LoginRequiredMixin, TenantOnlyMixin, View):
     }
 
     def post(self, request, secao_id):
+        # O endpoint também serve imagens de galerias, equipa, parceiros e hero.
+        # A permissão continua protegida por TenantOnlyMixin.
         secao = get_object_or_404(Secao, pk=secao_id)
         imagem = request.FILES.get('imagem')
 
@@ -1149,6 +1490,7 @@ class UploadImagemSecaoView(LoginRequiredMixin, TenantOnlyMixin, View):
             )
 
         try:
+            # Cloudinary já é utilizado pelo modelo ConfiguracaoSite/Secao no projecto.
             import cloudinary.uploader
 
             tenant_folder = slugify(connection.schema_name) or 'tenant'
@@ -1161,6 +1503,7 @@ class UploadImagemSecaoView(LoginRequiredMixin, TenantOnlyMixin, View):
                 unique_filename=True,
                 overwrite=False,
             )
+
             url = resultado.get('secure_url')
             if not url:
                 raise RuntimeError('O serviço de imagens não devolveu um URL seguro.')
@@ -1170,6 +1513,7 @@ class UploadImagemSecaoView(LoginRequiredMixin, TenantOnlyMixin, View):
                 'url': url,
                 'public_id': resultado.get('public_id', ''),
             })
+
         except Exception:
             logger.exception(
                 'Falha ao carregar imagem de secção (secao_id=%s)', secao.pk
@@ -1178,7 +1522,6 @@ class UploadImagemSecaoView(LoginRequiredMixin, TenantOnlyMixin, View):
                 {'ok': False, 'error': 'Não foi possível carregar a imagem. Verifica a configuração do Cloudinary.'},
                 status=502,
             )
-
 
 
 # ─── S12 Site Builder ───────────────────────────────────────────────────────
@@ -1533,7 +1876,7 @@ class InteracoesSiteView(LoginRequiredMixin, TenantOnlyMixin, View):
             'cliente':      ClienteSite.objects.filter(created_at__gte=desde).count(),
             'carrinho':     Carrinho.objects.filter(ativo=True, itens__isnull=False, created_at__gte=desde).distinct().count(),
             'whatsapp':     ev.filter(tipo='whatsapp').count(),
-            'agendamento':  len(_feed_interacoes(desde, 'agendamento')),
+            'agendamento':  AgendamentoServico.objects.filter(status='agendado', created_at__gte=desde).count(),
         }
         abas = [{'chave': k, 'rotulo': v[0], 'icone': v[1], 'cor': v[2], 'n': contagens[k]}
                 for k, v in TIPOS_INTERACAO.items()]
@@ -1661,7 +2004,7 @@ class AtualizarDesignGlobalView(LoginRequiredMixin, TenantOnlyMixin, View):
         for campo in campos_bool:
             if campo in data:
                 val = data[campo]
-                setattr(config, campo, val is True or val == 'true' or val == 'on')
+                setattr(config, campo, val is True or str(val).strip().lower() in {'true', '1', 'on', 'yes', 'sim'})
 
         config.salvar()
         if is_ajax:
@@ -1699,26 +2042,53 @@ class AtualizarConfiguracaoView(LoginRequiredMixin, TenantOnlyMixin, View):
 
 
 class ReordenarSecoesView(LoginRequiredMixin, TenantOnlyMixin, View):
+    """Reordena secções sem permitir alterar secções de outra página."""
+
     def post(self, request):
-        try:
-            data = json.loads(request.body)
-        except Exception:
-            return JsonResponse({'ok': False, 'error': 'invalid json'}, status=400)
+        data = _json_body(request)
+        if not isinstance(data, dict):
+            return JsonResponse({'ok': False, 'error': 'JSON inválido.'}, status=400)
+
+        lista = data.get('ordem') or data.get('secoes') or []
+        if isinstance(lista, str):
+            try:
+                lista = json.loads(lista)
+            except (TypeError, ValueError, json.JSONDecodeError):
+                return JsonResponse({'ok': False, 'error': 'A ordem enviada não é JSON válido.'}, status=400)
+        if not isinstance(lista, list):
+            return JsonResponse({'ok': False, 'error': 'A ordem deve ser uma lista.'}, status=400)
+        if not lista:
+            return JsonResponse({'ok': True, 'atualizadas': 0})
+
+        pagina_id = data.get('pagina_id')
+        ids = []
+        for item in lista:
+            if not isinstance(item, dict):
+                return JsonResponse({'ok': False, 'error': 'Cada secção deve ser um objecto.'}, status=400)
+            try:
+                ids.append(int(item.get('id') or item.get('pk')))
+            except (TypeError, ValueError):
+                return JsonResponse({'ok': False, 'error': 'ID de secção inválido.'}, status=400)
+
+        if len(ids) != len(set(ids)):
+            return JsonResponse({'ok': False, 'error': 'A lista contém secções repetidas.'}, status=400)
+
+        # Compatibilidade com versões antigas do editor: infere a página da primeira secção.
+        primeira = get_object_or_404(Secao, pk=ids[0])
+        if pagina_id is None:
+            pagina_id = primeira.pagina_id
+        pagina = get_object_or_404(Pagina, pk=pagina_id)
+        ids_validos = set(pagina.secoes.values_list('pk', flat=True))
+        if any(pk not in ids_validos for pk in ids):
+            return JsonResponse(
+                {'ok': False, 'error': 'Todas as secções devem pertencer à mesma página.'},
+                status=400,
+            )
 
         with transaction.atomic():
-            # Aceita tanto {'secoes': [...]} como {'ordem': [...]}
-            lista = data.get('ordem') or data.get('secoes', [])
-            if isinstance(lista, str):
-                try:
-                    lista = json.loads(lista)
-                except Exception:
-                    lista = []
-            for item in lista:
-                pk = item.get('id') or item.get('pk')
-                ord_ = item.get('ordem', item.get('posicao', 0))
-                if pk is not None:
-                    Secao.objects.filter(pk=pk).update(ordem=ord_)
-        return JsonResponse({'ok': True})
+            for ordem, pk in enumerate(ids, start=1):
+                Secao.objects.filter(pk=pk, pagina=pagina).update(ordem=ordem)
+        return JsonResponse({'ok': True, 'atualizadas': len(ids)})
 
 
 class EditarConteudoSecaoView(LoginRequiredMixin, TenantOnlyMixin, View):
@@ -1772,7 +2142,7 @@ class EditarConteudoSecaoView(LoginRequiredMixin, TenantOnlyMixin, View):
                     setattr(secao, campo, design[campo])
 
         # Toggle ativo
-        if body.get('toggle_ativo'):
+        if 'toggle_ativo' in body and str(body.get('toggle_ativo')).lower() not in {'', '0', 'false', 'off', 'no'}:
             secao.ativo = not secao.ativo
 
         secao.save()
@@ -1826,28 +2196,61 @@ class EliminarSecaoView(LoginRequiredMixin, TenantOnlyMixin, View):
 
 
 class ProcessarAgendamentoSiteView(View):
-    """Bug 8 corrigido: sem 'empresa=' — TENANT_APP já está no schema correcto."""
+    """Regista um agendamento público no schema do tenant actual."""
+
     def post(self, request):
+        if _esta_no_public():
+            return JsonResponse(
+                {'success': False, 'error': 'Agendamentos só podem ser feitos no domínio da empresa.'},
+                status=403,
+            )
+
         servico_id = request.POST.get('servico_id')
-        email      = request.POST.get('email', '').strip()
-        nome       = request.POST.get('nome', '').strip()
-        telefone   = request.POST.get('telefone', '').strip()
-        data_hora  = request.POST.get('data_hora')
+        email = request.POST.get('email', '').strip().lower()
+        nome = request.POST.get('nome', '').strip()
+        telefone = request.POST.get('telefone', '').strip()
+        data_hora_raw = request.POST.get('data_hora', '').strip()
 
-        if not servico_id or not email or not data_hora:
-            return JsonResponse({'success': False, 'error': 'Campos obrigatórios em falta'}, status=400)
+        if not servico_id or not email or not nome or not data_hora_raw:
+            return JsonResponse({'success': False, 'error': 'Nome, serviço, email e data são obrigatórios.'}, status=400)
+        try:
+            validate_email(email)
+        except DjangoValidationError:
+            return JsonResponse({'success': False, 'error': 'Email inválido.'}, status=400)
 
-        servico = get_object_or_404(Servico, pk=servico_id, ativo=True)
-        cliente, _ = Cliente.objects.get_or_create(
-            email=email,
-            defaults={'nome_completo': nome, 'telefone': telefone}
-        )
-        AgendamentoServico.objects.create(
-            cliente=cliente,
-            servico=servico,
-            data_hora=data_hora,
-            valor_cobrado=getattr(servico, 'preco', Decimal('0.00')),
-            status='agendado',
-        )
+        data_hora = parse_datetime(data_hora_raw)
+        if data_hora is None:
+            return JsonResponse({'success': False, 'error': 'Data/hora inválida.'}, status=400)
+        if timezone.is_naive(data_hora):
+            data_hora = timezone.make_aware(data_hora, timezone.get_current_timezone())
+        if data_hora <= timezone.now():
+            return JsonResponse({'success': False, 'error': 'Seleccione uma data futura.'}, status=400)
+
+        servico = Servico.objects.filter(pk=servico_id, ativo=True).first()
+        if not servico:
+            return JsonResponse({'success': False, 'error': 'Serviço não encontrado ou inactivo.'}, status=404)
+        configuracao_servico = ServicoSite.objects.filter(servico=servico).first()
+        if configuracao_servico and not configuracao_servico.visivel_na_loja:
+            return JsonResponse({'success': False, 'error': 'Este serviço não está disponível no site.'}, status=404)
+
+        with transaction.atomic():
+            cliente = Cliente.objects.filter(email__iexact=email).first()
+            if cliente is None:
+                cliente = Cliente.objects.create(
+                    email=email,
+                    nome_completo=nome,
+                    telefone=telefone,
+                )
+            AgendamentoServico.objects.create(
+                cliente=cliente,
+                servico=servico,
+                data_hora=data_hora,
+                valor_cobrado=(
+                    _preco_config_servico(configuracao_servico)
+                    if configuracao_servico
+                    else _preco_base_servico(servico)
+                ),
+                status='agendado',
+            )
         return JsonResponse({'success': True, 'message': 'Agendamento registado!'})
 

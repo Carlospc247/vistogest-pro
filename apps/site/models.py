@@ -536,6 +536,43 @@ class ClienteSite(TimeStampedModel):
             self.sincronizar_com_sistema()
 
 
+
+class DocumentoPartilhado(TimeStampedModel):
+    """Registo explícito de documentos autorizados a aparecer na conta do cliente."""
+    TIPO_CHOICES = [
+        ('venda', 'Fatura-Recibo'),
+        ('proforma', 'Proforma'),
+        ('fatura_credito', 'Fatura a Crédito'),
+    ]
+
+    cliente_site = models.ForeignKey(
+        'site.ClienteSite', on_delete=models.CASCADE,
+        related_name='documentos_comerciais',
+    )
+    tipo_documento = models.CharField(max_length=24, choices=TIPO_CHOICES, db_index=True)
+    documento_id = models.PositiveBigIntegerField(db_index=True)
+    numero_documento = models.CharField(max_length=80, blank=True)
+    titulo = models.CharField(max_length=160, blank=True)
+    total = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal('0.00'))
+    compartilhado_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name='documentos_comerciais_partilhados',
+    )
+    ativo = models.BooleanField(default=True, db_index=True)
+
+    class Meta:
+        verbose_name = 'Documento partilhado com cliente'
+        verbose_name_plural = 'Documentos partilhados com clientes'
+        ordering = ['-created_at']
+        constraints = [models.UniqueConstraint(
+            fields=['cliente_site', 'tipo_documento', 'documento_id'],
+            name='uniq_doc_partilhado_cliente_tipo_id',
+        )]
+        indexes = [models.Index(fields=['cliente_site', 'ativo', 'created_at'])]
+
+    def __str__(self):
+        return f"{self.numero_documento or self.documento_id} — {self.cliente_site.email}"
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Carrinho de compras
 # ──────────────────────────────────────────────────────────────────────────────

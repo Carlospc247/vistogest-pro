@@ -137,6 +137,7 @@ TENANT_APPS = [
     "apps.saft",
     "apps.compras",
     "apps.site",
+    "apps.comunicacao",
 ]
 
 INSTALLED_APPS = SHARED_APPS + [app for app in TENANT_APPS if app not in SHARED_APPS]
@@ -264,13 +265,26 @@ CACHES = {
         "LOCATION": REDIS_URL or "redis://127.0.0.1:6379/1",
         "OPTIONS": {
             "CLIENT_CLASS": "django_redis.client.DefaultClient",
-            # IGNORE_EXCEPTIONS=True → falha silenciosa se Redis em baixo.
-            # Garante que o site não cai por falta de Redis.
             "IGNORE_EXCEPTIONS": True,
         },
         "KEY_PREFIX": "vistogest",
         "TIMEOUT": 300,
-    }
+    },
+    # Cache do BI (usado por _invalidar_cache_bi em apps/vendas/views.py)
+    "B_I": {
+        "BACKEND": "django_redis.cache.RedisCache",
+        "LOCATION": REDIS_URL or "redis://127.0.0.1:6379/1",
+        "OPTIONS": {
+            "CLIENT_CLASS": "django_redis.client.DefaultClient",
+            "IGNORE_EXCEPTIONS": True,
+        },
+        "KEY_PREFIX": "vistogest-bi",
+        "TIMEOUT": 300,
+        # Isola as chaves por schema: sem isto, os dados de BI de uma
+        # empresa podem aparecer noutra.
+        "KEY_FUNCTION": "django_tenants.cache.make_key",
+        "REVERSE_KEY_FUNCTION": "django_tenants.cache.reverse_key",
+    },
 }
 
 # ──────────────────────────────────────────────────────────────────────────────

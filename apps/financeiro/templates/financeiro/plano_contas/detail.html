@@ -1,0 +1,71 @@
+{# financeiro/plano_contas/detail.html #}
+{% extends "financeiro/base_financeiro.html" %}
+{% block title %}Conta {{ conta.codigo }}{% endblock %}
+{% block breadcrumb %}Plano de contas{% endblock %}
+{% block content %}
+<header class="page-head">
+  <div><h1>{{ conta.codigo }} — {{ conta.nome }}</h1><p>{{ conta.get_classe_display }}</p></div>
+  <div class="actions">
+    <a class="btn" href="{% url 'financeiro:plano_conta_update' conta.pk %}"><i class="fas fa-pen"></i> Editar</a>
+    {% if not conta.aceita_lancamentos %}
+    <a class="btn secondary" href="{% url 'financeiro:plano_conta_create' %}?conta_pai={{ conta.pk }}"><i class="fas fa-plus"></i> Subconta</a>
+    {% endif %}
+    <form method="post" action="{% url 'financeiro:plano_conta_alternar' conta.pk %}" style="display:inline">
+      {% csrf_token %}
+      <input type="hidden" name="next" value="{% url 'financeiro:plano_conta_detail' conta.pk %}">
+      <button class="btn secondary" type="submit">{% if conta.ativa %}<i class="fas fa-eye-slash"></i> Desativar{% else %}<i class="fas fa-eye"></i> Ativar{% endif %}</button>
+    </form>
+    <a class="btn secondary" href="{% url 'financeiro:plano_conta_delete' conta.pk %}"><i class="fas fa-trash"></i> Eliminar</a>
+    <a class="btn secondary" href="{% url 'financeiro:plano_conta_lista' %}"><i class="fas fa-arrow-left"></i> Lista</a>
+  </div>
+</header>
+
+<div class="two-col">
+  <section class="panel">
+    <h2><i class="fas fa-circle-info"></i> Dados da conta</h2>
+    <div class="detail-list">
+      <div class="detail-item"><div class="k">Código</div><div class="v">{{ conta.codigo }}</div></div>
+      <div class="detail-item"><div class="k">Designação</div><div class="v">{{ conta.nome }}</div></div>
+      <div class="detail-item"><div class="k">Natureza</div><div class="v">{{ conta.get_natureza_display }}</div></div>
+      <div class="detail-item"><div class="k">Agrupamento SAF-T</div><div class="v">{{ conta.get_agrupamento_saft_display }}</div></div>
+      <div class="detail-item"><div class="k">Conta agregadora</div><div class="v">{% if conta.conta_pai %}<a href="{% url 'financeiro:plano_conta_detail' conta.conta_pai.pk %}">{{ conta.conta_pai }}</a>{% else %}—{% endif %}</div></div>
+      <div class="detail-item"><div class="k">Aceita lançamentos</div><div class="v">{% if conta.aceita_lancamentos %}Sim{% else %}Não (agregadora){% endif %}</div></div>
+      <div class="detail-item"><div class="k">Estado</div><div class="v">{% if conta.ativa %}Ativa{% else %}Inativa{% endif %}</div></div>
+      <div class="detail-item"><div class="k">Origem</div><div class="v">{{ conta.origem }}</div></div>
+      {% if conta.descricao %}<div class="detail-item"><div class="k">Descrição</div><div class="v">{{ conta.descricao|linebreaksbr }}</div></div>{% endif %}
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2><i class="fas fa-link"></i> Utilização</h2>
+    <div class="detail-list">
+      <div class="detail-item"><div class="k">Subcontas</div><div class="v">{{ subcontas|length }}</div></div>
+      <div class="detail-item"><div class="k">Movimentações</div><div class="v">{{ total_movimentacoes }}</div></div>
+      <div class="detail-item"><div class="k">Categorias financeiras</div><div class="v">{{ total_categorias }}</div></div>
+    </div>
+    {% if impedimentos %}<p class="endpoint-note">Para eliminar esta conta, primeiro remova ou reassocie os registos ligados; ou desative-a.</p>{% endif %}
+  </section>
+</div>
+
+{% if subcontas %}
+<section class="panel">
+  <h2><i class="fas fa-sitemap"></i> Subcontas</h2>
+  <div class="link-grid">
+    {% for s in subcontas %}
+    <a class="link-card" href="{% url 'financeiro:plano_conta_detail' s.pk %}"><strong>{{ s.codigo }}</strong><span>{{ s.nome }}</span></a>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+
+{% if movimentacoes_recentes %}
+<section class="panel">
+  <h2><i class="fas fa-right-left"></i> Movimentações recentes</h2>
+  <div class="link-grid">
+    {% for m in movimentacoes_recentes %}
+    <a class="link-card" href="{% url 'financeiro:movimentacao_detail' m.pk %}"><strong>{{ m.descricao }}</strong><span>{{ m.data_movimentacao|date:"d/m/Y" }} · {{ m.valor|floatformat:2 }} AOA</span></a>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+{% endblock %}

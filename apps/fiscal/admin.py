@@ -1,154 +1,185 @@
 # apps/fiscal/admin.py
-from django.contrib import admin
-from django.utils.html import format_html
-from django.urls import path, reverse
-from django.http import HttpResponseRedirect
-from django.contrib import messages
-from django import forms
-from django.core.exceptions import ValidationError
-from django.utils import timezone
-from cryptography.hazmat.primitives.asymmetric import rsa
-from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.backends import default_backend
+"""Admin da assinatura fiscal com suporte ao schema public e aos tenants.
 
+A aplicação fiscal é tenant-local. Por isso o admin global não consulta a tabela
+fiscal_assinaturadigital em public; selecciona primeiro uma Empresa e só depois
+entra no respectivo schema através de schema_context.
+"""
+from django import forms
+from django.contrib import admin, messages
+from django.core.exceptions import PermissionDenied
+from django.shortcuts import get_object_or_404, redirect
+from django.template.response import TemplateResponse
+from django.urls import path, reverse
+from django.utils import timezone
+from django.db import connection
+from django_tenants.utils import schema_context
+
+from apps.empresas.models import Empresa
 from .models import AssinaturaDigital
 
 
-# FORM SIMPLIFICADO
-class AssinaturaDigitalForm(forms.ModelForm):
-    class Meta:
-        model = AssinaturaDigital
+class AssinaturaTenantForm(forms.Form):
+    nif_contribuinte = forms.CharField(
+        label="NIF do contribuinte", max_length=20,
+        widget=forms.TextInput(attrs={"class": "vTextField", "autocomplete": "off"}),
+    )
+    chave_privada = forms.CharField(
+        label="Chave privada emitida pela AGT (PEM)",
+        widget=forms.Textarea(attrs={"rows": 8, "class": "vLargeTextField", "autocomplete": "off"}),
+        help_text="A chave é cifrada antes de ser guardada. Nunca será devolvida pela interface.",
+    )
+    chave_publica = forms.CharField(
+        label="Chave pública emitida pela AGT (PEM)",
+        widget=forms.Textarea(attrs={"rows": 8, "class": "vLargeTextField", "autocomplete": "off"}),
+    )
 
-        fields = []
+    def clean_nif_contribuinte(self):
+        value = self.cleaned_data["nif_contribuinte"].strip()
+        if not value:
+            raise forms.ValidationError("O NIF é obrigatório.")
+        return value
 
-    def clean(self):
-        cleaned_data = super().clean()
+    def clean_chave_privada(self):
+        value = self.cleaned_data["chave_privada"].strip()
+        if "PRIVATE KEY" not in value:
+            raise forms.ValidationError("A chave privada deve estar no formato PEM.")
+        return value
 
-        # Garante a regra de 1 Assinatura Digital por Tenant/Schema
-        if AssinaturaDigital.objects.exists() and not self.instance.pk:
-            raise ValidationError("⚠️ Já existe uma assinatura digital configurada para este Tenant.")
-
-        return cleaned_data
+    def clean_chave_publica(self):
+        value = self.cleaned_data["chave_publica"].strip()
+        if "PUBLIC KEY" not in value and "CERTIFICATE" not in value:
+            raise forms.ValidationError("A chave pública/certificado deve estar no formato PEM.")
+        return value
 
 
 @admin.register(AssinaturaDigital)
 class AssinaturaDigitalAdmin(admin.ModelAdmin):
-    form = AssinaturaDigitalForm
-    
-    list_display = ['status_chave', 'data_geracao', 'acoes_download', 'acoes_rapidas']
-    
-    # Campos no formulário de edição
-    fields = ['gerar_chaves_btn', 'acoes_download', 'ver_chave_publica', 'data_geracao']
-    readonly_fields = ['gerar_chaves_btn', 'acoes_download', 'ver_chave_publica', 'data_geracao']
+    list_display = ("nif_contribuinte", "status_chave", "data_configuracao_chave", "configurada_por")
+    fields = ("nif_contribuinte", "estado_configuracao", "data_configuracao_chave", "configurada_por")
+    readonly_fields = fields
+    ordering = ("nif_contribuinte",)
 
     def get_urls(self):
-        urls = super().get_urls()
-        custom_urls = [
+        custom = [
             path(
-                '<int:pk>/gerar-chaves/',
-                self.admin_site.admin_view(self.gerar_chaves_view),
-                name='fiscal_assinaturadigital_gerar_chaves',
+                "gestao-tenants/",
+                self.admin_site.admin_view(self.gestao_tenants_view),
+                name="fiscal_assinaturadigital_global",
+            ),
+            path(
+                "gestao-tenants/<int:empresa_id>/configurar/",
+                self.admin_site.admin_view(self.configurar_tenant_view),
+                name="fiscal_assinaturadigital_configurar_tenant",
             ),
         ]
-        return custom_urls + urls
+        return custom + super().get_urls()
 
-    def gerar_chaves_view(self, request, pk):
-        """
-        View exclusiva para gerar par de chaves RSA (Privada/Pública).
-        """
-        obj = self.get_object(request, pk)
-        if not obj:
-            messages.error(request, "Assinatura não encontrada.")
-            return HttpResponseRedirect(reverse('admin:fiscal_assinaturadigital_changelist'))
+    def changelist_view(self, request, extra_context=None):
+        # A tabela fiscal_assinaturadigital não existe em public: o admin global
+        # deve listar tenants, nunca executar o ChangeList sobre a tabela tenant-local.
+        if getattr(connection, "schema_name", "public") == "public":
+            return self.gestao_tenants_view(request)
+        return super().changelist_view(request, extra_context=extra_context)
 
-        try:
-            # 1. Gerar Chave Privada RSA 2048 bits
-            private_key = rsa.generate_private_key(
-                public_exponent=65537,
-                key_size=2048,
-                backend=default_backend()
-            )
+    def has_add_permission(self, request):
+        # A linha singleton é criada automaticamente pelo get_solo() no schema alvo.
+        return False
 
-            # 2. Serializar Chave Privada (PEM)
-            pem_private = private_key.private_bytes(
-                encoding=serialization.Encoding.PEM,
-                format=serialization.PrivateFormat.PKCS8,
-                encryption_algorithm=serialization.NoEncryption()
-            )
+    def has_change_permission(self, request, obj=None):
+        # A configuração global passa pela view que activa o schema do tenant.
+        return False
 
-            # 3. Serializar Chave Pública (PEM)
-            pem_public = private_key.public_key().public_bytes(
-                encoding=serialization.Encoding.PEM,
-                format=serialization.PublicFormat.SubjectPublicKeyInfo
-            )
-
-            # 4. Atualizar Objeto
-            obj.chave_privada = pem_private.decode('utf-8')
-            obj.chave_publica = pem_public.decode('utf-8')
-            obj.data_geracao = timezone.now()
-            
-            obj.save()
-
-            messages.success(request, "✅ Chaves RSA geradas com sucesso para o Tenant!")
-            
-        except Exception as e:
-            messages.error(request, f"Erro ao gerar chaves: {str(e)}")
-
-        return HttpResponseRedirect(reverse('admin:fiscal_assinaturadigital_change', args=[pk]))
-
-    def acoes_download(self, obj):
-        if not obj.chave_publica:
-            return "-"
-            
-        # As URLs no contexto do tenant não necessitam receber o id da empresa
-        url_base = reverse("fiscal:baixar_chave_publica")
-        
-        botoes = [
-            '<div style="margin-bottom: 5px;"><strong>Chave Pública:</strong></div>',
-            f'<a class="button" href="{url_base}?formato=pem" title="Formato PEM (Padrão)">PEM</a>',
-            f'<a class="button" href="{url_base}?formato=txt" title="Formato Texto">TXT</a>',
-            f'<a class="button" href="{url_base}?formato=pdf" title="Documento PDF">PDF</a>',
-            '<br><div style="margin-top: 8px; margin-bottom: 5px;"><strong>Documentos Fiscais:</strong></div>',
-            f'<a class="button" href="{reverse("fiscal:baixar_pdf_submissao")}">📄 PDF AGT</a>',
-            f'<a class="button" href="{reverse("fiscal:download_pdf_agt")}">⚙️ Fluxo ATCUD</a>',
-        ]
-        return format_html(" ".join(botoes))
-    acoes_download.short_description = "Downloads & Fluxo Fiscal"
-
-    def gerar_chaves_btn(self, obj):
-        if not obj.pk:
-            return "Grave a configuração primeiro para gerar as chaves."
-        
-        url = reverse('admin:fiscal_assinaturadigital_gerar_chaves', args=[obj.pk])
-        return format_html(
-            '''
-            <a class="button" href="{}" style="background-color: #28a745; color: white; padding: 10px 20px; border-radius: 5px; font-weight: bold; text-decoration: none;">
-                🔑 CRIAR CHAVE PÚBLICA (Gerar Par RSA)
-            </a>
-            <p style="margin-top:10px; color:#666;">
-                <i>Ao clicar, uma nova chave privada e pública serão geradas e salvas automaticamente.</i>
-            </p>
-            ''',
-            url
-        )
-    gerar_chaves_btn.short_description = "Ação Necessária"
-
-    def ver_chave_publica(self, obj):
-        if not obj.chave_publica:
-            return "-"
-        return format_html(
-            '<textarea readonly style="width: 100%; height: 150px; font-family: monospace;">{}</textarea>',
-            obj.chave_publica
-        )
-    ver_chave_publica.short_description = "Chave Pública (PEM)"
+    def has_delete_permission(self, request, obj=None):
+        return False
 
     def status_chave(self, obj):
-        if obj.chave_publica and obj.chave_privada:
-            return format_html('<span style="color: green;">✅ Ativa</span>')
-        return format_html('<span style="color: red;">❌ Pendente</span>')
-    status_chave.short_description = "Status"
+        return "Configurada" if getattr(obj, "esta_configurada", False) else "Pendente"
+    status_chave.short_description = "Estado da assinatura"
 
-    def acoes_rapidas(self, obj):
-        # Atalho para o botão na listagem
-        return self.gerar_chaves_btn(obj)
-    acoes_rapidas.short_description = "Gerar Chaves"
+    def estado_configuracao(self, obj):
+        return self.status_chave(obj)
+    estado_configuracao.short_description = "Estado"
+
+    def gestao_tenants_view(self, request):
+        if not request.user.is_superuser:
+            raise PermissionDenied("Só o superuser pode configurar chaves fiscais de tenants.")
+        if getattr(connection, "schema_name", "public") != "public":
+            raise PermissionDenied("A gestão global das chaves deve ser aberta no admin do schema public.")
+
+        empresas = Empresa.objects.all().order_by("nome")
+        context = {
+            **self.admin_site.each_context(request),
+            "title": "Configuração fiscal por tenant",
+            "opts": self.model._meta,
+            "empresas": empresas,
+            "configurar_url_name": "admin:fiscal_assinaturadigital_configurar_tenant",
+        }
+        return TemplateResponse(
+            request,
+            "admin/fiscal/assinaturadigital/global_changelist.html",
+            context,
+        )
+
+    def configurar_tenant_view(self, request, empresa_id):
+        if not request.user.is_superuser:
+            raise PermissionDenied("Só o superuser pode configurar chaves fiscais de tenants.")
+        if getattr(connection, "schema_name", "public") != "public":
+            raise PermissionDenied("Abra esta página a partir do admin global em public.")
+
+        empresa = get_object_or_404(Empresa, pk=empresa_id)
+        if not getattr(empresa, "schema_name", None) or empresa.schema_name == "public":
+            messages.error(request, "A empresa seleccionada não possui um schema de tenant válido.")
+            return redirect("admin:fiscal_assinaturadigital_global")
+
+        if request.method == "POST":
+            form = AssinaturaTenantForm(request.POST)
+            if form.is_valid():
+                try:
+                    with schema_context(empresa.schema_name):
+                        configuracao = AssinaturaDigital.get_solo()
+                        configuracao.definir_chaves(
+                            nif=form.cleaned_data["nif_contribuinte"],
+                            chave_privada_pem=form.cleaned_data["chave_privada"],
+                            chave_publica_pem=form.cleaned_data["chave_publica"],
+                            usuario=request.user,
+                        )
+                        estado = configuracao.esta_configurada
+                        data_configuracao = configuracao.data_configuracao_chave
+                    if not estado:
+                        messages.warning(request, f"A configuração de {empresa.nome} foi guardada, mas não ficou completa.")
+                    else:
+                        messages.success(request, f"Chaves fiscais guardadas com sucesso para {empresa.nome}.")
+                    return redirect("admin:fiscal_assinaturadigital_global")
+                except Exception as exc:
+                    messages.error(request, f"Não foi possível configurar o tenant {empresa.nome}: {exc}")
+        else:
+            form = AssinaturaTenantForm()
+            data_configuracao = None
+            try:
+                with schema_context(empresa.schema_name):
+                    configuracao = AssinaturaDigital.objects.filter(pk=1).first()
+                    if configuracao:
+                        form = AssinaturaTenantForm(initial={"nif_contribuinte": configuracao.nif_contribuinte})
+                        data_configuracao = configuracao.data_configuracao_chave
+            except Exception as exc:
+                messages.warning(request, f"Ainda não foi possível ler a configuração fiscal deste tenant: {exc}")
+
+        context = {
+            **self.admin_site.each_context(request),
+            "title": f"Configurar assinatura fiscal — {empresa.nome}",
+            "opts": self.model._meta,
+            "empresa": empresa,
+            "form": form,
+            "data_configuracao": data_configuracao,
+            "voltar_url": reverse("admin:fiscal_assinaturadigital_global"),
+        }
+        return TemplateResponse(
+            request,
+            "admin/fiscal/assinaturadigital/tenant_config.html",
+            context,
+        )
+
+
+# Preserva o registo dos catálogos fiscais adicionais já definidos na aplicação.
+from . import admin_referencia  # noqa: F401,E402

@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}Renovar licença — {{ cliente.empresa.nome }}{% endblock %}
+{% block content %}
+<section class="mx-auto max-w-2xl space-y-5 p-4 sm:p-6">
+  <div><h1 class="text-2xl font-bold">Renovar licença do cliente</h1><p class="mt-1 text-gray-600">{{ cliente.empresa.nome }}</p></div>
+  <div class="rounded-xl border bg-white p-4 text-sm"><p><strong>Licença actual:</strong> {{ cliente.licenca_cliente.get_status_display|default:"Sem licença associada" }}</p><p><strong>Vencimento actual:</strong> {{ cliente.licenca_cliente.data_vencimento|date:"d/m/Y"|default:"—" }}</p><p><strong>Preço oficial por mês:</strong> {{ cliente.licenca_cliente.plano.preco_mensal|floatformat:2 }} AOA</p><p class="mt-2 text-gray-600">O pedido não altera o vencimento. A renovação só será aplicada quando a equipa SOTARQ verificar o comprovativo e confirmar o recebimento. A comissão de 10% é calculada com base no preço oficial do plano.</p></div>
+  <form method="post" class="grid gap-4 rounded-xl border bg-white p-5">{% csrf_token %}
+    <label><span class="mb-1 block text-sm font-medium">Período adicional</span><select name="meses" class="w-full rounded-lg border p-2"><option value="1">1 mês</option><option value="3">3 meses</option><option value="6">6 meses</option><option value="12">12 meses</option><option value="24">24 meses</option></select></label>
+    <div class="rounded-lg bg-blue-50 p-3 text-sm text-blue-900">O valor previsto será calculado automaticamente pelo preço oficial do plano × período escolhido. O valor não pode ser alterado pelo parceiro.</div>
+    <label><span class="mb-1 block text-sm font-medium">Referência do pagamento/comprovativo</span><input name="referencia_pagamento" maxlength="180" class="w-full rounded-lg border p-2"></label>
+    <div class="flex flex-wrap gap-3"><button class="rounded-lg bg-blue-600 px-4 py-2 font-semibold text-white">Registar renovação</button><a class="rounded-lg border px-4 py-2" href="{% url 'parceiros:portal-clientes' %}">Cancelar</a></div>
+  </form>
+</section>
+{% endblock %}

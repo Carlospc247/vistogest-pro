@@ -71,7 +71,10 @@
     </div>
 </div>
 
+<!--usar o static para offline quando quiseres funcionar offline (PWA), troca o-->
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+{# {% static 'vendor/chartjs/chart.umd.min.js' %} #}
+
 <script>
     const ctx = document.getElementById('bypassChart').getContext('2d');
     new Chart(ctx, {

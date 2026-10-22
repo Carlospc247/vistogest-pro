@@ -1,0 +1,6 @@
+{% extends 'base.html' %}
+{% block title %}Criar grupo de funcionários{% endblock %}
+{% block page_title %}Criar grupo de funcionários{% endblock %}
+{% block content %}
+<form method="post" class="mx-auto max-w-2xl space-y-4 rounded-xl border bg-white p-6">{% csrf_token %}<label class="block">Nome do grupo<input name="titulo" required maxlength="180" class="mt-1 w-full rounded border p-2"></label><fieldset><legend class="mb-2 font-semibold">Participantes (funcionários activos do tenant)</legend><div class="max-h-80 space-y-2 overflow-y-auto">{% for f in funcionarios %}<label class="flex items-center gap-2"><input type="checkbox" name="funcionarios" value="{{ f.pk }}">{{ f.nome_completo|default:f.usuario }}</label>{% empty %}<p class="text-sm text-gray-500">Não existem funcionários activos com conta de utilizador.</p>{% endfor %}</div></fieldset><button class="rounded bg-blue-600 px-4 py-2 text-white">Criar grupo</button></form>
+{% endblock %}

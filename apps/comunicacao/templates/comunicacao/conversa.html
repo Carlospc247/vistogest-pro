@@ -1,0 +1,41 @@
+{% extends base_template %}
+{% block title %}{{ conversa.titulo|default:'Conversa' }}{% endblock %}
+{% block content %}
+<section class="mx-auto max-w-4xl space-y-4 px-4 py-8"><h1 class="text-2xl font-bold">{{ conversa.titulo|default:conversa.cliente.nome_exibicao|default:conversa }}</h1><div id="chat-mensagens" class="space-y-3 rounded-xl border bg-white p-4"></div><form method="post" enctype="multipart/form-data" class="space-y-3 rounded-xl border bg-white p-4">{% csrf_token %}<textarea name="texto" rows="3" class="w-full rounded border p-3" placeholder="Escreva uma mensagem... Pode mencionar @contrato:123 ou @servico:123"></textarea><input type="file" name="anexo" accept=".pdf,.png,.jpg,.jpeg,.webp,.doc,.docx,.xls,.xlsx,.txt"><button class="rounded bg-blue-600 px-4 py-2 text-white">Enviar</button></form></section>
+{{ mensagens_json|json_script:"chat-data" }}
+<script>
+const initialMessages = JSON.parse(document.getElementById("chat-data").textContent);
+const root = document.getElementById('chat-mensagens');
+let latestId = 0;
+function appendMessage(m) {
+  if (m.id <= latestId) return;
+  latestId = m.id;
+  const article = document.createElement('article'); article.className = 'rounded-lg border p-3';
+  const head = document.createElement('div'); head.className='flex justify-between gap-2 text-sm';
+  const who = document.createElement('strong'); who.textContent=m.autor;
+  const when = document.createElement('time'); when.textContent=new Date(m.created_at).toLocaleString();
+  head.append(who,when); article.append(head);
+  const body = document.createElement('p'); body.className='mt-2 whitespace-pre-wrap'; body.textContent=m.texto || ''; article.append(body);
+  for (const link of (m.mencoes || [])) {
+    const a=document.createElement('a'); a.href=link.url; a.textContent='↗ '+link.rotulo;
+    a.className='mr-2 mt-2 inline-block text-blue-700 underline'; article.append(a);
+  }
+  if (m.anexo_url) {
+    const a=document.createElement('a'); a.href=m.anexo_url; a.target='_blank'; a.rel='noopener';
+    a.textContent='Abrir anexo'; a.className='mt-2 inline-block text-blue-700 underline'; article.append(a);
+  }
+  root.append(article); root.scrollTop = root.scrollHeight;
+}
+for (const m of initialMessages) appendMessage(m);
+async function pollMessages() {
+  try {
+    const url = '{% url "clientes:mensagens_api" conversa.pk %}' + '?after_id=' + latestId;
+    const response = await fetch(url, {headers: {'X-Requested-With': 'XMLHttpRequest'}});
+    if (!response.ok) return;
+    const data = await response.json();
+    if (data.success) for (const m of data.mensagens) appendMessage(m);
+  } catch (_) { /* Keep chat usable when connectivity is temporarily interrupted. */ }
+}
+setInterval(pollMessages, 5000);
+</script>
+{% endblock %}

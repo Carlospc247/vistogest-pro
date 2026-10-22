@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="pt-pt">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Licença pendente de confirmação | vistoGEST</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-gray-100 flex items-center justify-center p-4">
+  <main class="w-full max-w-lg overflow-hidden rounded-2xl bg-white shadow-xl">
+    <div class="p-8 text-center">
+      <div class="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-full bg-amber-100 text-amber-700 text-3xl">⌛</div>
+      <h1 class="mb-2 text-2xl font-bold text-gray-900">Licença pendente de confirmação</h1>
+      <p class="mb-5 text-gray-600">A licença da empresa <strong>{{ licenca.empresa.nome }}</strong> ainda não está activa. Renove a sua Licença.</p>
+      <div class="mb-6 rounded-xl border bg-gray-50 p-4 text-left">
+        <p class="text-sm text-gray-500">Plano</p><p class="mb-3 font-semibold">{{ licenca.plano.nome }}</p>
+        <p class="text-sm text-gray-500">Referência da licença</p><p class="break-all font-mono text-sm">{{ licenca.chave_licenca }}</p>
+
+        <p class="text-gray-600 mb-6">
+            Lamentamos, mas o acesso ao sistema vistoGEST para a empresa 
+            <span class="font-bold text-blue-600">{{ licenca.empresa.nome }}</span> foi suspenso devido ao vencimento da anuidade.
+        </p>
+        
+        <div class="bg-gray-50 rounded-xl p-4 mb-8 text-left border border-gray-200">
+            <div class="text-sm text-gray-500">Data de Vencimento:</div>
+            <div class="text-lg font-mono font-bold text-red-700">{{ licenca.data_vencimento|date:"d/m/Y" }}</div>
+        </div>
+      </div>
+      <p class="mb-6 text-sm text-gray-500">O acesso será disponibilizado quando a confirmação financeira for concluída. Para informações, contacte o suporte SOTARQ SOFTWARE.</p>
+      <a href="mailto:financeiro@sotarq.com" class="inline-block rounded-lg bg-blue-600 px-5 py-3 font-semibold text-white">Contactar Financeiro</a>
+    </div>
+    <footer class="bg-gray-900 p-3 text-center text-xs font-bold tracking-widest text-white">SOTARQ SOFTWARE · VISTOGEST</footer>
+  </main>
+</body>
+</html>
