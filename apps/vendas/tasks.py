@@ -1,80 +1,68 @@
-# apps/vendas/tasks.py (NOVO ARQUIVO)
-from celery import shared_task
-from django.db.models import F, Sum, DecimalField
+# apps/vendas/tasks.py
+"""
+Alerta de margem crítica, por tenant.
+
+O alerta de stock mínimo saiu daqui: vive em apps/estoque/tasks.py (AlertaEstoque).
+"""
+import logging
 from datetime import timedelta
+
+from celery import shared_task
+from django.db.models import DecimalField, ExpressionWrapper, F, Sum
 from django.utils import timezone
-from apps.produtos.models import Produto # Ajuste o caminho
-from apps.vendas.models import ItemVenda
-# from apps.users.utils import enviar_email_alerta # Importe sua função de e-mail
+from django_tenants.utils import schema_context
 
-@shared_task
-def verificar_margem_critica():
+from apps.empresas.services import schemas_dos_tenants
+
+logger = logging.getLogger(__name__)
+
+LIMITE_MARGEM_CRITICA = 0.10  # 10 %
+DIAS_ANALISE = 7
+_DINHEIRO = DecimalField(max_digits=16, decimal_places=2)
+
+
+@shared_task(name="vendas.verificar_margem_critica_global", ignore_result=True)
+def verificar_margem_critica_global():
+    """Entrada do beat: uma task por tenant."""
+    schemas = schemas_dos_tenants()
+    for schema_name in schemas:
+        verificar_margem_critica.delay(schema_name)
+    return {"tenants": len(schemas)}
+
+
+@shared_task(name="vendas.verificar_margem_critica")
+def verificar_margem_critica(schema_name):
     """
-    Tarefa Celery para verificar produtos com margem de lucro abaixo do limite.
-    Executada periodicamente (e.g., diariamente).
+    Produtos vendidos nos últimos DIAS_ANALISE dias com margem bruta abaixo do limite.
+    Receita = subtotal sem IVA das linhas (já líquido de desconto); custo = quantidade * preco_custo.
+    Serviços (sem produto) ficam de fora.
     """
-    LIMITE_MARGEM_CRITICA = 0.10  # 10%
-    DIAS_ANALISE = 7 # Analisar os últimos 7 dias
+    from apps.vendas.models import ItemVenda
 
-    data_limite = timezone.now() - timedelta(days=DIAS_ANALISE)
-    
-    # 1. Calcular a Margem Agregada nos últimos 7 dias
-    margens = ItemVenda.objects.filter(
-        venda__data_venda__gte=data_limite
-    ).select_related('produto').values(
-        'produto__id', 'produto__nome'
-    ).annotate(
-        receita_total=Sum(F('quantidade') * F('preco_unitario')),
-        custo_total=Sum(F('quantidade') * F('produto__custo_unitario')),
-    ).annotate(
-        margem_bruta=(F('receita_total') - F('custo_total')) / F('receita_total', output_field=DecimalField())
-    )
+    desde = timezone.now() - timedelta(days=DIAS_ANALISE)
+    with schema_context(schema_name):
+        linhas = (
+            ItemVenda.objects
+            .filter(venda__status="finalizada", venda__data_venda__gte=desde, produto__isnull=False)
+            .values("produto_id", "produto__nome_produto")
+            .annotate(
+                receita=Sum("subtotal_sem_iva"),
+                custo=Sum(ExpressionWrapper(F("quantidade") * F("produto__preco_custo"),
+                                            output_field=_DINHEIRO)),
+            )
+            .filter(receita__gt=0)
+        )
+        criticos = []
+        for linha in linhas:
+            margem = float((linha["receita"] - linha["custo"]) / linha["receita"])
+            if margem < LIMITE_MARGEM_CRITICA:
+                criticos.append({
+                    "produto_id": linha["produto_id"],
+                    "produto": linha["produto__nome_produto"],
+                    "margem_percentual": round(margem * 100, 2),
+                })
 
-    alertas = []
-    
-    # 2. Identificar Alertas Críticos
-    for item in margens:
-        if item['margem_bruta'] is not None and item['margem_bruta'] < LIMITE_MARGEM_CRITICA:
-            alertas.append({
-                'produto': item['produto__nome'],
-                'percentual_margem': f"{item['margem_bruta'] * 100:.2f}%"
-            })
-
-    # 3. Disparar Notificação
-    if alertas:
-        assunto = "⚠️ ALERTA CRÍTICO: Produtos com Margem Abaixo de 10%"
-        corpo = "Os seguintes produtos apresentaram margem bruta inferior a 10% na última semana:\n\n"
-        for alerta in alertas:
-            corpo += f"- {alerta['produto']}: Margem de {alerta['percentual_margem']}\n"
-        corpo += "\n**Ação Imediata Necessária: Rever preços de venda e/ou custos de aquisição.**"
-        
-        # enviar_email_alerta(assunto, corpo, destinatarios=['gestor@empresa.com'])
-        print(f"ALERTE ENVIADO: {assunto}") # Simulação de envio
-        return f"ALERTA: {len(alertas)} produtos com margem crítica."
-    
-    return "Verificação de margem concluída. Sem alertas críticos."
-
-@shared_task
-def verificar_stock_critico():
-    """
-    Tarefa Celery para verificar o stock mínimo.
-    """
-    alertas = []
-    # Assumindo que o seu modelo Produto tem um campo 'stock_atual' e 'stock_minimo'
-    produtos_criticos = Produto.objects.filter(stock_atual__lte=F('stock_minimo'))
-    
-    for produto in produtos_criticos:
-        alertas.append(f"{produto.nome} (Stock: {produto.stock_atual})")
-        
-    if alertas:
-        assunto = "🛑 ALERTA DE STOCK: Baixo Stock Mínimo Atingido"
-        corpo = "Os seguintes produtos atingiram ou ultrapassaram o stock mínimo:\n\n"
-        corpo += "\n".join([f"- {a}" for a in alertas])
-        corpo += "\n**Ação Imediata Necessária: Gerar ordem de compra.**"
-        
-        # enviar_email_alerta(assunto, corpo, destinatarios=['logistica@empresa.com'])
-        print(f"ALERTE ENVIADO: {assunto}") # Simulação de envio
-        return f"ALERTA: {len(alertas)} produtos com stock crítico."
-        
-    return "Verificação de stock concluída. Sem alertas."
-
+    if criticos:
+        logger.warning("[%s] %d produto(s) com margem abaixo de %d%% nos últimos %d dias.",
+                       schema_name, len(criticos), LIMITE_MARGEM_CRITICA * 100, DIAS_ANALISE)
+    return {"schema": schema_name, "criticos": criticos}

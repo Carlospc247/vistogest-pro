@@ -1,3 +1,4 @@
+# apps/comunicacao/tasks.py
 """Asynchronous email alerts for chat messages."""
 import logging
 from celery import shared_task

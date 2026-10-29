@@ -797,12 +797,12 @@ class Agendamento(TimeStampedModel):
     ]
 
     # Vinculação à empresa
-    empresa = models.ForeignKey(
-        Empresa,
-        on_delete=models.CASCADE,
-        related_name='agendamentos',
-        help_text="Empresa responsável pelo agendamento."
-    )
+    #empresa = models.ForeignKey(
+    #    Empresa,
+    #    on_delete=models.CASCADE,
+    #    related_name='agendamentos',
+    #    help_text="Empresa responsável pelo agendamento."
+    #)
 
     # Identificação do agendamento
     nome = models.CharField(max_length=200, help_text="Nome do agendamento, ex: 'Relatório de Vendas Mensal'.")

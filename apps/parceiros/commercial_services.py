@@ -108,7 +108,7 @@ def registar_cliente_ilimitado(*, partner_id, empresa_id, plano_cliente_id, cria
     licenca = Licenca.objects.select_for_update().filter(empresa=empresa).first()
     if licenca is None:
         licenca = Licenca.objects.create(
-            empresa=empresa, plano=plano, data_inicio=hoje,
+            plano=plano, data_inicio=hoje,
             data_vencimento=vencimento_provisorio, status="pendente_pagamento",
         )
         HistoricoLicenca.objects.create(

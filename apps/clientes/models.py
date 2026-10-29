@@ -360,6 +360,14 @@ class EnderecoCliente(TimeStampedModel):
     
     def __str__(self):
         return f"{self.cliente.nome_exibicao} - {self.nome_endereco}"
+
+    @property
+    def nome(self):
+        """
+        Alias de compatibilidade para templates antigos que usam cliente.nome.
+        O campo oficial continua a ser nome_completo.
+        """
+        return self.nome_completo
     
     @property
     def endereco_completo(self):

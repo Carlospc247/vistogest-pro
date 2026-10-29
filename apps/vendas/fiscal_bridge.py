@@ -368,7 +368,6 @@ def emitir_documento_fiscal(origem, usuario=None, tipo_documento=None):
     documento = getattr(origem, "documento_fiscal", None)
     if documento is None:
         documento = DocumentoFiscalService.criar_documento(
-            empresa=empresa,
             tipo_documento=tipo_documento,
             usuario=usuario,
             cliente=getattr(origem, "cliente", None) or getattr(origem, "destinatario_cliente", None),

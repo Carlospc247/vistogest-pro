@@ -457,7 +457,7 @@ def validar_documentos_fiscais(empresa=None) -> dict:
 
 
 
-def gerar_numero_documento(empresa: Empresa, tipo_documento: str, serie: str = 'A') -> Dict[str, Any]:
+def gerar_numero_documento(tipo_documento: str, serie: str = 'A') -> Dict[str, Any]:
     """
     Gera o número oficial conforme o modelo DocumentoFiscal.
     Formato exigido: TIPO SERIE/NUMERO

@@ -17,24 +17,23 @@ from apps.fiscal.services.utils import FiscalServiceError
 logger = logging.getLogger("fiscal.documento_service")
 
 
-def _validar_empresa_no_schema(empresa) -> None:
+def _validar_empresa_no_schema(empresa=None) -> None:
     schema_actual = getattr(connection, "schema_name", "public")
     if schema_actual == "public":
         raise FiscalServiceError(
             "Operações de documentos fiscais devem decorrer no schema do tenant, não em public."
         )
-    if empresa is None:
-        raise FiscalServiceError("A empresa do tenant é obrigatória para criar o documento fiscal.")
-    schema_empresa = getattr(empresa, "schema_name", None)
-    if schema_empresa != schema_actual:
-        raise FiscalServiceError(
-            f"A empresa '{getattr(empresa, 'nome', empresa.pk)}' pertence ao schema "
-            f"'{schema_empresa}', mas o schema activo é '{schema_actual}'."
-        )
+    if empresa is not None:
+        schema_empresa = getattr(empresa, "schema_name", None)
+        if schema_empresa != schema_actual:
+            raise FiscalServiceError(
+                f"A empresa pertence ao schema '{schema_empresa}', "
+                f"mas o schema activo é '{schema_actual}'."
+            )
 
 
 class DocumentoFiscalService:
-    """Transições controladas de estado e criação de documentos fiscais."""
+    #"""Transições controladas de estado e criação de documentos fiscais."""
 
     CAMPOS_FISCAIS_READONLY = frozenset({
         "tipo_documento", "serie", "numero", "numero_documento", "atcud",
@@ -53,9 +52,7 @@ class DocumentoFiscalService:
     @staticmethod
     @transaction.atomic
     def emitir(documento: DocumentoFiscal, usuario) -> DocumentoFiscal:
-        _validar_empresa_no_schema(documento.empresa)
         documento = DocumentoFiscal.objects.select_for_update().get(pk=documento.pk)
-        _validar_empresa_no_schema(documento.empresa)
         if documento.status != "draft":
             raise FiscalServiceError(
                 f"Apenas rascunhos podem ser emitidos. Status actual: '{documento.status}'."
@@ -67,9 +64,7 @@ class DocumentoFiscalService:
     @staticmethod
     @transaction.atomic
     def lancar(documento: DocumentoFiscal, usuario) -> DocumentoFiscal:
-        _validar_empresa_no_schema(documento.empresa)
         documento = DocumentoFiscal.objects.select_for_update().get(pk=documento.pk)
-        _validar_empresa_no_schema(documento.empresa)
         if documento.status != "confirmed":
             raise FiscalServiceError(
                 f"Apenas documentos confirmados podem ser lançados. Status actual: '{documento.status}'."
@@ -85,9 +80,7 @@ class DocumentoFiscalService:
         usuario,
         dados_pagamento: Optional[dict] = None,
     ) -> DocumentoFiscal:
-        _validar_empresa_no_schema(documento.empresa)
         documento = DocumentoFiscal.objects.select_for_update().get(pk=documento.pk)
-        _validar_empresa_no_schema(documento.empresa)
         if documento.status not in ("confirmed", "posted"):
             raise FiscalServiceError(
                 "Apenas documentos confirmados ou lançados podem ser marcados como pagos. "
@@ -105,9 +98,7 @@ class DocumentoFiscalService:
         motivo_codigo: str = "N",
         motivo_texto: str = "",
     ) -> DocumentoFiscal:
-        _validar_empresa_no_schema(documento.empresa)
         documento = DocumentoFiscal.objects.select_for_update().get(pk=documento.pk)
-        _validar_empresa_no_schema(documento.empresa)
         documento.cancelar_documento(usuario, motivo_codigo=motivo_codigo, motivo_texto=motivo_texto)
         logger.info(
             "Documento %s cancelado por %s. Motivo: %s.",
@@ -123,9 +114,7 @@ class DocumentoFiscalService:
         tipo_rectificativo: str = "NC",
         motivo: str = "",
     ) -> DocumentoFiscal:
-        _validar_empresa_no_schema(documento.empresa)
         documento = DocumentoFiscal.objects.select_for_update().get(pk=documento.pk)
-        _validar_empresa_no_schema(documento.empresa)
         correctivo = documento.rectificar_documento(
             usuario, tipo_rectificativo=tipo_rectificativo, motivo=motivo
         )
@@ -142,9 +131,7 @@ class DocumentoFiscalService:
         usuario,
         comentarios: str,
     ) -> DocumentoFiscal:
-        _validar_empresa_no_schema(documento.empresa)
         documento = DocumentoFiscal.objects.select_for_update().get(pk=documento.pk)
-        _validar_empresa_no_schema(documento.empresa)
         documento.comentarios = comentarios or ""
         documento.usuario_modificacao = usuario
         documento.save(
@@ -220,7 +207,6 @@ class DocumentoFiscalService:
             })
 
         doc = DocumentoFiscal(
-            empresa=empresa,
             tipo_documento=tipo_documento,
             serie=serie,
             cliente=cliente,
@@ -283,3 +269,5 @@ class DocumentoFiscalService:
             doc.refresh_from_db()
         logger.info("DocumentoFiscal %s criado como draft por %s.", doc.pk, usuario.username)
         return doc
+
+

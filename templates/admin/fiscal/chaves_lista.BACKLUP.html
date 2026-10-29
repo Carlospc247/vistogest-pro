@@ -1,0 +1,20 @@
+{% extends "admin/base_site.html" %}
+{% block content %}
+<div id="content-main">
+  <table style="width:100%">
+    <thead><tr><th>Empresa</th><th>Schema</th><th>Estado</th><th>NIF</th><th>Configurada em</th><th></th></tr></thead>
+    <tbody>
+    {% for l in linhas %}
+      <tr>
+        <td>{{ l.empresa }}</td><td>{{ l.empresa.schema_name }}</td>
+        <td>{% if l.estado.erro %}<span style="color:#b91c1c">{{ l.estado.erro }}</span>
+            {% elif l.estado.configurada %}✔ configurada{% else %}✖ não configurada{% endif %}</td>
+        <td>{{ l.estado.nif }}</td>
+        <td>{{ l.estado.data|default_if_none:"—" }}</td>
+        <td><a href="{{ l.url }}">Editar</a></td>
+      </tr>
+    {% empty %}<tr><td colspan="6">Sem empresas.</td></tr>{% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

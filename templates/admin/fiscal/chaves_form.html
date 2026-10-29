@@ -1,0 +1,38 @@
+{% extends "admin/base_site.html" %}
+{% block breadcrumbs %}
+<div class="breadcrumbs">
+  <a href="{% url 'admin:index' %}">Início</a> &rsaquo;
+  <a href="{% url 'admin:fiscal_empresachavesfiscais_changelist' %}">Chaves fiscais</a> &rsaquo;
+  {{ empresa.nome }}
+</div>
+{% endblock %}
+
+{% block content %}
+<div id="content-main">
+  <p>
+    Empresa: <strong>{{ empresa.nome }}</strong> &middot;
+    NIF (da Empresa): <strong>{{ empresa.nif }}</strong> &middot;
+    schema: <code>{{ empresa.schema_name }}</code>
+  </p>
+
+  {% if estado.erro %}
+    <p class="errornote">{{ estado.erro }}</p>
+  {% elif estado.configurada %}
+    <p>
+      ✔ Configurada em {{ estado.data|date:"d/m/Y H:i" }} por {{ estado.por|default:"—" }}.<br>
+      Impressão digital da chave pública: <code>{{ estado.fingerprint }}</code>
+    </p>
+    {% if estado.problemas %}
+      <ul class="errorlist">{% for p in estado.problemas %}<li>{{ p }}</li>{% endfor %}</ul>
+    {% endif %}
+  {% else %}
+    <p>✖ Não configurada.</p>
+  {% endif %}
+
+  <form method="post" novalidate autocomplete="off">
+    {% csrf_token %}
+    {{ form.as_p }}
+    <input type="submit" class="default" value="Guardar chaves">
+  </form>
+</div>
+{% endblock %}

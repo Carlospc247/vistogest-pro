@@ -275,4 +275,3 @@ class RegistroAuditoriaOperacional(models.Model):
         verbose_name_plural = "Registros de Auditoria Operacional"
         ordering = ['-timestamp']
 
-

@@ -1,0 +1,112 @@
+{# admin/fiscal/assinaturadigital/tenant_config.html #}
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+
+{% block extrastyle %}{{ block.super }}
+<style>
+  .fiscal-form { max-width: 52rem; }
+  .fiscal-resumo { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 20px; }
+  .fiscal-badge {
+    display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 0.75rem;
+    line-height: 1.5; color: var(--body-fg, #333); border: 1px solid var(--border-color, #ccc);
+  }
+  .fiscal-badge.ok { background: var(--message-success-bg, #dfd); }
+  .fiscal-badge.pendente { background: var(--message-warning-bg, #ffc); }
+  .fiscal-secao { margin: 0 0 20px; }
+  .fiscal-secao > h2 { margin: 0; }
+  .fiscal-secao-corpo { padding: 12px 16px 4px; border: 1px solid var(--hairline-color, #e8e8e8); border-top: 0; }
+  .fiscal-campo { margin: 0 0 16px; }
+  .fiscal-campo label { display: block; font-weight: 600; margin: 0 0 4px; }
+  .fiscal-campo .obrigatorio { color: var(--error-fg, #ba2121); margin-left: 2px; }
+  .fiscal-campo input[type="text"],
+  .fiscal-campo input[type="password"],
+  .fiscal-campo textarea { width: 100%; max-width: 100%; box-sizing: border-box; }
+  .fiscal-campo textarea {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.75rem; line-height: 1.4; white-space: pre; overflow: auto; resize: vertical;
+  }
+  .fiscal-campo .help { margin: 4px 0 0; color: var(--body-quiet-color, #666); font-size: 0.8125rem; line-height: 1.4; }
+  .fiscal-campo ul.errorlist { margin: 0 0 6px; }
+  .fiscal-form .submit-row { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+  .fiscal-form .submit-row a.closelink { padding: 10px 15px; }
+</style>
+{% endblock %}
+
+{% block breadcrumbs %}
+<div class="breadcrumbs">
+  <a href="{% url 'admin:index' %}">Início</a>
+  &rsaquo; <a href="{% url 'admin:app_list' app_label='fiscal' %}">Fiscal</a>
+  &rsaquo; <a href="{{ voltar_url }}">Assinatura digital</a>
+  &rsaquo; {{ empresa.nome }}
+</div>
+{% endblock %}
+
+{% block content %}
+<div id="content-main" class="fiscal-form">
+
+  {% if not tabela_disponivel %}
+  <ul class="messagelist">
+    <li class="error">
+      A tabela fiscal deste tenant não está acessível. Confirme que as migrações do schema
+      <strong>{{ empresa.schema_name }}</strong> foram aplicadas antes de configurar as chaves.
+    </li>
+  </ul>
+  {% endif %}
+
+  <div class="fiscal-resumo">
+    {% if chaves_configuradas %}
+      <span class="fiscal-badge ok">Chaves configuradas{% if data_configuracao %} em {{ data_configuracao|date:"d/m/Y H:i" }}{% endif %}</span>
+    {% else %}
+      <span class="fiscal-badge pendente">Chaves pendentes</span>
+    {% endif %}
+    {% if credenciais_api_configuradas %}
+      <span class="fiscal-badge ok">Credenciais da API completas</span>
+    {% else %}
+      <span class="fiscal-badge pendente">Credenciais da API em falta</span>
+    {% endif %}
+  </div>
+
+  <form method="post" novalidate>
+    {% csrf_token %}
+
+    {% if form.errors %}
+      <p class="errornote">Corrija os erros indicados abaixo.</p>
+      {{ form.non_field_errors }}
+    {% endif %}
+
+    {% for field in form %}
+      {% if field.name == "nif_contribuinte" %}
+      <div class="module fiscal-secao">
+        <h2>Contribuinte</h2>
+        <div class="fiscal-secao-corpo">
+      {% elif field.name == "chave_privada" %}
+        </div></div>
+      <div class="module fiscal-secao">
+        <h2>Chaves emitidas pela AGT (PEM)</h2>
+        <div class="fiscal-secao-corpo">
+      {% elif field.name == "api_username" %}
+        </div></div>
+      <div class="module fiscal-secao">
+        <h2>Autenticação da API (Basic Auth)</h2>
+        <div class="fiscal-secao-corpo">
+      {% endif %}
+
+      <div class="fiscal-campo">
+        {{ field.errors }}
+        <label for="{{ field.id_for_label }}">{{ field.label }}{% if field.field.required %}<span class="obrigatorio" aria-hidden="true">*</span>{% endif %}</label>
+        {{ field }}
+        {% if field.help_text %}<p class="help">{{ field.help_text }}</p>{% endif %}
+      </div>
+
+      {% if forloop.last %}
+        </div></div>
+      {% endif %}
+    {% endfor %}
+
+    <div class="submit-row">
+      <input type="submit" class="default" value="Guardar configuração"{% if not tabela_disponivel %} disabled{% endif %}>
+      <a href="{{ voltar_url }}" class="closelink">Cancelar</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

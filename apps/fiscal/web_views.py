@@ -33,6 +33,16 @@ from .models import (
     SAFTExport,
     TaxaIVAAGT,
 )
+from django.contrib import messages
+from django.contrib.auth.mixins import LoginRequiredMixin
+from django.db import connection
+from django.db.models import Q
+from django.utils import timezone
+from django.utils.dateparse import parse_datetime
+from django.shortcuts import render
+from django.views import View
+
+
 
 
 # ---------------------------------------------------------------------------
@@ -546,7 +556,9 @@ class RetencaoMarcarPagaView(LoginRequiredMixin, PermissaoAcaoMixin, View):
 # ---------------------------------------------------------------------------
 # Configuração, relatórios, SAF-T, integridade e homologação
 # ---------------------------------------------------------------------------
-class AssinaturaDigitalConfigView(LoginRequiredMixin, PermissaoAcaoMixin, TemplateView):
+"""
+
+class AssinaturaDigitalView(LoginRequiredMixin, PermissaoAcaoMixin, TemplateView):
     acao_requerida = "ver_status_atual_assinatura_digital"
     template_name = "fiscal/assinatura_digital.html"
 
@@ -567,26 +579,51 @@ class AssinaturaDigitalConfigView(LoginRequiredMixin, PermissaoAcaoMixin, Templa
         messages.warning(request, "A alteração de chaves deve ser feita pelo fluxo seguro de assinatura digital; este ecrã não recebe nem exibe chaves privadas.")
         return redirect("fiscal:assinatura_digital")
 
-
-class RelatoriosFiscaisView(LoginRequiredMixin, PermissaoAcaoMixin, TemplateView):
+"""
+class RelatoriosFiscaisView(LoginRequiredMixin, PermissaoAcaoMixin, TemplateView,):
     acao_requerida = "ver_relatorio_fiscal"
     template_name = "fiscal/relatorios/index.html"
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
+
         empresa = _exigir_empresa(self.request)
-        docs = _por_empresa(DocumentoFiscal.objects.all(), DocumentoFiscal, empresa)
-        taxas = _por_empresa(TaxaIVAAGT.objects.all(), TaxaIVAAGT, empresa)
+
+        docs = _por_empresa(
+            DocumentoFiscal.objects.all(),
+            DocumentoFiscal,
+            empresa,
+        )
+        taxas = _por_empresa(
+            TaxaIVAAGT.objects.all(),
+            TaxaIVAAGT,
+            empresa,
+        )
         retencoes = _retencoes_empresa(empresa)
-        inicio = self.request.GET.get("data_inicio")
-        fim = self.request.GET.get("data_fim")
+
+        # Um formulário sem filtros deve funcionar normalmente.
+        inicio = self.request.GET.get("data_inicio", "").strip()
+        fim = self.request.GET.get("data_fim", "").strip()
+
         if _field_exists(DocumentoFiscal, "data_emissao"):
             date_field = DocumentoFiscal._meta.get_field("data_emissao")
-            date_lookup = "data_emissao__date" if isinstance(date_field, DateTimeField) else "data_emissao"
+
+            date_lookup = (
+                "data_emissao__date"
+                if isinstance(date_field, DateTimeField)
+                else "data_emissao"
+            )
+
             if inicio:
-                docs = docs.filter(**{f"{date_lookup}__gte": inicio})
+                docs = docs.filter(
+                    **{f"{date_lookup}__gte": inicio}
+                )
+
             if fim:
-                docs = docs.filter(**{f"{date_lookup}__lte": fim})
+                docs = docs.filter(
+                    **{f"{date_lookup}__lte": fim}
+                )
+
         context.update({
             "empresa": empresa,
             "data_inicio": inicio,
@@ -594,113 +631,420 @@ class RelatoriosFiscaisView(LoginRequiredMixin, PermissaoAcaoMixin, TemplateView
             "total_documentos": docs.count(),
             "total_taxas": taxas.count(),
             "total_retencoes": retencoes.count(),
-            "documentos_recentes": _ordenar_se_disponivel(docs, DocumentoFiscal, "-data_emissao", "-created_at", "-pk")[:10],
-            "retencoes_recentes": _ordenar_se_disponivel(retencoes, RetencaoFonte, "-data_retencao", "-created_at", "-pk")[:10],
+            "documentos_recentes": _ordenar_se_disponivel(
+                docs,
+                DocumentoFiscal,
+                "-data_emissao",
+                "-created_at",
+                "-pk",
+            )[:10],
+            "retencoes_recentes": _ordenar_se_disponivel(
+                retencoes,
+                RetencaoFonte,
+                "-data_retencao",
+                "-created_at",
+                "-pk",
+            )[:10],
         })
+
         return context
 
-
+ 
 class SAFTExportWebView(LoginRequiredMixin, PermissaoAcaoMixin, View):
     acao_requerida = "exportar_saft"
     template_name = "fiscal/saft/exportar.html"
 
     def get(self, request, *args, **kwargs):
         empresa = _exigir_empresa(request)
+
         exportacoes = SAFTExport.objects.all()
+
         if _field_exists(SAFTExport, "empresa"):
             exportacoes = exportacoes.filter(empresa=empresa)
-        exportacoes = _ordenar_se_disponivel(exportacoes, SAFTExport, "-created_at", "-pk")[:10]
-        return render(request, self.template_name, {"form": DateRangeForm(initial={"data_inicio": date.today().replace(day=1), "data_fim": date.today()}), "exportacoes": exportacoes})
+
+        exportacoes = _ordenar_se_disponivel(
+            exportacoes,
+            SAFTExport,
+            "-created_at",
+            "-pk",
+        )[:10]
+
+        hoje = timezone.localdate()
+
+        form = DateRangeForm(
+            initial={
+                "data_inicio": hoje.replace(day=1),
+                "data_fim": hoje,
+            }
+        )
+
+        return render(
+            request,
+            self.template_name,
+            {
+                "form": form,
+                "exportacoes": exportacoes,
+            },
+        )
 
     def post(self, request, *args, **kwargs):
+        import logging
+        import re
+
+        from django.http import HttpResponse
+
+        from .services.saft_xml_generator_service import (
+            SaftXmlGeneratorService,
+        )
+        from .services.saft_validacao_service import (
+            SaftValidacaoService,
+        )
+
+        logger = logging.getLogger("fiscal.saft_export")
+
         empresa = _exigir_empresa(request)
         form = DateRangeForm(request.POST)
+
         exportacoes = SAFTExport.objects.all()
+
         if _field_exists(SAFTExport, "empresa"):
             exportacoes = exportacoes.filter(empresa=empresa)
-        exportacoes = _ordenar_se_disponivel(exportacoes, SAFTExport, "-created_at", "-pk")[:10]
-        context = {"form": form, "exportacoes": exportacoes}
-        if not form.is_valid():
-            return render(request, self.template_name, context, status=400)
 
-        # Adapter tolerante a nomes de método das versões de serviço conhecidas.
-        # O serviço é a autoridade para geração, numeração, XML e validação.
+        exportacoes = _ordenar_se_disponivel(
+            exportacoes,
+            SAFTExport,
+            "-created_at",
+            "-pk",
+        )[:10]
+
+        context = {
+            "form": form,
+            "exportacoes": exportacoes,
+        }
+
+        if not form.is_valid():
+            return render(
+                request,
+                self.template_name,
+                context,
+                status=400,
+            )
+
+        data_inicio = form.cleaned_data["data_inicio"]
+        data_fim = form.cleaned_data["data_fim"]
+
+        if data_inicio > data_fim:
+            form.add_error(
+                "data_fim",
+                "A data final não pode ser anterior à data inicial.",
+            )
+            return render(
+                request,
+                self.template_name,
+                context,
+                status=400,
+            )
+
         try:
-            from .services.saft_xml_generator_service import SaftXmlGeneratorService
-            service = SaftXmlGeneratorService()
-            data = {"empresa": empresa, "data_inicio": form.cleaned_data["data_inicio"], "data_fim": form.cleaned_data["data_fim"], "inicio": form.cleaned_data["data_inicio"], "fim": form.cleaned_data["data_fim"]}
-            method = next((getattr(service, name) for name in ("gerar_saft_ao", "gerar_saft", "gerar_xml", "gerar") if callable(getattr(service, name, None))), None)
-            if method is None:
-                raise RuntimeError("O serviço SAF-T não expõe um método de geração conhecido.")
-            params = signature(method).parameters
-            kwargs_for_method = {name: data[name] for name in params if name in data}
-            if kwargs_for_method and all(p.default is not p.empty or p.name in kwargs_for_method for p in params.values() if p.kind in (p.POSITIONAL_OR_KEYWORD, p.KEYWORD_ONLY)):
-                result = method(**kwargs_for_method)
-            else:
-                result = method(empresa, form.cleaned_data["data_inicio"], form.cleaned_data["data_fim"])
-            context.update({"resultado": "O gerador foi executado. O estado de validação deve ser confirmado pelo resultado do validador SAF-T.", "valido": False})
-            if isinstance(result, dict):
-                context["resultado"] = result.get("mensagem") or result.get("message") or context["resultado"]
-                # Não indicar sucesso de validação se o serviço não o confirmou explicitamente.
-                context["valido"] = bool(result.get("valido", result.get("valid", result.get("validado", False))))
-                context["ficheiro_url"] = result.get("url") or result.get("download_url")
-                context["erros_validacao"] = result.get("erros") or result.get("errors") or []
-            elif isinstance(result, str) and result.startswith("http"):
-                context["ficheiro_url"] = result
-            elif isinstance(result, (str, bytes)) and ((isinstance(result, bytes) and result.lstrip().startswith(b"<")) or (isinstance(result, str) and result.lstrip().startswith("<"))):
-                # Se o gerador devolver XML em memória, tentar a validação explícita.
-                from .services.saft_validacao_service import SaftValidacaoService
-                validator = SaftValidacaoService()
-                validator_method = next((getattr(validator, name) for name in ("validar_xml", "validar", "validar_conteudo", "validar_xml_bytes") if callable(getattr(validator, name, None))), None)
-                if validator_method is None:
-                    context["resultado"] = "XML gerado, mas não foi encontrado um método de validação compatível."
-                else:
-                    validation = validator_method(result)
-                    if isinstance(validation, tuple) and len(validation) >= 2:
-                        context["valido"] = bool(validation[0])
-                        context["erros_validacao"] = validation[1] or []
-                    elif isinstance(validation, dict):
-                        context["valido"] = bool(validation.get("valido", validation.get("valid", False)))
-                        context["erros_validacao"] = validation.get("erros", validation.get("errors", []))
-                    else:
-                        context["valido"] = bool(validation)
-        except Exception as exc:  # apresenta erro operacional sem ocultar logs do servidor
-            context["erro"] = str(exc)
-            return render(request, self.template_name, context, status=422)
-        return render(request, self.template_name, context)
+            # O construtor exige a empresa e as duas datas.
+            gerador = SaftXmlGeneratorService(
+                data_inicio=data_inicio,
+                data_fim=data_fim,
+            )
+
+            xml_bytes = gerador.generate_xml()
+
+            # Não aceitar texto, URLs ou outros resultados como se fossem XML.
+            if (
+                not isinstance(xml_bytes, bytes)
+                or not xml_bytes.lstrip().startswith(b"<")
+            ):
+                raise ValueError(
+                    "O gerador não devolveu um documento XML válido em bytes."
+                )
+
+            # O resultado da validação é a condição para autorizar o download.
+            valido, erros = SaftValidacaoService.validar(xml_bytes)
+            erros = erros or []
+
+            if isinstance(erros, str):
+                erros = [erros]
+
+            if not valido:
+                logger.warning(
+                    "SAF-T reprovado na validação XSD. "
+                    "Empresa=%s, erros=%s",
+                    getattr(empresa, "pk", "desconhecida"),
+                    len(erros),
+                )
+
+                context.update({
+                    "erro": (
+                        "O XML SAF-T foi gerado, mas não passou "
+                        "na validação XSD. Corrija os erros antes "
+                        "de descarregar o ficheiro."
+                    ),
+                    "resultado": "Validação XSD falhou.",
+                    "valido": False,
+                    "erros_validacao": erros,
+                })
+
+                return render(
+                    request,
+                    self.template_name,
+                    context,
+                    status=422,
+                )
+
+            # Usar apenas caracteres seguros no nome do ficheiro.
+            nif = re.sub(
+                r"[^A-Za-z0-9_-]",
+                "",
+                str(getattr(empresa, "nif", "") or ""),
+            ) or "empresa"
+
+            timestamp = timezone.now().strftime("%Y%m%d_%H%M%S")
+            nome_ficheiro = f"SAFT_{nif}_{timestamp}.xml"
+
+            response = HttpResponse(
+                xml_bytes,
+                content_type="application/xml; charset=utf-8",
+            )
+            response["Content-Disposition"] = (
+                f'attachment; filename="{nome_ficheiro}"'
+            )
+            response["X-SAFT-XSD-Valid"] = "true"
+            response["X-SAFT-XSD-Errors"] = "0"
+            response["X-Content-Type-Options"] = "nosniff"
+
+            logger.info(
+                "SAF-T gerado e validado. Empresa=%s, período=%s a %s",
+                getattr(empresa, "pk", "desconhecida"),
+                data_inicio,
+                data_fim,
+            )
+
+            # O XML é entregue directamente. Não se aceita um URL externo.
+            return response
+
+        except Exception as exc:
+            logger.exception(
+                "Erro ao gerar SAF-T para a empresa %s.",
+                getattr(empresa, "pk", "desconhecida"),
+            )
+
+            context["erro"] = (
+                "Não foi possível gerar o ficheiro SAF-T. "
+                "Consulte os logs do servidor para identificar o problema."
+            )
+
+            if settings.DEBUG:
+                context["detalhe_erro"] = str(exc)
+
+            return render(
+                request,
+                self.template_name,
+                context,
+                status=422,
+            )
+
+
 
 
 class VerificarIntegridadeView(LoginRequiredMixin, PermissaoAcaoMixin, View):
     acao_requerida = "verificar_integridade_cadeia_hash_fiscal"
     template_name = "fiscal/integridade.html"
+    SESSION_KEY_PREFIX = "integridade_fiscal"
+    MAX_FALHAS_SESSAO = 100
+
+    def _session_key(self):
+        # Evita misturar o resultado de um tenant com o de outro na mesma sessão.
+        schema = getattr(connection, "schema_name", "public")
+        return f"{self.SESSION_KEY_PREFIX}:{schema}"
+
+    @staticmethod
+    def _valor_texto(valor):
+        if valor is None:
+            return ""
+        if isinstance(valor, (str, int, float, bool)):
+            return valor
+        return str(valor)
+
+    @classmethod
+    def _normalizar_falha(cls, item):
+        """Converte falhas do serviço em dicionários serializáveis para a sessão/template."""
+        if isinstance(item, dict):
+            obter = item.get
+        elif isinstance(item, (str, int, float, bool)):
+            return {
+                "documento": "", "numero": "", "documento_id": None,
+                "tipo": "", "verificacao": "", "mensagem": str(item), "erro": "",
+            }
+        else:
+            obter = lambda nome, padrao=None: getattr(item, nome, padrao)
+
+        documento_obj = obter("documento", None)
+        documento_id = obter("documento_id", None)
+        if documento_id is None and documento_obj is not None:
+            documento_id = getattr(documento_obj, "pk", None)
+
+        try:
+            documento_id = int(documento_id) if documento_id is not None else None
+        except (TypeError, ValueError):
+            documento_id = None
+
+        numero = obter("numero", None)
+        if numero is None and documento_obj is not None:
+            numero = getattr(documento_obj, "numero_documento", None)
+
+        return {
+            "documento": cls._valor_texto(
+                documento_obj if isinstance(documento_obj, (str, int, float)) else
+                getattr(documento_obj, "numero_documento", "") if documento_obj is not None else ""
+            ),
+            "numero": cls._valor_texto(numero),
+            "documento_id": documento_id,
+            "tipo": cls._valor_texto(obter("tipo", "")),
+            "verificacao": cls._valor_texto(obter("verificacao", "")),
+            "mensagem": cls._valor_texto(obter("mensagem", "")),
+            "erro": cls._valor_texto(obter("erro", "")),
+        }
+
+    @classmethod
+    def _normalizar_resultado(cls, resultado):
+        if isinstance(resultado, dict):
+            falhas_raw = resultado.get("falhas", resultado.get("erros", []))
+            total_falhas_fornecido = resultado.get("total_falhas")
+            if isinstance(falhas_raw, (list, tuple)):
+                falhas_raw = list(falhas_raw)
+            elif falhas_raw is None:
+                falhas_raw = []
+            elif isinstance(falhas_raw, int):
+                total_falhas_fornecido = falhas_raw if total_falhas_fornecido is None else total_falhas_fornecido
+                falhas_raw = []
+            else:
+                falhas_raw = [falhas_raw]
+
+            falhas = [cls._normalizar_falha(item) for item in falhas_raw]
+            try:
+                total_falhas = int(total_falhas_fornecido) if total_falhas_fornecido is not None else len(falhas)
+            except (TypeError, ValueError):
+                total_falhas = len(falhas)
+
+            total_verificados = resultado.get(
+                "total_verificados",
+                resultado.get("total", resultado.get("documentos_verificados")),
+            )
+            try:
+                total_verificados = int(total_verificados) if total_verificados is not None else None
+            except (TypeError, ValueError):
+                total_verificados = None
+
+            ok = bool(resultado.get("ok", resultado.get("valido", total_falhas == 0)))
+            mensagem = resultado.get("mensagem", "Verificação concluída.")
+        else:
+            ok = bool(resultado)
+            falhas = []
+            total_falhas = 0
+            total_verificados = None
+            mensagem = str(resultado)
+
+        return {
+            "resultado": {"ok": ok, "mensagem": str(mensagem)},
+            "falhas": falhas,
+            "total_verificados": total_verificados,
+            "total_falhas": total_falhas,
+            "falhas_limitadas": total_falhas > min(len(falhas), cls.MAX_FALHAS_SESSAO),
+        }
+
+    def _contexto(self, request):
+        # Confirma que a requisição está associada a uma empresa/tenant válido.
+        _exigir_empresa(request)
+
+        from .models import AssinaturaDigital, DocumentoFiscal
+
+        # Considera emitidos os documentos confirmados/lançados/pagos/rectificados
+        # e os cancelados que chegaram a ser confirmados. Um rascunho cancelado
+        # não deve ser tratado como documento fiscal emitido.
+        emitidos = DocumentoFiscal.objects.filter(
+            Q(status__in=("confirmed", "posted", "paid", "rectified"))
+            | Q(status="cancelled", data_confirmacao__isnull=False)
+        )
+        total_documentos = emitidos.count()
+        total_sem_hash = emitidos.filter(Q(hash_documento__isnull=True) | Q(hash_documento="")).count()
+        total_sem_assinatura = emitidos.filter(
+            Q(assinatura_digital__isnull=True) | Q(assinatura_digital="")
+        ).count()
+
+        estado = request.session.get(self._session_key(), {})
+        ultima_execucao = parse_datetime(estado.get("ultima_execucao", "")) if estado else None
+
+        contexto = {
+            "total_documentos": total_documentos,
+            "total_sem_hash": total_sem_hash,
+            "total_sem_assinatura": total_sem_assinatura,
+            "documentos_recentes": list(emitidos.order_by("-data_emissao", "-numero")[:10]),
+            "assinatura_fiscal": AssinaturaDigital.objects.filter(pk=1).first(),
+            "ultima_execucao": ultima_execucao,
+            "executado": bool(estado.get("executado")),
+            "resultado": estado.get("resultado"),
+            "falhas": estado.get("falhas", []),
+            "total_verificados": estado.get("total_verificados"),
+            "total_falhas": estado.get("total_falhas", 0),
+            "falhas_limitadas": estado.get("falhas_limitadas", False),
+        }
+        return contexto
 
     def get(self, request, *args, **kwargs):
-        return render(request, self.template_name, {"ultima_execucao": None})
+        return render(request, self.template_name, self._contexto(request))
 
     def post(self, request, *args, **kwargs):
-        _exigir_empresa(request)
         try:
+            _exigir_empresa(request)
             from .services.assinatura_service import VerificadorIntegridadeService
+
             verificador = VerificadorIntegridadeService()
-            metodo = getattr(verificador, "verificar_tenant", None) or getattr(VerificadorIntegridadeService, "verificar_tenant", None)
+            metodo = getattr(verificador, "verificar_tenant", None)
+            if not callable(metodo):
+                metodo = getattr(VerificadorIntegridadeService, "verificar_tenant", None)
             if not callable(metodo):
                 raise RuntimeError("VerificadorIntegridadeService não expõe verificar_tenant().")
-            try:
-                resultado = metodo()
-            except TypeError:
-                # Pode estar implementado como método de classe na versão instalada.
-                resultado = VerificadorIntegridadeService.verificar_tenant()
-            if isinstance(resultado, dict):
-                ok = bool(resultado.get("ok", resultado.get("valido", not resultado.get("falhas"))))
-                falhas = resultado.get("falhas", resultado.get("erros", []))
-                total = resultado.get("total_verificados", resultado.get("total", 0))
-                mensagem = resultado.get("mensagem", "Verificação concluída.")
-            else:
-                ok, falhas, total, mensagem = bool(resultado), [], 0, str(resultado)
-            messages.success(request, "Verificação de integridade concluída." if ok else "A verificação detectou divergências.")
-            return render(request, self.template_name, {"resultado": {"ok": ok, "mensagem": mensagem}, "falhas": falhas, "total_verificados": total, "total_falhas": len(falhas), "ultima_execucao": timezone.now()})
+
+            resultado_bruto = metodo()
+            estado_resultado = self._normalizar_resultado(resultado_bruto)
+            messages.success(
+                request,
+                "Verificação de integridade concluída." if estado_resultado["resultado"]["ok"]
+                else "A verificação detectou divergências. Consulte os detalhes abaixo.",
+            )
+            status_code = 200
         except Exception as exc:
-            return render(request, self.template_name, {"resultado": {"ok": False, "mensagem": str(exc)}, "falhas": [], "total_falhas": 1, "ultima_execucao": timezone.now()}, status=422)
+            # Conserva a mensagem para diagnóstico no ecrã; convém também registar a excepção no logger do projecto.
+            estado_resultado = {
+                "resultado": {"ok": False, "mensagem": str(exc)},
+                "falhas": [],
+                "total_verificados": None,
+                "total_falhas": 1,
+                "falhas_limitadas": False,
+            }
+            status_code = 422
+            messages.error(request, "Não foi possível concluir a verificação de integridade.")
+
+        estado_sessao = {
+            "ultima_execucao": timezone.now().isoformat(),
+            "executado": True,
+            **estado_resultado,
+        }
+        # Não guardar um número ilimitado de falhas no cookie/sessão.
+        estado_sessao["falhas"] = estado_sessao.get("falhas", [])[: self.MAX_FALHAS_SESSAO]
+        request.session[self._session_key()] = estado_sessao
+        request.session.modified = True
+
+        contexto = self._contexto(request)
+        return render(request, self.template_name, contexto, status=status_code)
+
+
+
 
 
 class ValidacaoFiscalView(LoginRequiredMixin, PermissaoAcaoMixin, TemplateView):
@@ -730,7 +1074,23 @@ class ConfiguracoesFiscalView(LoginRequiredMixin, PermissaoAcaoMixin, TemplateVi
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        context.update({"empresa": _exigir_empresa(self.request), "debug": settings.DEBUG})
+        empresa = _exigir_empresa(self.request)
+
+        context.update({
+            "empresa": empresa,
+            "empresa_nome": (
+                getattr(empresa, "nome", None)
+                or getattr(empresa, "razao_social", None)
+                or str(empresa)
+                or "Não identificada"
+            ),
+            "empresa_nif": (
+                getattr(empresa, "nif", None)
+                or getattr(empresa, "nif_contribuinte", None)
+                or "—"
+            ),
+            "debug": settings.DEBUG,
+        })
         alertas = []
         if not getattr(settings, "AES_KEY", None):
             alertas.append({"titulo": "AES_KEY", "mensagem": "A chave de cifra fiscal é definida por variável de ambiente e não deve ser codificada no repositório."})
@@ -738,7 +1098,6 @@ class ConfiguracoesFiscalView(LoginRequiredMixin, PermissaoAcaoMixin, TemplateVi
             alertas.append({"titulo": "Assinatura de webhooks", "mensagem": "Configure GATEWAY_WEBHOOK_SECRET antes de activar webhooks em produção."})
         context["alertas"] = alertas
         return context
-
 
 class HomologacaoDashboardView(LoginRequiredMixin, PermissaoAcaoMixin, TemplateView):
     acao_requerida = "ver_status_atual_assinatura_digital"
@@ -748,40 +1107,61 @@ class HomologacaoDashboardView(LoginRequiredMixin, PermissaoAcaoMixin, TemplateV
         context = super().get_context_data(**kwargs)
         empresa = _exigir_empresa(self.request)
         config = AssinaturaDigital.objects.filter(pk=1).first()
-        context.update({"assinatura_configurada": _assinar_estado_configuracao(config) if config else False, "empresa": empresa, "verificado_em": timezone.now(), "teste_comunicacao": "Não executado"})
-        series_model = None
-        try:
-            from .models import SerieFiscalAGT
-            series_model = SerieFiscalAGT
-        except ImportError:
-            pass
-        context["total_series"] = series_model.objects.count() if series_model else 0
-        context["nif_ok"] = bool(config and getattr(config, "nif_contribuinte", None))
-        try:
-            from .services.web_service import AGTWebService
-            service = AGTWebService()
-            for method_name in ("verificar_estado", "obter_estado", "verificar_saude", "health_check"):
-                method = getattr(service, method_name, None)
-                if callable(method):
-                    response = method()
-                    context["estado_agt"] = response.get("estado", response.get("status", "Disponível")) if isinstance(response, dict) else str(response)
-                    break
-        except Exception as exc:
-            context["estado_agt"] = "Indisponível"
-            context["mensagem"] = str(exc)
-            context["erro"] = True
+
+        from .models import SerieFiscalAGT
+        total_series = SerieFiscalAGT.objects.count()
+
+        context.update({
+            "empresa": empresa,
+            "assinatura_configurada": (
+                _assinar_estado_configuracao(config) if config else False
+            ),
+            "total_series": total_series,
+            "nif_ok": bool(config and getattr(config, "nif_contribuinte", None)),
+            "ambiente_agt": str(getattr(settings, "AGT_ENVIRONMENT", "não configurado")),
+            "estado_agt": "Não verificado",
+            "mensagem": (
+                "Ainda não foi executada uma chamada real à AGT nesta visita. "
+                "Use Actualizar estado para consultar o serviço oficial listarSeries."
+            ),
+            "teste_comunicacao": "Não executado",
+            "verificado_em": None,
+        })
         return context
 
     def post(self, request, *args, **kwargs):
-        response = self.get_context_data()
-        if not response.get("estado_agt"):
-            response["estado_agt"] = "Sem resposta"
-            response["mensagem"] = "O serviço de estado não devolveu informação. Consulte os logs de integração."
-        return render(request, self.template_name, response)
- # apps/fiscal/utility/__init__.py
-import hashlib
-import base64
-import logging
-from typing import Dict, Optional, Any
+        # _exigir_empresa valida tenant/schema antes de qualquer chamada externa.
+        _exigir_empresa(request)
+        contexto = self.get_context_data()
 
-logger = logging.getLogger(__name__)
+        try:
+            from .services.serie_fiscal_service import SerieFiscalService
+            from .models import SerieFiscalAGT
+
+            series = SerieFiscalService().sincronizar_series()
+            contexto.update({
+                "estado_agt": "Resposta válida da AGT",
+                "mensagem": (
+                    f"O serviço oficial listarSeries respondeu com sucesso. "
+                    f"Foram sincronizadas {len(series)} série(s)."
+                ),
+                "total_series": SerieFiscalAGT.objects.count(),
+                "series_sincronizadas": len(series),
+                "teste_comunicacao": "Concluído — listarSeries",
+                "verificado_em": timezone.now(),
+                "erro": False,
+            })
+        except Exception as exc:
+            import logging
+            logging.getLogger(__name__).exception(
+                "Falha na verificação real da integração AGT (listarSeries)."
+            )
+            contexto.update({
+                "estado_agt": "Falha de comunicação/configuração",
+                "mensagem": str(exc),
+                "teste_comunicacao": "Falhou — listarSeries",
+                "verificado_em": timezone.now(),
+                "erro": True,
+            })
+
+        return render(request, self.template_name, contexto)

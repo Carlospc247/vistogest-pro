@@ -1,0 +1,260 @@
+{% extends "fiscal/base_fiscal.html" %}
+
+{% block title %}Configurar assinatura digital{% endblock %}
+{% block topbar_title %}Configurar assinatura digital{% endblock %}
+
+{% block content %}
+
+{% with nif_oficial=empresa.nif|default:"" %}
+
+<div class="page-head">
+    <div>
+        <p class="eyebrow">Conformidade fiscal</p>
+
+        <h1>Configurar assinatura digital</h1>
+
+        <p>
+            Registe o par de chaves do contribuinte emitido pela AGT.
+            A chave privada será guardada de forma cifrada e não será
+            apresentada novamente após a submissão.
+        </p>
+    </div>
+
+    <div class="actions">
+        <a
+            class="btn btn-light"
+            href="{% url 'fiscal:assinatura-digital' %}"
+        >
+            <i class="fas fa-arrow-left" aria-hidden="true"></i>
+            Voltar à assinatura digital
+        </a>
+    </div>
+</div>
+
+<div class="grid grid-2">
+
+    <!-- IDENTIFICAÇÃO DO CONTRIBUINTE -->
+    <section class="card">
+        <div class="card-head">
+            <h2>Identificação do contribuinte</h2>
+        </div>
+
+        <div class="card-body">
+
+            <div class="form-row">
+                <label for="nif-oficial">NIF oficial</label>
+
+                <div
+                    id="nif-oficial"
+                    class="readonly-value"
+                >
+                    {% if nif_oficial %}
+                        {{ nif_oficial }}
+                    {% else %}
+                        Não disponível
+                    {% endif %}
+                </div>
+
+                <small class="muted">
+                    O NIF é obtido a partir do registo principal da empresa.
+                    Não é enviado pelo formulário nem pode ser alterado aqui.
+                </small>
+            </div>
+
+            {% if not nif_oficial %}
+
+                <div class="status status-warning" role="alert">
+                    <strong>O NIF oficial não está definido.</strong>
+
+                    <p>
+                        Contacte o administrador da plataforma para completar
+                        o registo da empresa antes de configurar a assinatura.
+                    </p>
+                </div>
+
+            {% elif ja_configurada %}
+
+                <div class="status status-warning" role="status">
+                    <strong>Já existe uma configuração de assinatura.</strong>
+
+                    <p>
+                        Se submeter um novo par válido, a configuração actual
+                        será substituída.
+                    </p>
+                </div>
+
+            {% else %}
+
+                <div class="status status-success" role="status">
+                    <strong>A assinatura ainda não está configurada.</strong>
+
+                    <p>
+                        Introduza as chaves correspondentes ao NIF oficial
+                        apresentado acima.
+                    </p>
+                </div>
+
+            {% endif %}
+
+        </div>
+    </section>
+
+    <!-- FORMULÁRIO DE CONFIGURAÇÃO -->
+    <section class="card">
+        <div class="card-head">
+            <h2>Chaves do contribuinte</h2>
+        </div>
+
+        <div class="card-body">
+
+            {% if nif_oficial %}
+
+                <form
+                    method="post"
+                    action="{% url 'fiscal:assinatura-configurar' %}"
+                    autocomplete="off"
+                >
+                    {% csrf_token %}
+
+                    <!-- CHAVE PRIVADA -->
+                    <div class="form-row">
+                        <label for="id_chave_privada">
+                            Chave privada (PEM)
+                            <span aria-hidden="true">*</span>
+                        </label>
+
+                        <textarea
+                            name="chave_privada"
+                            id="id_chave_privada"
+                            rows="9"
+                            required
+                            autocomplete="off"
+                            autocapitalize="off"
+                            spellcheck="false"
+                            placeholder="-----BEGIN PRIVATE KEY-----&#10;...&#10;-----END PRIVATE KEY-----"
+                            aria-describedby="ajuda-chave-privada"
+                        ></textarea>
+
+                        <small
+                            class="muted"
+                            id="ajuda-chave-privada"
+                        >
+                            Campo obrigatório. A chave privada será validada
+                            e guardada de forma cifrada. O seu conteúdo não
+                            será apresentado novamente.
+                        </small>
+                    </div>
+
+                    <!-- CHAVE PÚBLICA -->
+                    <div class="form-row">
+                        <label for="id_chave_publica">
+                            Chave pública (PEM)
+                        </label>
+
+                        <textarea
+                            name="chave_publica"
+                            id="id_chave_publica"
+                            rows="7"
+                            autocomplete="off"
+                            autocapitalize="off"
+                            spellcheck="false"
+                            placeholder="-----BEGIN PUBLIC KEY-----&#10;...&#10;-----END PUBLIC KEY-----"
+                            aria-describedby="ajuda-chave-publica"
+                        ></textarea>
+
+                        <small
+                            class="muted"
+                            id="ajuda-chave-publica"
+                        >
+                            Campo opcional. Se ficar vazio, a chave pública
+                            será derivada da chave privada introduzida.
+                            Se for fornecida, deverá corresponder à chave
+                            privada.
+                        </small>
+                    </div>
+
+                    <!-- AVISO DE SEGURANÇA -->
+                    <div class="status status-warning" role="note">
+                        <strong>Antes de continuar</strong>
+
+                        <p>
+                            Utilize a chave privada correspondente à chave
+                            pública do contribuinte. Não introduza aqui a
+                            chave privada do produtor do software nem
+                            credenciais da API da AGT.
+                        </p>
+                    </div>
+
+                    <!-- ACÇÕES -->
+                    <div class="actions">
+                        <button
+                            class="btn btn-primary"
+                            type="submit"
+                        >
+                            <i
+                                class="fas fa-shield-alt"
+                                aria-hidden="true"
+                            ></i>
+                            Validar e guardar chaves
+                        </button>
+
+                        <a
+                            class="btn btn-light"
+                            href="{% url 'fiscal:assinatura-digital' %}"
+                        >
+                            Cancelar
+                        </a>
+                    </div>
+
+                </form>
+
+            {% else %}
+
+                <div class="status status-warning" role="alert">
+                    <strong>Configuração indisponível.</strong>
+
+                    <p>
+                        O formulário só fica disponível depois de existir
+                        um NIF no registo oficial da empresa.
+                    </p>
+                </div>
+
+            {% endif %}
+
+        </div>
+    </section>
+
+</div>
+
+<!-- INFORMAÇÕES DE SEGURANÇA -->
+<section class="card" style="margin-top: 18px;">
+    <div class="card-head">
+        <h2>Cuidados de segurança</h2>
+    </div>
+
+    <div class="card-body">
+        <ul>
+            <li>
+                Utilize as chaves correspondentes ao contribuinte e ao NIF
+                apresentados nesta página.
+            </li>
+
+            <li>
+                A chave privada do contribuinte é armazenada de forma cifrada.
+            </li>
+
+            <li>
+                A chave pública e a chave privada devem formar um par válido.
+            </li>
+
+            <li>
+                Depois de guardar, consulte a página de assinatura digital
+                para verificar o estado e a impressão digital da chave pública.
+            </li>
+        </ul>
+    </div>
+</section>
+
+{% endwith %}
+
+{% endblock %}

@@ -17,6 +17,16 @@ from django.contrib.auth import get_user_model
 
 from apps.core.models import TimeStampedModel
 from apps.produtos.models import Produto, Lote
+from datetime import timedelta
+
+from django.db import models, transaction
+from django.db.models import F
+from django.utils import timezone
+
+from apps.produtos.models import Lote, Produto
+
+
+
 
 Usuario = get_user_model()
 
@@ -468,72 +478,71 @@ class AlertaEstoque(TimeStampedModel):
         self.resolvido_por = usuario
         self.observacoes_resolucao = observacoes
         self.save()
-    
+
+    TIPOS_AUTOMATICOS = ("estoque_zerado", "estoque_baixo", "vencimento_proximo", "produto_vencido")
+
     @classmethod
-    def gerar_alertas_automaticos(cls):
-        """Gera alertas automáticos para o tenant ativo no contexto da requisição"""
-        # Importação local para evitar import de ciclo
-        from .models import MovimentacaoEstoque
-        
-        hoje = date.today()
-        
-        # 1. Alertas de estoque baixo / zerado
-        produtos_ativos = Produto.objects.filter(ativo=True)
-        
-        for produto in produtos_ativos:
-            estoque_atual = MovimentacaoEstoque.calcular_estoque_atual(produto)
-            
-            if estoque_atual <= 0:
-                cls.objects.get_or_create(
-                    tipo_alerta='estoque_zerado',
-                    produto=produto,
-                    ativo=True,
-                    defaults={
-                        'prioridade': 'critica',
-                        'titulo': f'Estoque zerado: {produto.nome_produto}',
-                        'descricao': f'O produto {produto.nome_produto} está com estoque zerado.',
-                        'quantidade_atual': estoque_atual,
-                        'quantidade_recomendada': produto.ponto_reposicao
-                    }
-                )
-            elif estoque_atual <= produto.estoque_minimo:
-                cls.objects.get_or_create(
-                    tipo_alerta='estoque_baixo',
-                    produto=produto,
-                    ativo=True,
-                    defaults={
-                        'prioridade': 'alta',
-                        'titulo': f'Estoque baixo: {produto.nome_produto}',
-                        'descricao': f'O produto {produto.nome_produto} está com estoque baixo ({estoque_atual} unidades).',
-                        'quantidade_atual': estoque_atual,
-                        'quantidade_recomendada': produto.ponto_reposicao
-                    }
-                )
-        
-        # 2. Alertas de vencimento próximo
-        data_limite = hoje + timedelta(days=30)
-        lotes_vencendo = Lote.objects.filter(
-            data_validade__lte=data_limite,
-            data_vencimento__gt=hoje,
-            quantidade_atual__gt=0,
-            ativo=True
-        )
-        
-        for lote in lotes_vencendo:
-            dias_restantes = (lote.data_vencimento - hoje).days
-            
-            cls.objects.get_or_create(
-                tipo_alerta='vencimento_proximo',
-                produto=lote.produto,
-                lote=lote,
-                ativo=True,
-                defaults={
-                    'prioridade': 'alta' if dias_restantes <= 7 else 'media',
-                    'titulo': f'Vencimento próximo: {lote.produto.nome_produto}',
-                    'descricao': f'Lote {lote.numero_lote} vence em {dias_restantes} dias ({lote.data_vencimento}).',
-                    'quantidade_atual': lote.quantidade_atual
-                }
+    def gerar_alertas_automaticos(cls, dias_vencimento=30):
+        """
+        Sincroniza os alertas automáticos do schema activo (chamar dentro de
+        schema_context). Mantém no máximo um alerta activo por (tipo, produto, lote);
+        os alertas cuja condição deixou de se verificar são resolvidos.
+        """
+        hoje = timezone.localdate()
+        limite = hoje + timedelta(days=dias_vencimento)
+        condicoes = {}  # (tipo, produto_id, lote_id) -> campos do alerta
+
+        for produto in Produto.objects.filter(ativo=True, estoque_atual__lte=F("estoque_minimo")):
+            zerado = produto.estoque_atual <= 0
+            tipo = "estoque_zerado" if zerado else "estoque_baixo"
+            condicoes[(tipo, produto.pk, None)] = {
+                "produto": produto,
+                "prioridade": "critica" if zerado else "alta",
+                "titulo": f"{'Estoque zerado' if zerado else 'Estoque baixo'}: {produto.nome_produto}",
+                "descricao": (
+                    f"{produto.nome_produto} tem {produto.estoque_atual} em stock "
+                    f"(mínimo {produto.estoque_minimo})."
+                ),
+                "quantidade_atual": int(produto.estoque_atual),
+                "quantidade_recomendada": max(int(produto.estoque_maximo - produto.estoque_atual), 0),
+            }
+
+        lotes = Lote.objects.filter(
+            quantidade_atual__gt=0, data_validade__lte=limite, produto__ativo=True
+        ).select_related("produto")
+        for lote in lotes:
+            dias = (lote.data_validade - hoje).days
+            vencido = dias < 0
+            tipo = "produto_vencido" if vencido else "vencimento_proximo"
+            quando = f"venceu há {-dias} dia(s)" if vencido else f"vence em {dias} dia(s)"
+            condicoes[(tipo, lote.produto_id, lote.pk)] = {
+                "produto": lote.produto,
+                "lote": lote,
+                "prioridade": "critica" if vencido else ("alta" if dias <= 7 else "media"),
+                "titulo": f"{'Produto vencido' if vencido else 'Vencimento próximo'}: {lote.produto.nome_produto}",
+                "descricao": f"Lote {lote.numero_lote} {quando} ({lote.data_validade:%d/%m/%Y}).",
+                "quantidade_atual": lote.quantidade_atual,
+            }
+
+        with transaction.atomic():
+            activos = {
+                (a.tipo_alerta, a.produto_id, a.lote_id): a.pk
+                for a in cls.objects.filter(ativo=True, tipo_alerta__in=cls.TIPOS_AUTOMATICOS)
+            }
+            novos = [
+                cls(tipo_alerta=chave[0], **campos)
+                for chave, campos in condicoes.items()
+                if chave not in activos
+            ]
+            cls.objects.bulk_create(novos)
+            obsoletos = [pk for chave, pk in activos.items() if chave not in condicoes]
+            cls.objects.filter(pk__in=obsoletos).update(
+                ativo=False,
+                data_resolucao=timezone.now(),
+                observacoes_resolucao="Resolvido automaticamente: a condição deixou de se verificar.",
             )
+        return {"criados": len(novos), "resolvidos": len(obsoletos), "activos": len(condicoes)}
+
 
             
 class LocalizacaoEstoque(models.Model):

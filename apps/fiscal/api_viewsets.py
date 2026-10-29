@@ -159,26 +159,32 @@ class AssinaturaDigitalViewSet(TenantFiscalAPIViewMixin, viewsets.ViewSet):
 
     @action(detail=False, methods=["post"])
     def configurar_chave(self, request):
-        _empresa_do_schema()
-        nif = (request.data.get("nif_contribuinte") or "").strip()
-        chave_privada = (request.data.get("chave_privada") or "").strip()
-        chave_publica = (request.data.get("chave_contribuinte_publica") or request.data.get("chave_publica") or "").strip()
-        if not nif or not chave_privada or not chave_publica:
+        from apps.fiscal.services.assinatura_service import (
+            AssinaturaDigitalService,
+            FiscalServiceError,
+        )
+
+        chave_privada = str(request.data.get("chave_privada", "")).strip()
+        chave_publica = str(request.data.get("chave_publica", "")).strip() or None
+
+        # Não receber nem confiar em nif_contribuinte no corpo da API.
+        if not chave_privada:
             return Response(
-                {"error": "NIF, chave privada e chave pública emitidas pela AGT são obrigatórios."},
+                {"error": "A chave privada do contribuinte é obrigatória."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+
         try:
-            config = AssinaturaDigital.get_solo()
-            config.definir_chaves(
-                nif=nif,
+            config = AssinaturaDigitalService.configurar_chave_contribuinte(
                 chave_privada_pem=chave_privada,
                 chave_publica_pem=chave_publica,
                 usuario=request.user,
             )
-            return Response(AssinaturaDigitalSerializer(config, context={"request": request}).data)
-        except (FiscalServiceError, ValidationError, ValueError) as exc:
+        except FiscalServiceError as exc:
             return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+        return Response(AssinaturaDigitalSerializer(config).data)
+
 
     @action(detail=False, methods=["post"])
     def assinar_documento(self, request):

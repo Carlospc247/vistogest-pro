@@ -16,7 +16,7 @@ from decimal import Decimal
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.hashers import check_password, make_password
-from django.contrib.auth.mixins import LoginRequiredMixin
+from django.contrib.auth.mixins import AccessMixin, LoginRequiredMixin
 from django.contrib.messages.views import SuccessMessageMixin
 from django.core.exceptions import ObjectDoesNotExist, PermissionDenied, ValidationError as DjangoValidationError
 from django.core.mail import send_mail
@@ -95,7 +95,74 @@ def _pode_gerir_site(user):
             except (AttributeError, TypeError):
                 return False
     return False
+##### PERMISSÕES VALIDAS
 
+class PermissaoAcaoMixin(AccessMixin):
+    # CRÍTICO: Definir esta variável na View
+    acao_requerida = None 
+
+    def dispatch(self, request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return self.handle_no_permission()
+
+        try:
+            # Tenta obter o Funcionario (ligação fundamental)
+            funcionario = request.user.funcionario 
+        except Exception:
+            messages.error(request, "Acesso negado. O seu usuário não está ligado a um registro de funcionário.")
+            return self.handle_no_permission()
+
+        if self.acao_requerida:
+            # Usa a lógica dinâmica do modelo Funcionario (que já criámos)
+            if not funcionario.pode_realizar_acao(self.acao_requerida):
+                messages.error(request, f"Acesso negado. O seu cargo não permite realizar a ação de '{self.acao_requerida}'.")
+                return redirect(reverse_lazy('core_tenants:dashboard'))
+
+        return super().dispatch(request, *args, **kwargs)
+
+
+from functools import wraps
+from django.shortcuts import redirect
+from django.contrib import messages
+from django.urls import reverse_lazy
+from django.http import HttpResponseForbidden
+
+def permissao_acao_required(acao_requerida=None):
+    """
+    Decorator para function-based views que verifica:
+    1. Usuário autenticado
+    2. Usuário ligado a um registro Funcionario
+    3. Permissão de ação específica
+    """
+    def decorator(view_func):
+        @wraps(view_func)
+        def _wrapped_view(request, *args, **kwargs):
+            if not request.user.is_authenticated:
+                messages.error(request, "Acesso negado. Usuário não autenticado.")
+                return redirect(reverse_lazy('core:login'))  # ou handle customizado
+
+            try:
+                funcionario = request.user.funcionario
+            except Exception:
+                messages.error(
+                    request,
+                    "Acesso negado. O seu usuário não está ligado a um registro de funcionário."
+                )
+                return redirect(reverse_lazy('core_tenants:dashboard'))
+
+            if acao_requerida:
+                if not funcionario.pode_realizar_acao(acao_requerida):
+                    messages.error(
+                        request,
+                        f"Acesso negado. O seu cargo não permite realizar a ação de '{acao_requerida}'."
+                    )
+                    return redirect(reverse_lazy('core_tenants:dashboard'))
+
+            return view_func(request, *args, **kwargs)
+        return _wrapped_view
+    return decorator
+
+##########
 
 class TenantOnlyMixin:
     """
@@ -1526,11 +1593,12 @@ class UploadImagemSecaoView(LoginRequiredMixin, TenantOnlyMixin, View):
 
 # ─── S12 Site Builder ───────────────────────────────────────────────────────
 
-class SiteEditorView(LoginRequiredMixin, TenantOnlyMixin, View):
+class SiteEditorView(LoginRequiredMixin, TenantOnlyMixin, PermissaoAcaoMixin, View):
     """
     S12 — Editor visual de página com drag-and-drop.
     Permite ao gestor da empresa editar o site sem saber programação.
     """
+    acao_requerida = 'gerir_site'
     template_name = 'site/editor.html'
 
     def get(self, request, pagina_id=None):
@@ -1571,8 +1639,9 @@ class AdicionarSecaoView(LoginRequiredMixin, TenantOnlyMixin, View):
         return redirect('site:configuracao_dashboard')
 
 
-class SiteConfigDashboardView(LoginRequiredMixin, TenantOnlyMixin, View):
+class SiteConfigDashboardView(LoginRequiredMixin, TenantOnlyMixin, PermissaoAcaoMixin, View):
     """Dashboard de gestão do site (só em schema de tenant)."""
+    acao_requerida = 'gerir_site'
     template_name = 'site/dashboard_config.html'
 
     def get(self, request):
@@ -1620,8 +1689,9 @@ class SiteConfigDashboardView(LoginRequiredMixin, TenantOnlyMixin, View):
         })
 
 
-class PublicarSiteView(LoginRequiredMixin, TenantOnlyMixin, View):
+class PublicarSiteView(LoginRequiredMixin, TenantOnlyMixin, PermissaoAcaoMixin, View):
     """Publica ou despublica (campo POST acao=despublicar)."""
+    acao_requerida = 'gerir_site'
     def post(self, request, pk):
         pagina = get_object_or_404(Pagina, pk=pk)
         if request.POST.get('acao') == 'despublicar':
@@ -1638,7 +1708,8 @@ class PublicarSiteView(LoginRequiredMixin, TenantOnlyMixin, View):
         return redirect('site:configuracao_dashboard')
 
 
-class AtualizarSeoPaginaView(LoginRequiredMixin, TenantOnlyMixin, View):
+class AtualizarSeoPaginaView(LoginRequiredMixin, TenantOnlyMixin, PermissaoAcaoMixin, View):
+    acao_requerida = 'gerir_site'
     def post(self, request, pk):
         pagina = get_object_or_404(Pagina, pk=pk)
         titulo = request.POST.get('titulo', '').strip()
@@ -1839,8 +1910,9 @@ def _tempo_medio(qs):
     return formatar_duracao(m) if m else '—'
 
 
-class InteracoesSiteView(LoginRequiredMixin, TenantOnlyMixin, View):
+class InteracoesSiteView(LoginRequiredMixin, TenantOnlyMixin, PermissaoAcaoMixin, View):
     """Painel com todas as interações do público no site."""
+    acao_requerida = 'gerir_site'
     template_name = 'site/interacoes.html'
 
     def get(self, request):
@@ -1906,11 +1978,12 @@ ATENDER = {
 }
 
 
-class AtenderInteracaoView(LoginRequiredMixin, TenantOnlyMixin, View):
+class AtenderInteracaoView(LoginRequiredMixin, TenantOnlyMixin, PermissaoAcaoMixin, View):
     """
     Marca uma interação como tratada e regista os dados de atendimento
     apenas nos modelos que possuem esses campos.
     """
+    acao_requerida = 'gerir_site'
 
     def post(self, request, tipo, pk):
         if tipo not in ATENDER:
@@ -1978,8 +2051,9 @@ class AtenderInteracaoView(LoginRequiredMixin, TenantOnlyMixin, View):
 # Restantes views do editor
 # ─────────────────────────────────────────────────────────────────────────────
 
-class AtualizarDesignGlobalView(LoginRequiredMixin, TenantOnlyMixin, View):
+class AtualizarDesignGlobalView(LoginRequiredMixin, TenantOnlyMixin, PermissaoAcaoMixin, View):
     """S12 — Actualiza design global: cores, fonte, tema, raio, efeitos, rodapé."""
+    acao_requerida = 'gerir_site'
     def post(self, request):
         config = _obter_config()
         is_ajax = request.headers.get('X-Requested-With') == 'XMLHttpRequest'
@@ -2013,8 +2087,9 @@ class AtualizarDesignGlobalView(LoginRequiredMixin, TenantOnlyMixin, View):
         return redirect('site:configuracao_dashboard')
 
 
-class AtualizarConfiguracaoView(LoginRequiredMixin, TenantOnlyMixin, View):
+class AtualizarConfiguracaoView(LoginRequiredMixin, TenantOnlyMixin, PermissaoAcaoMixin, View):
     """Actualiza ConfiguracaoSite (WhatsApp, loja, contactos, etc.)."""
+    acao_requerida = 'gerir_site'
     def post(self, request):
         config = _obter_config()
         campos = [

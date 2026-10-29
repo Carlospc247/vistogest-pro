@@ -139,6 +139,25 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.views import View
 from apps.core.permissions import MultiplePermissions, EmpresaPermission, FiscalPermission  # ajusta o import conforme teu projeto
 from django.contrib.auth.mixins import AccessMixin
+import logging
+import re
+from datetime import date
+
+from django.conf import settings
+from django.core.exceptions import PermissionDenied
+from django.db import connection
+from django.http import HttpResponse
+from django.utils import timezone
+from django.views import View
+from django.contrib.auth.mixins import LoginRequiredMixin
+from django_tenants.utils import get_public_schema_name
+from django.core.exceptions import PermissionDenied, ValidationError
+from django.utils.decorators import method_decorator
+from django.views.decorators.debug import sensitive_post_parameters
+from apps.empresas.services import obter_empresa_do_schema
+
+
+
 
 logger = logging.getLogger(__name__)
 
@@ -164,7 +183,7 @@ class PermissaoAcaoMixin(AccessMixin):
             # Usa a lógica dinâmica do modelo Funcionario (que já criámos)
             if not funcionario.pode_realizar_acao(self.acao_requerida):
                 messages.error(request, f"Acesso negado. O seu cargo não permite realizar a ação de '{self.acao_requerida}'.")
-                return redirect(reverse_lazy('core_tenants:dashboard')) # Redirecionamento para a Home ou Dashboard
+                return redirect(reverse_lazy('core_tenants:dashboard'))
 
         return super().dispatch(request, *args, **kwargs)
  
@@ -451,62 +470,69 @@ class TaxaIVAAGTViewSet(viewsets.ModelViewSet):
         })
 
 
-
-
-class AssinaturaDigitalViewSet(viewsets.ViewSet):
-    """
-    ViewSet para gestão da chave do contribuinte (singleton por tenant).
-    Não é mais um ModelViewSet de listagem — só faz sentido um registo.
-    """
+"""
+class AssinaturaDigitalViewSet(TenantFiscalAPIViewMixin, viewsets.ViewSet):
     permission_classes = [permissions.IsAuthenticated]
 
     def list(self, request):
-        assinatura = AssinaturaDigital.obter_configuracao()
-        if not assinatura:
-            return Response({'configurada': False})
-        return Response(AssinaturaDigitalSerializer(assinatura).data)
+        _empresa_do_schema()
+        assinatura = AssinaturaDigital.get_solo()
+        return Response(AssinaturaDigitalSerializer(assinatura, context={"request": request}).data)
 
-    @action(detail=False, methods=['post'])
+    @action(detail=False, methods=["post"])
     def configurar_chave(self, request):
-        """Regista a chave do contribuinte, tal como recebida do Portal do Contribuinte AGT."""
-        nif = request.data.get('nif_contribuinte', '').strip()
-        chave_privada = request.data.get('chave_privada', '').strip()
-        chave_publica = request.data.get('chave_publica', '').strip() or None
+        from apps.fiscal.services.assinatura_service import (
+            AssinaturaDigitalService,
+            FiscalServiceError,
+        )
 
-        if not nif or not chave_privada:
-            return Response({'error': 'NIF e chave privada são obrigatórios.'}, status=status.HTTP_400_BAD_REQUEST)
+        chave_privada = str(request.data.get("chave_privada", "")).strip()
+        chave_publica = str(request.data.get("chave_publica", "")).strip() or None
+
+        # Não receber nem confiar em nif_contribuinte no corpo da API.
+        if not chave_privada:
+            return Response(
+                {"error": "A chave privada do contribuinte é obrigatória."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         try:
             config = AssinaturaDigitalService.configurar_chave_contribuinte(
-                nif=nif, chave_privada_pem=chave_privada,
-                chave_publica_pem=chave_publica, usuario=request.user,
+                chave_privada_pem=chave_privada,
+                chave_publica_pem=chave_publica,
+                usuario=request.user,
             )
-            return Response(AssinaturaDigitalSerializer(config).data)
-        except FiscalServiceError as e:
-            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        except FiscalServiceError as exc:
+            return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
-    @action(detail=False, methods=['post'])
+        return Response(AssinaturaDigitalSerializer(config).data)
+
+
+    @action(detail=False, methods=["post"])
     def assinar_documento(self, request):
-        dados_documento = request.data.get('documento', {})
+        _empresa_do_schema()
+        from .services.assinatura_service import AssinaturaDigitalService
+        dados_documento = request.data.get("documento")
+        if not isinstance(dados_documento, dict) or not dados_documento:
+            return Response({"error": "Envie o objecto 'documento'."}, status=status.HTTP_400_BAD_REQUEST)
         try:
             jws = AssinaturaDigitalService.assinar_documento(dados_documento)
-            return Response({'jwsDocumentSignature': jws})
-        except FiscalServiceError as e:
-            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return Response({"jwsDocumentSignature": jws})
+        except FiscalServiceError as exc:
+            return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
-    @action(detail=False, methods=['get'])
+    @action(detail=False, methods=["get"])
     def status_cadeia(self, request):
-        config = AssinaturaDigital.obter_configuracao()
-        if not config:
-            return Response({'configurada': False, 'message': 'Assinatura digital não configurada'})
+        _empresa_do_schema()
+        config = AssinaturaDigital.get_solo()
         return Response({
-            'configurada': config.esta_configurada,
-            'nif_contribuinte': config.nif_contribuinte,
-            'ultimo_hash': config.ultimo_hash,
-            'series_fiscais': config.dados_series_fiscais,
+            "configurada": config.esta_configurada,
+            "nif_contribuinte": config.nif_contribuinte,
+            "ultimo_hash": config.ultimo_hash,
+            "series_fiscais": config.dados_series_fiscais,
         })
 
-
+"""
 
 class RetencaoFonteViewSet(viewsets.ModelViewSet):
     """
@@ -864,7 +890,6 @@ class TaxaIVACreateView(LoginRequiredMixin, PermissaoAcaoMixin, CreateView):
     }
 
     def form_valid(self, form):
-        form.instance.empresa = self.request.user.empresa
         messages.success(self.request, "Taxa de IVA criada com sucesso.")
         return super().form_valid(form)
 
@@ -933,69 +958,130 @@ class TaxaIVADeleteView(LoginRequiredMixin, PermissaoAcaoMixin, DeleteView):
 # ============================================================
 # === GESTÃO DE ASSINATURA DIGITAL ===
 # ============================================================
-
-class AssinaturaDigitalView(LoginRequiredMixin, PermissaoAcaoMixin, TemplateView):
-    acao_requerida = 'ver_status_atual_assinatura_digital'
+class AssinaturaDigitalView( LoginRequiredMixin, PermissaoAcaoMixin, TemplateView):
+    acao_requerida = "ver_status_atual_assinatura_digital"
     template_name = "fiscal/assinatura_digital.html"
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        context["assinatura"] = AssinaturaDigital.obter_configuracao()
+
+        try:
+            empresa = obter_empresa_do_schema()
+        except ValidationError as exc:
+            raise PermissionDenied(
+                "A assinatura digital só está disponível "
+                "dentro de um tenant válido."
+            ) from exc
+
+        assinatura = AssinaturaDigital.get_solo()
+
+        try:
+            problemas_integridade = assinatura.verificar_integridade()
+        except Exception:
+            logger.exception(
+                "Erro ao verificar a assinatura digital no schema=%s",
+                connection.schema_name,
+            )
+            problemas_integridade = [
+                "Não foi possível validar a integridade das chaves."
+            ]
+
+        contexto_assinatura_valida = (
+            assinatura.esta_configurada
+            and not problemas_integridade
+        )
+
+        context.update({
+            "empresa": empresa,
+            "assinatura": assinatura,
+            "configurado": assinatura.esta_configurada,
+            "tem_chave_privada": assinatura.tem_chave_privada,
+            "tem_chave_publica": assinatura.tem_chave_publica,
+            "problemas_integridade": problemas_integridade,
+            "assinatura_integra": contexto_assinatura_valida,
+        })
+
         return context
 
-
-class AssinaturaConfigurarChaveContribuinteView(LoginRequiredMixin, PermissaoAcaoMixin, View):
-    """
-    Substitui a antiga AssinaturaGerarChavesView: não GERA nada — apenas
-    regista a chave do contribuinte que o admin colou, tal como recebida
-    do Portal do Contribuinte AGT.
-    """
-    acao_requerida = 'configurar_assinatura_digital'
+@method_decorator(
+    sensitive_post_parameters("chave_privada", "chave_publica"),
+    name="dispatch",
+)
+class AssinaturaConfigurarChaveContribuinteView(LoginRequiredMixin, PermissaoAcaoMixin, View,):
+    """Regista chaves já emitidas pela AGT; não gera um par de chaves."""
+    acao_requerida = "configurar_assinatura_digital"
     template_name = "fiscal/assinatura_configurar.html"
 
     def get(self, request, *args, **kwargs):
-        from apps.fiscal.models import AssinaturaDigital
-        assinatura = AssinaturaDigital.obter_configuracao()
+        try:
+            empresa = obter_empresa_do_schema()
+        except ValidationError as exc:
+            raise PermissionDenied(
+                "A configuração só pode ser aberta dentro de um tenant válido."
+            ) from exc
+
+        assinatura = AssinaturaDigital.get_solo()
         return render(request, self.template_name, {
-            'assinatura': assinatura,
-            'ja_configurada': assinatura.esta_configurada,
+            "empresa": empresa,
+            "assinatura": assinatura,
+            "ja_configurada": assinatura.esta_configurada,
         })
 
     def post(self, request, *args, **kwargs):
-        from apps.fiscal.services.assinatura_service import AssinaturaDigitalService, FiscalServiceError
-        from apps.fiscal.utility.crypto import AESService
+        from apps.fiscal.services.assinatura_service import (
+            AssinaturaDigitalService,
+            FiscalServiceError,
+        )
 
-        nif = request.POST.get('nif_contribuinte', '').strip()
-        chave_privada = request.POST.get('chave_privada', '').strip()
-        chave_publica = request.POST.get('chave_publica', '').strip() or None
-        api_username = request.POST.get('api_username', '').strip()
-        api_password = request.POST.get('api_password', '').strip()
+        try:
+            empresa = obter_empresa_do_schema()
+        except ValidationError as exc:
+            raise PermissionDenied(
+                "A configuração só pode ser gravada dentro de um tenant válido."
+            ) from exc
 
-        if not nif or not chave_privada:
-            messages.error(request, "NIF e chave privada do contribuinte são obrigatórios.")
+        # O NIF NÃO é lido do POST. A fonte oficial é Empresa.nif.
+        if not empresa.nif:
+            messages.error(
+                request,
+                "A empresa não tem NIF no registo oficial. Contacte o administrador da plataforma.",
+            )
+            return redirect("fiscal:assinatura-configurar")
+
+        chave_privada = request.POST.get("chave_privada", "").strip()
+        chave_publica = request.POST.get("chave_publica", "").strip() or None
+
+        if not chave_privada:
+            messages.error(request, "A chave privada do contribuinte é obrigatória.")
             return redirect("fiscal:assinatura-configurar")
 
         try:
-            config = AssinaturaDigitalService.configurar_chave_contribuinte(
-                nif=nif,
+            AssinaturaDigitalService.configurar_chave_contribuinte(
                 chave_privada_pem=chave_privada,
                 chave_publica_pem=chave_publica,
                 usuario=request.user,
             )
-            # Guardar credenciais API AGT se fornecidas
-            if api_username:
-                config.api_username = api_username
-            if api_password:
-                config.api_password = AESService.encrypt(api_password)
-            if api_username or api_password:
-                config.save(update_fields=['api_username', 'api_password'])
-
-            messages.success(request, "Chave do contribuinte configurada com sucesso. "
-                                       "O sistema já pode assinar documentos fiscais.")
-        except FiscalServiceError as e:
-            messages.error(request, str(e))
+        except FiscalServiceError as exc:
+            messages.error(request, str(exc))
+            return redirect("fiscal:assinatura-configurar")
+        except ValidationError as exc:
+            messages.error(request, "Chaves recusadas: " + " ".join(exc.messages))
+            return redirect("fiscal:assinatura-configurar")
+        except Exception:
+            logger.exception(
+                "Falha ao configurar chaves fiscais no schema=%s",
+                connection.schema_name,
+            )
+            messages.error(
+                request,
+                "Não foi possível guardar as chaves. Verifique a configuração de cifra e as migrações do tenant.",
+            )
             return redirect("fiscal:assinatura-configurar")
 
+        messages.success(
+            request,
+            "Chaves do contribuinte validadas e guardadas com sucesso.",
+        )
         return redirect("fiscal:assinatura-digital")
 
 
@@ -1076,7 +1162,6 @@ class RetencaoFonteCreateView(PermissaoAcaoMixin, CreateView):
 
     def form_valid(self, form):
         # Define empresa automaticamente
-        form.instance.empresa = self.request.user.empresa
         messages.success(self.request, "Retenção criada com sucesso.")
         return super().form_valid(form)
 
@@ -1253,8 +1338,7 @@ class SAFTView(LoginRequiredMixin, PermissaoAcaoMixin, TemplateView):
     Painel principal de exportação SAF-T (AGT Angola).
     """
     template_name = "fiscal/saft_dashboard.html"
-    permission_classes = [MultiplePermissions]
-    multiple_permissions = {'AND': [EmpresaPermission, FiscalPermission]}
+
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -1274,66 +1358,6 @@ from datetime import datetime
 import json, traceback
 
 
-class SAFTExportWebView(PermissaoAcaoMixin, View):
-    """
-    Exporta o SAF-T AO 1.01_01 para o período solicitado.
-    Usa SaftXmlGeneratorService (novo gerador) e valida o XML contra o XSD
-    antes de devolvê-lo — os erros XSD são incluídos nos headers HTTP para
-    diagnóstico sem bloquear o download (a AGT valida do seu lado também).
-    """
-    acao_requerida = 'exportar_saft'
-
-    def post(self, request, *args, **kwargs):
-        from apps.fiscal.services.saft_xml_generator_service import SaftXmlGeneratorService
-        from apps.fiscal.services.saft_validacao_service import SaftValidacaoService
-
-        try:
-            empresa = request.user.empresa
-            data = json.loads(request.body)
-
-            data_inicio_str = data.get('dataInicio')
-            data_fim_str = data.get('dataFim')
-
-            if not data_inicio_str or not data_fim_str:
-                return JsonResponse(
-                    {'success': False, 'error': 'dataInicio e dataFim são obrigatórios (YYYY-MM-DD).'},
-                    status=400,
-                )
-
-            data_inicio = datetime.strptime(data_inicio_str, '%Y-%m-%d').date()
-            data_fim = datetime.strptime(data_fim_str, '%Y-%m-%d').date()
-
-            logger.info(
-                "Exportação SAF-T iniciada",
-                extra={'empresa': empresa.nif, 'inicio': data_inicio_str, 'fim': data_fim_str},
-            )
-
-            # Gerar XML com o novo gerador (SaftXmlGeneratorService)
-            gerador = SaftXmlGeneratorService(empresa, data_inicio, data_fim)
-            xml_bytes = gerador.generate_xml()
-
-            # Validar contra XSD — não bloqueia o download, mas anota o resultado
-            valido, erros_xsd = SaftValidacaoService.validar(xml_bytes)
-            if not valido:
-                logger.warning(
-                    "SAF-T gerado mas com erros XSD: %d erro(s). Primeiro: %s",
-                    len(erros_xsd), erros_xsd[0] if erros_xsd else '',
-                )
-
-            nome_ficheiro = f"SAFT_{empresa.nif}_{timezone.now().strftime('%Y%m%d_%H%M%S')}.xml"
-            response = HttpResponse(xml_bytes, content_type="application/xml; charset=utf-8")
-            response['Content-Disposition'] = f'attachment; filename="{nome_ficheiro}"'
-            # Informa o cliente sobre a validade XSD via header (não bloqueia)
-            response['X-SAFT-XSD-Valid'] = 'true' if valido else 'false'
-            response['X-SAFT-XSD-Errors'] = str(len(erros_xsd))
-            return response
-
-        except (ValueError, KeyError) as e:
-            return JsonResponse({'success': False, 'error': f'Parâmetros inválidos: {e}'}, status=400)
-        except Exception as e:
-            logger.exception("Erro na exportação SAF-T")
-            return JsonResponse({'success': False, 'error': str(e)}, status=500)
-
 
 class SAFTValidarXSDView(LoginRequiredMixin, PermissaoAcaoMixin, View):
     """
@@ -1346,6 +1370,13 @@ class SAFTValidarXSDView(LoginRequiredMixin, PermissaoAcaoMixin, View):
     Resposta: {"valido": bool, "total_erros": int, "erros": ["...", ...]}
     """
     acao_requerida = 'exportar_saft'
+
+    def get(self, request, *args, **kwargs):
+        hoje = timezone.localdate()
+        return render(request, "fiscal/saft_validar_xsd.html", {
+            "data_inicio_default": hoje.replace(day=1).isoformat(),
+            "data_fim_default": hoje.isoformat(),
+        })
 
     def post(self, request, *args, **kwargs):
         from apps.fiscal.services.saft_xml_generator_service import SaftXmlGeneratorService
@@ -1401,9 +1432,6 @@ class SAFTHistoricoView(LoginRequiredMixin, PermissaoAcaoMixin, ListView):
         context["funcionario"] = funcionario
 
         return context
-
-
-
 
 
 
@@ -1910,21 +1938,109 @@ class DownloadDashboardPDFView(LoginRequiredMixin, View):
         logger.info(f"Dashboard fiscal exportado em PDF para {empresa.nome}")
         return FileResponse(buffer, as_attachment=True, filename=f"Dashboard_Fiscal_{empresa.nif}.pdf")
 
-class DownloadSAFTFileView(LoginRequiredMixin, View):
-    acao_requerida = 'baixar_saft'
+
+
+class DownloadSAFTFileView(
+    LoginRequiredMixin,
+    PermissaoAcaoMixin,
+    View,
+):
     """
-    Permite o download de um ficheiro SAF-T específico.
+    Descarrega uma exportação SAF-T pertencente à empresa
+    do utilizador no tenant activo.
     """
-    permission_classes = [MultiplePermissions]
-    multiple_permissions = {'AND': [EmpresaPermission, FiscalPermission]}
+
+    acao_requerida = "baixar_saft"
 
     def get(self, request, export_id, *args, **kwargs):
-        empresa = request.user.empresa
-        exportacao = get_object_or_404(SAFTExportService, pk=export_id, )
-        if not exportacao.arquivo or not exportacao.arquivo.path:
-            raise Http404("Arquivo SAF-T não encontrado.")
-        logger.info(f"Download SAF-T {exportacao.id} ({empresa.nome}) realizado.")
-        return FileResponse(open(exportacao.arquivo.path, "rb"), as_attachment=True, filename=exportacao.nome_arquivo)
+        import logging
+
+        from django.core.exceptions import ObjectDoesNotExist, PermissionDenied
+        from django.db import connection
+        from django.http import FileResponse, Http404
+        from django.shortcuts import get_object_or_404
+        from django.utils.text import get_valid_filename
+        from django_tenants.utils import get_public_schema_name
+
+        from .models import SAFTExport
+
+        logger = logging.getLogger("fiscal.saft_download")
+
+        # Resolver a empresa associada ao utilizador.
+        try:
+            empresa = request.user.empresa
+        except (AttributeError, ObjectDoesNotExist):
+            empresa = None
+
+        if empresa is None:
+            funcionario = getattr(request.user, "funcionario", None)
+            empresa = getattr(funcionario, "empresa", None)
+
+        if empresa is None:
+            raise PermissionDenied(
+                "O utilizador não está associado a uma empresa."
+            )
+
+        # Não permitir downloads de exportações no schema público.
+        schema_actual = getattr(connection, "schema_name", None)
+
+        if (
+            not schema_actual
+            or schema_actual == get_public_schema_name()
+        ):
+            raise Http404("Exportação SAF-T não encontrada.")
+
+        # Quando a empresa possui schema_name, confirmar a correspondência.
+        schema_empresa = getattr(empresa, "schema_name", None)
+
+        if schema_empresa and schema_empresa != schema_actual:
+            raise Http404("Exportação SAF-T não encontrada.")
+
+        # A consulta só devolve registos da empresa do utilizador.
+        # Um ID pertencente a outra empresa não revela a existência
+        # nem permite obter o ficheiro.
+        exportacao = get_object_or_404(
+            SAFTExport.objects.select_related("empresa").filter(),
+            pk=export_id,
+        )
+
+        ficheiro_campo = exportacao.caminho_arquivo
+
+        if not ficheiro_campo or not ficheiro_campo.name:
+            raise Http404("O ficheiro SAF-T não está disponível.")
+
+        try:
+            # Compatível com o storage do Django, sem depender de .path.
+            ficheiro = ficheiro_campo.open("rb")
+        except Exception:
+            logger.exception(
+                "Não foi possível abrir a exportação SAF-T %s.",
+                exportacao.pk,
+            )
+            raise Http404("O ficheiro SAF-T não está disponível.")
+
+        nome_ficheiro = get_valid_filename(
+            exportacao.nome_arquivo or f"SAFT_{exportacao.pk}.xml"
+        )
+
+        if not nome_ficheiro:
+            nome_ficheiro = f"SAFT_{exportacao.pk}.xml"
+        elif not nome_ficheiro.lower().endswith(".xml"):
+            nome_ficheiro += ".xml"
+
+        logger.info(
+            "Download SAF-T autorizado. Exportação=%s, empresa=%s, utilizador=%s",
+            exportacao.pk,
+            empresa.pk,
+            request.user.pk,
+        )
+
+        return FileResponse(
+            ficheiro,
+            as_attachment=True,
+            filename=nome_ficheiro,
+            content_type="application/xml",
+        )
 
 
 class DownloadSAFTBackupView(LoginRequiredMixin, View):
@@ -1976,20 +2092,207 @@ class DownloadTemplateRetencoesView(LoginRequiredMixin, View):
 
 
 
-class DownloadExemploSAFTView(LoginRequiredMixin, View):
-    acao_requerida = 'baixar_saft'
+class DownloadExemploSAFTView(LoginRequiredMixin, PermissaoAcaoMixin, View):
     """
-    Fornece um exemplo de arquivo SAF-T (XML fictício para teste).
+    Gera e descarrega um SAF-T XML completo usando o mesmo gerador e
+    validador utilizados no fluxo SAF-T do sistema.
+
+    ATENÇÃO: este endpoint exporta os dados fiscais REAIS do tenant activo
+    para o período seleccionado. Não produz dados fictícios/anónimos.
+
+    Opcionalmente aceita ?data_inicio=YYYY-MM-DD&data_fim=YYYY-MM-DD.
+    Sem parâmetros, utiliza 1 de Janeiro do ano actual até hoje.
     """
-    permission_classes = [MultiplePermissions]
-    multiple_permissions = {'AND': [EmpresaPermission, FiscalPermission]}
+    acao_requerida = "baixar_saft"
+    logger = logging.getLogger("fiscal.saft_download_exemplo")
+
+    def _obter_empresa_tenant_activo(self, request):
+        """Impede geração no schema public ou com empresa de outro tenant."""
+        schema_actual = getattr(connection, "schema_name", None)
+        tenant_actual = getattr(connection, "tenant", None)
+
+        if (
+            not schema_actual
+            or schema_actual == get_public_schema_name()
+            or tenant_actual is None
+        ):
+            raise PermissionDenied(
+                "O SAF-T só pode ser gerado dentro de um tenant activo."
+            )
+
+        try:
+            empresa = request.user.empresa
+        except Exception as exc:
+            raise PermissionDenied(
+                "O utilizador não está associado a uma empresa."
+            ) from exc
+
+        schema_empresa = getattr(empresa, "schema_name", None)
+        schema_tenant = getattr(tenant_actual, "schema_name", None)
+        if schema_empresa and schema_empresa != schema_actual:
+            raise PermissionDenied("A empresa não pertence ao tenant activo.")
+        if schema_tenant and schema_tenant != schema_actual:
+            raise PermissionDenied("O tenant activo não corresponde ao schema actual.")
+        if getattr(empresa, "pk", None) != getattr(tenant_actual, "pk", None):
+            raise PermissionDenied("A empresa do utilizador não corresponde ao tenant activo.")
+
+        return empresa
+
+    def _obter_periodo(self, request):
+        """Lê o período do URL ou usa o ano actual até à data de hoje."""
+        inicio_str = request.GET.get("data_inicio")
+        fim_str = request.GET.get("data_fim")
+
+        if bool(inicio_str) != bool(fim_str):
+            raise ValueError(
+                "Informe data_inicio e data_fim juntos, no formato YYYY-MM-DD."
+            )
+
+        hoje = timezone.localdate()
+        if not inicio_str and not fim_str:
+            return date(hoje.year, 1, 1), hoje
+
+        try:
+            inicio = date.fromisoformat(inicio_str)
+            fim = date.fromisoformat(fim_str)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                "Datas inválidas. Use o formato YYYY-MM-DD e datas reais."
+            ) from exc
+
+        if inicio.isoformat() != inicio_str or fim.isoformat() != fim_str:
+            raise ValueError("Use exactamente o formato YYYY-MM-DD para as datas.")
+        if inicio > fim:
+            raise ValueError("A data inicial não pode ser posterior à data final.")
+        if inicio.year != fim.year:
+            raise ValueError(
+                "O período SAF-T deve pertencer ao mesmo ano fiscal."
+            )
+
+        return inicio, fim
 
     def get(self, request, *args, **kwargs):
-        exemplo = b'<?xml version="1.0" encoding="UTF-8"?><AuditFile><Header><CompanyName>Exemplo SAFT</CompanyName></Header></AuditFile>'
-        logger.info("Arquivo exemplo SAF-T disponibilizado para download.")
-        response = HttpResponse(exemplo, content_type="application/xml")
-        response['Content-Disposition'] = 'attachment; filename="exemplo_saft.xml"'
-        return response
+        # O controlo de acção é executado por PermissaoAcaoMixin.dispatch.
+        try:
+            empresa = self._obter_empresa_tenant_activo(request)
+            data_inicio, data_fim = self._obter_periodo(request)
+        except PermissionDenied:
+            raise
+        except ValueError as exc:
+            return HttpResponse(
+                f"Período SAF-T inválido: {exc}",
+                status=400,
+                content_type="text/plain; charset=utf-8",
+            )
+
+        try:
+            from apps.fiscal.services.saft_xml_generator_service import (
+                SaftXmlGeneratorService,
+            )
+            from apps.fiscal.services.saft_validacao_service import (
+                SaftValidacaoService,
+            )
+
+            gerador = SaftXmlGeneratorService(
+                data_inicio=data_inicio,
+                data_fim=data_fim,
+            )
+            resultado_xml = gerador.generate_xml()
+
+            if isinstance(resultado_xml, str):
+                xml_bytes = resultado_xml.encode("utf-8")
+            elif isinstance(resultado_xml, bytes):
+                xml_bytes = resultado_xml
+            else:
+                raise TypeError(
+                    "O gerador SAF-T não devolveu conteúdo XML em texto ou bytes."
+                )
+
+            if not xml_bytes.strip():
+                raise ValueError("O gerador SAF-T devolveu um ficheiro vazio.")
+
+            validacao = SaftValidacaoService.resumo(xml_bytes)
+            if not validacao.get("valido", False):
+                erros = validacao.get("erros", []) or []
+                total_erros = validacao.get("total_erros", len(erros))
+                linhas = [
+                    "O SAF-T foi gerado, mas NÃO passou na validação XSD.",
+                    f"Total de erros: {total_erros}",
+                    "O download foi interrompido para evitar entregar um XML inválido.",
+                    "",
+                ]
+                linhas.extend(f"- {erro}" for erro in erros[:20])
+                self.logger.warning(
+                    "Download de SAF-T exemplo bloqueado por falha XSD. "
+                    "empresa=%s, inicio=%s, fim=%s, erros=%s",
+                    empresa.pk,
+                    data_inicio,
+                    data_fim,
+                    total_erros,
+                )
+                return HttpResponse(
+                    "\n".join(linhas),
+                    status=422,
+                    content_type="text/plain; charset=utf-8",
+                )
+
+            nif_seguro = re.sub(r"[^A-Za-z0-9_-]", "", str(getattr(empresa, "nif", "") or ""))
+            if not nif_seguro:
+                nif_seguro = "empresa"
+            nome_ficheiro = (
+                f"SAFT_AO_{nif_seguro}_"
+                f"{data_inicio:%Y%m%d}_{data_fim:%Y%m%d}.xml"
+            )
+
+            response = HttpResponse(
+                xml_bytes,
+                content_type="application/xml; charset=utf-8",
+            )
+            response["Content-Disposition"] = f'attachment; filename="{nome_ficheiro}"'
+            response["X-Content-Type-Options"] = "nosniff"
+            response["Cache-Control"] = "no-store"
+
+            self.logger.info(
+                "Download de SAF-T gerado pelo serviço completo. empresa=%s, "
+                "utilizador=%s, inicio=%s, fim=%s, tamanho=%s bytes",
+                empresa.pk,
+                request.user.pk,
+                data_inicio,
+                data_fim,
+                len(xml_bytes),
+            )
+            return response
+
+        except (ValueError, TypeError) as exc:
+            self.logger.warning(
+                "Não foi possível gerar o SAF-T. empresa=%s, motivo=%s",
+                getattr(empresa, "pk", None),
+                exc,
+                exc_info=True,
+            )
+            detalhe = str(exc) if settings.DEBUG else (
+                "Confirme o NIF da empresa, o NIF do produtor de software e "
+                "as configurações SAF-T obrigatórias."
+            )
+            return HttpResponse(
+                f"Não foi possível gerar o SAF-T completo. {detalhe}",
+                status=422,
+                content_type="text/plain; charset=utf-8",
+            )
+        except Exception:
+            self.logger.exception(
+                "Erro inesperado ao gerar o SAF-T completo. empresa=%s, utilizador=%s",
+                getattr(empresa, "pk", None),
+                request.user.pk,
+            )
+            mensagem = "O servidor não conseguiu gerar o SAF-T. Consulte os logs da aplicação."
+            if settings.DEBUG:
+                mensagem += "\nVerifique a configuração do gerador e do validador XSD."
+            return HttpResponse(
+                mensagem,
+                status=500,
+                content_type="text/plain; charset=utf-8",
+            )
 
 
 
@@ -2082,18 +2385,8 @@ def debug_info_sistema(request):
 
 
 
-
-def has_permission_agt(user):
-    return user.has_perm('fiscal.can_download_agt_keys')
-
-
-
-
-
 @login_required
-@user_passes_test(has_permission_agt)
-@login_required
-@user_passes_test(has_permission_agt)
+@permissao_acao_required(acao_requerida='pode_baixar_chave_publica')
 def baixar_chave_publica(request):
     assinatura = AssinaturaDigital.obter_configuracao()
     if not assinatura or not assinatura.chave_contribuinte_publica:
@@ -2128,26 +2421,132 @@ def baixar_chave_publica(request):
 
 
 
-
 @login_required
-@user_passes_test(has_permission_agt)  # Só ADMIN MASTER
+@permissao_acao_required(acao_requerida='pode_baixar_chave_publica')
 def baixar_pdf_submissao(request):
     """
-    Gera e devolve o PDF de submissão à AGT para o tenant activo.
-    Isolamento físico: usa AssinaturaDigital.obter_configuracao() — sem FK empresa nem empresa_id na URL.
-    """
-    assinatura = AssinaturaDigital.obter_configuracao()
-    if not assinatura or not assinatura.esta_configurada:
-        raise Http404("Assinatura do contribuinte não configurada para este tenant.")
-    empresa = request.user.empresa
-    buf = gerar_pdf_submissao_agt(empresa, assinatura)
-    return FileResponse(buf, as_attachment=True, filename=f"submissao_agt_{empresa.nif or 'tenant'}.pdf")
+    Gera o PDF de submissão à AGT para o tenant activo.
 
+    A empresa é obtida do schema activo.
+    A assinatura e as chaves pertencem exclusivamente a esse tenant.
+    """
+
+    # 1. Obter a empresa do tenant activo.
+    try:
+        empresa = obter_empresa_do_schema()
+    except ValidationError as exc:
+        logger.warning(
+            "Tentativa de gerar PDF AGT fora de um tenant válido. "
+            "Schema=%s, utilizador=%s",
+            connection.schema_name,
+            request.user.pk,
+        )
+        raise Http404(
+            "Não foi possível identificar a empresa do tenant activo."
+        ) from exc
+
+    # 2. Confirmar a existência do NIF oficial.
+    if not empresa.nif:
+        messages.error(
+            request,
+            "A empresa não tem NIF no registo oficial. "
+            "Configure primeiro o NIF antes de gerar o PDF.",
+        )
+        return redirect("fiscal:assinatura-digital")
+
+    # 3. Obter a configuração de assinatura deste tenant.
+    assinatura = AssinaturaDigital.get_solo()
+
+    if not assinatura.esta_configurada:
+        messages.error(
+            request,
+            "A assinatura digital não está configurada. "
+            "Registe as chaves do contribuinte antes de continuar.",
+        )
+        return redirect("fiscal:assinatura-digital")
+
+    # 4. Verificar a integridade das chaves e a associação ao tenant.
+    try:
+        problemas = assinatura.verificar_integridade()
+    except Exception:
+        logger.exception(
+            "Erro ao verificar a integridade da assinatura para "
+            "o schema=%s, utilizador=%s",
+            connection.schema_name,
+            request.user.pk,
+        )
+        messages.error(
+            request,
+            "Não foi possível validar a integridade das chaves fiscais.",
+        )
+        return redirect("fiscal:assinatura-digital")
+
+    if problemas:
+        logger.warning(
+            "PDF de submissão AGT bloqueado por inconsistências. "
+            "Schema=%s, problemas=%s",
+            connection.schema_name,
+            problemas,
+        )
+        messages.error(
+            request,
+            "Não é possível gerar o PDF: a configuração das chaves "
+            "apresenta inconsistências. Consulte a página de assinatura digital.",
+        )
+        return redirect("fiscal:assinatura-digital")
+
+    # 5. Gerar o PDF.
+    try:
+        buffer_pdf = gerar_pdf_submissao_agt(empresa, assinatura)
+
+        # Garantir que a leitura começa no início do ficheiro.
+        if hasattr(buffer_pdf, "seek"):
+            buffer_pdf.seek(0)
+
+    except Exception:
+        logger.exception(
+            "Falha ao gerar PDF de submissão AGT. "
+            "Empresa=%s, schema=%s, utilizador=%s",
+            empresa.pk,
+            connection.schema_name,
+            request.user.pk,
+        )
+        messages.error(
+            request,
+            "Não foi possível gerar o PDF de submissão à AGT. "
+            "Consulte os registos do servidor.",
+        )
+        return redirect("fiscal:assinatura-digital")
+
+    # 6. Devolver o documento.
+    nif_ficheiro = re.sub(
+        r"[^A-Za-z0-9_-]",
+        "",
+        str(empresa.nif),
+    ) or "tenant"
+
+    response = FileResponse(
+        buffer_pdf,
+        as_attachment=True,
+        filename=f"submissao_agt_{nif_ficheiro}.pdf",
+        content_type="application/pdf",
+    )
+    response["Cache-Control"] = "no-store"
+    response["X-Content-Type-Options"] = "nosniff"
+
+    logger.info(
+        "PDF de submissão AGT gerado. Empresa=%s, schema=%s, utilizador=%s",
+        empresa.pk,
+        connection.schema_name,
+        request.user.pk,
+    )
+
+    return response
 
 
 
 @login_required
-@user_passes_test(has_permission_agt)  # Só ADMIN MASTER
+@permissao_acao_required(acao_requerida='pode_baixar_chave_publica')
 def download_pdf_agt(request):
     """
     Gera PDF de declaração AGT para o tenant activo.
@@ -2348,222 +2747,3 @@ PONTOS_HOMOLOGACAO = [
     {'numero': 17,   'descricao': 'Ficheiro SAF-T XML único (todos os documentos)',     'tipo_doc': 'XML', 'saft_campo': 'HashControl + XSD',     'notas': 'Validar contra XSD AO 1.01_01'},
 ]
 
-
-class HomologacaoDashboardView(LoginRequiredMixin, PermissaoAcaoMixin, TemplateView):
-    """Dashboard de acompanhamento dos 17 pontos de homologação AGT."""
-    acao_requerida = 'ver_status_atual_assinatura_digital'
-    template_name = 'fiscal/homologacao_dashboard.html'
-
-    def get_context_data(self, **kwargs):
-        ctx = super().get_context_data(**kwargs)
-
-        # Verificar quais documentos HOM- já foram gerados
-        from apps.fiscal.models import DocumentoFiscal, AssinaturaDigital
-        docs_hom = set(
-            DocumentoFiscal.objects.filter(numero_documento__startswith='HOM-')
-            .values_list('numero_documento', flat=True)
-        )
-
-        pontos_status = []
-        for ponto in PONTOS_HOMOLOGACAO:
-            num = ponto['numero']
-            # Verificar se existe documento para este ponto
-            numero_doc = None
-            tipo = ponto['tipo_doc'] or ''
-            nao_aplicavel = str(num) in ('15', '16')
-            gerado = nao_aplicavel  # 15 e 16 não precisam de doc
-
-            if not nao_aplicavel and tipo not in ('XML',):
-                from django.utils import timezone
-                ano = timezone.now().year
-                tipo_simples = tipo.split('+')[0] if '+' in tipo else tipo
-                candidatos = [
-                    f'HOM-{tipo_simples}{ano}/{n:04d}'
-                    for n in range(1, 20)
-                ]
-                for cand in candidatos:
-                    if cand in docs_hom:
-                        numero_doc = cand
-                        gerado = True
-                        break
-
-            if str(num) == '17':
-                import os
-                from django.conf import settings as dj_settings
-                pasta_saft = os.path.join(
-                    getattr(dj_settings, 'BASE_DIR', '.'), 'media', 'homologacao'
-                )
-                gerado = os.path.isdir(pasta_saft) and bool(os.listdir(pasta_saft))
-
-            pontos_status.append({
-                **ponto,
-                'gerado': gerado,
-                'nao_aplicavel': nao_aplicavel,
-                'numero_doc': numero_doc,
-            })
-
-        # Info do último SAF-T
-        import os
-        from django.conf import settings as dj_settings
-        from django.utils import timezone
-        pasta_saft = os.path.join(
-            getattr(dj_settings, 'BASE_DIR', '.'), 'media', 'homologacao'
-        )
-        ultimo_saft = None
-        if os.path.isdir(pasta_saft):
-            ficheiros = sorted(
-                [f for f in os.listdir(pasta_saft) if f.endswith('.xml')],
-                reverse=True
-            )
-            if ficheiros:
-                caminho = os.path.join(pasta_saft, ficheiros[0])
-                tamanho = os.path.getsize(caminho)
-                mtime = os.path.getmtime(caminho)
-                import datetime
-                ultimo_saft = {
-                    'nome': ficheiros[0],
-                    'tamanho': f'{tamanho / 1024:.1f} KB',
-                    'data': datetime.datetime.fromtimestamp(mtime).strftime('%d/%m/%Y %H:%M'),
-                }
-
-        assinatura = AssinaturaDigital.obter_configuracao()
-        ctx.update({
-            'pontos': pontos_status,
-            'documentos_gerados': sum(1 for p in pontos_status if p['gerado']),
-            'ultimo_saft': ultimo_saft,
-            'assinatura_configurada': assinatura.esta_configurada if assinatura else False,
-        })
-        return ctx
-
-
-class HomologacaoGerarView(LoginRequiredMixin, PermissaoAcaoMixin, View):
-    """POST — Gera todos os documentos de homologação via management command inline."""
-    acao_requerida = 'configurar_assinatura_digital'
-
-    def post(self, request):
-        from django.db import connection
-        from io import StringIO
-        from django.core.management import call_command
-
-        schema = connection.schema_name
-        out = StringIO()
-        erros = []
-        try:
-            call_command(
-                'gerar_documentos_homologacao',
-                schema=schema,
-                stdout=out,
-                stderr=out,
-            )
-            messages.success(request, 'Documentos de homologação gerados com sucesso!')
-        except Exception as exc:
-            messages.error(request, f'Erro ao gerar documentos: {exc}')
-
-        return redirect('fiscal:homologacao-dashboard')
-
-
-class HomologacaoGerarPontoView(LoginRequiredMixin, PermissaoAcaoMixin, View):
-    """POST — Gera apenas um ponto específico."""
-    acao_requerida = 'configurar_assinatura_digital'
-
-    def post(self, request, ponto):
-        from django.db import connection
-        from io import StringIO
-        from django.core.management import call_command
-
-        schema = connection.schema_name
-        out = StringIO()
-        try:
-            call_command(
-                'gerar_documentos_homologacao',
-                schema=schema,
-                ponto=str(ponto),
-                stdout=out,
-            )
-            messages.success(request, f'Ponto {ponto} gerado com sucesso!')
-        except Exception as exc:
-            messages.error(request, f'Erro no ponto {ponto}: {exc}')
-
-        return redirect('fiscal:homologacao-dashboard')
-
-
-class HomologacaoGerarSaftView(LoginRequiredMixin, PermissaoAcaoMixin, View):
-    """POST — Gera só o SAF-T XML (ponto 17)."""
-    acao_requerida = 'ver_status_atual_assinatura_digital'
-
-    def get(self, request):
-        from django.db import connection
-        from io import StringIO
-        from django.core.management import call_command
-
-        out = StringIO()
-        try:
-            call_command(
-                'gerar_documentos_homologacao',
-                schema=connection.schema_name,
-                apenas_saft=True,
-                stdout=out,
-            )
-            messages.success(request, 'SAF-T XML gerado com sucesso!')
-        except Exception as exc:
-            messages.error(request, f'Erro ao gerar SAF-T: {exc}')
-
-        return redirect('fiscal:homologacao-dashboard')
-
-
-class HomologacaoDownloadSaftView(LoginRequiredMixin, PermissaoAcaoMixin, View):
-    """GET — Download do último SAF-T de homologação."""
-    acao_requerida = 'ver_status_atual_assinatura_digital'
-
-    def get(self, request):
-        import os
-        from django.http import FileResponse, Http404
-        from django.conf import settings as dj_settings
-        from django.db import connection
-
-        pasta = os.path.join(
-            getattr(dj_settings, 'BASE_DIR', '.'), 'media', 'homologacao'
-        )
-        if not os.path.isdir(pasta):
-            raise Http404('Nenhum SAF-T gerado ainda.')
-
-        ficheiros = sorted(
-            [f for f in os.listdir(pasta) if f.endswith('.xml')],
-            reverse=True
-        )
-        if not ficheiros:
-            raise Http404('Nenhum SAF-T encontrado.')
-
-        caminho = os.path.join(pasta, ficheiros[0])
-        return FileResponse(
-            open(caminho, 'rb'),
-            as_attachment=True,
-            filename=ficheiros[0],
-            content_type='application/xml',
-        )
-
-
-class HomologacaoPdfView(LoginRequiredMixin, PermissaoAcaoMixin, View):
-    """GET — Gera o PDF de um documento de homologação específico."""
-    acao_requerida = 'ver_status_atual_assinatura_digital'
-
-    def get(self, request, numero_documento):
-        from apps.fiscal.models import DocumentoFiscal
-        from django.http import Http404
-        try:
-            doc = DocumentoFiscal.objects.get(numero_documento=numero_documento)
-        except DocumentoFiscal.DoesNotExist:
-            raise Http404(f'Documento {numero_documento} não encontrado.')
-
-        try:
-            from apps.fiscal.services.pdf_agt_service import PDFDocumentoService
-            pdf_bytes = PDFDocumentoService.gerar_pdf(doc)
-            from django.http import HttpResponse
-            response = HttpResponse(pdf_bytes, content_type='application/pdf')
-            response['Content-Disposition'] = (
-                f'inline; filename="{numero_documento.replace("/", "_")}.pdf"'
-            )
-            return response
-        except Exception as exc:
-            messages.error(request, f'Erro ao gerar PDF: {exc}')
-            return redirect('fiscal:homologacao-dashboard')

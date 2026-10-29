@@ -1,0 +1,293 @@
+{% extends "fiscal/base_fiscal.html" %}
+
+{% block title %}Dashboard SAF-T | VistoGest Pro{% endblock %}
+
+{% block content %}
+<style>
+  .saft-dashboard {
+    --saft-ink: #172033;
+    --saft-muted: #687386;
+    --saft-line: #e4e9f1;
+    --saft-soft: #f5f7fb;
+    --saft-blue: #2258c7;
+    --saft-blue-dark: #173f98;
+    color: var(--saft-ink);
+    padding: 1.25rem 0 2.5rem;
+  }
+  .saft-dashboard * { box-sizing: border-box; }
+  .saft-shell { max-width: 1400px; margin: 0 auto; }
+  .saft-hero {
+    position: relative; overflow: hidden;
+    display: flex; align-items: center; justify-content: space-between; gap: 1.5rem;
+    padding: clamp(1.4rem, 3vw, 2.4rem); border-radius: 22px;
+    color: #fff; background: linear-gradient(120deg, #14284d 0%, #2258c7 68%, #3a7de0 100%);
+    box-shadow: 0 16px 38px rgba(29, 69, 150, .18);
+  }
+  .saft-hero:after {
+    content: ""; position: absolute; width: 270px; height: 270px; border-radius: 50%;
+    right: 6%; top: -160px; border: 42px solid rgba(255,255,255,.08); pointer-events: none;
+  }
+  .saft-hero-copy, .saft-hero-action { position: relative; z-index: 1; }
+  .saft-eyebrow { display: inline-flex; align-items: center; gap: .45rem; margin-bottom: .8rem; color: #dbe8ff; font-size: .76rem; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
+  .saft-hero h1 { margin: 0 0 .7rem; color: #fff; font-size: clamp(1.65rem, 3vw, 2.35rem); font-weight: 800; letter-spacing: -.035em; }
+  .saft-hero p { max-width: 680px; margin: 0; color: #e3ebff; line-height: 1.65; }
+  .saft-hero-action { flex-shrink: 0; }
+  .saft-btn-primary, .saft-btn-light, .saft-btn-outline {
+    display: inline-flex; align-items: center; justify-content: center; gap: .55rem;
+    min-height: 44px; padding: .72rem 1rem; border-radius: 11px; text-decoration: none;
+    font-size: .91rem; font-weight: 750; transition: transform .15s ease, box-shadow .15s ease, background .15s ease;
+  }
+  .saft-btn-primary { color: #1b428f; background: #fff; border: 1px solid #fff; box-shadow: 0 5px 16px rgba(0,0,0,.12); }
+  .saft-btn-primary:hover { color: #133575; transform: translateY(-1px); box-shadow: 0 8px 20px rgba(0,0,0,.16); }
+  .saft-btn-light { color: var(--saft-blue-dark); background: #edf3ff; border: 1px solid #d7e4ff; }
+  .saft-btn-light:hover { color: #123679; background: #dfeaff; }
+  .saft-btn-outline { color: var(--saft-ink); background: #fff; border: 1px solid var(--saft-line); }
+  .saft-btn-outline:hover { color: var(--saft-blue); border-color: #bacbf0; background: #f8faff; }
+  .saft-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; margin: 1.2rem 0 1.8rem; }
+  .saft-stat { display: flex; align-items: center; gap: .95rem; min-width: 0; padding: 1.15rem 1.25rem; background: #fff; border: 1px solid var(--saft-line); border-radius: 16px; box-shadow: 0 5px 18px rgba(25, 40, 70, .035); }
+  .saft-stat-icon { display: grid; place-items: center; flex-shrink: 0; width: 46px; height: 46px; border-radius: 13px; color: var(--saft-blue); background: #edf3ff; font-size: 1.2rem; font-weight: 850; }
+  .saft-stat-label { margin: 0 0 .25rem; color: var(--saft-muted); font-size: .8rem; font-weight: 700; }
+  .saft-stat-value { margin: 0; overflow-wrap: anywhere; font-size: 1.45rem; line-height: 1.25; font-weight: 850; letter-spacing: -.025em; }
+  .saft-stat-sub { margin: .25rem 0 0; color: var(--saft-muted); font-size: .77rem; }
+  .saft-section { margin-top: 1.8rem; }
+  .saft-section-heading { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: .7rem; margin-bottom: .9rem; }
+  .saft-section-heading h2 { margin: 0; color: var(--saft-ink); font-size: 1.22rem; font-weight: 850; letter-spacing: -.02em; }
+  .saft-section-heading p { margin: .3rem 0 0; color: var(--saft-muted); font-size: .88rem; }
+  .saft-action-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .95rem; }
+  .saft-action-card { display: flex; flex-direction: column; align-items: flex-start; min-height: 190px; padding: 1.15rem; border: 1px solid var(--saft-line); border-radius: 16px; background: #fff; color: inherit; text-decoration: none; box-shadow: 0 5px 18px rgba(25,40,70,.035); transition: transform .16s ease, border-color .16s ease, box-shadow .16s ease; }
+  .saft-action-card:hover { color: inherit; border-color: #b7c9ee; transform: translateY(-3px); box-shadow: 0 12px 28px rgba(25,55,110,.09); }
+  .saft-action-icon { display: grid; place-items: center; width: 44px; height: 44px; margin-bottom: 1rem; border-radius: 13px; background: #edf3ff; color: var(--saft-blue); font-size: 1rem; font-weight: 900; }
+  .saft-action-card h3 { margin: 0 0 .45rem; color: var(--saft-ink); font-size: .98rem; font-weight: 800; }
+  .saft-action-card p { margin: 0 0 1rem; color: var(--saft-muted); font-size: .83rem; line-height: 1.55; }
+  .saft-action-link { margin-top: auto; display: inline-flex; align-items: center; gap: .4rem; color: var(--saft-blue); font-size: .82rem; font-weight: 800; }
+  .saft-lower-grid { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(280px, .75fr); gap: 1rem; }
+  .saft-panel { min-width: 0; border: 1px solid var(--saft-line); border-radius: 17px; background: #fff; box-shadow: 0 5px 18px rgba(25,40,70,.035); overflow: hidden; }
+  .saft-panel-head { display: flex; align-items: center; justify-content: space-between; gap: .7rem; padding: 1.15rem 1.25rem; border-bottom: 1px solid var(--saft-line); }
+  .saft-panel-head h2 { margin: 0; font-size: 1rem; font-weight: 850; }
+  .saft-panel-body { padding: 1.2rem 1.25rem; }
+  .saft-last-export { display: flex; align-items: flex-start; gap: .9rem; }
+  .saft-file-icon { display: grid; place-items: center; flex-shrink: 0; width: 46px; height: 46px; border-radius: 13px; background: #e9f8f0; color: #14764c; font-weight: 900; }
+  .saft-file-name { margin: 0 0 .4rem; overflow-wrap: anywhere; font-weight: 800; }
+  .saft-file-meta { color: var(--saft-muted); font-size: .82rem; line-height: 1.65; }
+  .saft-status { display: inline-flex; margin-top: .5rem; padding: .28rem .55rem; color: #155c3b; background: #e8f7ee; border-radius: 999px; font-size: .72rem; font-weight: 800; }
+  .saft-empty { padding: .6rem 0; color: var(--saft-muted); font-size: .9rem; line-height: 1.65; }
+  .saft-recent-list { list-style: none; padding: 0; margin: 0; }
+  .saft-recent-item { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: .85rem 0; border-bottom: 1px solid #edf0f5; }
+  .saft-recent-item:first-child { padding-top: 0; }
+  .saft-recent-item:last-child { padding-bottom: 0; border-bottom: 0; }
+  .saft-recent-title { display: block; max-width: 100%; overflow-wrap: anywhere; color: var(--saft-ink); font-size: .86rem; font-weight: 800; }
+  .saft-recent-meta { margin-top: .25rem; color: var(--saft-muted); font-size: .77rem; }
+  .saft-mini-link { flex-shrink: 0; color: var(--saft-blue); text-decoration: none; font-size: .8rem; font-weight: 800; }
+  .saft-mini-link:hover { text-decoration: underline; }
+  .saft-note { margin-top: 1rem; padding: .9rem 1rem; border: 1px solid #f2d9a7; border-radius: 12px; background: #fff9ec; color: #76521a; font-size: .83rem; line-height: 1.55; }
+  @media (max-width: 1100px) { .saft-action-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+  @media (max-width: 820px) { .saft-hero { align-items: flex-start; flex-direction: column; } .saft-stats { grid-template-columns: 1fr; } .saft-action-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .saft-lower-grid { grid-template-columns: 1fr; } }
+  @media (max-width: 520px) { .saft-dashboard { padding-top: .5rem; } .saft-action-grid { grid-template-columns: 1fr; } .saft-action-card { min-height: auto; } .saft-action-card p { margin-bottom: .8rem; } .saft-stat { padding: 1rem; } .saft-hero { border-radius: 16px; } }
+</style>
+
+<div class="container-fluid saft-dashboard">
+  <div class="saft-shell">
+    <section class="saft-hero" aria-labelledby="saft-page-title">
+      <div class="saft-hero-copy">
+        <div class="saft-eyebrow"><span aria-hidden="true">◆</span> Fiscalidade · AGT Angola</div>
+        <h1 id="saft-page-title">Gestão SAF-T AO</h1>
+        <p>Gere ficheiros SAF-T, valida a estrutura XML antes da entrega, consulta exportações anteriores e acede às ferramentas fiscais num único painel.</p>
+        {% if empresa %}
+          <p style="margin-top:.75rem;font-size:.86rem;color:#dbe8ff"><strong>Empresa:</strong> {{ empresa.nome|default:"Empresa activa" }}{% if empresa.nif %} <span aria-hidden="true">·</span> <strong>NIF:</strong> {{ empresa.nif }}{% endif %}</p>
+        {% endif %}
+      </div>
+      <div class="saft-hero-action">
+        <a class="saft-btn-primary" href="{% url 'fiscal:saft_exportar' %}"><span aria-hidden="true">＋</span> Nova exportação</a>
+      </div>
+    </section>
+
+    <section class="saft-stats" aria-label="Resumo SAF-T">
+      <article class="saft-stat">
+        <div class="saft-stat-icon" aria-hidden="true">XML</div>
+        <div>
+          <p class="saft-stat-label">Exportações registadas</p>
+          <p class="saft-stat-value">{{ historico_count|default:0 }}</p>
+          <p class="saft-stat-sub">Ficheiros associados a esta empresa</p>
+        </div>
+      </article>
+      <article class="saft-stat">
+        <div class="saft-stat-icon" aria-hidden="true">↻</div>
+        <div>
+          <p class="saft-stat-label">Última exportação</p>
+          <p class="saft-stat-value" style="font-size:1.12rem">{% if ultimo_export %}{{ ultimo_export.created_at|date:"d/m/Y H:i"|default:"Registada" }}{% else %}Ainda não{% endif %}</p>
+          <p class="saft-stat-sub">Data da geração mais recente</p>
+        </div>
+      </article>
+      <article class="saft-stat">
+        <div class="saft-stat-icon" aria-hidden="true">✓</div>
+        <div>
+          <p class="saft-stat-label">Validação estrutural</p>
+          <p class="saft-stat-value" style="font-size:1.12rem">Valide antes de entregar</p>
+          <p class="saft-stat-sub">Verificação do XML contra o XSD</p>
+        </div>
+      </article>
+    </section>
+
+    <section class="saft-section" aria-labelledby="saft-quick-title">
+      <div class="saft-section-heading">
+        <div>
+          <h2 id="saft-quick-title">Ações rápidas</h2>
+          <p>Atalhos para os principais processos de SAF-T e conformidade fiscal.</p>
+        </div>
+      </div>
+
+      <div class="saft-action-grid">
+        <a class="saft-action-card" href="{% url 'fiscal:saft_exportar' %}">
+          <span class="saft-action-icon" aria-hidden="true">＋</span>
+          <h3>Gerar SAF-T</h3>
+          <p>Escolhe o período fiscal e prepara uma nova exportação XML.</p>
+          <span class="saft-action-link">Iniciar exportação <span aria-hidden="true">→</span></span>
+        </a>
+
+        <a class="saft-action-card" href="{% url 'fiscal:saft-validar-xsd' %}">
+          <span class="saft-action-icon" aria-hidden="true">✓</span>
+          <h3>Validar XML / XSD</h3>
+          <p>Executa a validação estrutural do SAF-T antes da submissão à AGT.</p>
+          <span class="saft-action-link">Validar ficheiro <span aria-hidden="true">→</span></span>
+        </a>
+
+        <a class="saft-action-card" href="{% url 'fiscal:saft-historico' %}">
+          <span class="saft-action-icon" aria-hidden="true">▤</span>
+          <h3>Histórico de exportações</h3>
+          <p>Consulta as gerações anteriores e descarrega os ficheiros disponíveis.</p>
+          <span class="saft-action-link">Abrir histórico <span aria-hidden="true">→</span></span>
+        </a>
+
+        <a class="saft-action-card" href="{% url 'fiscal:download-exemplo-saft' %}">
+          <span class="saft-action-icon" aria-hidden="true">⇩</span>
+          <h3>Descarregar exemplo SAF-T</h3>
+          <p>Obtém o XML de exemplo disponibilizado pelo sistema para referência.</p>
+          <span class="saft-action-link">Descarregar XML <span aria-hidden="true">→</span></span>
+        </a>
+
+        <a class="saft-action-card" href="{% url 'fiscal:download-saft-backup' %}">
+          <span class="saft-action-icon" aria-hidden="true">▣</span>
+          <h3>Backup fiscal</h3>
+          <p>Gera um pacote de backup fiscal disponibilizado pela aplicação.</p>
+          <span class="saft-action-link">Gerar backup <span aria-hidden="true">→</span></span>
+        </a>
+
+        <a class="saft-action-card" href="{% url 'fiscal:taxas-iva-list' %}">
+          <span class="saft-action-icon" aria-hidden="true">%</span>
+          <h3>Taxas e códigos de imposto</h3>
+          <p>Consulta as taxas IVA e os códigos fiscais usados na informação SAF-T.</p>
+          <span class="saft-action-link">Consultar taxas <span aria-hidden="true">→</span></span>
+        </a>
+
+        <a class="saft-action-card" href="{% url 'fiscal:documentos' %}">
+          <span class="saft-action-icon" aria-hidden="true">▧</span>
+          <h3>Documentos fiscais</h3>
+          <p>Acede à listagem de documentos fiscais que alimentam a exportação.</p>
+          <span class="saft-action-link">Ver documentos <span aria-hidden="true">→</span></span>
+        </a>
+
+        <a class="saft-action-card" href="{% url 'fiscal:assinatura-digital' %}">
+          <span class="saft-action-icon" aria-hidden="true">⌁</span>
+          <h3>Assinatura digital</h3>
+          <p>Verifica o estado da configuração da assinatura e dos dados associados.</p>
+          <span class="saft-action-link">Ver configuração <span aria-hidden="true">→</span></span>
+        </a>
+
+        <a class="saft-action-card" href="{% url 'fiscal:assinatura-configurar' %}">
+          <span class="saft-action-icon" aria-hidden="true">⚙</span>
+          <h3>Configurar chave AGT</h3>
+          <p>Regista ou actualiza os dados da chave do contribuinte fornecida pela AGT.</p>
+          <span class="saft-action-link">Configurar chave <span aria-hidden="true">→</span></span>
+        </a>
+
+        <a class="saft-action-card" href="{% url 'fiscal:verificar-integridade-web' %}">
+          <span class="saft-action-icon" aria-hidden="true">◎</span>
+          <h3>Integridade dos documentos</h3>
+          <p>Abre a ferramenta fiscal de verificação de integridade disponível no sistema.</p>
+          <span class="saft-action-link">Verificar integridade <span aria-hidden="true">→</span></span>
+        </a>
+
+        <a class="saft-action-card" href="{% url 'fiscal:relatorios' %}">
+          <span class="saft-action-icon" aria-hidden="true">▥</span>
+          <h3>Relatórios fiscais</h3>
+          <p>Acede aos relatórios fiscais para apoiar a conferência dos dados.</p>
+          <span class="saft-action-link">Abrir relatórios <span aria-hidden="true">→</span></span>
+        </a>
+
+        <a class="saft-action-card" href="{% url 'fiscal:configuracoes' %}">
+          <span class="saft-action-icon" aria-hidden="true">⚙</span>
+          <h3>Configurações fiscais</h3>
+          <p>Consulta as configurações fiscais disponíveis para esta empresa.</p>
+          <span class="saft-action-link">Abrir configurações <span aria-hidden="true">→</span></span>
+        </a>
+      </div>
+    </section>
+
+    <section class="saft-section saft-lower-grid" aria-label="Estado e actividade recente">
+      <article class="saft-panel">
+        <div class="saft-panel-head">
+          <h2>Última exportação</h2>
+          <a class="saft-mini-link" href="{% url 'fiscal:saft-historico' %}">Ver histórico →</a>
+        </div>
+        <div class="saft-panel-body">
+          {% if ultimo_export %}
+            <div class="saft-last-export">
+              <div class="saft-file-icon" aria-hidden="true">XML</div>
+              <div style="min-width:0;flex:1">
+                <p class="saft-file-name">{{ ultimo_export.nome_arquivo|default:"Exportação SAF-T" }}</p>
+                <div class="saft-file-meta">
+                  {% if ultimo_export.periodo_tributacao %}<div><strong>Período:</strong> {{ ultimo_export.periodo_tributacao }}</div>{% endif %}
+                  {% if ultimo_export.created_at %}<div><strong>Criado em:</strong> {{ ultimo_export.created_at|date:"d/m/Y H:i" }}</div>{% endif %}
+                  {% if ultimo_export.status %}<div><strong>Estado:</strong> {{ ultimo_export.get_status_display|default:ultimo_export.status }}</div>{% endif %}
+                </div>
+                {% if ultimo_export.status %}<span class="saft-status">{{ ultimo_export.get_status_display|default:ultimo_export.status }}</span>{% endif %}
+                <div style="display:flex;flex-wrap:wrap;gap:.6rem;margin-top:1rem">
+                  <a class="saft-btn-light" href="{% url 'fiscal:download-saft-file' ultimo_export.pk %}">Descarregar XML</a>
+                  <a class="saft-btn-outline" href="{% url 'fiscal:saft-historico' %}">Abrir histórico</a>
+                </div>
+              </div>
+            </div>
+          {% else %}
+            <div class="saft-empty">
+              <strong>Ainda não existem exportações registadas.</strong><br>
+              Gera o primeiro SAF-T e, de seguida, executa a validação XSD antes de entregar o ficheiro à AGT.
+              <div style="display:flex;flex-wrap:wrap;gap:.6rem;margin-top:1rem">
+                <a class="saft-btn-light" href="{% url 'fiscal:saft_exportar' %}">Gerar primeiro SAF-T</a>
+                <a class="saft-btn-outline" href="{% url 'fiscal:download-exemplo-saft' %}">Descarregar exemplo</a>
+              </div>
+            </div>
+          {% endif %}
+        </div>
+      </article>
+
+      <article class="saft-panel">
+        <div class="saft-panel-head">
+          <h2>Exportações recentes</h2>
+          <span style="color:var(--saft-muted);font-size:.78rem">Até 5 registos</span>
+        </div>
+        <div class="saft-panel-body">
+          {% if exportacoes_recentes %}
+            <ul class="saft-recent-list">
+              {% for exportacao in exportacoes_recentes %}
+                <li class="saft-recent-item">
+                  <div style="min-width:0">
+                    <span class="saft-recent-title">{{ exportacao.nome_arquivo|default:"Exportação SAF-T" }}</span>
+                    <div class="saft-recent-meta">{% if exportacao.periodo_tributacao %}{{ exportacao.periodo_tributacao }} · {% endif %}{{ exportacao.created_at|date:"d/m/Y H:i"|default:"Data não disponível" }}</div>
+                  </div>
+                  <a class="saft-mini-link" href="{% url 'fiscal:download-saft-file' exportacao.pk %}" aria-label="Descarregar {{ exportacao.nome_arquivo|default:'exportação SAF-T' }}">Descarregar</a>
+                </li>
+              {% endfor %}
+            </ul>
+          {% else %}
+            <div class="saft-empty">O histórico ficará disponível aqui depois da primeira exportação registada.</div>
+          {% endif %}
+        </div>
+      </article>
+    </section>
+
+    <div class="saft-note">
+      <strong>Nota:</strong> o ficheiro de exemplo é uma referência para consulta e não substitui uma exportação dos dados reais da empresa. Confirma sempre o resultado da validação XSD e os dados fiscais antes da submissão à AGT.
+    </div>
+  </div>
+</div>
+{% endblock %}

@@ -83,7 +83,7 @@ class PartnerAdmin(admin.ModelAdmin):
         lic = obj.licenca_activa
         if lic:
             return format_html('<span style="color:green;">✔ {}</span>', lic.plano.nome)
-        return format_html('<span style="color:red;">✘ Sem licença</span>')
+        return format_html('<span style="color:red;">{}</span>', '✘ Sem licença',)
     licenca_activa_display.short_description = 'Licença'
 
     def quota_display(self, obj):

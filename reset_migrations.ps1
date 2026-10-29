@@ -38,7 +38,6 @@ $ordem = @(
     "analytics",
     "funcionarios",
     "servicos",
-    "comandas",
     "financeiro",
     "relatorios",
     "configuracoes",

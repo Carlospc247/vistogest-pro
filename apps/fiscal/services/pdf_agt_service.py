@@ -1,25 +1,22 @@
-# apps/fiscal/services/pdf_agt_service.py
+"""Geração de PDFs fiscais do VistoGest Pro / SOTARQ Software.
+
+Inclui declaração de assinatura fiscal e documentos fiscais para cliente.
+O layout de faturas usa Platypus para permitir texto extenso, quebra de página
+correcta e repetição dos cabeçalhos das tabelas.
+
+NOTA: a validade legal do conteúdo/QR e o estado da certificação AGT dependem
+igualmente da configuração e do fluxo fiscal do sistema. A geração do PDF não
+substitui essa validação.
 """
-Serviço de geração de PDFs fiscais — VistoGest Pro / SOTARQ Software.
+from __future__ import annotations
 
-Secção 4 do PLANO_IMPLEMENTACAO.md — redesign baseado no modelo AGT
-(modelo_fatura.pdf) com identidade própria SOTARQ.
-
-Layout A4 e 80mm suportados. Variantes por tipo de documento.
-
-Campos AGT obrigatórios garantidos:
-  - 4 caracteres do hash + " - Processado por programa válido n{numero}"
-  - QR Code v4, error correction M, logo AGT ≤ 18% da área
-  - Período Contabilístico (mês/ano)
-  - operationType por linha
-  - Regime fiscal da empresa no rodapé
-  - Marca d'água "ANULADO" em documentos cancelados
-  - Comentários/observações quando preenchidos
-"""
 import io
 import logging
 import os
-from decimal import Decimal, ROUND_HALF_UP, ROUND_UP
+import math
+import unicodedata
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import qrcode
 import requests
@@ -37,718 +34,2052 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import cm, mm
 from reportlab.lib.utils import ImageReader
 from reportlab.pdfgen import canvas
-from reportlab.platypus import Table, TableStyle
+from reportlab.platypus import (
+    HRFlowable,
+    Image as RLImage,
+    KeepTogether,
+    Paragraph,
+    SimpleDocTemplate,
+    Spacer,
+    Table,
+    TableStyle,
+)
+from xml.sax.saxutils import escape as _esc
 
-logger = logging.getLogger('fiscal.pdf')
+logger = logging.getLogger("fiscal.pdf")
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Constantes de cor (paleta SOTARQ)
-# ─────────────────────────────────────────────────────────────────────────────
-COR_PRIMARIA    = colors.HexColor('#1E40AF')   # azul SOTARQ
-COR_CINZA_CABEC = colors.HexColor('#F3F4F6')   # fundo cabeçalho tabela
-COR_CINZA_LINHA = colors.HexColor('#F9FAFB')   # linha alternada
-COR_BORDA       = colors.HexColor('#E5E7EB')   # bordas finas
-COR_ANULADO     = colors.Color(1, 0, 0, alpha=0.18)  # vermelho semitransparente
+# Paleta SOTARQ: azul sóbrio, fundos claros e linhas discretas.
+COR_PRIMARIA = colors.HexColor("#1E40AF")
+COR_PRIMARIA_ESCURA = colors.HexColor("#1E3A8A")
+COR_CINZA_CABEC = colors.HexColor("#EFF3F8")
+COR_CINZA_LINHA = colors.HexColor("#F8FAFC")
+COR_TEXTO = colors.HexColor("#1F2937")
+COR_TEXTO_SEC = colors.HexColor("#64748B")
+COR_BORDA = colors.HexColor("#D9E1EC")
+COR_ANULADO = colors.Color(0.80, 0.04, 0.08, alpha=0.14)
+COR_PROFORMA = colors.Color(0.08, 0.28, 0.78, alpha=0.10)
+
+ZERO = Decimal("0.00")
+CENTAVO = Decimal("0.01")
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Helpers partilhados
-# ─────────────────────────────────────────────────────────────────────────────
+def _decimal(valor, default=ZERO) -> Decimal:
+    """Converte um valor para Decimal sem propagar None/valores inválidos."""
+    if valor is None or valor == "":
+        return default
+    try:
+        return Decimal(str(valor))
+    except (InvalidOperation, TypeError, ValueError):
+        return default
+
+
+def _fmt_numero(valor, casas: int = 2) -> str:
+    """Formata números com separadores usados em Angola: 1.234,56."""
+    d = _decimal(valor).quantize(Decimal(1).scaleb(-casas), rounding=ROUND_HALF_UP)
+    return f"{d:,.{casas}f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+
+def _fmt_kz(valor, casas: int = 2) -> str:
+    """Compatibilidade com chamadas antigas; arredonda ao cêntimo, sem excesso."""
+    return f"{_fmt_numero(valor, casas)} Kz"
+
+
+def _fmt_unit(valor) -> str:
+    """Preço unitário apresentado com quatro casas decimais."""
+    return _fmt_numero(valor, 4)
+
+
+def _fmt_quantidade(valor) -> str:
+    """Apresenta até três casas decimais, removendo zeros não significativos."""
+    texto = _fmt_numero(_decimal(valor), 3)
+    return texto.rstrip("0").rstrip(",") if "," in texto else texto
+
+
+def _fmt_moeda(valor, moeda: str = "AOA") -> str:
+    codigo = (moeda or "AOA").upper()
+    sufixo = "Kz" if codigo == "AOA" else codigo
+    return f"{_fmt_numero(valor, 2)} {sufixo}"
+
+
+def _safe_text(value) -> str:
+    """Limita texto à codificação suportada pelas fontes PDF base do ReportLab."""
+    if value is None:
+        return ""
+    texto = str(value)
+    # As fontes Helvetica/Courier incluídas no ReportLab usam WinAnsi.
+    # Os caracteres portugueses são preservados; emojis não suportados viram '?'.
+    return texto.encode("cp1252", errors="replace").decode("cp1252")
+
+
+def _p_text(value) -> str:
+    """Escapa texto externo antes de o inserir num Paragraph/markup ReportLab."""
+    return _esc(_safe_text(value)).replace("\n", "<br/>")
+
 
 def _get_validation_number() -> str:
-    val = getattr(settings, 'AGT_SOFTWARE_VALIDATION_NUMBER', '') or ''
-    return val or '0'
+    val = getattr(settings, "AGT_SOFTWARE_VALIDATION_NUMBER", "") or ""
+    return str(val).strip() or "0"
 
 
 def _get_4_char_hash(hash_documento: str) -> str:
-    """Posições 0, 10, 20, 30 do SHA-256 — conforme notificação AGT."""
-    h = hash_documento or ''
+    """Extrai as posições 0, 10, 20 e 30 do hash SHA-256, quando disponíveis."""
+    h = str(hash_documento or "")
     if len(h) >= 31:
         return f"{h[0]}{h[10]}{h[20]}{h[30]}".upper()
-    return '0000'
+    return "0000"
 
 
 def _rodape_legal(p, width: float, y: float, hash_documento: str) -> None:
-    """Linha obrigatória AGT: XXXX - Processado por programa válido n..."""
-    hash_4 = _get_4_char_hash(hash_documento)
-    num    = _get_validation_number()
-    msg    = f"{hash_4} - Processado por programa válido n{num}"
+    """Linha curta de identificação do software e do hash para o rodapé."""
+    msg = f"{_get_4_char_hash(hash_documento)} - Processado por programa válido n{_get_validation_number()}"
+    p.saveState()
+    p.setFillColor(COR_TEXTO_SEC)
     p.setFont("Helvetica", 6)
-    p.drawCentredString(width / 2, y, msg)
+    p.drawCentredString(width / 2, y, _safe_text(msg))
+    p.restoreState()
 
 
 def _marca_dagua_anulado(p, width: float, height: float) -> None:
-    """Marca d'água diagonal vermelha 'ANULADO' para documentos cancelados."""
     p.saveState()
     p.setFillColor(COR_ANULADO)
-    p.setFont("Helvetica-Bold", 80)
+    p.setFont("Helvetica-Bold", 64 if width > 300 else 24)
     p.translate(width / 2, height / 2)
-    p.rotate(45)
+    p.rotate(38)
     p.drawCentredString(0, 0, "ANULADO")
     p.restoreState()
 
 
-def _gerar_qr_com_logo_agt(url: str, box_size: int = 10) -> io.BytesIO:
-    """QR Code v4, error correction M, logo AGT ≤ 18%."""
+def _marca_dagua_texto(p, width: float, height: float, texto: str, cor) -> None:
+    p.saveState()
+    p.setFillColor(cor)
+    p.setFont("Helvetica-Bold", 54 if width > 300 else 20)
+    p.translate(width / 2, height / 2)
+    p.rotate(38)
+    p.drawCentredString(0, 0, _safe_text(texto))
+    p.restoreState()
+
+
+def _static_logo_agt_path():
+    """Localiza o logótipo de consulta AGT sem depender apenas de STATIC_ROOT."""
+    try:
+        from django.contrib.staticfiles import finders
+        encontrado = finders.find("img/fiscal/logo_agt_qr.png")
+        if encontrado and os.path.isfile(encontrado):
+            return encontrado
+    except Exception:
+        pass
+
+    raiz = getattr(settings, "STATIC_ROOT", "") or ""
+    candidato = os.path.join(raiz, "img", "fiscal", "logo_agt_qr.png")
+    return candidato if os.path.isfile(candidato) else None
+
+
+def _gerar_qr_com_logo_agt(url: str, box_size: int = 8) -> io.BytesIO:
+    """Gera QR legível; o logótipo central, se existir, ocupa uma área pequena."""
     qr = qrcode.QRCode(
         version=4,
-        error_correction=qrcode.constants.ERROR_CORRECT_M,
+        error_correction=qrcode.constants.ERROR_CORRECT_H,
         box_size=box_size,
-        border=2,
+        border=3,
     )
     qr.add_data(url)
+    # O QR pode subir automaticamente de versão se o URL for maior que a capacidade
+    # da versão 4; é preferível manter um código funcional a truncar a consulta.
     qr.make(fit=True)
-    qr_img = qr.make_image(fill_color="black", back_color="white").convert('RGB')
+    qr_img = qr.make_image(fill_color="black", back_color="white").convert("RGB")
 
-    logo_path = os.path.join(
-        getattr(settings, 'STATIC_ROOT', ''), 'img/fiscal/logo_agt_qr.png'
-    )
-    if os.path.exists(logo_path):
-        logo = Image.open(logo_path)
-        qr_w, qr_h = qr_img.size
-        logo_size = int(qr_w * 0.20)   # ≤ 20% — exigência AGT Decreto 683/25
-        logo = logo.resize((logo_size, logo_size))
-        pos = ((qr_w - logo_size) // 2, (qr_h - logo_size) // 2)
-        qr_img.paste(logo, pos)
+    logo_path = _static_logo_agt_path()
+    if logo_path:
+        try:
+            with Image.open(logo_path) as original:
+                logo = original.convert("RGBA")
+            qr_w, qr_h = qr_img.size
+            logo_size = max(1, int(min(qr_w, qr_h) * 0.18))
+            resampling = getattr(Image, "Resampling", Image)
+            lanczos = getattr(resampling, "LANCZOS", 1)
+            logo.thumbnail((logo_size, logo_size), lanczos)
+            pos = ((qr_w - logo.width) // 2, (qr_h - logo.height) // 2)
+            # Placa branca para manter o contraste e a leitura do QR.
+            padding = max(2, int(logo_size * 0.10))
+            placa = Image.new("RGB", (logo.width + 2 * padding, logo.height + 2 * padding), "white")
+            px = max(0, (qr_w - placa.width) // 2)
+            py = max(0, (qr_h - placa.height) // 2)
+            qr_img.paste(placa, (px, py))
+            qr_img.paste(logo, (px + padding, py + padding), logo)
+        except Exception as exc:
+            logger.warning("Não foi possível aplicar o logótipo AGT ao QR: %s", exc)
 
     buf = io.BytesIO()
-    qr_img.save(buf, format='PNG')
+    qr_img.save(buf, format="PNG")
     buf.seek(0)
     return buf
 
 
 def _url_qr(nif_empresa: str, numero_documento: str) -> str:
-    """URL do QR Code — Portal do Parceiro AGT (decisão do dono do sistema)."""
-    doc_no = numero_documento.replace(' ', '%20')
+    """Monta o URL de consulta preservando parâmetros que já estejam na base."""
     base = getattr(
-        settings, 'AGT_QR_CODE_BASE_URL',
-        'https://quiosqueagt.minfin.gov.ao/facturacao-eletronica/consultar-fe',
+        settings,
+        "AGT_QR_CODE_BASE_URL",
+        #"https://quiosqueagt.minfin.gov.ao/facturacao-eletronica/consultar-fe",
     )
-    return f"{base}?emissor={nif_empresa}&document={doc_no}"
-
-
-def _fmt_kz(valor, casas: int = 2) -> str:
-    """Formato monetário angolano com arredondamento por excesso."""
-    if valor is None:
-        return "0,00 Kz"
-    v = Decimal(str(valor)).quantize(Decimal(f'1.{"0"*casas}'), rounding=ROUND_UP)
-    return f"{v:,.2f} Kz".replace(',', 'X').replace('.', ',').replace('X', '.')
-
-
-def _fmt_unit(valor) -> str:
-    """Preço unitário com 4 casas decimais (norma SAF-T)."""
-    if valor is None:
-        return "0,0000"
-    v = Decimal(str(valor)).quantize(Decimal('1.0000'), rounding=ROUND_HALF_UP)
-    return f"{v:,.4f}".replace(',', 'X').replace('.', ',').replace('X', '.')
+    base = str(base or "").strip()
+    if not base:
+        return ""
+    partes = urlsplit(base)
+    parametros = dict(parse_qsl(partes.query, keep_blank_values=True))
+    parametros.update({"emissor": str(nif_empresa or ""), "document": str(numero_documento or "")})
+    return urlunsplit((partes.scheme, partes.netloc, partes.path, urlencode(parametros), partes.fragment))
 
 
 def _regime_label(regime: str) -> str:
-    """
-    Converte o código de regime fiscal AGT para label legível.
-    Nota: Os valores do campo 'regime' (tipo de actividade: COMERCIO/SERVICOS/MISTO)
-    NÃO devem ser passados aqui — este helper é para o campo 'regime_fiscal'.
-    """
+    """Converte códigos de regime fiscal para rótulos legíveis."""
+    if not regime:
+        return ""
+    codigo = str(regime).strip().upper()
     labels = {
-        'GERAL':        'Regime Geral',
-        'SIMPLIFICADO': 'Regime Simplificado',
-        'EXCLUSAO':     'Regime de Exclusão',
-        'ESPECIAL':     'Regime Especial',
-        # compatibilidade com valores em minúsculas (versões antigas)
-        'geral':        'Regime Geral',
-        'simplificado': 'Regime Simplificado',
-        'exclusao':     'Regime de Exclusão',
-        'especial':     'Regime Especial',
+        "GERAL": "Regime Geral",
+        "SIMPLIFICADO": "Regime Simplificado",
+        "EXCLUSAO": "Regime de Exclusão",
+        "ESPECIAL": "Regime Especial",
+        "OUTROS": "Regime Especial / Outro",
     }
-    return labels.get(regime, regime or '')
+    return labels.get(codigo, _safe_text(regime))
 
 
 def _operation_type_label(code: str) -> str:
-    """Converte código operationType para descrição curta."""
     labels = {
-        'SE': 'Serv. Território Nacional', 'SS': 'Serv. Estrangeiro',
-        'STP': 'Telecom./Via Electrónica', 'SR': 'Serv. Imóveis',
-        'SIF': 'Interm. Financeira',       'SHS': 'Hotelaria',
-        'ST': 'Transporte',                'SG': 'Serv. Geral',
-        'TB': 'Transmissão de Bens',       'AS': 'Aquisição Serviços',
-        'QT': 'Outras Operações',          'RD': 'Regularizações',
+        "SE": "Serviços em território nacional",
+        "SS": "Serviços no estrangeiro",
+        "STP": "Telecomunicações / via electrónica",
+        "SR": "Serviços relativos a imóveis",
+        "SIF": "Intermediação financeira",
+        "SHS": "Hotelaria e similares",
+        "ST": "Transporte",
+        "SG": "Serviços em geral",
+        "TB": "Transmissão de bens",
+        "AS": "Aquisição de serviços",
+        "QT": "Outras operações tributáveis",
+        "RD": "Regularizações e devoluções",
     }
-    return labels.get(code, code or '')
+    code = str(code or "").strip().upper()
+    return labels.get(code, code or "Não indicado")
 
-
-# ─────────────────────────────────────────────────────────────────────────────
-# PDFDeclaracaoService — declaração de chaves para certificação AGT
-# ─────────────────────────────────────────────────────────────────────────────
 
 class PDFDeclaracaoService:
-    """Gera o PDF de declaração para o processo de certificação junto da AGT."""
+    """Gera PDF de declaração para o processo de certificação junto da AGT."""
 
     @staticmethod
     def gerar_pdf_declaracao(empresa, assinatura):
-        response = HttpResponse(content_type='application/pdf')
-        nif = getattr(empresa, 'nif', 'sem_nif')
-        response['Content-Disposition'] = f'attachment; filename="DECLARACAO_AGT_{nif}.pdf"'
+        response = HttpResponse(content_type="application/pdf")
+        nif = getattr(empresa, "nif", "sem_nif") or "sem_nif"
+        response["Content-Disposition"] = f'attachment; filename="DECLARACAO_AGT_{nif}.pdf"'
 
         p = canvas.Canvas(response, pagesize=A4)
         width, height = A4
         y = height - 50
-
         p.setFont("Helvetica-Bold", 14)
-        p.drawString(40, y, "DECLARAÇÃO OFICIAL PARA AGT — ASSINATURA DIGITAL")
+        p.drawString(40, y, _safe_text("DECLARAÇÃO PARA AGT — ASSINATURA DIGITAL"))
         y -= 50
 
         p.setFont("Helvetica", 11)
-        for linha in [
-            f"Nome da Empresa: {empresa.nome}",
-            f"NIF: {empresa.nif}",
-            f"Regime: {_regime_label(getattr(empresa,'regime',''))}",
-            f"Endereço: {getattr(empresa,'endereco','')} — {getattr(empresa,'cidade','')}",
-        ]:
-            p.drawString(40, y, linha)
+        nome = getattr(empresa, "nome", None) or getattr(empresa, "razao_social", "")
+        linhas = [
+            f"Nome da Empresa: {nome}",
+            f"NIF: {getattr(empresa, 'nif', '')}",
+            f"Regime: {_regime_label(getattr(empresa, 'regime_fiscal', '') or getattr(empresa, 'regime', ''))}",
+            f"Endereço: {getattr(empresa, 'endereco', '')} — {getattr(empresa, 'cidade', '')}",
+        ]
+        for linha in linhas:
+            p.drawString(40, y, _safe_text(linha)[:110])
             y -= 20
         y -= 20
 
-        nif_contrib = getattr(assinatura, 'nif_contribuinte', '') or '—'
+        nif_contrib = getattr(assinatura, "nif_contribuinte", "") or "—"
         p.setFont("Helvetica-Bold", 11)
-        p.drawString(40, y, f"NIF do Contribuinte (chave AGT): {nif_contrib}")
+        p.drawString(40, y, _safe_text(f"NIF do Contribuinte (chave AGT): {nif_contrib}")[:110])
         y -= 30
 
-        chave_pub = getattr(assinatura, 'chave_contribuinte_publica', '') or ''
+        chave_pub = getattr(assinatura, "chave_contribuinte_publica", "") or ""
         if chave_pub:
             p.setFont("Helvetica-Bold", 11)
             p.drawString(40, y, "Chave Pública do Contribuinte (RSA — emitida pela AGT):")
             y -= 20
-            p.setFont("Courier", 7)
-            for linha in chave_pub.strip().split('\n'):
-                p.drawString(40, y, linha)
-                y -= 10
-                if y < 80:
+            p.setFont("Courier", 6.5)
+            for linha in chave_pub.strip().splitlines():
+                if y < 65:
                     p.showPage()
                     y = height - 50
+                    p.setFont("Courier", 6.5)
+                p.drawString(40, y, _safe_text(linha)[:115])
+                y -= 9
 
-        y -= 25
+        y = max(y - 20, 100)
         p.setFont("Helvetica-Bold", 11)
         p.drawString(40, y, "Último Hash (Cadeia de Integridade):")
-        y -= 20
+        y -= 18
         p.setFont("Helvetica", 9)
-        p.drawString(40, y, assinatura.ultimo_hash or "Ainda não gerado")
-
-        p.setFont("Helvetica", 9)
-        p.drawString(40, 70, "Declaro que os documentos emitidos obedecem ao regime de integridade fiscal digital.")
-        p.drawString(40, 50, f"Luanda, {timezone.now().strftime('%d/%m/%Y %H:%M')}")
+        p.drawString(40, y, _safe_text(getattr(assinatura, "ultimo_hash", "") or "Ainda não gerado")[:110])
+        p.setFont("Helvetica", 8)
+        p.drawString(40, 50, _safe_text(f"Luanda, {timezone.localtime(timezone.now()).strftime('%d/%m/%Y %H:%M')}"))
         p.showPage()
         p.save()
         return response
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# PDFDocumentoService — Fatura / Recibo / NC / ND / DT / FP para cliente
-# ─────────────────────────────────────────────────────────────────────────────
+
+from datetime import date, datetime, time
+
+
+class _PDFNumberedCanvas(canvas.Canvas):
+    """Canvas ReportLab que imprime Página X de Y."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._saved_page_states = []
+
+    def showPage(self):
+        self._saved_page_states.append(dict(self.__dict__))
+        self._startPage()
+
+    def save(self):
+        total_paginas = len(self._saved_page_states)
+        for estado in self._saved_page_states:
+            self.__dict__.update(estado)
+            if self._pageNumber == total_paginas:
+                servico = getattr(self, "_pdf_document_service", None)
+                if servico is not None:
+                    servico._desenhar_rodape_final(self)
+            self.saveState()
+            self.setFont("Helvetica", 6)
+            self.setFillColor(COR_TEXTO_SEC)
+            largura, _ = self._pagesize
+            self.drawRightString(
+                largura - getattr(self, "_pdf_right_margin", 15 * mm),
+                8 * mm,
+                f"Página {self._pageNumber} de {total_paginas}",
+            )
+            self.restoreState()
+            super().showPage()
+        super().save()
+
 
 class PDFDocumentoService:
-    """
-    Gera o PDF fiscal do documento para entrega ao cliente.
-    Suporta A4 e 80mm (térmico). Detecta automaticamente se o documento está
-    anulado e aplica marca d'água.
+    """Gera documentos comerciais/fiscais A4 ou térmicos sem recalcular impostos.
 
-    Aceita:
-        - documento_fiscal: instância de DocumentoFiscal (preferência)
-        - venda_obj: instância de Venda ou FaturaCredito (compatibilidade)
+    Compatibilidade mantida:
+        PDFDocumentoService(documento_fiscal=doc).gerar()
+        PDFDocumentoService(venda_obj=venda, tamanho="80mm").gerar()
+
+    A identidade do emitente é resolvida a partir da Empresa do tenant activo.
+    Os valores fiscais persistidos têm prioridade; o PDF apenas os apresenta.
     """
 
-    # Etiquetas de tipo de documento para o cabeçalho do PDF
     TIPO_LABELS = {
-        'FT': 'FACTURA',            'FR': 'FACTURA/RECIBO',
-        'GF': 'FACTURA GENÉRICA',   'FG': 'FACTURA GLOBAL',
-        'FA': 'FACTURA ADIANTAMENTO','AC': 'AVISO DE COBRANÇA',
-        'AR': 'AVISO COBRANÇA/RECIBO','TV': 'TALÃO DE VENDA',
-        'NC': 'NOTA DE CRÉDITO',    'ND': 'NOTA DE DÉBITO',
-        'RE': 'ESTORNO',            'AF': 'AUTOFACTURAÇÃO',
-        'RC': 'RECIBO',             'RG': 'RECIBO GERAL',
-        'DT': 'GUIA DE REMESSA',    'FP': 'FACTURA PRÓ-FORMA',
-        'RP': 'PRÉMIO/RECIBO',      'CS': 'CO-SEGURADORA',
-        'LD': 'CO-SEGURADORA LÍDER','RA': 'RESSEGURO ACEITE',
+        "FT": "FACTURA",
+        "FR": "FACTURA/RECIBO",
+        "GF": "FACTURA GENÉRICA",
+        "FG": "FACTURA GLOBAL",
+        "FA": "FACTURA DE ADIANTAMENTO",
+        "AC": "AVISO DE COBRANÇA",
+        "AR": "AVISO DE COBRANÇA/RECIBO",
+        "TV": "TALÃO DE VENDA",
+        "NC": "NOTA DE CRÉDITO",
+        "ND": "NOTA DE DÉBITO",
+        "RE": "ESTORNO",
+        "AF": "AUTOFACTURAÇÃO",
+        "RC": "RECIBO",
+        "RG": "RECIBO GERAL",
+        "DT": "GUIA DE TRANSPORTE",
+        "FP": "FACTURA PROFORMA",
+        "RP": "PRÉMIO/RECIBO",
+        "CS": "CO-SEGURADORA",
+        "LD": "CO-SEGURADORA LÍDER",
+        "RA": "RESSEGURO ACEITE",
     }
 
-    # Watermarks por tipo
-    WATERMARKS = {
-        'FP': ('PRÓ-FORMA',   colors.Color(0, 0.4, 0.9, alpha=0.12)),
-        'A':  ('ANULADO',     colors.Color(1, 0,   0,   alpha=0.18)),
+    STATUS_ANULADO = {
+        "a", "anulado", "anulada", "cancelado", "cancelada",
+        "cancelled", "canceled", "void", "voided",
+    }
+    STATUS_RASCUNHO = {
+        "draft", "rascunho", "pendente", "pending", "calculado",
+        "não emitido", "nao emitido", "new", "novo",
     }
 
-    def __init__(self, documento_fiscal=None, venda_obj=None, tamanho: str = 'a4'):
-        # Aceitar DocumentoFiscal directamente (preferência) ou venda (fallback)
+    # Paleta neutra da factura: a cor da marca fica no logótipo da empresa.
+    DOC_CINZA_TOPO = colors.HexColor("#E5E7EB")
+    DOC_CINZA_CABEC = colors.HexColor("#D9DDE3")
+    DOC_CINZA_LINHA = colors.HexColor("#F3F4F6")
+    DOC_TEXTO = colors.HexColor("#171717")
+    DOC_TEXTO_SEC = colors.HexColor("#52525B")
+    DOC_BORDA = colors.HexColor("#C7CBD1")
+
+    def __init__(
+        self,
+        documento_fiscal=None,
+        venda_obj=None,
+        tamanho: str = "a4",
+        configuracao_fiscal=None,
+    ):
         self.doc_fiscal = documento_fiscal
-        self.venda      = venda_obj or documento_fiscal  # fallback para venda
+        self.venda = venda_obj or documento_fiscal
+        self._empresa_documento = (
+            getattr(documento_fiscal, "empresa", None)
+            or getattr(venda_obj, "empresa", None)
+        )
+        self.empresa = self._resolver_empresa_oficial()
+        self.tamanho = (
+            "80mm"
+            if str(tamanho or "a4").strip().lower()
+            in {"80mm", "80", "termico", "térmico"}
+            else "a4"
+        )
+        self.buffer = io.BytesIO()
+        self.config_fiscal = configuracao_fiscal or self._obter_configuracao_fiscal()
+        self._logo_cache = None
+        self._linhas_cache = None
+        self._totais_cache = None
+        self._qr_footer_data = None
 
-        # Empresa: do doc_fiscal, ou venda.empresa, ou connection.tenant
-        self.empresa = (
-            getattr(documento_fiscal, 'empresa', None)
-            or getattr(venda_obj, 'empresa', None)
-            or connection.tenant
+        self._tipo = str(
+            self._campo(self.doc_fiscal, "tipo_documento", default="")
+            or self._campo(self.venda, "tipo_documento", default="FR")
+            or "FR"
+        ).strip().upper()
+        self._status = str(
+            self._campo(self.doc_fiscal, "status", "estado", default="")
+            or self._campo(self.venda, "status", "estado", default="")
+            or ""
+        ).strip().lower()
+        self._anulado = self._status in self.STATUS_ANULADO
+        self._proforma = self._tipo == "FP"
+        self._numero_guardado = self._numero()
+        self._rascunho = self._status in self.STATUS_RASCUNHO or not self._numero_guardado
+
+        self.width, self.height = (
+            (80 * mm, 300 * mm) if self.tamanho == "80mm" else A4
         )
 
-        self.tamanho = tamanho
-        self.buffer  = io.BytesIO()
-
-        # Tipo e status vêm do DocumentoFiscal quando disponível
-        self._tipo   = getattr(documento_fiscal, 'tipo_documento', 'FR')
-        self._status = getattr(documento_fiscal, 'status', getattr(venda_obj, 'status', ''))
-        self._anulado = self._status in ('cancelled', 'cancelado', 'cancelada', 'A')
-
-        if tamanho == '80mm':
-            self.width  = 80 * mm
-            self.height = 400 * mm
-            self.p = canvas.Canvas(self.buffer, pagesize=(self.width, self.height))
-            self.marg = 4 * mm
-        else:
-            self.p = canvas.Canvas(self.buffer, pagesize=A4)
-            self.width, self.height = A4
-            self.ml = 1.5 * cm   # margem esquerda
-            self.mr = self.width - 1.5 * cm  # margem direita
-
-    # ── Helpers internos ────────────────────────────────────────────────────
-
-    def _hash(self) -> str:
-        if self.doc_fiscal:
-            return getattr(self.doc_fiscal, 'hash_documento', '') or ''
-        return getattr(self.venda, 'hash_documento', '') or ''
-
-    def _numero(self) -> str:
-        if self.doc_fiscal:
-            return getattr(self.doc_fiscal, 'numero_documento', '') or ''
-        return (
-            getattr(self.venda, 'numero_documento', None)
-            or getattr(self.venda, 'numero_recibo', None)
-            or getattr(self.venda, 'numero_nota', None) or ''
-        )
-
-    def _data(self):
-        if self.doc_fiscal:
-            return getattr(self.doc_fiscal, 'data_emissao', None) or timezone.now().date()
-        return (
-            getattr(self.venda, 'data_venda', None)
-            or getattr(self.venda, 'data_fatura', None)
-            or getattr(self.venda, 'data_recibo', None)
-            or timezone.now()
-        )
-
-    def _periodo(self) -> str:
-        """Campo obrigatório AGT: mês/ano da emissão."""
-        try:
-            d = self._data()
-            return d.strftime('%m/%Y')
-        except Exception:
-            return ''
-
-    def _regime_empresa(self) -> str:
-        """Regime fiscal AGT da empresa — para PDFs e SAF-T."""
-        return _regime_label(getattr(self.empresa, 'regime_fiscal', '') or '')
-
-    def _tipo_label(self) -> str:
-        return self.TIPO_LABELS.get(self._tipo, 'DOCUMENTO FISCAL')
-
-    def _url_qr(self) -> str:
-        return _url_qr(self.empresa.nif, self._numero())
-
-    def _logo_empresa(self):
-        foto = getattr(self.empresa, 'foto', None)
-        if foto:
+    # ------------------------------------------------------------------
+    # Resolução de dados e tenant
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _campo(obj, *nomes, default=""):
+        for nome in nomes:
             try:
-                r = requests.get(foto.url, timeout=5)
-                return io.BytesIO(r.content)
-            except Exception as e:
-                logger.warning("Logo empresa indisponível: %s", e)
+                valor = getattr(obj, nome, None) if obj is not None else None
+            except Exception:
+                valor = None
+            if callable(valor):
+                continue
+            if valor is not None and str(valor).strip() != "":
+                return valor
+        return default
+
+    @classmethod
+    def _decimal_opcional(cls, obj, *nomes):
+        valor = cls._campo(obj, *nomes, default=None)
+        if valor is None or valor == "":
+            return None
+        try:
+            return Decimal(str(valor))
+        except (InvalidOperation, TypeError, ValueError):
+            return None
+
+    def _resolver_empresa_oficial(self):
+        """Resolve Empresa do tenant activo; não confia em identidade duplicada."""
+        schema = getattr(connection, "schema_name", None)
+        try:
+            from django_tenants.utils import get_public_schema_name
+            schema_publico = get_public_schema_name()
+        except Exception:
+            schema_publico = "public"
+
+        if not schema or schema == schema_publico:
+            logger.warning(
+                "PDF fiscal solicitado sem tenant activo válido; schema=%s", schema
+            )
+            return None
+
+        try:
+            from apps.empresas.services import obter_empresa_do_schema
+            empresa = obter_empresa_do_schema()
+            schema_empresa = getattr(empresa, "schema_name", None)
+            if schema_empresa and schema_empresa != schema:
+                raise ValueError("A empresa resolvida não corresponde ao schema activo.")
+            return empresa
+        except Exception as exc:
+            logger.warning(
+                "Não foi possível resolver Empresa pelo serviço oficial: %s", exc
+            )
+
+        # Fallback apenas para um tenant que corresponda ao schema corrente.
+        tenant = getattr(connection, "tenant", None)
+        schema_tenant = getattr(tenant, "schema_name", None)
+        if tenant is not None and schema_tenant == schema:
+            return tenant
+
+        # Compatibilidade com modelos antigos: aceitar a FK apenas quando traz
+        # um schema explícito e coincidente. Não usar identidade de outra empresa.
+        schema_empresa = getattr(self._empresa_documento, "schema_name", None)
+        if self._empresa_documento is not None and schema_empresa == schema:
+            return self._empresa_documento
+
         return None
 
-    def _linhas_doc(self):
-        """Obtém as linhas do documento (DocumentoFiscalLinha ou ItemVenda)."""
-        if self.doc_fiscal and hasattr(self.doc_fiscal, 'linhas'):
-            linhas = list(self.doc_fiscal.linhas.all().order_by('numero_linha'))
-            if linhas:
-                return [self._linha_de_doc_fiscal(l) for l in linhas]
-        # Fallback para ItemVenda / ItemFatura
-        obj = self.venda
-        if obj and hasattr(obj, 'itens'):
-            return [self._linha_de_item(i) for i in obj.itens.all()]
+    def _obter_configuracao_fiscal(self):
+        """Obtém apenas configurações auxiliares do schema activo."""
+        try:
+            from apps.configuracoes.models import ConfiguracaoFiscal
+            return ConfiguracaoFiscal.objects.first()
+        except Exception as exc:
+            logger.debug("Configuração fiscal auxiliar indisponível: %s", exc)
+            return None
+
+    def _obter_personalizacao_interface(self):
+        try:
+            from apps.configuracoes.models import PersonalizacaoInterface
+            return PersonalizacaoInterface.objects.first()
+        except Exception as exc:
+            logger.debug("Personalização de interface indisponível: %s", exc)
+            return None
+
+    def _dados_emissor(self) -> dict:
+        """Identidade fiscal: Empresa oficial primeiro, sem sobreposição de cfg."""
+        empresa = self.empresa
+        if empresa is None:
+            logger.error(
+                "PDF sem Empresa oficial; schema=%s", getattr(connection, "schema_name", None)
+            )
+
+        nome = self._campo(
+            empresa, "nome_fantasia", "nome", "razao_social", default=""
+        ) or "Empresa emissora"
+        razao_social = self._campo(empresa, "razao_social", "nome", default="")
+        
+        
+        nif_empresa = str(
+            self._campo(
+                empresa,
+                "nif",
+                "numero_identificacao_fiscal",
+                default="",
+            ) or ""
+        ).strip()
+
+        nif_configuracao = str(
+            self._campo(
+                self.config_fiscal,
+                "nif",
+                default="",
+            ) or ""
+        ).strip()
+
+        if (
+            nif_empresa
+            and nif_configuracao
+            and nif_empresa.replace(" ", "") != nif_configuracao.replace(" ", "")
+        ):
+            logger.error(
+                "O NIF de Empresa diverge do NIF de ConfiguracaoFiscal "
+                "no schema %s. Será utilizado o NIF da Empresa.",
+                getattr(connection, "schema_name", None),
+            )
+
+        nif = nif_empresa or nif_configuracao
+
+
+
+        regime = self._campo(
+            empresa, "regime_fiscal", "regime_tributario", "regime", default=""
+        )
+        endereco = self._campo(empresa, "endereco", "morada", "endereco_completo", default="")
+        cidade = self._campo(empresa, "cidade", "municipio", default="")
+        provincia = self._campo(empresa, "provincia", default="")
+        postal = self._campo(empresa, "postal", "codigo_postal", default="")
+        localidade = ", ".join(
+            str(v).strip() for v in (cidade, provincia, postal) if str(v or "").strip()
+        )
+        morada_completa = " — ".join(
+            str(v).strip() for v in (endereco, localidade) if str(v or "").strip()
+        )
+
+        return {
+            "nome": _safe_text(nome),
+            "razao_social": _safe_text(razao_social),
+            "nif": _safe_text(nif),
+            "email": _safe_text(self._campo(empresa, "email", default="")),
+            "site": _safe_text(self._campo(self.config_fiscal, "site", default="") or self._campo(empresa, "site", "website", default="")),
+            "telefone": _safe_text(
+                self._campo(empresa, "telefone", "telemovel", "contacto", default="")
+            ),
+            "endereco": _safe_text(morada_completa),
+            "regime": _regime_label(regime),
+        }
+
+    # ------------------------------------------------------------------
+    # Logótipo: primeiro Empresa; depois personalização do tenant
+    # ------------------------------------------------------------------
+    def _ler_logo_field(self, field) -> io.BytesIO | None:
+        if not field:
+            return None
+        if isinstance(field, (bytes, bytearray)):
+            return io.BytesIO(bytes(field))
+
+        if isinstance(field, (str, os.PathLike)):
+            caminho = os.fspath(field).strip()
+            if caminho and os.path.isfile(caminho):
+                try:
+                    with open(caminho, "rb") as ficheiro:
+                        return io.BytesIO(ficheiro.read())
+                except OSError:
+                    return None
+
+        if hasattr(field, "open") and hasattr(field, "read"):
+            try:
+                try:
+                    field.open("rb")
+                except TypeError:
+                    field.open()
+                conteudo = field.read()
+                try:
+                    field.close()
+                except Exception:
+                    pass
+                if conteudo:
+                    return io.BytesIO(conteudo)
+            except Exception:
+                try:
+                    field.close()
+                except Exception:
+                    pass
+
+        # Compatibilidade para URL de storage. Limita tamanho e timeout.
+        url = getattr(field, "url", None)
+        if isinstance(field, str) and field.strip().startswith(("https://", "http://")):
+            url = field.strip()
+        if url:
+            resposta = None
+            try:
+                partes = urlsplit(str(url))
+                if partes.scheme not in {"https", "http"} or not partes.netloc:
+                    return None
+                resposta = requests.get(str(url), timeout=(2, 5), stream=True)
+                resposta.raise_for_status()
+                tamanho = int(resposta.headers.get("Content-Length", "0") or 0)
+                if tamanho > 5 * 1024 * 1024:
+                    return None
+                blocos, total = [], 0
+                for bloco in resposta.iter_content(chunk_size=64 * 1024):
+                    if not bloco:
+                        continue
+                    total += len(bloco)
+                    if total > 5 * 1024 * 1024:
+                        return None
+                    blocos.append(bloco)
+                if blocos:
+                    return io.BytesIO(b"".join(blocos))
+            except Exception as exc:
+                logger.warning("Não foi possível carregar logótipo: %s", exc)
+            finally:
+                if resposta is not None:
+                    resposta.close()
+        return None
+
+    
+    def _logo_empresa(self) -> io.BytesIO | None:
+        """Carrega o logótipo e regista a fonte utilizada no PDF."""
+        if self._logo_cache is not None:
+            self._logo_cache.seek(0)
+            return self._logo_cache
+
+        fontes = []
+
+        if self.empresa is not None:
+            fontes.append((
+                "VistoGEST PRO",
+                self.empresa,
+                ("logo", "logotipo", "logo_empresa", "foto", "imagem_logo"),
+            ))
+
+        # Compatibilidade: o modelo ConfiguracaoFiscal fornecido não tem
+        # campo de logótipo, mas verificamos aliases caso o modelo evolua.
+        if self.config_fiscal is not None:
+            fontes.append((
+                "ConfiguracaoFiscal",
+                self.config_fiscal,
+                ("logo", "logotipo", "logo_empresa", "imagem_logo", "logo_principal"),
+            ))
+
+        personalizacao = self._obter_personalizacao_interface()
+
+        if personalizacao is not None:
+            fontes.append((
+                "PersonalizacaoInterface",
+                personalizacao,
+                ("logo_principal",),
+            ))
+
+        for origem, obj, nomes_campos in fontes:
+            for nome_campo in nomes_campos:
+                try:
+                    campo = getattr(obj, nome_campo, None)
+                except Exception:
+                    logger.exception(
+                        "Erro ao consultar %s.%s.",
+                        origem,
+                        nome_campo,
+                    )
+                    continue
+
+                if not campo:
+                    continue
+
+                try:
+                    imagem = self._ler_logo_field(campo)
+                except Exception:
+                    logger.exception(
+                        "Erro ao carregar o logótipo de %s.%s.",
+                        origem,
+                        nome_campo,
+                    )
+                    continue
+
+                if imagem:
+                    imagem.seek(0)
+                    self._logo_cache = imagem
+
+                    logger.info(
+                        "Logótipo do PDF carregado de %s.%s; schema=%s.",
+                        origem,
+                        nome_campo,
+                        getattr(connection, "schema_name", None),
+                    )
+
+                    return self._logo_cache
+
+                logger.warning(
+                    "O campo %s.%s contém uma referência a imagem, "
+                    "mas não foi possível carregar o ficheiro.",
+                    origem,
+                    nome_campo,
+                )
+
+        logger.error(
+            "Nenhum logótipo foi carregado para o PDF. "
+            "schema=%s; Empresa resolvida=%s; ConfiguracaoFiscal=%s; "
+            "PersonalizacaoInterface=%s.",
+            getattr(connection, "schema_name", None),
+            self.empresa is not None,
+            self.config_fiscal is not None,
+            personalizacao is not None,
+        )
+
+        return None
+
+
+    # ------------------------------------------------------------------
+    # Identificação e datas
+    # ------------------------------------------------------------------
+    def _obj_documento(self):
+        return self.doc_fiscal or self.venda
+
+    def _numero(self) -> str:
+        obj = self.doc_fiscal or self.venda
+        return str(
+            self._campo(
+                obj,
+                "numero_documento", "numero_fiscal", "numero_recibo", "numero_nota", "numero",
+                default="",
+            ) or ""
+        ).strip()
+
+    def _data(self):
+        obj = self.doc_fiscal or self.venda
+        return self._campo(
+            obj,
+            "data_emissao", "data_venda", "data_fatura", "data_recibo", "data_criacao", "created_at",
+            default=None,
+        )
+
+    def _data_hora_formatada(self) -> str:
+        """Formata data e hora reais do documento, respeitando o fuso horário."""
+
+        obj = self._obj_documento()
+        valor = self._data()
+
+        if isinstance(valor, datetime):
+            data_hora = valor
+
+        elif isinstance(valor, date):
+            hora = self._campo(
+                obj,
+                "hora_emissao",
+                "hora_criacao",
+                default=None,
+            )
+
+            if isinstance(hora, time):
+                # DocumentoFiscal.data_emissao é DateField;
+                # hora_emissao é um TimeField separado.
+                data_hora = datetime.combine(valor, hora)
+
+            else:
+                # Fallback para a data/hora original da venda ou fatura,
+                # se o documento estiver associado a um desses objectos.
+                origem = self.venda
+
+                if origem is obj:
+                    try:
+                        origem = getattr(obj, "venda", None) or obj
+                    except Exception:
+                        origem = obj
+
+                data_legada = self._campo(
+                    origem,
+                    "data_venda",
+                    "data_fatura",
+                    "data_recibo",
+                    "data_criacao",
+                    "created_at",
+                    default=None,
+                )
+
+                if isinstance(data_legada, datetime):
+                    data_hora = data_legada
+                else:
+                    return f"{valor:%d/%m/%Y} - hora não registada"
+
+        else:
+            return "Data de emissão não registada"
+
+        try:
+            if timezone.is_naive(data_hora):
+                data_hora = timezone.make_aware(
+                    data_hora,
+                    timezone.get_default_timezone(),
+                )
+
+            data_hora = timezone.localtime(data_hora)
+
+        except (ValueError, OverflowError):
+            logger.exception(
+                "Não foi possível normalizar a data/hora do documento %s",
+                self._numero(),
+            )
+
+        return data_hora.strftime("%d/%m/%Y - %Hh%M")
+
+
+    def _periodo(self) -> str:
+        valor = self._data()
+        try:
+            return valor.strftime("%m/%Y") if valor else ""
+        except Exception:
+            return ""
+
+    def _data_formatada(self, *nomes) -> str:
+        valor = self._campo(self._obj_documento(), *nomes, default=None)
+        return valor.strftime("%d/%m/%Y") if valor and hasattr(valor, "strftime") else ""
+
+    def _hash(self) -> str:
+        return str(
+            self._campo(self.doc_fiscal, "hash_documento", "hash_integridade", default="")
+            or self._campo(self.venda, "hash_documento", "hash_integridade", default="")
+            or ""
+        ).strip()
+
+    @staticmethod
+    def _hash4(hash_documento: str) -> str:
+        """Devolve os 4 caracteres derivados do hash; nunca inventa '0000'."""
+        h = str(hash_documento or "").strip()
+        return f"{h[0]}{h[10]}{h[20]}{h[30]}".upper() if len(h) >= 31 else ""
+
+    def _atcud(self) -> str:
+        return str(self._campo(self.doc_fiscal, "atcud", default="") or "").strip()
+
+    def _tipo_label(self) -> str:
+        return self.TIPO_LABELS.get(self._tipo, "DOCUMENTO FISCAL")
+
+    def _cliente_dados(self) -> dict:
+        obj = self._obj_documento()
+        cliente = getattr(obj, "cliente", None) if obj else None
+        nome = self._campo(obj, "cliente_nome", default="") or self._campo(
+            cliente, "nome_completo", "razao_social", "nome", default=""
+        ) or "Consumidor Final"
+        nif = self._campo(obj, "cliente_nif", default="") or self._campo(
+            cliente, "nif", "numero_identificacao_fiscal", default=""
+        )
+        endereco = self._campo(obj, "cliente_endereco", default="") or self._campo(
+            cliente, "endereco", "morada", "endereco_completo", default=""
+        )
+        email = self._campo(obj, "cliente_email", default="") or self._campo(cliente, "email", default="")
+        telefone = self._campo(obj, "cliente_telefone", default="") or self._campo(
+            cliente, "telefone", "telemovel", default=""
+        )
+        nif = str(nif or "").strip()
+        consumidor_final = (not nif) or nif in {"999999999", "000000000", "999999990"}
+        return {
+            "nome": _safe_text(nome),
+            "nif": "" if consumidor_final else _safe_text(nif),
+            "endereco": _safe_text(endereco),
+            "email": _safe_text(email),
+            "telefone": _safe_text(telefone),
+            "consumidor_final": consumidor_final,
+        }
+
+    # ------------------------------------------------------------------
+    # Linhas: apresenta valores persistidos; não calcula IVA/IEC/IS
+    # ------------------------------------------------------------------
+    def _obter_taxa(self, linha, tipo=""):
+        aliases = {
+            "IEC": ("taxa_iec", "taxa_imposto_iec"),
+            "IVA": ("taxa_iva", "taxa_imposto"),
+            "IS": ("taxa_selo", "taxa_is", "taxa_imposto_selo"),
+        }
+        for nome in aliases.get(tipo, ()):
+            taxa = getattr(linha, nome, None)
+            if taxa is not None:
+                return taxa
+        return self._campo(linha, "taxa_iva", "taxa_imposto", "taxa", default=None)
+
+    def _linha_base(self, linha, legado=False) -> dict:
+        produto = getattr(linha, "produto", None)
+        quantidade = _decimal(self._campo(linha, "quantidade", "qtd", default=1), Decimal("1"))
+        preco = _decimal(self._campo(linha, "preco_unitario", "preco", "valor_unitario", default=0))
+        desconto = _decimal(
+            self._campo(linha, "valor_desconto_linha", "desconto_item", "valor_desconto", "desconto", default=0)
+        )
+        bruto_guardado = self._decimal_opcional(
+            linha, "valor_bruto_linha", "valor_bruto", "subtotal_bruto", "valor_sem_desconto"
+        )
+        bruto = bruto_guardado if bruto_guardado is not None else quantidade * preco
+        liquido_guardado = self._decimal_opcional(
+            linha, "valor_liquido", "subtotal_sem_iva", "base_tributavel", "valor_sem_imposto"
+        )
+        liquido = liquido_guardado if liquido_guardado is not None else bruto - desconto
+
+        taxa = self._obter_taxa(linha)
+        taxa_tipo = str(
+            self._campo(taxa, "tax_type", "tipo_imposto", "tipo", default="")
+            or self._campo(linha, "tax_type", "tipo_imposto", default="")
+            or ""
+        ).strip().upper()
+        taxa_codigo = str(
+            self._campo(taxa, "tax_code", "codigo_imposto", "codigo", default="")
+            or self._campo(linha, "tax_code", "codigo_imposto", default="")
+            or ""
+        ).strip().upper()
+        taxa_pct = self._decimal_opcional(taxa, "tax_percentage", "percentagem", "taxa")
+        isencao_codigo = str(
+            self._campo(
+                taxa, "exemption_reason", "codigo_isencao", "motivo_isencao_codigo", default=""
+            )
+            or self._campo(linha, "codigo_isencao", "motivo_isencao_codigo", default="")
+            or ""
+        ).strip()
+        isencao_motivo = str(
+            self._campo(
+                taxa, "descricao_isencao", "motivo_isencao_texto", "exemption_description", default=""
+            )
+            or self._campo(linha, "motivo_isencao", "descricao_isencao", default="")
+            or ""
+        ).strip()
+
+        iva = self._decimal_opcional(linha, "valor_iva_linha", "valor_iva", "iva_valor", "imposto_iva")
+        iec = self._decimal_opcional(linha, "valor_iec_linha", "valor_iec", "iec_valor", "imposto_iec")
+        selo = self._decimal_opcional(
+            linha, "valor_selo_linha", "valor_imposto_selo", "valor_selo", "valor_is", "imposto_selo", "valor_is_linha"
+        )
+        imposto_generico = self._decimal_opcional(
+            linha, "valor_imposto_linha", "valor_imposto", "valor_taxa", "imposto"
+        )
+
+        # Se existir apenas o campo genérico de imposto, associa-o pelo tipo fiscal.
+        if imposto_generico is not None:
+            if taxa_tipo == "IVA" and iva is None:
+                iva = imposto_generico
+            elif taxa_tipo == "IEC" and iec is None:
+                iec = imposto_generico
+            elif taxa_tipo in {"IS", "ISELO", "SELO"} and selo is None:
+                selo = imposto_generico
+
+        if taxa_tipo == "NS" and taxa_codigo in {"NS", "NA"}:
+            # Categoria de não sujeição: não atribuir valor a IEC ou Selo.
+            if iva is None:
+                iva = ZERO
+
+        # Alguns modelos guardam zero por omissão em todas as colunas de imposto.
+        # Nesse caso, só mostrar zero como valor fiscal quando o tipo corresponde
+        # ao imposto da linha; os restantes campos ficam vazios (—). Valores
+        # positivos de impostos adicionais são sempre preservados.
+        if iec == ZERO and taxa_tipo != "IEC":
+            iec = None
+        if selo == ZERO and taxa_tipo not in {"IS", "ISELO", "SELO"}:
+            selo = None
+        if iva == ZERO and taxa_tipo not in {"IVA", "NS", "NA"} and taxa_codigo not in {"NS", "NA"}:
+            iva = None
+
+        impostos_conhecidos = [v for v in (iva, iec, selo) if v is not None]
+        total_guardado = self._decimal_opcional(
+            linha, "valor_total_linha", "valor_total", "total_linha", "total"
+        )
+        total = total_guardado
+        if total is None:
+            taxa_positiva_sem_valor = bool(
+                taxa_pct is not None and taxa_pct > 0
+                and ((taxa_tipo == "IVA" and iva is None)
+                     or (taxa_tipo == "IEC" and iec is None)
+                     or (taxa_tipo in {"IS", "ISELO", "SELO"} and selo is None))
+            )
+            if taxa_positiva_sem_valor:
+                logger.warning(
+                    "Linha sem valor de imposto persistido; o PDF não recalculou imposto. linha=%s",
+                    getattr(linha, "pk", None),
+                )
+            else:
+                total = liquido + sum(impostos_conhecidos, ZERO)
+
+        codigo_produto = self._campo(linha, "codigo_produto", "codigo", "referencia", default="")
+        if not codigo_produto and produto is not None:
+            codigo_produto = self._campo(produto, "codigo_interno", "codigo", "referencia", default="")
+        if not codigo_produto and getattr(linha, "servico_id", None):
+            codigo_produto = f"SRV-{linha.servico_id}"
+
+        descricao = self._campo(
+            linha, "descricao", "nome_produto", "nome_item", "nome_servico", default="Item sem descrição"
+        )
+        operacao = str(
+            self._campo(linha, "operation_type", "tipo_operacao", default="") or ""
+        ).strip().upper()
+        tipo_linha = str(
+            self._campo(linha, "tipo_item", "tipo_linha", "tipo", default="") or operacao or "—"
+        ).strip().upper()
+        referencia_origem = self._campo(
+            linha, "documento_original_numero", "documento_origem_numero", "referencia_documento_original", default=""
+        )
+        if not referencia_origem:
+            origem = self._campo(linha, "documento_original", "documento_origem", default=None)
+            referencia_origem = self._campo(origem, "numero_documento", "numero", default="")
+
+        return {
+            "tipo": _safe_text(tipo_linha or "—"),
+            "cod": _safe_text(codigo_produto or "—"),
+            "desc": _safe_text(descricao),
+            "unidade": _safe_text(self._campo(linha, "unidade", default="UN") or "UN"),
+            "op_type": operacao,
+            "qtd_raw": quantidade,
+            "qtd": _fmt_quantidade(quantidade),
+            "preco_raw": preco,
+            "preco": _fmt_unit(preco),
+            "bruto_raw": bruto,
+            "desconto_raw": desconto,
+            "desc_val": _fmt_numero(desconto, 2),
+            "liquido_raw": liquido,
+            "iva_raw": iva,
+            "iec_raw": iec,
+            "selo_raw": selo,
+            "total_raw": total,
+            "taxa_tipo": taxa_tipo,
+            "taxa_codigo": taxa_codigo,
+            "taxa_pct": taxa_pct,
+            "isencao_codigo": isencao_codigo,
+            "isencao_motivo": isencao_motivo,
+            "referencia_origem": str(referencia_origem or ""),
+        }
+
+    def _linhas_doc(self) -> list[dict]:
+        if self._linhas_cache is not None:
+            return self._linhas_cache
+
+        linhas_obj = []
+        obj_fiscal = self.doc_fiscal
+        if obj_fiscal is not None:
+            relacao = getattr(obj_fiscal, "linhas", None)
+            if relacao is not None:
+                try:
+                    qs = relacao.all()
+                    try:
+                        qs = qs.order_by("numero_linha")
+                    except Exception:
+                        qs = qs.order_by("pk")
+                    linhas_obj = list(qs)
+                except Exception:
+                    logger.exception("Falha ao obter linhas do documento fiscal %s", self._numero())
+
+        if not linhas_obj:
+            obj = self.venda
+            relacao = getattr(obj, "itens", None) if obj is not None else None
+            if relacao is not None:
+                try:
+                    qs = relacao.all()
+                    try:
+                        qs = qs.order_by("ordem", "pk")
+                    except Exception:
+                        pass
+                    linhas_obj = list(qs)
+                except Exception:
+                    logger.exception("Falha ao obter itens do documento legado %s", self._numero())
+
+        legado = self.doc_fiscal is None
+        self._linhas_cache = [self._linha_base(linha, legado=legado) for linha in linhas_obj]
+        return self._linhas_cache
+
+    # ------------------------------------------------------------------
+    # Totais persistidos e agrupamento de impostos
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _soma_linhas(linhas, campo):
+        valores = [linha.get(campo) for linha in linhas]
+        valores = [v for v in valores if v is not None]
+        return sum(valores, ZERO) if valores else ZERO
+
+    def _totais_raw(self) -> dict:
+        if self._totais_cache is not None:
+            return self._totais_cache
+
+        obj = self._obj_documento()
+        linhas = self._linhas_doc()
+        base_guardada = self._decimal_opcional(
+            obj, "valor_base", "subtotal", "valor_sem_imposto", "total_sem_imposto", "net_total"
+        )
+        base = base_guardada if base_guardada is not None else self._soma_linhas(linhas, "bruto_raw")
+
+        desconto_guardado = self._decimal_opcional(
+            obj, "valor_desconto", "desconto_valor", "total_descontos", "valor_total_descontos"
+        )
+        desconto = desconto_guardado if desconto_guardado is not None else self._soma_linhas(linhas, "desconto_raw")
+
+        iva_guardado = self._decimal_opcional(obj, "valor_iva", "iva_valor", "total_iva", "valor_total_iva")
+        iec_guardado = self._decimal_opcional(obj, "valor_iec", "iec_valor", "total_iec", "valor_total_iec")
+        selo_guardado = self._decimal_opcional(
+            obj, "valor_selo", "valor_imposto_selo", "valor_is", "total_selo", "valor_total_is"
+        )
+        iva = iva_guardado if iva_guardado is not None else self._soma_linhas(linhas, "iva_raw")
+        iec = iec_guardado if iec_guardado is not None else self._soma_linhas(linhas, "iec_raw")
+        selo = selo_guardado if selo_guardado is not None else self._soma_linhas(linhas, "selo_raw")
+        retencao = self._decimal_opcional(
+            obj, "valor_retencao", "valor_retido", "total_retencao", "valor_retencao_fonte"
+        ) or ZERO
+
+        total_guardado = self._decimal_opcional(
+            obj, "valor_total", "total", "valor_total_documento", "valor_a_pagar", "total_a_pagar"
+        )
+        total_linhas = [linha.get("total_raw") for linha in linhas]
+        if total_guardado is not None:
+            total = total_guardado
+            formula = base + iva + iec + selo - desconto
+            if abs(total - formula) > CENTAVO:
+                logger.warning(
+                    "Totais do PDF diferem dos valores agregados: documento=%s; guardado=%s; agregado=%s",
+                    self._numero(), total, formula,
+                )
+        elif total_linhas and all(v is not None for v in total_linhas):
+            total = sum(total_linhas, ZERO)
+        else:
+            # Fallback apenas com os valores fiscais disponíveis; nenhuma taxa é recalculada.
+            total = base + iva + iec + selo - desconto
+            logger.warning(
+                "Documento sem total persistido; foi usada a soma dos montantes disponíveis. documento=%s",
+                self._numero(),
+            )
+
+        moeda = str(self._campo(obj, "moeda", "codigo_moeda", default="AOA") or "AOA").upper()
+        cambio = self._decimal_opcional(obj, "taxa_cambio", "taxa_de_cambio", "cambio")
+        cambio = cambio if cambio is not None else Decimal("1")
+        total_aoa = self._decimal_opcional(
+            obj, "valor_total_aoa", "total_aoa", "valor_total_kz", "total_kz", "valor_total_kwanzas"
+        )
+        self._totais_cache = {
+            "base": base,
+            "desconto": desconto,
+            "base_tributavel": base - desconto,
+            "iva": iva,
+            "iec": iec,
+            "selo": selo,
+            "impostos": iva + iec + selo,
+            "retencao": retencao,
+            "total": total,
+            "moeda": moeda,
+            "taxa_cambio": cambio,
+            "total_aoa": total_aoa,
+        }
+        return self._totais_cache
+
+    def _resumo_impostos(self) -> list[dict]:
+        grupos = {}
+        for linha in self._linhas_doc():
+            tipo_taxa = linha.get("taxa_tipo", "")
+            codigo = linha.get("taxa_codigo", "")
+            taxa_pct = linha.get("taxa_pct")
+            codigo_isencao = linha.get("isencao_codigo", "")
+            motivo = linha.get("isencao_motivo", "")
+
+            tipos = []
+            if linha.get("iec_raw") is not None or tipo_taxa == "IEC":
+                tipos.append(("IEC", linha.get("iec_raw")))
+            if linha.get("selo_raw") is not None or tipo_taxa in {"IS", "ISELO", "SELO"}:
+                tipos.append(("Selo", linha.get("selo_raw")))
+            if (
+                linha.get("iva_raw") is not None
+                or tipo_taxa in {"IVA", "NS", "NA"}
+                or codigo in {"NOR", "INT", "RED", "ISE", "OUT", "NS", "NA"}
+                or codigo_isencao
+            ):
+                tipos.append(("IVA", linha.get("iva_raw")))
+
+            for rotulo, valor in tipos:
+                taxa_label = (
+                    f"{_fmt_numero(taxa_pct, 2)}%" if taxa_pct is not None and rotulo == "IVA"
+                    else codigo or tipo_taxa or "Não indicada"
+                )
+                detalhes = " — ".join(v for v in (codigo_isencao, motivo) if v)
+                chave = (rotulo, taxa_label, detalhes)
+                if chave not in grupos:
+                    grupos[chave] = {"base": ZERO, "valor": ZERO, "valor_conhecido": True}
+                grupos[chave]["base"] += linha.get("liquido_raw") or ZERO
+                if valor is None:
+                    grupos[chave]["valor_conhecido"] = False
+                else:
+                    grupos[chave]["valor"] += valor
+
+        resultado = []
+        for (tipo, taxa, detalhes), montantes in sorted(grupos.items()):
+            resultado.append({
+                "tipo": tipo,
+                "taxa": taxa,
+                "detalhes": detalhes,
+                "base": montantes["base"],
+                "valor": montantes["valor"] if montantes["valor_conhecido"] else None,
+            })
+        return resultado
+
+    def _motivos_isencao(self) -> list[str]:
+        motivos = []
+        vistos = set()
+        for linha in self._linhas_doc():
+            codigo = str(linha.get("isencao_codigo") or "").strip()
+            motivo = str(linha.get("isencao_motivo") or "").strip()
+            if not codigo and not motivo:
+                continue
+            texto = " — ".join(v for v in (codigo, motivo) if v)
+            if texto not in vistos:
+                vistos.add(texto)
+                motivos.append(texto)
+        return motivos
+
+    # ------------------------------------------------------------------
+    # Estilos neutros e cabeçalho
+    # ------------------------------------------------------------------
+    def _estilos(self, compacto=False) -> dict:
+        base = getSampleStyleSheet()["Normal"]
+        mult = 0.92 if compacto else 1.0
+        return {
+            "normal": ParagraphStyle("pdfdoc_normal", parent=base, fontName="Helvetica", fontSize=7.2 * mult, leading=9 * mult, textColor=self.DOC_TEXTO, spaceAfter=0, splitLongWords=1),
+            "small": ParagraphStyle("pdfdoc_small", parent=base, fontName="Helvetica", fontSize=6.1 * mult, leading=7.5 * mult, textColor=self.DOC_TEXTO_SEC, spaceAfter=0, splitLongWords=1),
+            "tiny": ParagraphStyle("pdfdoc_tiny", parent=base, fontName="Helvetica", fontSize=5.3 * mult, leading=6.4 * mult, textColor=self.DOC_TEXTO_SEC, spaceAfter=0, splitLongWords=1),
+            "right": ParagraphStyle("pdfdoc_right", parent=base, fontName="Helvetica", fontSize=6.7 * mult, leading=8 * mult, alignment=TA_RIGHT, textColor=self.DOC_TEXTO, spaceAfter=0, splitLongWords=1),
+            "issuer": ParagraphStyle("pdfdoc_issuer", parent=base, fontName="Helvetica-Bold", fontSize=10 * mult, leading=12 * mult, textColor=self.DOC_TEXTO, spaceAfter=2),
+            "issuer_sub": ParagraphStyle("pdfdoc_issuer_sub", parent=base, fontName="Helvetica", fontSize=6.1 * mult, leading=7.5 * mult, textColor=self.DOC_TEXTO_SEC, spaceAfter=1),
+            "title": ParagraphStyle("pdfdoc_title", parent=base, fontName="Helvetica-Bold", fontSize=17 * mult, leading=19 * mult, alignment=TA_CENTER, textColor=self.DOC_TEXTO, spaceAfter=2),
+            "number": ParagraphStyle("pdfdoc_number", parent=base, fontName="Helvetica-Bold", fontSize=8 * mult, leading=10 * mult, alignment=TA_CENTER, textColor=self.DOC_TEXTO, spaceAfter=1),
+            "section": ParagraphStyle("pdfdoc_section", parent=base, fontName="Helvetica-Bold", fontSize=7.3 * mult, leading=8.8 * mult, textColor=self.DOC_TEXTO, spaceAfter=2),
+            "table_header": ParagraphStyle("pdfdoc_table_header", parent=base, fontName="Helvetica-Bold", fontSize=5.4 * mult, leading=6.2 * mult, textColor=self.DOC_TEXTO, alignment=TA_CENTER, spaceAfter=0, splitLongWords=1),
+            "line": ParagraphStyle("pdfdoc_line", parent=base, fontName="Helvetica", fontSize=5.7 * mult, leading=6.8 * mult, textColor=self.DOC_TEXTO, spaceAfter=0, splitLongWords=1),
+            "line_right": ParagraphStyle("pdfdoc_line_right", parent=base, fontName="Helvetica", fontSize=5.5 * mult, leading=6.5 * mult, alignment=TA_RIGHT, textColor=self.DOC_TEXTO, spaceAfter=0, splitLongWords=1),
+            "total_label": ParagraphStyle("pdfdoc_total_label", parent=base, fontName="Helvetica", fontSize=7 * mult, leading=8.2 * mult, textColor=self.DOC_TEXTO, spaceAfter=0),
+            "total_value": ParagraphStyle("pdfdoc_total_value", parent=base, fontName="Helvetica", fontSize=7 * mult, leading=8.2 * mult, alignment=TA_RIGHT, textColor=self.DOC_TEXTO, spaceAfter=0),
+            "grand_label": ParagraphStyle("pdfdoc_grand_label", parent=base, fontName="Helvetica-Bold", fontSize=8.3 * mult, leading=9.8 * mult, textColor=self.DOC_TEXTO, spaceAfter=0),
+            "grand_value": ParagraphStyle("pdfdoc_grand_value", parent=base, fontName="Helvetica-Bold", fontSize=8.3 * mult, leading=9.8 * mult, alignment=TA_RIGHT, textColor=self.DOC_TEXTO, spaceAfter=0),
+            "logo_fallback": ParagraphStyle("pdfdoc_logo_fallback", parent=base, fontName="Helvetica-Bold", fontSize=7 * mult, leading=8 * mult, alignment=TA_CENTER, textColor=self.DOC_TEXTO, spaceAfter=0),
+        }
+
+    def _logo_flowable(self, largura: float, altura: float, styles: dict):
+        logo_io = self._logo_empresa()
+        if not logo_io:
+            return Paragraph("EMPRESA", styles["logo_fallback"])
+        try:
+            logo_io.seek(0)
+            with Image.open(logo_io) as img:
+                img_w, img_h = img.size
+            if not img_w or not img_h:
+                return Paragraph("EMPRESA", styles["logo_fallback"])
+            escala = min(largura / img_w, altura / img_h)
+            logo_io.seek(0)
+            return RLImage(logo_io, width=img_w * escala, height=img_h * escala, hAlign="CENTER")
+        except Exception as exc:
+            logger.warning("Logótipo não suportado no PDF: %s", exc)
+            return Paragraph("EMPRESA", styles["logo_fallback"])
+
+    def _caixa_documento(self, styles: dict, largura: float, compact=False):
+        titulo = self._tipo_label()
+        numero = self._numero() or "NÃO EMITIDO"
+        linhas = [
+            [Paragraph(_p_text(titulo), styles["title"])],
+            [Paragraph(_p_text(numero), styles["number"])],
+        ]
+        via = self._campo(self._obj_documento(), "via", "tipo_via", "via_documento", default="")
+        if via:
+            linhas.append([Paragraph(_p_text(str(via)), styles["small"])])
+        if self._proforma:
+            linhas.append([Paragraph("DOCUMENTO NÃO FISCAL", styles["section"])])
+        tabela = Table(linhas, colWidths=[largura])
+        tabela.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, -1), self.DOC_CINZA_TOPO),
+            ("BOX", (0, 0), (-1, -1), 0.6, self.DOC_BORDA),
+            ("LEFTPADDING", (0, 0), (-1, -1), 4 if not compact else 3),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 4 if not compact else 3),
+            ("TOPPADDING", (0, 0), (-1, -1), 4 if not compact else 3),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 4 if not compact else 3),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ]))
+        return tabela
+
+    def _cabecalho(self, styles: dict, compact=False):
+        emissor = self._dados_emissor()
+        if compact:
+            logo = self._logo_flowable(20 * mm, 16 * mm, styles)
+            linhas_info = [Paragraph(_p_text(emissor["nome"]), styles["issuer"])]
+            linhas_info.append(Paragraph(_p_text(f"NIF: {emissor['nif'] or 'Não configurado'}"), styles["normal"]))
+            if emissor["endereco"]:
+                linhas_info.append(Paragraph(_p_text(emissor["endereco"]), styles["small"]))
+            contactos = " | ".join(v for v in (emissor["telefone"], emissor["email"],emissor["site"],) if v)
+            if contactos:
+                linhas_info.append(Paragraph(_p_text(contactos), styles["small"]))
+            info = Table([[x] for x in linhas_info], colWidths=[72 * mm])
+            info.setStyle(TableStyle([
+                ("LEFTPADDING", (0, 0), (-1, -1), 0), ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+                ("TOPPADDING", (0, 0), (-1, -1), 0), ("BOTTOMPADDING", (0, 0), (-1, -1), 1),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ]))
+            titulo = self._caixa_documento(styles, 50 * mm, compact=True)
+            topo = Table([[logo, titulo]], colWidths=[21 * mm, 51 * mm])
+            topo.setStyle(TableStyle([
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("LEFTPADDING", (0, 0), (-1, -1), 1), ("RIGHTPADDING", (0, 0), (-1, -1), 1),
+                ("TOPPADDING", (0, 0), (-1, -1), 2), ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+                ("LINEBELOW", (0, 0), (-1, -1), 0.8, self.DOC_BORDA),
+            ]))
+            return [topo, Spacer(1, 2 * mm), info, Spacer(1, 2 * mm)]
+
+        logo = self._logo_flowable(25 * mm, 22 * mm, styles)
+        info_linhas = [Paragraph(_p_text(emissor["nome"]), styles["issuer"])]
+        if emissor["razao_social"] and emissor["razao_social"] != emissor["nome"]:
+            info_linhas.append(Paragraph(_p_text(f"Razão social: {emissor['razao_social']}"), styles["issuer_sub"]))
+        info_linhas.append(Paragraph(_p_text(f"NIF: {emissor['nif'] or 'Não configurado'}"), styles["normal"]))
+        if emissor["endereco"]:
+            info_linhas.append(Paragraph(_p_text(emissor["endereco"]), styles["small"]))
+        contactos = " | ".join(v for v in (emissor["telefone"], emissor["email"], emissor["site"]) if v)
+        if contactos:
+            info_linhas.append(Paragraph(_p_text(contactos), styles["small"]))
+        if emissor["regime"]:
+            info_linhas.append(Paragraph(_p_text(emissor["regime"]), styles["small"]))
+
+        info = Table([[x] for x in info_linhas], colWidths=[91 * mm])
+        info.setStyle(TableStyle([
+            ("LEFTPADDING", (0, 0), (-1, -1), 0), ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+            ("TOPPADDING", (0, 0), (-1, -1), 0), ("BOTTOMPADDING", (0, 0), (-1, -1), 1),
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ]))
+        caixa = self._caixa_documento(styles, 57 * mm)
+        topo = Table([[logo, info, caixa]], colWidths=[27 * mm, 96 * mm, 57 * mm])
+        topo.setStyle(TableStyle([
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("LEFTPADDING", (0, 0), (-1, -1), 2), ("RIGHTPADDING", (0, 0), (-1, -1), 2),
+            ("TOPPADDING", (0, 0), (-1, -1), 3), ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+            ("LINEBELOW", (0, 0), (-1, -1), 1, self.DOC_BORDA),
+        ]))
+        return [topo, Spacer(1, 3 * mm)]
+
+    # ------------------------------------------------------------------
+    # Intervenientes e metadados específicos
+    # ------------------------------------------------------------------
+    def _bloco_cliente_metadados(self, styles: dict, compact=False):
+        cliente = self._cliente_dados()
+        emissor = self._dados_emissor()
+        linhas_cliente = [
+            Paragraph("ADQUIRENTE / CLIENTE", styles["section"]),
+            Paragraph(f"<b>{_p_text(cliente['nome'])}</b>", styles["normal"]),
+            Paragraph(_p_text(f"NIF: {cliente['nif']}" if cliente["nif"] else "NIF não informado"), styles["normal"]),
+        ]
+        if cliente["endereco"]:
+            linhas_cliente.append(Paragraph(_p_text(cliente["endereco"]), styles["small"]))
+        contactos = " | ".join(v for v in (cliente["telefone"], cliente["email"]) if v)
+        if contactos:
+            linhas_cliente.append(Paragraph(_p_text(contactos), styles["small"]))
+
+        obj = self._obj_documento()
+        linhas_doc = [
+            Paragraph("DADOS DO DOCUMENTO", styles["section"]),
+            Paragraph(_p_text(f"Emissão: {self._data_hora_formatada()}"), styles["normal"]),
+        ]
+        periodo = self._periodo()
+        if periodo:
+            linhas_doc.append(Paragraph(_p_text(f"Período contabilístico: {periodo}"), styles["small"]))
+        for campo, rotulo in (
+            (("data_vencimento", "vencimento"), "Data de vencimento"),
+            (("data_operacao",), "Data da operação"),
+            (("condicoes_pagamento", "condicao_pagamento"), "Condições de pagamento"),
+            (("referencia_externa", "referencia"), "Referência"),
+        ):
+            valor = self._campo(obj, *campo, default="")
+            if valor:
+                if hasattr(valor, "strftime"):
+                    valor = valor.strftime("%d/%m/%Y")
+                linhas_doc.append(Paragraph(_p_text(f"{rotulo}: {valor}"), styles["small"]))
+        if self._atcud() and not self._proforma and not self._rascunho:
+            linhas_doc.append(Paragraph(_p_text(f"ATCUD: {self._atcud()}"), styles["small"]))
+
+        # Informações de transporte quando aplicáveis ao tipo documental.
+        if self._tipo == "DT":
+            for aliases, rotulo in (
+                (("local_carga", "local_carregamento"), "Local de carga"),
+                (("local_descarga", "local_descarregamento"), "Local de descarga"),
+                (("data_carga", "data_carregamento"), "Data de carga"),
+                (("data_descarga", "data_descarregamento"), "Data de descarga"),
+                (("matricula_viatura", "matricula", "matrícula"), "Matrícula"),
+            ):
+                valor = self._campo(obj, *aliases, default="")
+                if valor:
+                    if hasattr(valor, "strftime"):
+                        valor = valor.strftime("%d/%m/%Y %H:%M")
+                    linhas_doc.append(Paragraph(_p_text(f"{rotulo}: {valor}"), styles["small"]))
+
+        largura_interna = 72 * mm if compact else 85 * mm
+        cliente_tbl = Table([[x] for x in linhas_cliente], colWidths=[largura_interna])
+        doc_tbl = Table([[x] for x in linhas_doc], colWidths=[largura_interna])
+        for tabela in (cliente_tbl, doc_tbl):
+            tabela.setStyle(TableStyle([
+                ("BOX", (0, 0), (-1, -1), 0.45, self.DOC_BORDA),
+                ("BACKGROUND", (0, 0), (-1, 0), self.DOC_CINZA_CABEC),
+                ("LEFTPADDING", (0, 0), (-1, -1), 4 if not compact else 3),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 4 if not compact else 3),
+                ("TOPPADDING", (0, 0), (-1, -1), 3 if not compact else 2),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 3 if not compact else 2),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ]))
+        if compact:
+            return [cliente_tbl, Spacer(1, 2 * mm), doc_tbl, Spacer(1, 3 * mm)]
+        ambos = Table([[cliente_tbl, doc_tbl]], colWidths=[90 * mm, 90 * mm])
+        ambos.setStyle(TableStyle([
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ("LEFTPADDING", (0, 0), (-1, -1), 0),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 2),
+            ("TOPPADDING", (0, 0), (-1, -1), 0),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+        ]))
+        return [ambos, Spacer(1, 3 * mm)]
+
+    def _bloco_pagamento(self, styles: dict, compact=False):
+        if self._tipo != "FR":
+            return []
+        obj = self._obj_documento()
+        meio = self._campo(obj, "meio_pagamento", "forma_pagamento", "metodo_pagamento", default="")
+        recebido = self._decimal_opcional(obj, "valor_recebido", "valor_pago", "montante_pago")
+        total_pago = self._decimal_opcional(obj, "total_pago", "valor_total_pago", "valor_liquidado")
+        troco = self._decimal_opcional(obj, "valor_troco", "troco")
+        referencia = self._campo(obj, "referencia_pagamento", "referencia_transacao", default="")
+        totais_doc = self._totais_raw()
+        moeda = totais_doc["moeda"]
+        # FR representa factura com recibo: quando não existe campo próprio de
+        # liquidação, o montante liquidado é o total persistido do documento.
+        if total_pago is None:
+            total_pago = totais_doc["total"]
+        dados = [[Paragraph("PAGAMENTO", styles["section"]), Paragraph(_p_text(meio or "—"), styles["normal"])]]
+        dados.append([Paragraph("Total pago", styles["small"]), Paragraph(_p_text(_fmt_moeda(total_pago, moeda)), styles["normal"])])
+        if recebido is not None:
+            dados.append([Paragraph("Valor recebido", styles["small"]), Paragraph(_p_text(_fmt_moeda(recebido, moeda)), styles["normal"])])
+        if troco is not None:
+            dados.append([Paragraph("Troco", styles["small"]), Paragraph(_p_text(_fmt_moeda(troco, moeda)), styles["normal"])])
+        if referencia:
+            dados.append([Paragraph("Referência", styles["small"]), Paragraph(_p_text(referencia), styles["normal"])])
+        tabela = Table(dados, colWidths=[27 * mm, 45 * mm] if compact else [38 * mm, 135 * mm])
+        tabela.setStyle(TableStyle([
+            ("BOX", (0, 0), (-1, -1), 0.45, self.DOC_BORDA),
+            ("BACKGROUND", (0, 0), (-1, 0), self.DOC_CINZA_CABEC),
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ("LEFTPADDING", (0, 0), (-1, -1), 4),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+            ("TOPPADDING", (0, 0), (-1, -1), 3),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+        ]))
+        return [tabela, Spacer(1, 2 * mm)]
+
+    # ------------------------------------------------------------------
+    # Tabela fiscal com onze colunas fixas
+    # ------------------------------------------------------------------
+    def _tabela_linhas(self, styles: dict, compact=False):
+        linhas = self._linhas_doc()
+        moeda = self._totais_raw()["moeda"]
+
+        if compact:
+            dados = [[
+                Paragraph("DESCRIÇÃO / TIPO", styles["table_header"]),
+                Paragraph("TOTAL", styles["table_header"]),
+            ]]
+            for linha in linhas:
+                descricao = f"<b>{_p_text(linha['desc'])}</b><br/>"
+                descricao += _p_text(
+                    f"{linha['tipo']} · {linha['cod']} · {linha['qtd']} {linha['unidade']} × {linha['preco']}"
+                )
+                impostos = []
+                for nome, valor in (("IEC", linha["iec_raw"]), ("IVA", linha["iva_raw"]), ("Selo", linha["selo_raw"])):
+                    if valor is not None:
+                        impostos.append(f"{nome}: {_fmt_numero(valor, 2)}")
+                if impostos:
+                    descricao += "<br/><font size='5'>" + _p_text(" | ".join(impostos)) + "</font>"
+                if linha["isencao_codigo"] or linha["isencao_motivo"]:
+                    descricao += "<br/><font size='5'>Isenção: " + _p_text(
+                        " — ".join(v for v in (linha["isencao_codigo"], linha["isencao_motivo"]) if v)
+                    ) + "</font>"
+                total_txt = _fmt_moeda(linha["total_raw"], moeda) if linha["total_raw"] is not None else "—"
+                dados.append([Paragraph(descricao, styles["line"]), Paragraph(_p_text(total_txt), styles["line_right"])])
+            if not linhas:
+                dados.append([Paragraph("Não existem linhas neste documento.", styles["line"]), Paragraph("—", styles["line_right"])])
+            tabela = Table(dados, colWidths=[49 * mm, 23 * mm], repeatRows=1, hAlign="LEFT")
+        else:
+            titulos = ["Tipo", "Código", "Descrição", "Qt", "Preço Unit.", "Desconto", "Valor", "IEC", "IVA", "Selo", "Total"]
+            dados = [[Paragraph(_p_text(t), styles["table_header"]) for t in titulos]]
+            for linha in linhas:
+                descricao = f"<b>{_p_text(linha['desc'])}</b>"
+                metadados = []
+                if linha["op_type"]:
+                    metadados.append(f"Operação: {linha['op_type']}")
+                if linha["taxa_codigo"]:
+                    metadados.append(f"Código fiscal: {linha['taxa_codigo']}")
+                if linha["taxa_pct"] is not None:
+                    metadados.append(f"Taxa: {_fmt_numero(linha['taxa_pct'], 2)}%")
+                if linha["isencao_codigo"] or linha["isencao_motivo"]:
+                    metadados.append(
+                        "Isenção: " + " — ".join(
+                            v for v in (linha["isencao_codigo"], linha["isencao_motivo"]) if v
+                        )
+                    )
+                if linha["referencia_origem"]:
+                    metadados.append(f"Documento de origem: {linha['referencia_origem']}")
+                if metadados:
+                    descricao += "<br/><font size='5' color='#52525B'>" + _p_text(" · ".join(metadados)) + "</font>"
+
+                def valor_celula(valor):
+                    return "—" if valor is None else _fmt_numero(valor, 2)
+
+                total_txt = _fmt_numero(linha["total_raw"], 2) if linha["total_raw"] is not None else "—"
+                dados.append([
+                    Paragraph(_p_text(linha["tipo"]), styles["line"]),
+                    Paragraph(_p_text(linha["cod"]), styles["line"]),
+                    Paragraph(descricao, styles["line"]),
+                    Paragraph(_p_text(linha["qtd"]), styles["line_right"]),
+                    Paragraph(_p_text(linha["preco"]), styles["line_right"]),
+                    Paragraph(_p_text(valor_celula(linha["desconto_raw"])), styles["line_right"]),
+                    Paragraph(_p_text(valor_celula(linha["bruto_raw"])), styles["line_right"]),
+                    Paragraph(_p_text(valor_celula(linha["iec_raw"])), styles["line_right"]),
+                    Paragraph(_p_text(valor_celula(linha["iva_raw"])), styles["line_right"]),
+                    Paragraph(_p_text(valor_celula(linha["selo_raw"])), styles["line_right"]),
+                    Paragraph(_p_text(total_txt), styles["line_right"]),
+                ])
+            if not linhas:
+                dados.append([Paragraph("—", styles["line"]), Paragraph("—", styles["line"]),
+                              Paragraph("Não existem linhas neste documento.", styles["line"]),
+                              *[Paragraph("—", styles["line_right"]) for _ in range(8)]])
+
+            # Soma = 180 mm, correspondente à área útil A4 (210 - 15 - 15).
+            larguras = [9, 13, 48, 10, 17, 14, 17, 11, 11, 11, 19]
+            tabela = Table(
+                dados,
+                colWidths=[v * mm for v in larguras],
+                repeatRows=1,
+                hAlign="LEFT",
+                splitByRow=1,
+            )
+
+        tabela.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), self.DOC_CINZA_CABEC),
+            ("TEXTCOLOR", (0, 0), (-1, 0), self.DOC_TEXTO),
+            ("GRID", (0, 0), (-1, -1), 0.3, self.DOC_BORDA),
+            ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, self.DOC_CINZA_LINHA]),
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ("LEFTPADDING", (0, 0), (-1, -1), 2),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 2),
+            ("TOPPADDING", (0, 0), (-1, 0), 4),
+            ("BOTTOMPADDING", (0, 0), (-1, 0), 4),
+            ("TOPPADDING", (0, 1), (-1, -1), 3),
+            ("BOTTOMPADDING", (0, 1), (-1, -1), 3),
+            ("ALIGN", (3, 1), (-1, -1), "RIGHT") if not compact else ("ALIGN", (1, 1), (-1, -1), "RIGHT"),
+        ]))
+        return [Paragraph("ARTIGOS / SERVIÇOS", styles["section"]), tabela, Spacer(1, 3 * mm)]
+
+    # ------------------------------------------------------------------
+    # Impostos agrupados, retenções informativas e resumo final
+    # ------------------------------------------------------------------
+    def _tabela_impostos(self, styles: dict, compact=False):
+        grupos = self._resumo_impostos()
+        if compact:
+            dados = [[Paragraph("IMPOSTO", styles["table_header"]), Paragraph("VALOR", styles["table_header"])]]
+            for grupo in grupos:
+                texto = grupo["tipo"] + " · " + grupo["taxa"]
+                if grupo["detalhes"]:
+                    texto += " · " + grupo["detalhes"]
+                valor = _fmt_numero(grupo["valor"], 2) if grupo["valor"] is not None else "—"
+                dados.append([Paragraph(_p_text(texto), styles["line"]), Paragraph(_p_text(valor), styles["line_right"])])
+            if not grupos:
+                dados.append([Paragraph("Sem discriminação registada", styles["line"]), Paragraph("—", styles["line_right"])])
+            widths = [49 * mm, 23 * mm]
+        else:
+            dados = [[
+                Paragraph("Imposto", styles["table_header"]),
+                Paragraph("Taxa / código / isenção", styles["table_header"]),
+                Paragraph("Base", styles["table_header"]),
+                Paragraph("Valor", styles["table_header"]),
+            ]]
+            for grupo in grupos:
+                dados.append([
+                    Paragraph(_p_text(grupo["tipo"]), styles["line"]),
+                    Paragraph(_p_text(" · ".join(v for v in (grupo["taxa"], grupo["detalhes"]) if v)), styles["line"]),
+                    Paragraph(_p_text(_fmt_numero(grupo["base"], 2)), styles["line_right"]),
+                    Paragraph(_p_text(_fmt_numero(grupo["valor"], 2) if grupo["valor"] is not None else "—"), styles["line_right"]),
+                ])
+            if not grupos:
+                dados.append([Paragraph("—", styles["line"]), Paragraph("Sem discriminação registada", styles["line"]), Paragraph("—", styles["line_right"]), Paragraph("—", styles["line_right"])])
+            widths = [15 * mm, 36 * mm, 21 * mm, 17 * mm]
+
+        tabela = Table(dados, colWidths=widths, repeatRows=1)
+        tabela.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), self.DOC_CINZA_CABEC),
+            ("GRID", (0, 0), (-1, -1), 0.3, self.DOC_BORDA),
+            ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, self.DOC_CINZA_LINHA]),
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ("LEFTPADDING", (0, 0), (-1, -1), 2),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 2),
+            ("TOPPADDING", (0, 0), (-1, -1), 3),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+        ]))
+        return tabela
+
+    def _tabela_retencoes(self, styles: dict, compact=False):
+        retencao = self._totais_raw()["retencao"]
+        if retencao <= ZERO:
+            return None
+        moeda = self._totais_raw()["moeda"]
+        dados = [
+            [Paragraph("RETENÇÕES NA FONTE", styles["section"])],
+            [Paragraph("Valores informativos; não deduzidos do total do documento.", styles["small"])],
+            [Paragraph(_p_text(f"Total de retenções: {_fmt_moeda(retencao, moeda)}"), styles["normal"])],
+        ]
+        tabela = Table(dados, colWidths=[49 * mm if compact else 89 * mm])
+        tabela.setStyle(TableStyle([
+            ("BOX", (0, 0), (-1, -1), 0.4, self.DOC_BORDA),
+            ("BACKGROUND", (0, 0), (-1, 0), self.DOC_CINZA_CABEC),
+            ("LEFTPADDING", (0, 0), (-1, -1), 4),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+            ("TOPPADDING", (0, 0), (-1, -1), 3),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ]))
+        return tabela
+
+    def _tabela_totais(self, styles: dict, compact=False):
+        totais = self._totais_raw()
+        moeda = totais["moeda"]
+        dados = [
+            [Paragraph("Totais sem impostos", styles["total_label"]), Paragraph(_p_text(_fmt_moeda(totais["base"], moeda)), styles["total_value"])],
+            [Paragraph("Valor de impostos", styles["total_label"]), Paragraph(_p_text(_fmt_moeda(totais["impostos"], moeda)), styles["total_value"])],
+            [Paragraph("Valor de descontos", styles["total_label"]), Paragraph(_p_text(_fmt_moeda(totais["desconto"], moeda)), styles["total_value"])],
+            [Paragraph("VALOR TOTAL A PAGAR", styles["grand_label"]), Paragraph(_p_text(_fmt_moeda(totais["total"], moeda)), styles["grand_value"])],
+        ]
+        largura_label, largura_valor = ((48 * mm, 24 * mm) if compact else (53 * mm, 36 * mm))
+        tabela = Table(dados, colWidths=[largura_label, largura_valor], hAlign="RIGHT")
+        tabela.setStyle(TableStyle([
+            ("GRID", (0, 0), (-1, -2), 0.3, self.DOC_BORDA),
+            ("BACKGROUND", (0, 0), (-1, -2), colors.white),
+            ("BACKGROUND", (0, -1), (-1, -1), self.DOC_CINZA_TOPO),
+            ("BOX", (0, -1), (-1, -1), 0.8, self.DOC_TEXTO),
+            ("LINEABOVE", (0, -1), (-1, -1), 1.2, self.DOC_TEXTO),
+            ("LEFTPADDING", (0, 0), (-1, -1), 4),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+            ("TOPPADDING", (0, 0), (-1, -1), 4),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ]))
+        return tabela
+
+    def _bloco_totais_fiscais(self, styles: dict, compact=False):
+        imposto = self._tabela_impostos(styles, compact=compact)
+        retencao = self._tabela_retencoes(styles, compact=compact)
+        tabela_direita = self._tabela_totais(styles, compact=compact)
+
+        if compact:
+            elementos_compactos = [Paragraph("TOTAIS POR IMPOSTO", styles["section"]), imposto]
+            if retencao is not None:
+                elementos_compactos.extend([Spacer(1, 2 * mm), retencao])
+            elementos_compactos.extend([Spacer(1, 3 * mm), Paragraph("RESUMO DO DOCUMENTO", styles["section"]), tabela_direita])
+            totais = self._totais_raw()
+            if totais["moeda"] != "AOA":
+                elementos_compactos.append(Paragraph(_p_text(f"Moeda: {totais['moeda']} · Câmbio: {_fmt_numero(totais['taxa_cambio'], 4)}"), styles["small"]))
+                elementos_compactos.append(Paragraph(_p_text(_fmt_moeda(totais["total_aoa"], "AOA") if totais["total_aoa"] is not None else "Equivalente em Kz não registado"), styles["small"]))
+            else:
+                elementos_compactos.append(Paragraph("Valores em Kwanzas (Kz).", styles["small"]))
+            elementos_compactos.append(Spacer(1, 3 * mm))
+            return elementos_compactos
+
+        esquerdo = [Paragraph("TOTAIS POR IMPOSTO", styles["section"]), imposto]
+        if retencao is not None:
+            esquerdo.extend([Spacer(1, 2 * mm), retencao])
+        tabela_esquerda = Table([[item] for item in esquerdo], colWidths=[89 * mm])
+        tabela_esquerda.setStyle(TableStyle([
+            ("LEFTPADDING", (0, 0), (-1, -1), 0), ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+            ("TOPPADDING", (0, 0), (-1, -1), 0), ("BOTTOMPADDING", (0, 0), (-1, -1), 1),
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ]))
+        conjunto = Table([[tabela_esquerda, tabela_direita]], colWidths=[90 * mm, 90 * mm])
+        conjunto.setStyle(TableStyle([
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ("LEFTPADDING", (0, 0), (-1, -1), 0),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 2),
+            ("TOPPADDING", (0, 0), (-1, -1), 0),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+        ]))
+        totais = self._totais_raw()
+        moeda = totais["moeda"]
+        elementos = [conjunto]
+        if moeda != "AOA":
+            cambio_texto = _fmt_numero(totais["taxa_cambio"], 4)
+            equivalente = (
+                _fmt_moeda(totais["total_aoa"], "AOA")
+                if totais["total_aoa"] is not None
+                else "Equivalente em Kz não registado"
+            )
+            elementos.append(Spacer(1, 1 * mm))
+            elementos.append(Paragraph(
+                _p_text(f"Moeda original: {moeda} · Taxa de câmbio registada: {cambio_texto} · Valor em Kwanzas: {equivalente}"),
+                styles["small"],
+            ))
+        else:
+            elementos.append(Paragraph("Valores em Kwanzas (Kz).", styles["small"]))
+        elementos.append(Spacer(1, 3 * mm))
+        return elementos
+
+    # ------------------------------------------------------------------
+    # Observações, cancelamento e referências
+    # ------------------------------------------------------------------
+    def _comentarios(self) -> str:
+        obj = self._obj_documento()
+        return _safe_text(self._campo(obj, "comentarios", "observacoes", "observacao", default=""))
+
+    def _bloco_observacoes(self, styles: dict, compact=False):
+        obj = self._obj_documento()
+        notas = []
+        if self._proforma:
+            notas.append("DOCUMENTO NÃO FISCAL — ESTE DOCUMENTO NÃO SERVE DE FACTURA.")
+        elif self._rascunho:
+            notas.append("RASCUNHO — ESTE DOCUMENTO NÃO SERVE DE FACTURA.")
+        if self._anulado:
+            codigo = self._campo(obj, "motivo_codigo", "codigo_motivo_anulacao", "motivo_cancelamento_codigo", default="")
+            motivo = self._campo(obj, "motivo_texto", "motivo_cancelamento", "motivo_anulacao", "motivo", default="")
+            sufixo = " — ".join(str(v) for v in (codigo, motivo) if v)
+            notas.append("DOCUMENTO ANULADO" + (f": {sufixo}" if sufixo else ". Motivo não registado."))
+        documento_original = self._campo(obj, "documento_original", "documento_origem", default=None)
+        if self._tipo in {"NC", "ND", "RE"}:
+            numero_origem = self._campo(
+                obj, "numero_documento_original", "documento_origem_numero", default=""
+            ) or self._campo(documento_original, "numero_documento", "numero", default="")
+            motivo = self._campo(obj, "motivo_rectificacao", "motivo", "motivo_texto", default="")
+            if numero_origem:
+                notas.append(f"Documento de origem: {numero_origem}")
+            elif self._tipo == "NC":
+                notas.append("Referência ao documento original não disponível no PDF.")
+            if motivo:
+                notas.append(f"Motivo: {motivo}")
+        if self._tipo == "AF":
+            notas.append("Autofacturação: documento emitido pelo adquirente em nome do fornecedor.")
+        comentarios = self._comentarios()
+        itens = []
+        if notas:
+            texto = "<br/>".join(_p_text(nota) for nota in notas)
+            tabela_notas = Table([[Paragraph(texto, styles["normal"])]], colWidths=[72 * mm if compact else 180 * mm])
+            tabela_notas.setStyle(TableStyle([
+                ("BOX", (0, 0), (-1, -1), 0.45, self.DOC_BORDA),
+                ("BACKGROUND", (0, 0), (-1, -1), self.DOC_CINZA_LINHA),
+                ("LEFTPADDING", (0, 0), (-1, -1), 4), ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+                ("TOPPADDING", (0, 0), (-1, -1), 4), ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+            ]))
+            itens.extend([tabela_notas, Spacer(1, 2 * mm)])
+        if comentarios:
+            tabela_obs = Table([
+                [Paragraph("OBSERVAÇÕES", styles["section"])],
+                [Paragraph(_p_text(comentarios), styles["normal"])],
+            ], colWidths=[72 * mm if compact else 180 * mm])
+            tabela_obs.setStyle(TableStyle([
+                ("BOX", (0, 0), (-1, -1), 0.45, self.DOC_BORDA),
+                ("BACKGROUND", (0, 0), (-1, 0), self.DOC_CINZA_CABEC),
+                ("LEFTPADDING", (0, 0), (-1, -1), 4), ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+                ("TOPPADDING", (0, 0), (-1, -1), 3), ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ]))
+            itens.extend([tabela_obs, Spacer(1, 2 * mm)])
+        return itens
+
+    # ------------------------------------------------------------------
+    # QR e rodapé legal: nenhum QR em pró-forma/rascunho
+    # ------------------------------------------------------------------
+    def _url_qr_documento(self) -> str:
+        """Prepara o URL de consulta do QR para documentos emitidos."""
+
+        if self._proforma or self._rascunho:
+            logger.debug(
+                "QR omitido para documento não emitido: %s",
+                self._numero(),
+            )
+            return ""
+
+        emissor = self._dados_emissor()
+        nif = str(emissor.get("nif") or "").strip()
+        numero = self._numero()
+
+        if not nif or not numero:
+            logger.warning(
+                "QR não gerado: falta NIF do emitente ou número do documento. "
+                "NIF presente=%s; número presente=%s; documento=%s",
+                bool(nif),
+                bool(numero),
+                numero or "(sem número)",
+            )
+            return ""
+
+        base = str(
+            getattr(settings, "AGT_QR_CODE_BASE_URL", "") or ""
+        ).strip()
+
+        if not base:
+            logger.error(
+                "QR não gerado para %s: AGT_QR_CODE_BASE_URL não está "
+                "configurado nas definições Django.",
+                numero,
+            )
+            return ""
+
+        try:
+            partes = urlsplit(base)
+
+            if partes.scheme.lower() not in {"https", "http"} or not partes.netloc:
+                logger.error(
+                    "QR não gerado para %s: URL base inválido: %s",
+                    numero,
+                    base,
+                )
+                return ""
+
+            url = _url_qr(nif, numero)
+
+            if not url:
+                logger.warning(
+                    "O construtor do URL QR devolveu um valor vazio: %s",
+                    numero,
+                )
+                return ""
+
+            return url
+
+        except Exception:
+            logger.exception(
+                "Não foi possível preparar o URL do QR do documento %s",
+                numero,
+            )
+            return ""
+        
+
+    def _bloco_qr(self, styles: dict, compact=False):
+        """Prepara QR e informação legal para o rodapé da última página.
+
+        A renderização é feita pelo Canvas depois de conhecer o total de páginas,
+        para o QR ficar ancorado no canto inferior direito e nunca ser repetido.
+        """
+        url = self._url_qr_documento()
+        png = None
+        if url:
+            try:
+                qr_io = _gerar_qr_com_logo_agt(url, box_size=4 if compact else 6,)
+                png = qr_io.getvalue()
+            except Exception:
+                logger.exception("Não foi possível gerar o QR do documento %s", self._numero())
+
+        software = str(getattr(settings, "AGT_SOFTWARE_NAME", "VistoGest Pro") or "VistoGest Pro").strip()
+        versao = str(getattr(settings, "AGT_SOFTWARE_VERSION", "") or "").strip()
+        certificacao = str(getattr(settings, "AGT_SOFTWARE_VALIDATION_NUMBER", "") or "").strip()
+        hash4 = self._hash4(self._hash())
+        linhas_texto = [f"Processado por software validado nº: {certificacao}" if certificacao else "Software validado nº: não configurado"]
+        
+        if hash4:
+            linhas_texto.append(f"Hash (4 caracteres): {hash4}")
+        elif not self._proforma and not self._rascunho:
+            linhas_texto.append("Hash do documento não disponível")
+        if self._atcud() and not self._proforma and not self._rascunho:
+            linhas_texto.append(f"ATCUD: {self._atcud()}")
+        motivos = self._motivos_isencao()
+        if motivos:
+            linhas_texto.append("Isenções: " + "; ".join(motivos))
+        if self._proforma or self._rascunho:
+            linhas_texto.append("Este documento não serve de factura.")
+        if self._anulado:
+            linhas_texto.append("DOCUMENTO ANULADO")
+
+        self._qr_footer_data = {"png": png, "linhas": linhas_texto}
         return []
 
-    def _linha_de_doc_fiscal(self, linha) -> dict:
-        """Converte DocumentoFiscalLinha usando os nomes reais de models.py."""
-        taxa = getattr(linha, "taxa_iva", None)
+    def _desenhar_rodape_final(self, pdf_canvas):
+        """Desenha QR e menções legais na última página, acima do rodapé paginado."""
+        dados = self._qr_footer_data or {}
+        linhas = dados.get("linhas") or []
+        png = dados.get("png")
+        if not linhas and not png:
+            return
 
-        # Nomes canónicos no modelo DocumentoFiscalLinha; os fallbacks mantêm
-        # compatibilidade com objectos de vendas antigos que partilhem o PDF.
-        preco = getattr(linha, "preco_unitario", None)
-        if preco is None:
-            preco = getattr(linha, "valor_unitario", Decimal("0.00"))
+        pdf_canvas.saveState()
+        largura, _ = pdf_canvas._pagesize
+        margem_esquerda = getattr(pdf_canvas, "_pdf_left_margin", 15 * mm)
+        margem_direita = getattr(pdf_canvas, "_pdf_right_margin", 15 * mm)
+        lado_qr = 18 * mm if self.tamanho == "80mm" else 24 * mm
+        x_qr = largura - margem_direita - lado_qr
+        y_qr = 16 * mm
 
-        desconto = getattr(linha, "valor_desconto_linha", None)
-        if desconto is None:
-            desconto = getattr(linha, "desconto_linha", Decimal("0.00"))
+        if png:
+            try:
+                imagem = ImageReader(io.BytesIO(png))
+                pdf_canvas.drawImage(
+                    imagem, x_qr, y_qr, width=lado_qr, height=lado_qr,
+                    preserveAspectRatio=True, anchor="c", mask="auto",
+                )
+            except Exception:
+                logger.exception("Não foi possível desenhar o QR no rodapé do documento %s", self._numero())
 
-        total_sem_iva = getattr(linha, "valor_liquido", None)
-        if total_sem_iva is None:
-            total_sem_iva = getattr(linha, "valor_sem_iva", None)
-        if total_sem_iva is None:
-            quantidade = Decimal(str(getattr(linha, "quantidade", 0) or 0))
-            total_sem_iva = quantidade * Decimal(str(preco or 0)) - Decimal(str(desconto or 0))
+        largura_texto = max(20 * mm, x_qr - margem_esquerda - 3 * mm) if png else largura - margem_esquerda - margem_direita
+        if linhas:
+            estilo = ParagraphStyle(
+                "pdfdoc_footer_legal",
+                parent=getSampleStyleSheet()["Normal"],
+                fontName="Helvetica",
+                fontSize=5.2 if self.tamanho != "80mm" else 4.3,
+                leading=6.2 if self.tamanho != "80mm" else 5.1,
+                textColor=self.DOC_TEXTO_SEC,
+                spaceAfter=0,
+                splitLongWords=1,
+            )
+            texto = Paragraph("<br/>".join(_p_text(linha) for linha in linhas), estilo)
+            altura_maxima = lado_qr if png else (24 * mm if self.tamanho != "80mm" else 18 * mm)
+            _, altura_texto = texto.wrap(largura_texto, altura_maxima)
+            if altura_texto > altura_maxima:
+                # Reduz ligeiramente o corpo, em vez de sobrepor o rodapé da página.
+                estilo.fontSize = 4.5 if self.tamanho != "80mm" else 3.8
+                estilo.leading = 5.2 if self.tamanho != "80mm" else 4.4
+                texto = Paragraph("<br/>".join(_p_text(linha) for linha in linhas), estilo)
+                _, altura_texto = texto.wrap(largura_texto, altura_maxima)
+            y_texto = y_qr + lado_qr - min(altura_texto, altura_maxima) if png else 16 * mm
+            texto.drawOn(pdf_canvas, margem_esquerda, y_texto)
 
-        return {
-            "cod": getattr(linha, "codigo_produto", "") or "",
-            "desc": getattr(linha, "descricao", "") or "",
-            "op_type": getattr(linha, "operation_type", "TB") or "TB",
-            "qtd": str(getattr(linha, "quantidade", 0)),
-            "preco": _fmt_unit(preco or 0),
-            "desc_val": _fmt_kz(desconto or Decimal("0.00")),
-            "taxa_iva": f"{taxa.tax_percentage}%" if taxa else "0%",
-            "isencao": getattr(taxa, "exemption_reason", "") if taxa else "",
-            "total": _fmt_kz(total_sem_iva or Decimal("0.00")),
-        }
+        pdf_canvas.restoreState()
 
-    def _linha_de_item(self, item) -> dict:
-        taxa = getattr(item, 'taxa_iva', None)
-        return {
-            'cod':      item.produto.codigo_interno if getattr(item, 'produto', None) else f"SRV-{getattr(item,'servico_id','?')}",
-            'desc':     getattr(item, 'nome_produto', None) or getattr(item, 'nome_item', None) or getattr(item, 'nome_servico', None) or '',
-            'op_type':  getattr(item, 'operation_type', 'TB') or 'TB',
-            'qtd':      str(getattr(item, 'quantidade', 1)),
-            'preco':    _fmt_unit(getattr(item, 'preco_unitario', 0)),
-            'desc_val': _fmt_kz(getattr(item, 'desconto_item', Decimal('0'))),
-            'taxa_iva': f"{taxa.tax_percentage}%" if taxa else '0%',
-            'isencao':  getattr(taxa, 'exemption_reason', '') if taxa else '',
-            'total':    _fmt_kz(getattr(item, 'subtotal_sem_iva', getattr(item, 'total', 0))),
-        }
+    # ------------------------------------------------------------------
+    # Composição e paginação
+    # ------------------------------------------------------------------
+    def _story(self, compact=False):
+        styles = self._estilos(compacto=compact)
+        story = []
+        story.extend(self._cabecalho(styles, compact=compact))
+        story.extend(self._bloco_cliente_metadados(styles, compact=compact))
+        story.extend(self._bloco_pagamento(styles, compact=compact))
+        story.extend(self._tabela_linhas(styles, compact=compact))
 
-    def _totais(self) -> dict:
-        obj = self.doc_fiscal or self.venda
-        return {
-            'base':     _fmt_kz(getattr(obj, 'valor_base', getattr(obj, 'subtotal', 0))),
-            'iva':      _fmt_kz(getattr(obj, 'valor_iva', getattr(obj, 'iva_valor', 0))),
-            'desconto': _fmt_kz(getattr(obj, 'valor_desconto', getattr(obj, 'desconto_valor', 0))),
-            'total':    _fmt_kz(getattr(obj, 'valor_total', getattr(obj, 'total', 0))),
-            'moeda':    getattr(obj, 'moeda', 'AOA'),
-        }
+        # Os totais, observações e QR são colocados depois de todas as linhas.
+        # Em documentos comuns, o bloco final tenta manter-se unido na última página.
+        totais = self._bloco_totais_fiscais(styles, compact=compact)
+        if totais:
+            # Mantém o resumo fiscal unido quando cabe; a tabela de linhas já
+            # terminou, portanto nenhum total aparece antes das linhas restantes.
+            story.append(KeepTogether(totais))
+        story.extend(self._bloco_observacoes(styles, compact=compact))
+        story.extend(self._bloco_qr(styles, compact=compact))
+        return story
 
-    def _comentarios(self) -> str:
-        """Campo operacional 'comentarios' do DocumentoFiscal."""
-        if self.doc_fiscal:
-            return getattr(self.doc_fiscal, 'comentarios', '') or ''
-        return getattr(self.venda, 'observacoes', '') or ''
+    def _decorar_pagina(self, pdf_canvas, doc):
+        pdf_canvas.saveState()
+        largura, altura = doc.pagesize
+        if self._anulado:
+            _marca_dagua_anulado(pdf_canvas, largura, altura)
+        elif self._proforma:
+            _marca_dagua_texto(pdf_canvas, largura, altura, "PRÓ-FORMA — NÃO SERVE DE FACTURA", COR_PROFORMA)
+        elif self._rascunho:
+            _marca_dagua_texto(pdf_canvas, largura, altura, "RASCUNHO — RASCUNHO", COR_PROFORMA)
 
-    # ── Ponto de entrada ────────────────────────────────────────────────────
+        pdf_canvas.setStrokeColor(self.DOC_BORDA)
+        pdf_canvas.setLineWidth(0.45)
+        pdf_canvas.line(doc.leftMargin, 13 * mm, largura - doc.rightMargin, 13 * mm)
+        pdf_canvas.setFillColor(self.DOC_TEXTO_SEC)
+        pdf_canvas.setFont("Helvetica", 6)
+        #pdf_canvas.drawString(
+         #   doc.leftMargin,
+          #  8 * mm,
+           # _safe_text("VistoGest Pro — SOTARQ Software (SU), Lda")[:130],
+        #)
+        pdf_canvas.restoreState()
 
     def gerar(self) -> io.BytesIO:
-        if self.tamanho == '80mm':
+        if self.tamanho == "80mm":
             return self._gerar_termico()
         return self._gerar_a4()
 
-    # ── Layout A4 ────────────────────────────────────────────────────────────
+    def _construir_pdf(self, pagesize, margens, compacto=False):
+        buffer = io.BytesIO()
+        doc = SimpleDocTemplate(
+            buffer,
+            pagesize=pagesize,
+            leftMargin=margens[0],
+            rightMargin=margens[1],
+            topMargin=margens[2],
+            bottomMargin=margens[3],
+            title=_safe_text(f"{self._tipo_label()} {self._numero() or 'NÃO EMITIDO'}"),
+            author=_safe_text(self._dados_emissor()["nome"]),
+            subject="Documento fiscal",
+        )
+        # O canvas personalizado consegue indicar o total de páginas.
+        def canvasmaker(*args, **kwargs):
+            pdf_canvas = _PDFNumberedCanvas(*args, **kwargs)
+            pdf_canvas._pdf_right_margin = margens[1]
+            pdf_canvas._pdf_left_margin = margens[0]
+            pdf_canvas._pdf_document_service = self
+            return pdf_canvas
+
+        doc.build(
+            self._story(compact=compacto),
+            onFirstPage=self._decorar_pagina,
+            onLaterPages=self._decorar_pagina,
+            canvasmaker=canvasmaker,
+        )
+        buffer.seek(0)
+        return buffer
 
     def _gerar_a4(self) -> io.BytesIO:
-        p = self.p
-        w, h = self.width, self.height
-        ml, mr = self.ml, self.mr
-
-        # ── CABEÇALHO ──────────────────────────────────────────────────────
-        y = h - 1.5 * cm
-        logo_w = 0
-        logo_io = self._logo_empresa()
-        if logo_io:
-            try:
-                p.drawImage(ImageReader(logo_io), ml, h - 3.5 * cm, width=4 * cm, preserveAspectRatio=True)
-                logo_w = 4.5 * cm
-            except Exception:
-                pass
-
-        # Dados da empresa
-        x_emp = ml + logo_w
-        p.setFont("Helvetica-Bold", 12)
-        p.drawString(x_emp, h - 1.5 * cm, self.empresa.nome.upper()[:60])
-        p.setFont("Helvetica", 8)
-        p.drawString(x_emp, h - 2.0 * cm, f"NIF: {self.empresa.nif}  |  {_regime_label(getattr(self.empresa,'regime',''))}")
-        p.drawString(x_emp, h - 2.4 * cm, f"{getattr(self.empresa,'endereco','')} — {getattr(self.empresa,'cidade','')}")
-        p.drawString(x_emp, h - 2.8 * cm, f"Tel: {getattr(self.empresa,'telefone','')}")
-
-        # Tipo + número do documento (caixa colorida à direita)
-        tipo_label = self._tipo_label()
-        numero = self._numero()
-        p.setFillColor(COR_PRIMARIA)
-        p.roundRect(mr - 8 * cm, h - 3.2 * cm, 8 * cm - 0.3 * cm, 2 * cm, 5, fill=1, stroke=0)
-        p.setFillColor(colors.white)
-        p.setFont("Helvetica-Bold", 13)
-        p.drawCentredString(mr - 4 * cm, h - 1.8 * cm, tipo_label)
-        p.setFont("Helvetica-Bold", 10)
-        p.drawCentredString(mr - 4 * cm, h - 2.5 * cm, numero)
-        p.setFillColor(colors.black)
-
-        # Watermarks especiais
-        if self._tipo == 'FP':
-            self._watermark_texto(p, w, h, "PRÓ-FORMA", colors.Color(0, 0.4, 0.9, alpha=0.10))
-
-        # Linha divisória
-        y = h - 4 * cm
-        p.setStrokeColor(COR_BORDA)
-        p.line(ml, y, mr, y)
-        y -= 0.3 * cm
-
-        # ── DADOS DO ADQUIRENTE ────────────────────────────────────────────
-        y -= 0.2 * cm
-        # Bloco lado esquerdo
-        p.setStrokeColor(COR_BORDA)
-        p.roundRect(ml, y - 2.4 * cm, 10 * cm, 2.4 * cm, 4, fill=0, stroke=1)
-        p.setFont("Helvetica-Bold", 8)
-        p.drawString(ml + 0.3 * cm, y - 0.5 * cm, "EXCELENTÍSSIMO(A):")
-        p.setFont("Helvetica", 8)
-        cliente = getattr(self.doc_fiscal or self.venda, 'cliente', None)
-        nome_cli = getattr(self.doc_fiscal, 'cliente_nome', None) if self.doc_fiscal else None
-        nome_cli = nome_cli or (getattr(cliente, 'nome_completo', None) if cliente else 'Consumidor Final') or 'Consumidor Final'
-        nif_cli  = getattr(self.doc_fiscal, 'cliente_nif', '') if self.doc_fiscal else (getattr(cliente, 'nif', '') if cliente else '')
-        p.drawString(ml + 0.3 * cm, y - 1.0 * cm, nome_cli[:50])
-        if nif_cli and nif_cli != '999999999':
-            p.drawString(ml + 0.3 * cm, y - 1.5 * cm, f"NIF: {nif_cli}")
-        else:
-            p.drawString(ml + 0.3 * cm, y - 1.5 * cm, "Consumidor Final")
-        p.drawString(ml + 0.3 * cm, y - 2.0 * cm, f"Período: {self._periodo()}")
-
-        # Bloco lado direito
-        data_d = self._data()
-        data_str = data_d.strftime('%d/%m/%Y') if hasattr(data_d, 'strftime') else str(data_d)
-        p.setFont("Helvetica", 8)
-        p.drawRightString(mr, y - 0.5 * cm, f"Data: {data_str}")
-        p.drawRightString(mr, y - 1.0 * cm, f"Regime: {self._regime_empresa()}")
-
-        y -= 2.8 * cm
-
-        # ── NOTA ESPECIAL POR TIPO ─────────────────────────────────────────
-        if self._tipo == 'AF':
-            p.setFont("Helvetica-Oblique", 7)
-            p.setFillColor(colors.gray)
-            p.drawString(ml, y, "Autofacturação — emitida pelo comprador em nome do fornecedor")
-            p.setFillColor(colors.black)
-            y -= 0.4 * cm
-
-        doc_orig = getattr(self.doc_fiscal, 'documento_original', None) if self.doc_fiscal else None
-        if doc_orig and self._tipo in ('NC', 'ND', 'RE'):
-            p.setFont("Helvetica-Bold", 8)
-            p.drawString(ml, y, f"Documento de Origem: {doc_orig.numero_documento}")
-            y -= 0.5 * cm
-
-        # ── TABELA DE ARTIGOS ──────────────────────────────────────────────
-        y -= 0.2 * cm
-        linhas = self._linhas_doc()
-        col_widths = [1.2*cm, 4.5*cm, 2.8*cm, 1.2*cm, 2.0*cm, 1.5*cm, 1.5*cm, 2.0*cm]
-        headers = ['Cód.', 'Descrição', 'Tipo Op.', 'Qtd', 'P.Unit.', 'Desc.', 'IVA', 'Total']
-        table_data = [headers]
-
-        for idx, l in enumerate(linhas):
-            op_label = _operation_type_label(l['op_type'])
-            taxa_display = l['isencao'] if l['taxa_iva'] == '0%' and l['isencao'] else l['taxa_iva']
-            table_data.append([
-                l['cod'][:12], l['desc'][:40], op_label[:22],
-                l['qtd'], l['preco'], l['desc_val'], taxa_display, l['total'],
-            ])
-
-        if not linhas:
-            table_data.append(['—', '(sem linhas)', '—', '—', '—', '—', '—', '—'])
-
-        from reportlab.platypus import Table, TableStyle as TS
-        tbl = Table(table_data, colWidths=col_widths, repeatRows=1)
-        tbl.setStyle(TS([
-            ('BACKGROUND',  (0,0), (-1,0), COR_CINZA_CABEC),
-            ('FONTNAME',    (0,0), (-1,0), 'Helvetica-Bold'),
-            ('FONTSIZE',    (0,0), (-1,-1), 7),
-            ('GRID',        (0,0), (-1,-1), 0.3, COR_BORDA),
-            ('ROWBACKGROUNDS', (0,1), (-1,-1), [colors.white, COR_CINZA_LINHA]),
-            ('ALIGN',       (3,0), (-1,-1), 'RIGHT'),
-            ('VALIGN',      (0,0), (-1,-1), 'MIDDLE'),
-            ('TOPPADDING',  (0,0), (-1,-1), 2),
-            ('BOTTOMPADDING',(0,0),(-1,-1), 2),
-        ]))
-        t_w, t_h = tbl.wrapOn(p, mr - ml, h)
-        y -= t_h
-        if y < 5 * cm:
-            if self._anulado:
-                _marca_dagua_anulado(p, w, h)
-            p.showPage()
-            y = h - 2 * cm
-        tbl.drawOn(p, ml, y)
-        y -= 0.5 * cm
-
-        # ── TOTAIS ─────────────────────────────────────────────────────────
-        tot = self._totais()
-        x_tot = mr - 7 * cm
-        p.setFont("Helvetica", 8)
-        for label, valor in [
-            ("Base Tributável:", tot['base']),
-            ("IVA:",             tot['iva']),
-            ("Desconto:",        tot['desconto']),
-        ]:
-            p.drawString(x_tot, y, label)
-            p.drawRightString(mr, y, valor)
-            y -= 0.5 * cm
-
-        p.setFont("Helvetica-Bold", 10)
-        p.drawString(x_tot, y, "TOTAL A PAGAR:")
-        p.drawRightString(mr, y, tot['total'])
-        y -= 0.7 * cm
-
-        # Moeda estrangeira
-        moeda = tot['moeda']
-        if moeda and moeda != 'AOA' and self.doc_fiscal:
-            taxa_cambio = getattr(self.doc_fiscal, 'taxa_cambio', 1) or 1
-            valor_total_raw = getattr(self.doc_fiscal, 'valor_total', 0) or 0
-            valor_moeda = Decimal(str(valor_total_raw)) / Decimal(str(taxa_cambio))
-            p.setFont("Helvetica", 7)
-            p.drawRightString(mr, y, f"{moeda}: {_fmt_kz(valor_moeda)} (câmbio: {taxa_cambio})")
-            y -= 0.5 * cm
-
-        # ── COMENTÁRIOS ────────────────────────────────────────────────────
-        comentarios = self._comentarios()
-        if comentarios:
-            y -= 0.3 * cm
-            p.setStrokeColor(COR_BORDA)
-            p.roundRect(ml, y - 1.5 * cm, mr - ml, 1.5 * cm, 4, fill=0, stroke=1)
-            p.setFont("Helvetica-Bold", 7)
-            p.drawString(ml + 0.3 * cm, y - 0.4 * cm, "Observações:")
-            p.setFont("Helvetica", 7)
-            p.drawString(ml + 0.3 * cm, y - 0.9 * cm, comentarios[:120])
-            y -= 1.8 * cm
-
-        # ── QR CODE + RODAPÉ LEGAL ─────────────────────────────────────────
-        qr_y = 1.5 * cm
-        qr_io = _gerar_qr_com_logo_agt(self._url_qr(), box_size=10)
-        p.drawImage(ImageReader(qr_io), ml, qr_y, width=3 * cm, height=3 * cm)
-
-        # Rodapé — lado direito do QR
-        p.setFont("Helvetica", 6)
-        rx = ml + 3.5 * cm
-        ry = qr_y + 1.8 * cm
-        _rodape_legal(p, w, ry, self._hash())
-        p.drawString(rx, ry - 0.4 * cm,
-                     f"VistoGest Pro — SOTARQ Software  |  NIF: {getattr(settings,'AGT_PRODUCT_COMPANY_TAX_ID','5002764377')}")
-        p.drawString(rx, ry - 0.8 * cm,
-                     f"Regime: {self._regime_empresa()}")
-
-        req_id = (getattr(self.doc_fiscal, 'metadados', {}) or {}).get('request_id_agt', '')
-        if req_id:
-            p.drawString(rx, ry - 1.2 * cm, f"RequestID AGT: {req_id}")
-
-        # Marca de documento ANULADO — sobre todo o conteúdo
-        if self._anulado:
-            _marca_dagua_anulado(p, w, h)
-            p.setFillColor(colors.red)
-            p.setFont("Helvetica-Bold", 14)
-            p.drawCentredString(w / 2, h - 0.8 * cm, "⚠ DOCUMENTO ANULADO ⚠")
-            p.setFillColor(colors.black)
-
-        p.showPage()
-        p.save()
-        self.buffer.seek(0)
-        return self.buffer
-
-    def _watermark_texto(self, p, width, height, texto, cor):
-        p.saveState()
-        p.setFillColor(cor)
-        p.setFont("Helvetica-Bold", 60)
-        p.translate(width / 2, height / 2)
-        p.rotate(45)
-        p.drawCentredString(0, 0, texto)
-        p.restoreState()
-
-    # ── Layout térmico 80mm ──────────────────────────────────────────────────
+        return self._construir_pdf(
+            pagesize=A4,
+            margens=(15 * mm, 15 * mm, 12 * mm, 45 * mm),
+            compacto=False,
+        )
 
     def _gerar_termico(self) -> io.BytesIO:
-        p = self.p
-        w  = self.width
-        mg = self.marg
-        y  = self.height - 5 * mm
-
-        # Logo empresa
-        logo_io = self._logo_empresa()
-        if logo_io:
-            try:
-                p.drawImage(ImageReader(logo_io), (w/2)-15*mm, y-15*mm, width=30*mm, preserveAspectRatio=True)
-                y -= 20 * mm
-            except Exception:
-                pass
-
-        # Cabeçalho empresa
-        p.setFont("Helvetica-Bold", 10)
-        p.drawCentredString(w/2, y, self.empresa.nome.upper()[:35])
-        y -= 4*mm
-        p.setFont("Helvetica", 7)
-        p.drawCentredString(w/2, y, f"NIF: {self.empresa.nif}")
-        y -= 3*mm
-        p.drawCentredString(w/2, y, f"{_regime_label(getattr(self.empresa,'regime',''))}")
-        y -= 3*mm
-        p.drawCentredString(w/2, y, str(getattr(self.empresa,'endereco',''))[:40])
-        y -= 7*mm
-
-        # Tipo e número do documento
-        tipo_label = self._tipo_label()
-        numero = self._numero()
-        data_str = self._data().strftime('%d/%m/%Y %H:%M') if hasattr(self._data(), 'strftime') else ''
-        p.setFont("Helvetica-Bold", 9)
-        p.drawString(mg, y, tipo_label)
-        p.drawRightString(w-mg, y, f"Nº {numero}")
-        y -= 5*mm
-        p.setFont("Helvetica", 7)
-        p.drawString(mg, y, f"Data: {data_str}")
-        p.drawRightString(w-mg, y, f"Período: {self._periodo()}")
-        y -= 3*mm
-        p.line(mg, y, w-mg, y)
-        y -= 4*mm
-
-        # Linhas
-        p.setFont("Helvetica-Bold", 7)
-        p.drawString(mg, y, "DESCRIÇÃO")
-        p.drawRightString(w-mg, y, "TOTAL")
-        y -= 3*mm
-        p.setFont("Helvetica", 7)
-        for l in self._linhas_doc():
-            desc = l['desc'][:28]
-            op   = l['op_type']  # código curto por falta de espaço
-            p.drawString(mg, y, f"{l['qtd']}x {desc} [{op}]")
-            p.drawRightString(w-mg, y, l['total'])
-            y -= 4*mm
-
-        p.line(mg, y+1*mm, w-mg, y+1*mm)
-        y -= 4*mm
-
-        # Total
-        tot = self._totais()
-        p.setFont("Helvetica-Bold", 9)
-        p.drawString(mg, y, "TOTAL:")
-        p.drawRightString(w-mg, y, tot['total'])
-        y -= 6*mm
-
-        # Comentários (se existirem)
+        linhas = self._linhas_doc()
         comentarios = self._comentarios()
-        if comentarios:
-            p.setFont("Helvetica", 6)
-            p.drawString(mg, y, f"Obs: {comentarios[:50]}")
-            y -= 4*mm
+        estimativa_mm = 210 + sum(
+            12 + min(26, math.ceil(len(linha.get("desc", "")) / 28) * 2.8)
+            for linha in linhas
+        )
+        estimativa_mm += min(70, math.ceil(len(comentarios) / 40) * 3)
+        if self._logo_empresa():
+            estimativa_mm += 16
+        altura = max(250 * mm, estimativa_mm * mm)
+        return self._construir_pdf(
+            pagesize=(80 * mm, altura),
+            margens=(4 * mm, 4 * mm, 4 * mm, 28 * mm),
+            compacto=True,
+        )
 
-        # QR Code
-        y -= 30*mm
-        qr_io = _gerar_qr_com_logo_agt(self._url_qr(), box_size=5)
-        p.drawImage(ImageReader(qr_io), (w/2)-15*mm, y, width=30*mm, height=30*mm)
-        y -= 8*mm
-
-        # Rodapé legal
-        _rodape_legal(p, w, y, self._hash())
-        y -= 3*mm
-        p.setFont("Helvetica", 5)
-        p.drawCentredString(w/2, y, f"Regime: {self._regime_empresa()}")
-
-        if self._anulado:
-            _marca_dagua_anulado(p, w, self.height)
-
-        p.showPage()
-        p.save()
-        self.buffer.seek(0)
-        return self.buffer
 
 ########
 # Recibos de vencimento/Salário — PDF para entrega ao colaborador/funcionário
@@ -958,4 +2289,3 @@ class PDFReciboVencimentoService:
                  + self._resumo() + self._assinaturas())
         doc.build(story, onFirstPage=self._decorar, onLaterPages=self._decorar)
         buf.seek(0)
-        return buf

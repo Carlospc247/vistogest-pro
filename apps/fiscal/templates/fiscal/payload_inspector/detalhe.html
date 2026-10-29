@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}Payload AGT — {{ payload_registo.numero_documento|default:payload_registo.pk }}{% endblock %}
+{% block content %}
+<div class="container-fluid py-4">
+  <div class="d-flex flex-wrap align-items-start justify-content-between gap-3 mb-4">
+    <div><a href="{% url 'fiscal:payload-agt-list' %}" class="text-decoration-none">← Voltar ao Inspector</a><h1 class="h3 mt-2 mb-1">Payload AGT #{{ payload_registo.pk }}</h1><p class="text-muted mb-0">{{ payload_registo.tipo_documento|default:"Pedido fiscal" }} · {{ payload_registo.numero_documento|default:payload_registo.submission_uuid|default:"Sem referência" }}</p></div>
+    <div class="d-flex gap-2"><button type="button" class="btn btn-primary" id="copiarPayload">Copiar JSON</button><a class="btn btn-outline-secondary" href="{% url 'fiscal:payload-agt-download' payload_registo.pk %}">Descarregar .json</a></div>
+  </div>
+
+  <div class="row g-3 mb-4">
+    <div class="col-12 col-md-3"><div class="card h-100"><div class="card-body"><div class="text-muted small">Ambiente</div><strong>{{ payload_registo.get_ambiente_display }}</strong></div></div></div>
+    <div class="col-12 col-md-3"><div class="card h-100"><div class="card-body"><div class="text-muted small">Estado</div><strong>{{ payload_registo.get_status_display }}</strong></div></div></div>
+    <div class="col-12 col-md-3"><div class="card h-100"><div class="card-body"><div class="text-muted small">HTTP</div><strong>{{ payload_registo.http_status|default:"Ainda não enviado" }}</strong></div></div></div>
+    <div class="col-12 col-md-3"><div class="card h-100"><div class="card-body"><div class="text-muted small">Documentos no pedido</div><strong>{{ payload_registo.quantidade_documentos }}</strong></div></div></div>
+  </div>
+
+  <div class="alert alert-info" role="note">O painel mostra se os campos de assinatura estão presentes; não verifica criptograficamente as assinaturas nem valida o JSON contra o XSD/regra de negócio da AGT. A cópia é um registo fiel do corpo preparado no momento da captura.</div>
+
+  {% if payload_registo.erro %}<div class="alert alert-warning"><strong>Nota:</strong> {{ payload_registo.erro }}</div>{% endif %}
+  <div class="card shadow-sm mb-4"><div class="card-header d-flex justify-content-between align-items-center"><strong>Corpo JSON do pedido</strong><span class="small text-muted">{{ payload_registo.created_at|date:"d/m/Y H:i:s" }}</span></div><div class="card-body"><textarea class="form-control font-monospace" id="payloadJSON" rows="25" spellcheck="false" readonly style="white-space:pre; overflow:auto">{{ payload_pretty }}</textarea></div></div>
+
+  {% if documentos_associados %}<div class="card shadow-sm mb-4"><div class="card-header"><strong>Documentos associados</strong></div><ul class="list-group list-group-flush">{% for doc in documentos_associados %}<li class="list-group-item d-flex justify-content-between"><span>{{ doc.numero_documento }} — {{ doc.get_tipo_documento_display|default:doc.tipo_documento }}</span><span>{{ doc.valor_total }} {{ doc.moeda }}</span></li>{% endfor %}</ul></div>{% endif %}
+  {% if payload_registo.resposta %}<div class="card shadow-sm"><div class="card-header"><strong>Resposta registada</strong></div><div class="card-body"><pre class="font-monospace small mb-0" style="white-space:pre-wrap;overflow-wrap:anywhere">{{ resposta_pretty }}</pre></div></div>{% endif %}
+  <div id="copyFeedback" class="small mt-2" aria-live="polite"></div>
+</div>
+<script>
+(function () {
+  const button = document.getElementById("copiarPayload");
+  const field = document.getElementById("payloadJSON");
+  const feedback = document.getElementById("copyFeedback");
+  if (!button || !field) return;
+  button.addEventListener("click", async function () {
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(field.value);
+      } else {
+        field.focus(); field.select();
+        if (!document.execCommand("copy")) throw new Error("Cópia não disponível");
+      }
+      feedback.textContent = "JSON copiado. Podes colá-lo no portal do parceiro.";
+      feedback.className = "small mt-2 text-success";
+    } catch (error) {
+      field.focus(); field.select();
+      feedback.textContent = "A cópia automática falhou. O JSON ficou seleccionado; usa Ctrl+C.";
+      feedback.className = "small mt-2 text-warning";
+    }
+  });
+})();
+</script>
+{% endblock %}

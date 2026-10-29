@@ -9,7 +9,7 @@ from django.conf import settings
 from django.urls import include, path
 from rest_framework.routers import DefaultRouter
 
-from apps.fiscal import views_erro_agt
+from apps.fiscal import payload_views, views_erro_agt
 from . import api_viewsets, views, views_integracoes, web_views
 
 app_name = "fiscal"
@@ -49,12 +49,11 @@ web_urlpatterns = [
     # Homologação AGT; os subfluxos legados continuam em views.py.
     path("homologacao/", web_views.HomologacaoDashboardView.as_view(), name="homologacao"),
     path("homologacao/", web_views.HomologacaoDashboardView.as_view(), name="homologacao-dashboard"),
-    path("homologacao/gerar/", views.HomologacaoGerarView.as_view(), name="homologacao-gerar"),
-    path("homologacao/gerar/<str:ponto>/", views.HomologacaoGerarPontoView.as_view(), name="homologacao-gerar-ponto"),
-    path("homologacao/saft/", views.HomologacaoGerarSaftView.as_view(), name="homologacao-saft"),
-    path("homologacao/download-saft/", views.HomologacaoDownloadSaftView.as_view(), name="homologacao-download-saft"),
-    path("homologacao/pdf/<str:numero_documento>/", views.HomologacaoPdfView.as_view(), name="homologacao-pdf"),
 
+    path("payloads-agt/", payload_views.PayloadAGTListView.as_view(), name="payload-agt-list"),
+    path("payloads-agt/<int:pk>/", payload_views.PayloadAGTDetailView.as_view(), name="payload-agt-detail"),
+    path("payloads-agt/<int:pk>/download/", payload_views.PayloadAGTDownloadView.as_view(), name="payload-agt-download"),
+    # /fiscal/payloads-agt/
     # Taxas de imposto. Os aliases preservam reverse() de versões anteriores.
     path("taxas-iva/", web_views.TaxaIVAListView.as_view(), name="taxas_iva"),
     path("taxas-iva/", web_views.TaxaIVAListView.as_view(), name="taxas-iva-list"),
@@ -66,9 +65,9 @@ web_urlpatterns = [
     path("taxas-iva/<int:pk>/deletar/", web_views.TaxaIVADeleteView.as_view(), name="taxas-iva-delete"),
 
     # Assinatura digital. A configuração dos dados AGT não gera chaves novas.
-    path("assinatura/", web_views.AssinaturaDigitalConfigView.as_view(), name="assinatura-digital"),
-    path("assinatura-digital/", web_views.AssinaturaDigitalConfigView.as_view(), name="assinatura_digital"),
-    path("assinatura/configurar/", views.AssinaturaConfigurarChaveContribuinteView.as_view(), name="assinatura-configurar"),
+    path("assinatura/", views.AssinaturaDigitalView.as_view(), name="assinatura-digital"),
+    #path("assinatura/", views.AssinaturaDigitalView.as_view(), name="assinatura-digital"),
+    path("assinatura/configurar/",views.AssinaturaConfigurarChaveContribuinteView.as_view(), name="assinatura-configurar",),
     # Rota antiga preservada apenas para compatibilidade com clientes existentes.
     path("assinatura/gerar-chaves/", views.AssinaturaGerarChavesView.as_view(), name="assinatura-gerar-chaves-web"),
 
@@ -89,7 +88,6 @@ web_urlpatterns = [
     path("relatorios/taxas-iva/", views.RelatorioTaxasIVAView.as_view(), name="relatorio-taxas-iva"),
     path("saft/", views.SAFTView.as_view(), name="saft"),
     path("saft/exportar/", web_views.SAFTExportWebView.as_view(), name="saft_exportar"),
-    path("saft/exportar/", web_views.SAFTExportWebView.as_view(), name="saft-export-web"),
     path("saft/validar/", views.SAFTValidarXSDView.as_view(), name="saft-validar-xsd"),
     path("saft/historico/", views.SAFTHistoricoView.as_view(), name="saft-historico"),
 

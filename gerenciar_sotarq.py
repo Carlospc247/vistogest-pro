@@ -10,27 +10,24 @@ O ambiente é seleccionado automaticamente:
     • ENV_MODE=production        → config.settings.production
     • Caso contrário             → config.settings.development
 
-Bugs corrigidos (vs. versão anterior):
-    1. _raw_delete() substituído por delete() público e seguro.
-    2. _setup_hierarquia_local() recebe empresa_obj como parâmetro
-       (não faz query de Empresa dentro do schema de tenant).
-    3. call_command migrate_schemas usa argumentos correctos.
-    4. update_fields em obter_ou_criar_usuario é construído dinamicamente.
-    5. Opção 6 adicionada (aplicar migrações a tenant) — menu sem saltos.
-    6. Documentado que TenantMixin.delete() já faz _drop_schema().
-
-Melhorias adicionadas:
-    • Opção 6  — Aplicar migrações a um tenant.
-    • Opção 12 — Listar domínios de todos os tenants.
-    • Opção 13 — Verificar estado de licença de um tenant.
-    • Opção 14 — Verificar AssinaturaDigital de um tenant.
-    • Opção 15 — Testar conexão à API AGT para um tenant.
-    • Cabeçalho com versão do Django.
-    • Protecção extra em operações destrutivas (produção).
+Revisão actual (sobre a versão anterior):
+    • Opção 14 — já não mostra api_username/api_password do tenant: as
+      credenciais Basic Auth da AGT são do SISTEMA (.env). Mostra o ambiente AGT
+      e se AGT_API_USERNAME/AGT_API_PASSWORD estão definidas (nunca os valores).
+    • Opção 15 — testa a ligação REAL pelo AGTClient (listarSeries assinado),
+      em modo só-leitura (não grava séries). Antes chamava /listarFacturas com
+      assinaturas "test" e credenciais por tenant.
+    • Apagar tenant/reset: usa delete(force_drop=True). Em django-tenants o
+      schema só é apagado automaticamente se o modelo tiver auto_drop_schema=True;
+      sem force_drop o registo ia embora e o schema ficava órfão na base de dados.
+    • Reset: já NÃO apaga o domínio do tenant 'public' (antes ficava o tenant
+      global sem domínio e o site deixava de responder).
+    • _setup_hierarquia_local: Cargo deixou de usar FK `empresa` (regra do
+      isolamento físico: apps de tenant não referenciam Empresa).
+    • Protecção de produção também ao apagar um tenant.
 """
 
 import os
-import sys
 from datetime import date
 from getpass import getpass
 
@@ -53,9 +50,8 @@ django.setup()
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Permission
-from django.core.exceptions import ValidationError
 from django.core.management import call_command
-from django.db import connection, transaction
+from django.db import transaction
 from django.utils import timezone
 from django_tenants.utils import (
     get_public_schema_name,
@@ -103,6 +99,28 @@ def obter_tenant_public():
         )
 
 
+def obter_empresa(identificador):
+    """Resolve uma Empresa por ID numérico ou schema_name (corre no schema public)."""
+    identificador = identificador.strip()
+    with schema_context(PUBLIC_SCHEMA):
+        if identificador.isdigit():
+            return Empresa.objects.get(id=int(identificador))
+        return Empresa.objects.get(schema_name=identificador)
+
+
+def confirmar_producao(acao):
+    """Exige confirmação reforçada em produção. Devolve True se pode continuar."""
+    if not EM_PRODUCAO:
+        return True
+    resposta = input(
+        f"⚡ ATENÇÃO: PRODUÇÃO. Para {acao}, escreva 'CONFIRMO PRODUCAO': "
+    ).strip()
+    if resposta != 'CONFIRMO PRODUCAO':
+        print("❌ Operação cancelada (protecção de produção).")
+        return False
+    return True
+
+
 def campos_base_empresa():
     return {
         'endereco':  'A definir',
@@ -111,15 +129,14 @@ def campos_base_empresa():
         'cidade':    'Luanda',
         'postal':    '0000000',
         'telefone':  '000000000',
-        'email':     os.getenv('SOTARQ_GLOBAL_EMAIL', 'admin@sotarq.local'),
+        'email':     os.getenv('SUPPORT_EMAIL', ''),
     }
 
 
 def obter_ou_criar_usuario(username, email, password=None):
     """
     Cria/actualiza um utilizador no schema public.
-    Bug 4 corrigido: update_fields construído dinamicamente — só inclui
-    campos que realmente mudaram, evitando writes desnecessários.
+    update_fields é construído dinamicamente — só inclui o que mudou.
     """
     username = username.strip()
     email    = email.strip()
@@ -177,7 +194,7 @@ def configurar_public_inicial():
             return
 
         domain_name = validar_domain(
-            normalizar_domain(input("\nDomínio global (ex: localhost ou sotarq.com): "))
+            normalizar_domain(input("\nDomínio global (ex: sotarqsoft.com) ou localhost: "))
         )
 
         try:
@@ -347,22 +364,16 @@ def criar_empresa_completa():
                     username=adm_user, email=adm_email, password=adm_pass
                 )
 
-        # Bug 3 corrigido: usar '--schema' em vez de schema_name=
         print(f"[*] Aplicando migrações no schema '{schema}'...")
-        call_command(
-            'migrate_schemas',
-            '--schema', schema,
-            interactive=False,
-            verbosity=1,
-        )
+        call_command('migrate_schemas', '--schema', schema, interactive=False, verbosity=1)
 
-        # Bug 2 corrigido: passar tenant como argumento, não fazer query dentro do schema
         _setup_hierarquia_local(schema, novo_user, tenant_obj=tenant)
 
         print(f"\n🚀 SUCESSO: Empresa '{nome}' criada.")
         print(f"   Schema : {schema}")
         print(f"   Domínio: {domain_name}")
         print(f"   Admin  : {novo_user.username}")
+        print("   Próximo passo fiscal: admin global → Fiscal → Chaves fiscais das empresas.")
         if not criado:
             print("⚠ O utilizador administrador já existia no PUBLIC.")
 
@@ -371,7 +382,7 @@ def criar_empresa_completa():
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# 06. APLICAR MIGRAÇÕES A UM TENANT (novo)
+# 06. APLICAR MIGRAÇÕES A UM TENANT
 # ──────────────────────────────────────────────────────────────────────────────
 
 def aplicar_migracoes_tenant():
@@ -380,24 +391,13 @@ def aplicar_migracoes_tenant():
     e_id = input("ID ou Schema da Empresa (ou 'public' para o schema global): ").strip()
 
     try:
-        with schema_context(PUBLIC_SCHEMA):
-            if e_id.lower() == 'public':
-                schema = PUBLIC_SCHEMA
-            elif e_id.isdigit():
-                emp = Empresa.objects.get(id=int(e_id))
-                schema = emp.schema_name
-            else:
-                emp = Empresa.objects.get(schema_name=e_id)
-                schema = emp.schema_name
+        if e_id.lower() == 'public':
+            schema = PUBLIC_SCHEMA
+        else:
+            schema = obter_empresa(e_id).schema_name
 
         print(f"[*] A aplicar migrações no schema '{schema}'...")
-        # Bug 3 corrigido: argumentos correctos do comando
-        call_command(
-            'migrate_schemas',
-            '--schema', schema,
-            interactive=False,
-            verbosity=1,
-        )
+        call_command('migrate_schemas', '--schema', schema, interactive=False, verbosity=1)
         print(f"✔ Migrações aplicadas em '{schema}'.")
 
     except Empresa.DoesNotExist:
@@ -418,16 +418,12 @@ def vincular_admin_supremo_tenant():
     try:
         with schema_context(PUBLIC_SCHEMA):
             user = Usuario.objects.get(id=u_id)
-            if e_id.isdigit():
-                tenant = Empresa.objects.get(id=int(e_id))
-            else:
-                tenant = Empresa.objects.get(schema_name=e_id)
+        tenant = obter_empresa(e_id)
 
         if tenant.schema_name == PUBLIC_SCHEMA:
             print("❌ O tenant public não é um tenant empresarial.")
             return
 
-        # Bug 2 corrigido: passar tenant_obj como parâmetro
         _setup_hierarquia_local(tenant.schema_name, user, tenant_obj=tenant)
         print(f"🚀 SUCESSO: '{user.username}' empossado em '{tenant.nome}'!")
 
@@ -447,29 +443,23 @@ def _setup_hierarquia_local(schema_name, user, tenant_obj=None):
     """
     Garante Cargo Supremo, Departamento e Funcionário dentro do schema do tenant.
 
-    Bug 2 corrigido: recebe tenant_obj como parâmetro. Antes fazia
-    Empresa.objects.get(schema_name=...) DENTRO do schema_context do tenant,
-    mas Empresa é SHARED_APP (schema public) — a query retornava erro porque
-    o search_path estava apontado para o schema do tenant.
-    Agora o objecto é passado de fora, onde o schema public está activo.
+    tenant_obj é obrigatório e vem de FORA do schema_context: Empresa é SHARED_APP
+    (schema public) e não deve ser consultada com o search_path do tenant.
+    Os modelos de tenant (Cargo, Departamento, Funcionario) NÃO têm FK para
+    Empresa — o schema já isola.
     """
+    if tenant_obj is None:
+        raise ValueError(
+            "_setup_hierarquia_local: tenant_obj é obrigatório. "
+            "Nunca chamar sem o objecto de empresa."
+        )
+
     with schema_context(schema_name):
         from apps.funcionarios.models import Cargo, Departamento, Funcionario
-
-        # Usar tenant_obj passado como parâmetro — NÃO fazer query aqui
-        if tenant_obj is None:
-            # Fallback seguro: buscar no schema public antes de entrar no contexto
-            raise ValueError(
-                "_setup_hierarquia_local: tenant_obj é obrigatório. "
-                "Nunca chamar sem o objecto de empresa."
-            )
-
-        empresa_obj = tenant_obj
 
         with transaction.atomic():
             cargo, _ = Cargo.objects.get_or_create(
                 nome='Administrador Supremo',
-                empresa=empresa_obj,
                 defaults={
                     'codigo': 'SUP-01',
                     'nivel_hierarquico': 1,
@@ -535,8 +525,8 @@ def _setup_hierarquia_local(schema_name, user, tenant_obj=None):
                     'endereco':      'A definir',
                     'numero':        'S/N',
                     'bairro':        'A definir',
-                    'cidade':        getattr(empresa_obj, 'cidade', 'Luanda') or 'Luanda',
-                    'provincia':     getattr(empresa_obj, 'provincia', 'Luanda') or 'Luanda',
+                    'cidade':        getattr(tenant_obj, 'cidade', 'Luanda') or 'Luanda',
+                    'provincia':     getattr(tenant_obj, 'provincia', 'Luanda') or 'Luanda',
                     'postal':        '0000000',
                     'data_admissao': timezone.now().date(),
                     'salario_atual': 1.00,
@@ -637,15 +627,18 @@ def apagar_empresa():
                 return
 
             confirmacao = input(
-                f"⚠️ Apagar '{emp.nome}' e o schema '{emp.schema_name}'? (s/n): "
+                f"⚠️ Apagar '{emp.nome}' e o schema '{emp.schema_name}' (TODOS os dados)? (s/n): "
             ).strip().lower()
             if confirmacao != 's':
                 print("❌ Operação cancelada.")
                 return
+            if not confirmar_producao("apagar este tenant"):
+                return
 
-            # Bug 6 verificado: TenantMixin.delete() já chama _drop_schema() internamente.
-            # O Domain tem on_delete=CASCADE para o tenant, portanto é apagado automaticamente.
-            emp.delete()
+            # force_drop=True: sem isto o django-tenants só apaga o schema se o
+            # modelo tiver auto_drop_schema=True; caso contrário o registo some e
+            # o schema fica órfão na base de dados. O Domain cai por CASCADE.
+            emp.delete(force_drop=True)
             print("✔ Tenant, schema e domínios removidos com sucesso.")
 
         except Empresa.DoesNotExist:
@@ -684,12 +677,8 @@ def verificar_licenca_tenant():
     e_id = input("ID ou Schema da Empresa: ").strip()
 
     try:
+        emp = obter_empresa(e_id)
         with schema_context(PUBLIC_SCHEMA):
-            if e_id.isdigit():
-                emp = Empresa.objects.get(id=int(e_id))
-            else:
-                emp = Empresa.objects.get(schema_name=e_id)
-
             from apps.licenca.models import Licenca
             try:
                 lic = Licenca.objects.get(empresa=emp)
@@ -709,27 +698,41 @@ def verificar_licenca_tenant():
         print(f"❌ Erro: {exc}")
 
 
+def _estado_ambiente_agt():
+    """Resumo do que é do SISTEMA (variáveis de ambiente), sem mostrar segredos."""
+    print("  ── Sistema (.env) ──")
+    print(f"  AGT_ENVIRONMENT        : {getattr(settings, 'AGT_ENVIRONMENT', '') or '(NÃO definido)'}")
+    for nome in ('AGT_BASE_URL_HOMOLOGACAO', 'AGT_BASE_URL_PRODUCAO'):
+        print(f"  {nome:<23}: {'definida' if getattr(settings, nome, '') else '(não definida)'}")
+    print(f"  AGT_API_USERNAME       : {'definido' if getattr(settings, 'AGT_API_USERNAME', '') else '(NÃO definido)'}")
+    print(f"  AGT_API_PASSWORD       : {'definida' if getattr(settings, 'AGT_API_PASSWORD', '') else '(NÃO definida)'}")
+    software_ok = bool(getattr(settings, 'AGT_SOFTWARE_PRIVATE_KEY_PEM', '')
+                       or getattr(settings, 'AGT_SOFTWARE_PRIVATE_KEY_PATH', ''))
+    print(f"  Chave do software (SOTARQ): {'definida' if software_ok else '(NÃO definida)'}")
+
+
 def verificar_assinatura_tenant():
     format_header("Verificar AssinaturaDigital de um Tenant")
     e_id = input("ID ou Schema da Empresa: ").strip()
 
     try:
-        with schema_context(PUBLIC_SCHEMA):
-            if e_id.isdigit():
-                emp = Empresa.objects.get(id=int(e_id))
-            else:
-                emp = Empresa.objects.get(schema_name=e_id)
+        emp = obter_empresa(e_id)
 
         with schema_context(emp.schema_name):
             from apps.fiscal.models import AssinaturaDigital
-            config = AssinaturaDigital.obter_configuracao()
-            print(f"\n  Tenant         : {emp.schema_name}")
-            print(f"  NIF Contribuinte: {config.nif_contribuinte or '(não preenchido)'}")
-            print(f"  Configurada?   : {'SIM ✔' if config.esta_configurada else 'NÃO ✘'}")
-            print(f"  api_username   : {config.api_username or '(não preenchido)'}")
-            print(f"  api_password   : {'definida' if config.api_password else '(não preenchida)'}")
-            if config.data_configuracao_chave:
-                print(f"  Configurada em : {config.data_configuracao_chave}")
+            config = AssinaturaDigital.objects.filter(pk=1).first()
+            print(f"\n  ── Tenant: {emp.schema_name} ──")
+            if config is None:
+                print("  Sem registo de assinatura (chaves nunca configuradas).")
+            else:
+                print(f"  NIF Contribuinte : {config.nif_contribuinte or '(não preenchido)'}")
+                print(f"  Chave privada    : {'gravada (cifrada)' if config.chave_contribuinte_privada else 'em falta'}")
+                print(f"  Chave pública    : {'gravada' if config.chave_contribuinte_publica else 'em falta'}")
+                print(f"  Configurada?     : {'SIM ✔' if config.esta_configurada else 'NÃO ✘'}")
+                if config.data_configuracao_chave:
+                    print(f"  Configurada em   : {config.data_configuracao_chave}")
+        print()
+        _estado_ambiente_agt()
 
     except Empresa.DoesNotExist:
         print("❌ Empresa não encontrada.")
@@ -738,49 +741,45 @@ def verificar_assinatura_tenant():
 
 
 def testar_conexao_agt():
-    format_header("Testar Conexão à API AGT")
+    """Chamada REAL e assinada a listarSeries, só-leitura (não grava séries)."""
+    format_header("Testar Conexão à API AGT (listarSeries)")
     e_id = input("ID ou Schema da Empresa: ").strip()
 
     try:
-        with schema_context(PUBLIC_SCHEMA):
-            if e_id.isdigit():
-                emp = Empresa.objects.get(id=int(e_id))
-            else:
-                emp = Empresa.objects.get(schema_name=e_id)
+        emp = obter_empresa(e_id)
+        if emp.schema_name == PUBLIC_SCHEMA:
+            print("❌ Escolha um tenant empresarial (as chaves do contribuinte são por tenant).")
+            return
+
+        from apps.fiscal.services.agt_client import AGTClient, AGTError
+
+        client = AGTClient()
+        print(f"  Ambiente : {client.ambiente}")
+        print(f"  URL base : {client.base_url}")
+        if not AGTClient.credenciais_configuradas():
+            print("❌ AGT_API_USERNAME / AGT_API_PASSWORD não estão definidos no ambiente.")
+            return
+        if client.ambiente == 'PRODUCTION' and not confirmar_producao("consultar a AGT em PRODUÇÃO"):
+            return
 
         with schema_context(emp.schema_name):
-            from apps.fiscal.models import AssinaturaDigital
-            config = AssinaturaDigital.obter_configuracao()
-            if not config.api_username:
-                print("❌ api_username não configurado para este tenant.")
+            try:
+                series = client.listar_series()
+            except AGTError as exc:
+                print(f"❌ A AGT respondeu com erro: {exc}")
+                if exc.erros:
+                    for e in exc.erros:
+                        print(f"     - {e}")
+                if exc.rede:
+                    print("  (falha de rede/timeout — resultado desconhecido)")
                 return
 
-            from apps.fiscal.utility.crypto import AESService
-            import requests
-
-            if settings.AGT_ENVIRONMENT == 'PRODUCTION':
-                base_url = settings.AGT_BASE_URL_PRODUCAO
-            else:
-                base_url = settings.AGT_BASE_URL_HOMOLOGACAO
-
-            url = f"{base_url}/listarFacturas"
-            password = AESService.decrypt(config.api_password) if config.api_password else ''
-            print(f"  A testar: {url}")
-            resp = requests.post(
-                url,
-                json={
-                    "schemaVersion": "2.0",
-                    "taxRegistrationNumber": config.nif_contribuinte or "000000000",
-                    "submissionTimeStamp": timezone.now().isoformat(),
-                    "softwareInfo": {"softwareInfoDetail": {}, "jwsSoftwareSignature": "test"},
-                    "jwsSignature": "test",
-                    "queryStartDate": "2026-01-01",
-                    "queryEndDate": "2026-01-02",
-                },
-                auth=(config.api_username, password),
-                timeout=10,
-            )
-            print(f"  HTTP {resp.status_code} — {resp.text[:200]}")
+        print(f"✔ Resposta válida da AGT. {len(series)} série(s) devolvida(s) (nada foi gravado).")
+        for info in series[:10]:
+            print(f"   - {info.get('documentType', '?'):<3} {info.get('seriesCode', '?'):<20} "
+                  f"ano {info.get('seriesYear', '?')} estado {info.get('seriesStatus', '?')}")
+        if len(series) > 10:
+            print(f"   ... e mais {len(series) - 10}.")
 
     except Empresa.DoesNotExist:
         print("❌ Empresa não encontrada.")
@@ -794,25 +793,19 @@ def testar_conexao_agt():
 
 def resetar_banco():
     """
-    OPERAÇÃO DESTRUTIVA. Remove todos os tenants empresariais.
-    Bug 1 corrigido: substituiu _raw_delete() (API privada, quebra em Django > 4.2)
-    por delete() público, que é seguro e respeita o ciclo normal do ORM.
+    OPERAÇÃO DESTRUTIVA. Remove todos os tenants empresariais, os seus domínios e
+    os utilizadores não-superuser. Mantém o tenant 'public', o seu domínio e os
+    superusers.
     """
     format_header("⚠️ RESETAR BANCO — OPERAÇÃO IRREVERSÍVEL ⚠️")
 
-    # Protecção extra em produção
-    if EM_PRODUCAO:
-        confirmacao_prod = input(
-            "⚡ ATENÇÃO: parece estar em PRODUÇÃO. "
-            "Escreva 'CONFIRMO PRODUCAO' para continuar: "
-        ).strip()
-        if confirmacao_prod != 'CONFIRMO PRODUCAO':
-            print("❌ Operação cancelada (protecção de produção).")
-            return
+    if not confirmar_producao("RESETAR O BANCO"):
+        return
 
     with schema_context(PUBLIC_SCHEMA):
         tenants_a_apagar = list(Empresa.objects.exclude(schema_name=PUBLIC_SCHEMA))
-        total_dominios   = Domain.objects.count()
+        dominios_a_apagar = Domain.objects.exclude(tenant__schema_name=PUBLIC_SCHEMA)
+        total_dominios    = dominios_a_apagar.count()
         usuarios_a_apagar = list(Usuario.objects.filter(is_superuser=False))
         total_superusers  = Usuario.objects.filter(is_superuser=True).count()
 
@@ -824,10 +817,10 @@ def resetar_banco():
     print(f"  • {len(tenants_a_apagar)} tenant(s) e seus schemas físicos:")
     for t in tenants_a_apagar:
         print(f"    - ID:{t.id:<4} | Schema:{t.schema_name:<20} | {t.nome}")
-    print(f"  • {total_dominios} domínio(s)")
+    print(f"  • {total_dominios} domínio(s) de tenants empresariais")
     print(f"  • {len(usuarios_a_apagar)} utilizador(es) não-superuser")
     print("\nSerá MANTIDO:")
-    print(f"  • schema public | {total_superusers} superuser(s) | catálogo de licenciamento")
+    print(f"  • schema public e o seu domínio | {total_superusers} superuser(s) | catálogo de licenciamento")
 
     if input("\nTens a CERTEZA? (s/n): ").strip().lower() != 's':
         print("❌ Operação cancelada.")
@@ -840,14 +833,12 @@ def resetar_banco():
     try:
         with schema_context(PUBLIC_SCHEMA):
             with transaction.atomic():
-                # Apagar domínios primeiro (respeita FKs)
-                Domain.objects.all().delete()
+                # Domínios dos tenants empresariais (o do public é preservado).
+                Domain.objects.exclude(tenant__schema_name=PUBLIC_SCHEMA).delete()
 
-                # Bug 1 corrigido: usar emp.delete() em vez de _raw_delete().
-                # TenantMixin.delete() chama _drop_schema() internamente e depois
-                # apaga o registo via o ORM normal — seguro em todas as versões do Django.
+                # force_drop=True: apaga também o schema físico (ver apagar_empresa).
                 for tenant in tenants_a_apagar:
-                    tenant.delete()
+                    tenant.delete(force_drop=True)
 
                 Usuario.objects.filter(is_superuser=False).delete()
 
@@ -855,7 +846,7 @@ def resetar_banco():
         print(f"   • {len(tenants_a_apagar)} tenant(s) removido(s)")
         print(f"   • {total_dominios} domínio(s) removido(s)")
         print(f"   • {len(usuarios_a_apagar)} utilizador(es) removido(s)")
-        print("ℹ schema public e superusers permanecem intactos.")
+        print("ℹ schema public, o seu domínio e os superusers permanecem intactos.")
 
     except Exception as exc:
         print(f"❌ Erro crítico durante o reset: {exc}")
@@ -866,13 +857,12 @@ def resetar_banco():
 # ──────────────────────────────────────────────────────────────────────────────
 
 def menu():
-    import django
     dj_version = django.get_version()
 
     while True:
         env_label = 'PRODUÇÃO ⚡' if EM_PRODUCAO else 'Desenvolvimento'
         print(f"\n{'=' * 50}")
-        print(f"  SOTARQ VENDOR — Console Supremo")
+        print("  SOTARQ VENDOR — Console Supremo")
         print(f"  Django {dj_version} | Ambiente: {env_label}")
         print(f"{'=' * 50}")
         print("  00. Configurar Infra Base (PUBLIC)")
@@ -881,16 +871,16 @@ def menu():
         print("   3. Criar Empresa + Admin (Full Setup)")
         print("   4. Listar Empresas")
         print("   5. Listar Usuários")
-        print("   6. Aplicar Migrações a Tenant          [novo]")
+        print("   6. Aplicar Migrações a Tenant")
         print("   7. Apagar Empresa/Tenant")
         print("   8. Apagar Usuário")
         print("   9. Resetar Senha")
         print("  10. Empossar Admin em Tenant Existente")
         print("  11. ⚠️  Resetar Banco")
-        print("  12. Listar Domínios                     [novo]")
-        print("  13. Verificar Licença de Tenant         [novo]")
-        print("  14. Verificar AssinaturaDigital          [novo]")
-        print("  15. Testar Conexão à API AGT            [novo]")
+        print("  12. Listar Domínios")
+        print("  13. Verificar Licença de Tenant")
+        print("  14. Verificar Assinatura Fiscal + ambiente AGT")
+        print("  15. Testar Conexão à API AGT (listarSeries)")
         print("   0. Sair")
 
         opcao = input("\nEscolha uma opção: ").strip()

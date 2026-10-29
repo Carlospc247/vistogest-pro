@@ -87,16 +87,13 @@ def _validar_senhas(form, email=""):
                 form.add_error("password1", e)
 
 
-def _criar_usuario(funcionario, email, senha, empresa):
-    if empresa is None:
-        raise ValueError("A empresa (tenant) é obrigatória para criar o utilizador.")
+def _criar_usuario(funcionario, email, senha):
     nome = funcionario.nome_completo.split()
     user = User(
         username=email,
         email=email,
         first_name=nome[0] if nome else "",
         last_name=" ".join(nome[1:]),
-        empresa=empresa,
         is_active=funcionario.ativo,
     )
     user.set_password(senha)

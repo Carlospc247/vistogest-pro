@@ -1,9 +1,150 @@
 {% extends "fiscal/base_fiscal.html" %}
+
 {% block title %}Integridade fiscal{% endblock %}
 {% block topbar_title %}Integridade fiscal{% endblock %}
+
 {% block content %}
-<div class="page-head"><div><p class="eyebrow">Cadeia de hashes</p><h1>Integridade dos documentos</h1><p>Verifique a continuidade dos hashes e a assinatura dos documentos confirmados no esquema actual.</p></div><form method="post">{% csrf_token %}<button class="btn btn-primary" type="submit">Executar verificação</button></form></div>
-{% if resultado %}<div class="notice{% if resultado.ok %}{% else %} danger{% endif %}" style="margin-bottom:18px"><strong>{% if resultado.ok %}Verificação concluída sem divergências.{% else %}Foram detectadas divergências.{% endif %}</strong><div>{{ resultado.mensagem|default:resultado }}</div></div>{% endif %}
-<div class="grid grid-3" style="margin-bottom:18px"><div class="card stat"><div class="stat-top"><span>Documentos verificados</span><span class="stat-icon">▤</span></div><strong>{{ total_verificados|default:0 }}</strong><small>Documentos percorridos</small></div><div class="card stat"><div class="stat-top"><span>Falhas</span><span class="stat-icon">!</span></div><strong>{{ total_falhas|default:0 }}</strong><small>Hashes ou assinaturas inválidas</small></div><div class="card stat"><div class="stat-top"><span>Última execução</span><span class="stat-icon">◷</span></div><strong style="font-size:1.1rem">{{ ultima_execucao|date:"d/m/Y H:i"|default:"—" }}</strong><small>Hora local do servidor</small></div></div>
-<section class="card"><div class="card-head"><h2>Detalhes da verificação</h2></div>{% if falhas %}<div class="table-wrap"><table><thead><tr><th>Documento</th><th>Verificação</th><th>Detalhe</th><th></th></tr></thead><tbody>{% for f in falhas %}<tr><td>{{ f.documento|default:f.numero|default:f.documento_id|default:"—" }}</td><td>{{ f.tipo|default:f.verificacao|default:"Integridade" }}</td><td>{{ f.mensagem|default:f.erro|default:f }}</td><td>{% if f.documento_id %}<a class="btn btn-light btn-small" href="{% url 'fiscal:documento_detalhe' f.documento_id %}">Abrir</a>{% endif %}</td></tr>{% endfor %}</tbody></table></div>{% else %}<div class="card-body"><p class="muted">Execute a verificação para apresentar o resultado detalhado.</p></div>{% endif %}</section>
+<div class="page-head">
+  <div>
+    <p class="eyebrow">Cadeia de hashes</p>
+    <h1>Integridade dos documentos</h1>
+    <p>Consulte os documentos fiscais emitidos neste tenant e verifique a continuidade dos hashes e as assinaturas digitais.</p>
+  </div>
+  <form method="post">
+    {% csrf_token %}
+    <button class="btn btn-primary" type="submit">Executar verificação</button>
+  </form>
+</div>
+
+<div class="grid grid-3" style="margin-bottom:18px">
+  <div class="card stat">
+    <div class="stat-top"><span>Documentos emitidos</span><span class="stat-icon">▤</span></div>
+    <strong>{{ total_documentos|default:0 }}</strong>
+    <small>Documentos diferentes de rascunho</small>
+  </div>
+  <div class="card stat">
+    <div class="stat-top"><span>Sem hash</span><span class="stat-icon">!</span></div>
+    <strong>{{ total_sem_hash|default:0 }}</strong>
+    <small>Documentos emitidos sem hash registado</small>
+  </div>
+  <div class="card stat">
+    <div class="stat-top"><span>Sem assinatura digital</span><span class="stat-icon">!</span></div>
+    <strong>{{ total_sem_assinatura|default:0 }}</strong>
+    <small>Documentos emitidos sem assinatura registada</small>
+  </div>
+</div>
+
+<div class="grid grid-3" style="margin-bottom:18px">
+  <div class="card stat">
+    <div class="stat-top"><span>Documentos verificados</span><span class="stat-icon">✓</span></div>
+    <strong>{% if total_verificados != None %}{{ total_verificados }}{% else %}—{% endif %}</strong>
+    <small>{% if executado %}Percorridos pela última verificação{% else %}Execute a verificação para obter este total{% endif %}</small>
+  </div>
+  <div class="card stat">
+    <div class="stat-top"><span>Falhas detectadas</span><span class="stat-icon">!</span></div>
+    <strong>{% if executado %}{{ total_falhas|default:0 }}{% else %}—{% endif %}</strong>
+    <small>{% if executado %}Falhas devolvidas pelo serviço de integridade{% else %}Ainda não foi executada nesta sessão{% endif %}</small>
+  </div>
+  <div class="card stat">
+    <div class="stat-top"><span>Última execução</span><span class="stat-icon">◷</span></div>
+    <strong style="font-size:1.1rem">{{ ultima_execucao|date:"d/m/Y H:i"|default:"—" }}</strong>
+    <small>Registo da última execução neste tenant e sessão</small>
+  </div>
+</div>
+
+{% if resultado %}
+  <div class="notice{% if not resultado.ok %} danger{% endif %}" style="margin-bottom:18px">
+    <strong>
+      {% if resultado.ok %}
+        Verificação concluída sem divergências reportadas.
+      {% else %}
+        A verificação detectou divergências ou não foi concluída com sucesso.
+      {% endif %}
+    </strong>
+    <div>{{ resultado.mensagem|default:"O serviço terminou sem uma mensagem adicional." }}</div>
+  </div>
+{% else %}
+  <div class="notice" style="margin-bottom:18px">
+    <strong>Verificação ainda não executada.</strong>
+    <div>Os indicadores acima mostram o estado dos registos fiscais. Clique em “Executar verificação” para testar a cadeia de integridade.</div>
+  </div>
+{% endif %}
+
+<section class="card" style="margin-bottom:18px">
+  <div class="card-head"><h2>Detalhes da verificação</h2></div>
+  {% if falhas %}
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>Documento</th><th>Verificação</th><th>Detalhe</th><th></th></tr>
+        </thead>
+        <tbody>
+          {% for f in falhas %}
+            <tr>
+              <td>{{ f.documento|default:f.numero|default:f.documento_id|default:"—" }}</td>
+              <td>{{ f.tipo|default:f.verificacao|default:"Integridade" }}</td>
+              <td>{{ f.mensagem|default:f.erro|default:f }}</td>
+              <td>
+                {% if f.documento_id %}
+                  <a class="btn btn-light btn-small" href="{% url 'fiscal:documento_detalhe' f.documento_id %}">Abrir</a>
+                {% endif %}
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% if falhas_limitadas %}
+      <div class="card-body"><p class="muted">Por segurança e desempenho, são apresentadas apenas as primeiras 100 falhas. O total indicado acima corresponde ao total reportado pelo serviço.</p></div>
+    {% endif %}
+  {% elif executado %}
+    <div class="card-body"><p class="muted">O serviço não devolveu falhas detalhadas para esta execução.</p></div>
+  {% else %}
+    <div class="card-body"><p class="muted">Execute a verificação para apresentar os resultados detalhados.</p></div>
+  {% endif %}
+</section>
+
+<section class="card" style="margin-bottom:18px">
+  <div class="card-head"><h2>Cadeia de integridade configurada</h2></div>
+  <div class="card-body">
+    {% if assinatura_fiscal %}
+      <p><strong>NIF configurado:</strong> {{ assinatura_fiscal.nif_contribuinte|default:"Não configurado" }}</p>
+      <p><strong>Último hash da cadeia:</strong>
+        {% if assinatura_fiscal.ultimo_hash %}<code>{{ assinatura_fiscal.ultimo_hash|truncatechars:48 }}</code>{% else %}Não registado{% endif %}
+      </p>
+      <p><strong>Chave pública do contribuinte:</strong> {% if assinatura_fiscal.chave_contribuinte_publica %}Disponível{% else %}Não configurada{% endif %}</p>
+      <p><strong>Data de configuração das chaves:</strong> {{ assinatura_fiscal.data_configuracao_chave|date:"d/m/Y H:i"|default:"—" }}</p>
+    {% else %}
+      <p class="muted">Ainda não existe registo de configuração de assinatura digital neste tenant.</p>
+    {% endif %}
+  </div>
+</section>
+
+<section class="card">
+  <div class="card-head"><h2>Documentos fiscais recentes</h2></div>
+  {% if documentos_recentes %}
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>Documento</th><th>Data</th><th>Cliente</th><th>Estado</th><th>Hash</th><th>Assinatura</th><th></th></tr>
+        </thead>
+        <tbody>
+          {% for doc in documentos_recentes %}
+            <tr>
+              <td>{{ doc.numero_documento|default:doc }}</td>
+              <td>{{ doc.data_emissao|date:"d/m/Y"|default:"—" }}</td>
+              <td>{{ doc.cliente_nome|default:"Consumidor final" }}</td>
+              <td>{{ doc.get_status_display|default:doc.status }}</td>
+              <td>{% if doc.hash_documento %}<span class="chip">Registado</span>{% else %}<span class="chip danger">Em falta</span>{% endif %}</td>
+              <td>{% if doc.assinatura_digital %}<span class="chip">Registada</span>{% else %}<span class="chip danger">Em falta</span>{% endif %}</td>
+              <td><a class="btn btn-light btn-small" href="{% url 'fiscal:documento_detalhe' doc.pk %}">Abrir</a></td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <div class="card-body"><p class="muted">Ainda não existem documentos fiscais emitidos nesta Empresa.</p></div>
+  {% endif %}
+</section>
 {% endblock %}

@@ -1,3 +1,4 @@
+# apps/configuracoes/tasks.py
 from datetime import timedelta
 from celery import shared_task
 from django.core.mail import send_mail

@@ -448,17 +448,18 @@
                             <i class="fas fa-chevron-right ml-auto h-5 w-5 shrink-0 transition-transform" :class="open ? 'rotate-90' : ''"></i>
                         </button>
                         <ul x-show="open" x-cloak x-transition class="mt-1 px-2">
-                            <li><a href="{% url 'fiscal:dashboard' %}" class="menu-subitem"><i class="fas fa-file-export menu-subicon"></i>Dashboard SAF-T</a></li>
+                            <li><a href="{% url 'fiscal:dashboard' %}" class="menu-subitem"><i class="fas fa-file-export menu-subicon"></i>Dashboard fiscal</a></li>
                             <li><a href="{% url 'fiscal:retencoes-list' %}" class="menu-subitem"><i class="fas fa-file-code menu-subicon"></i>Retenções na Fonte</a></li>
                             <li><a href="{% url 'fiscal:relatorios' %}" class="menu-subitem"><i class="fas fa-file-contract menu-subicon"></i>Relatórios Fiscal</a></li>
                             <li><a href="{% url 'fiscal:configuracoes' %}" class="menu-subitem"><i class="fas fa-cog menu-subicon"></i>Configurações fiscais</a></li>
 
-                            {% url 'saft:saft_export' as SAFT_EXPORT_URL %}
-                            {% url 'saft:historico' as SAFT_HISTORY_URL %}
-                            {% url 'saft:validar' as SAFT_VALIDATE_URL %}
+                            {% url 'fiscal:saft_exportar' as SAFT_EXPORT_URL %}
+                            {% url 'fiscal:saft-historico' as SAFT_HISTORY_URL %}
+                            {% url 'fiscal:saft-validar-xsd' as SAFT_VALIDATE_URL %}
                             {% if SAFT_EXPORT_URL or SAFT_HISTORY_URL or SAFT_VALIDATE_URL %}
                             <li class="menu-divider"></li>
                             <li class="menu-section-label">SAF-T (AO)</li>
+                            <li><a href="{% url 'fiscal:saft' %}" class="menu-subitem"><i class="fas fa-file-export menu-subicon"></i>Dashboard SAF-T</a></li>
                             {% if SAFT_EXPORT_URL %}<li><a href="{{ SAFT_EXPORT_URL }}" class="menu-subitem"><i class="fas fa-file-export menu-subicon"></i>Exportar SAF-T</a></li>{% endif %}
                             {% if SAFT_HISTORY_URL %}<li><a href="{{ SAFT_HISTORY_URL }}" class="menu-subitem"><i class="fas fa-history menu-subicon"></i>Histórico SAF-T</a></li>{% endif %}
                             {% if SAFT_VALIDATE_URL %}<li><a href="{{ SAFT_VALIDATE_URL }}" class="menu-subitem"><i class="fas fa-check-circle menu-subicon"></i>Validar XML</a></li>{% endif %}
@@ -466,7 +467,7 @@
                         </ul>
                     </li>
 
-                    {% if 'site' in modulos_ativos and user.e_administrador_empresa %}
+                    {% if 'site' in modulos_ativos %}
                     <li>
                         <a href="{% url 'site:configuracao_dashboard' %}"
                            class="menu-item {% if request.resolver_match.namespace == 'site' %}menu-active{% else %}menu-link{% endif %} group flex gap-x-3 rounded-md p-2 text-sm leading-6 font-semibold">
@@ -476,7 +477,7 @@
                     </li>
                     {% endif %}
 
-                    {% if perms.funcionarios.pode_gerenciar_funcionarios %}
+                 
                     <li>
                         <a href="{% url 'funcionarios:painel_candidatura' %}"
                            class="menu-item {% if 'recrutamento' in request.path %}menu-active{% else %}menu-link{% endif %} group flex gap-x-3 rounded-md p-2 text-sm leading-6 font-semibold">
@@ -484,8 +485,7 @@
                             <span>Painel de Candidaturas</span>
                         </a>
                     </li>
-                    {% endif %}
-
+    
                     <!-- Configurações -->
                     <li class="mt-auto">
                         <a href="{% url 'configuracoes:dashboard_configuracoes' %}"

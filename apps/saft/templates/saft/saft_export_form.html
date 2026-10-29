@@ -4,7 +4,7 @@
 <section class="mx-auto max-w-5xl space-y-6 px-4 py-6 sm:px-6 lg:px-8">
   <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
     <div><p class="text-sm font-semibold uppercase tracking-wider text-blue-600">Fiscalidade · SAF-T (AO)</p><h1 class="mt-1 text-3xl font-bold tracking-tight text-slate-900 dark:text-white">Exportar ficheiro SAF-T</h1><p class="mt-2 text-sm text-slate-500 dark:text-slate-400">Gere o ficheiro XML do período pretendido através do serviço fiscal central.</p></div>
-    <a href="{% url 'saft:historico' %}" class="inline-flex items-center justify-center rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-800">Ver histórico</a>
+    <a href="{% url 'fiscal:saft-historico' %}" class="inline-flex items-center justify-center rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-800">Ver histórico</a>
   </div>
   {% if error %}<div role="alert" class="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200"><strong>Não foi possível exportar.</strong> {{ error }}{% if error_detail %}<details class="mt-2"><summary class="cursor-pointer">Detalhes técnicos</summary><pre class="mt-2 whitespace-pre-wrap">{{ error_detail }}</pre></details>{% endif %}</div>{% endif %}
   <div class="grid gap-5 lg:grid-cols-[1.4fr_1fr]">
@@ -18,7 +18,19 @@
         <button type="submit" class="inline-flex w-full items-center justify-center rounded-lg bg-blue-700 px-4 py-3 text-sm font-semibold text-white shadow-sm hover:bg-blue-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2">Gerar e descarregar XML</button>
       </form>
     </div>
-    <aside class="rounded-2xl border border-slate-200 bg-slate-50 p-6 dark:border-slate-700 dark:bg-slate-800/60"><h2 class="text-base font-semibold text-slate-900 dark:text-white">Sobre o SAF-T (AO)</h2><dl class="mt-4 space-y-4 text-sm"><div><dt class="font-medium text-slate-500 dark:text-slate-400">Empresa activa</dt><dd class="mt-1 font-semibold text-slate-900 dark:text-white">{{ empresa.nome|default:request.tenant }}</dd></div><div><dt class="font-medium text-slate-500 dark:text-slate-400">Formato</dt><dd class="mt-1 text-slate-800 dark:text-slate-200">XML</dd></div><div><dt class="font-medium text-slate-500 dark:text-slate-400">Fonte dos dados</dt><dd class="mt-1 text-slate-800 dark:text-slate-200">App Fiscal — documentos, clientes, produtos e taxas AGT.</dd></div></dl><a href="{% url 'saft:validar' %}" class="mt-6 inline-flex text-sm font-semibold text-blue-700 hover:text-blue-900 dark:text-blue-300">Validar um ficheiro existente →</a></aside>
+    <aside class="rounded-2xl border border-slate-200 bg-slate-50 p-6 dark:border-slate-700 dark:bg-slate-800/60">
+      <h2 class="text-base font-semibold text-slate-900 dark:text-white">Sobre o SAF-T (AO)</h2>
+      <dl class="mt-4 space-y-4 text-sm"><div><dt class="font-medium text-slate-500 dark:text-slate-400">Empresa activa</dt>
+        <dd class="mt-1 font-semibold text-slate-900 dark:text-white">{{ empresa.nome|default:request.tenant }}</dd></div>
+        <div><dt class="font-medium text-slate-500 dark:text-slate-400">Formato</dt><dd class="mt-1 text-slate-800 dark:text-slate-200">XML</dd>
+        </div>
+        <div>
+          <dt class="font-medium text-slate-500 dark:text-slate-400">Fonte dos dados</dt>
+          <dd class="mt-1 text-slate-800 dark:text-slate-200">App Fiscal — documentos, clientes, produtos e taxas AGT.</dd>
+        </div>
+      </dl>
+      <a href="{% url 'fiscal:saft-validar-xsd' %}" class="mt-6 inline-flex text-sm font-semibold text-blue-700 hover:text-blue-900 dark:text-blue-300">Validar um ficheiro existente →</a>
+    </aside>
   </div>
 </section>
 {% endblock %}

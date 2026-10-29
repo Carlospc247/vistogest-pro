@@ -12,8 +12,8 @@ from .services import AnalyticsService
 # Lista rigorosa de apps monitoradas (TENANT_APPS)
 APPS_MONITORADAS = [
     'produtos', 'analytics', 'fornecedores', 'estoque', 'clientes', 
-    'vendas', 'funcionarios', 'servicos', 'comandas', 'financeiro', 
-    'fiscal', 'compras'
+    'vendas', 'funcionarios', 'servicos', 'site', 'financeiro', 
+    'fiscal', 'saft', 'compras'
 ]
 
 # ============================================================

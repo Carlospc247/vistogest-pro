@@ -86,7 +86,6 @@ class CadastroEmpresaView(FormView):
                     password=dados['admin_password'],
                     first_name=dados['admin_first_name'],
                     last_name=dados['admin_last_name'],
-                    empresa=empresa,
                     e_administrador_empresa=True,
                     is_active=True,
                 )

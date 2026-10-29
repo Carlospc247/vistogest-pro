@@ -275,9 +275,8 @@ class PermissaoAcaoMixin:
         return super().dispatch(request, *args, **kwargs)
 
 
-class SaftExportView(LoginRequiredMixin, PermissionRequiredMixin, PermissaoAcaoMixin, View):
+class SaftExportView(LoginRequiredMixin, PermissaoAcaoMixin, View):
     acao_requerida = "exportar_saft"
-    permission_required = ("fiscal.add_saftexport", "fiscal.export_saft")
     template_name = "saft/saft_export_form.html"
 
     def has_permission(self):

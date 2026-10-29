@@ -10,6 +10,29 @@ SECRET_KEY = os.getenv(
 
 ALLOWED_HOSTS = ['localhost', '127.0.0.1', '.sotarq.local', '.localhost']
 
+
+CACHES = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+        "LOCATION": "vistogest-dev",
+        "KEY_PREFIX": "vistogest",
+        "TIMEOUT": 300,
+    },
+    "B_I": {
+        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+        "LOCATION": "vistogest-dev-bi",
+        "KEY_PREFIX": "vistogest-bi",
+        "TIMEOUT": 300,
+        "KEY_FUNCTION": "django_tenants.cache.make_key",
+        "REVERSE_KEY_FUNCTION": "django_tenants.cache.reverse_key",
+    },
+}
+
+# Celery síncrono: tarefas correm no próprio pedido, sem worker nem broker
+CELERY_TASK_ALWAYS_EAGER = True
+CELERY_TASK_EAGER_PROPAGATES = True   # erros aparecem logo, em vez de ficarem escondidos
+CELERY_BROKER_URL = "memory://"
+CELERY_RESULT_BACKEND = "cache+memory://"
 #DATABASES comentado — a configuração vem do .env via os.getenv() abaixo
 
 DATABASES = {

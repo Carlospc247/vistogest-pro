@@ -1,0 +1,122 @@
+{# admin/fiscal/assinaturadigital/global_changelist.html #}
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+
+{% block extrastyle %}{{ block.super }}
+<style>
+  .fiscal-intro { margin: 0 0 16px; color: var(--body-quiet-color, #666); max-width: 70ch; line-height: 1.5; }
+  .fiscal-toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 0 0 16px; }
+  .fiscal-toolbar input[type="search"] { flex: 1 1 260px; min-width: 0; max-width: 420px; }
+  .fiscal-count { margin-left: auto; color: var(--body-quiet-color, #666); font-size: 0.8125rem; }
+  .fiscal-scroll { overflow-x: auto; }
+  .fiscal-table { width: 100%; }
+  .fiscal-table th, .fiscal-table td { vertical-align: middle; }
+  .fiscal-table td.col-nome { white-space: normal; min-width: 12rem; }
+  .fiscal-table td.col-acao { text-align: right; }
+  .fiscal-badge {
+    display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 0.75rem;
+    line-height: 1.5; color: var(--body-fg, #333); border: 1px solid var(--border-color, #ccc);
+    white-space: nowrap;
+  }
+  .fiscal-badge.ok { background: var(--message-success-bg, #dfd); }
+  .fiscal-badge.pendente { background: var(--message-warning-bg, #ffc); }
+  .fiscal-badge.problema { background: var(--message-error-bg, #ffefef); }
+  .fiscal-empty { padding: 24px 16px; color: var(--body-quiet-color, #666); }
+  .fiscal-schema { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.8125rem; }
+  @media (max-width: 767px) {
+    .fiscal-count { margin-left: 0; width: 100%; }
+    .fiscal-toolbar input[type="search"] { max-width: none; }
+  }
+</style>
+{% endblock %}
+
+{% block breadcrumbs %}
+<div class="breadcrumbs">
+  <a href="{% url 'admin:index' %}">Início</a>
+  &rsaquo; <a href="{% url 'admin:app_list' app_label='fiscal' %}">Fiscal</a>
+  &rsaquo; Assinatura digital
+</div>
+{% endblock %}
+
+{% block content %}
+<div id="content-main">
+  <p class="fiscal-intro">
+    Escolha uma empresa para configurar as chaves do contribuinte e as credenciais da API da AGT.
+    Cada configuração é guardada apenas no schema dessa empresa.
+  </p>
+
+  <form method="get" class="fiscal-toolbar" role="search">
+    <input type="search" name="q" value="{{ procura }}" placeholder="Procurar por nome ou schema" aria-label="Procurar empresa">
+    <input type="submit" value="Procurar">
+    {% if procura %}<a href="?" class="button" style="padding:10px 15px">Limpar</a>{% endif %}
+    <span class="fiscal-count">{{ paginator.count }} empresa{{ paginator.count|pluralize }}</span>
+  </form>
+
+  <div class="module">
+    {% if empresas %}
+    <div class="fiscal-scroll">
+      <table class="fiscal-table">
+        <thead>
+          <tr>
+            <th scope="col">Empresa</th>
+            <th scope="col">Schema</th>
+            <th scope="col">Chaves do contribuinte</th>
+            <th scope="col">Credenciais da API</th>
+            <th scope="col">Configurado em</th>
+            <th scope="col"><span class="sr-only">Ação</span></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for e in empresas %}
+          <tr>
+            <td class="col-nome"><strong>{{ e.nome }}</strong></td>
+            <td><span class="fiscal-schema">{{ e.schema_name }}</span></td>
+            <td>
+              {% if e.chaves_configuradas %}
+                <span class="fiscal-badge ok">Configuradas</span>
+              {% elif e.estado_chaves == "Pendente" %}
+                <span class="fiscal-badge pendente">Pendentes</span>
+              {% else %}
+                <span class="fiscal-badge problema">{{ e.estado_chaves }}</span>
+              {% endif %}
+            </td>
+            <td>
+              {% if e.credenciais_api_configuradas %}
+                <span class="fiscal-badge ok">Completas</span>
+              {% else %}
+                <span class="fiscal-badge pendente">Em falta</span>
+              {% endif %}
+            </td>
+            <td>{{ e.data_configuracao_fiscal|date:"d/m/Y H:i"|default:"—" }}</td>
+            <td class="col-acao">
+              <a class="button" href="{% url configurar_url_name e.pk %}">Configurar</a>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <p class="fiscal-empty">
+      {% if procura %}
+        Nenhuma empresa corresponde a "{{ procura }}". Limpe a pesquisa para ver todas.
+      {% else %}
+        Ainda não existem empresas registadas.
+      {% endif %}
+    </p>
+    {% endif %}
+  </div>
+
+  {% if page_obj.has_other_pages %}
+  <p class="paginator">
+    {% if page_obj.has_previous %}
+      <a href="?page={{ page_obj.previous_page_number }}{% if procura %}&amp;q={{ procura|urlencode }}{% endif %}">&lsaquo; Anterior</a>
+    {% endif %}
+    <span>Página {{ page_obj.number }} de {{ paginator.num_pages }}</span>
+    {% if page_obj.has_next %}
+      <a href="?page={{ page_obj.next_page_number }}{% if procura %}&amp;q={{ procura|urlencode }}{% endif %}">Seguinte &rsaquo;</a>
+    {% endif %}
+  </p>
+  {% endif %}
+</div>
+{% endblock %}

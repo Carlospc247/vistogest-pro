@@ -35,6 +35,12 @@ from cryptography.hazmat.primitives.asymmetric import padding
 from apps.fiscal.models import AssinaturaDigital
 from apps.fiscal.utility.crypto import AESService
 from .utils import FiscalServiceError
+from django.core.exceptions import ValidationError as DjangoValidationError
+from django.db import connection, transaction
+from django_tenants.utils import get_public_schema_name
+from apps.empresas.services import obter_empresa_do_schema
+from apps.fiscal.utility import chaves
+
 
 logger = logging.getLogger('fiscal.assinatura')
 
@@ -156,7 +162,7 @@ class AssinaturaSoftwareService:
 class AssinaturaDigitalService:
     """
     Gestão da chave do contribuinte (por tenant, emitida pela AGT) e da
-    cadeia de integridade interna do VistoGest (auditoria própria).
+    cadeia de integridade interna bdo VistoGest (auditoria própria).
     """
 
     # -------------------------------------------------------------
@@ -165,44 +171,77 @@ class AssinaturaDigitalService:
 
     @staticmethod
     @transaction.atomic
-    def configurar_chave_contribuinte(
-        nif: str,
-        chave_privada_pem: str,
-        chave_publica_pem: Optional[str] = None,
-        usuario=None,
-    ) -> AssinaturaDigital:
-        """
-        Regista/actualiza a chave do contribuinte para o tenant activo.
-        Esta chave vem SEMPRE do Portal do Contribuinte AGT — este método
-        nunca gera um par de chaves, apenas guarda o que o admin colar.
-        """
-        # Validação mínima: a chave tem de carregar como PEM válido.
+    def configurar_chave_contribuinte( chave_privada_pem: str, chave_publica_pem: Optional[str] = None, usuario=None,) -> AssinaturaDigital:
+        """Guarda as chaves dentro do tenant; o NIF vem apenas de Empresa."""
+        schema = getattr(connection, "schema_name", "public")
+        if schema == get_public_schema_name():
+            raise FiscalServiceError(
+                "Não é permitido configurar chaves de contribuinte no schema public."
+            )
+
         try:
-            serialization.load_pem_private_key(chave_privada_pem.encode('utf-8'), password=None)
-        except Exception as e:
-            raise FiscalServiceError(f"Chave privada do contribuinte inválida: {e}")
+            empresa = obter_empresa_do_schema()
+        except DjangoValidationError as exc:
+            raise FiscalServiceError(
+                "Não foi possível identificar a empresa do tenant activo."
+            ) from exc
 
-        config, _ = AssinaturaDigital.objects.get_or_create(pk=1)
-        config.nif_contribuinte = nif
-        config.chave_contribuinte_privada = AESService.encrypt(chave_privada_pem)
-        if chave_publica_pem:
-            config.chave_contribuinte_publica = chave_publica_pem
-        config.data_configuracao_chave = timezone.now()
-        config.configurada_por = usuario
-        config.save()
+        if not empresa.nif:
+            raise FiscalServiceError(
+                "A empresa não tem NIF no registo oficial. Configure primeiro Empresa.nif."
+            )
+        if not (chave_privada_pem or "").strip():
+            raise FiscalServiceError("A chave privada do contribuinte é obrigatória.")
 
-        logger.info(f"Chave do contribuinte configurada para NIF {nif}")
+        # Criar o singleton se necessário e depois bloquear a linha na transacção.
+        AssinaturaDigital.objects.get_or_create(pk=1)
+        config = AssinaturaDigital.objects.select_for_update().get(pk=1)
+        autor = usuario.get_username() if usuario and hasattr(usuario, "get_username") else ""
+
+        try:
+            config.definir_chaves(
+                chave_privada_pem=chave_privada_pem,
+                chave_publica_pem=chave_publica_pem,
+                autor=autor,
+            )
+            config.refresh_from_db()
+            problemas = config.verificar_integridade()
+        except DjangoValidationError as exc:
+            detalhe = "; ".join(exc.messages) if hasattr(exc, "messages") else str(exc)
+            raise FiscalServiceError(detalhe) from exc
+        except (ValueError, TypeError) as exc:
+            raise FiscalServiceError(str(exc)) from exc
+
+        if problemas:
+            raise FiscalServiceError(
+                "Chaves fiscais inconsistentes: " + "; ".join(problemas)
+            )
+
+        logger.info(
+            "Chaves do contribuinte actualizadas para schema=%s por user_id=%s",
+            schema,
+            getattr(usuario, "pk", None),
+        )
         return config
+    
 
     @staticmethod
     def _obter_chave_privada_contribuinte() -> str:
-        config = AssinaturaDigital.obter_configuracao()
-        if not config or not config.chave_contribuinte_privada:
+        config = AssinaturaDigital.get_solo()
+        try:
+            chave_privada = config.obter_chave_privada()
+        except DjangoValidationError as exc:
+            detalhe = "; ".join(exc.messages) if hasattr(exc, "messages") else str(exc)
             raise FiscalServiceError(
-                "Chave do contribuinte não configurada para esta empresa. "
-                "Aceda ao Portal do Contribuinte AGT e configure-a em Configurações Fiscais."
-            )
-        return AESService.decrypt(config.chave_contribuinte_privada)
+                "Chaves fiscais inconsistentes: " + detalhe
+            ) from exc
+        except Exception as exc:
+            raise FiscalServiceError(
+                "Não foi possível validar a chave privada do contribuinte."
+            ) from exc
+
+        # gerar_jws_rs256() recebe PEM em texto, não um objecto RSAPrivateKey.
+        return chaves.pem_privada(chave_privada)
 
     # -------------------------------------------------------------
     # jwsDocumentSignature — assina UM documento

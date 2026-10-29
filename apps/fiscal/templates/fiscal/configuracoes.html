@@ -2,8 +2,103 @@
 {% block title %}Configurações fiscais{% endblock %}
 {% block topbar_title %}Configurações fiscais{% endblock %}
 {% block content %}
-<div class="page-head"><div><p class="eyebrow">Sistema</p><h1>Configurações fiscais</h1><p>Consulte os principais parâmetros da área fiscal e o estado dos componentes de integração.</p></div></div>
-<div class="grid grid-2"><section class="card"><div class="card-head"><h2>Empresa e ambiente</h2></div><div class="card-body"><div class="list"><div class="list-item"><div><strong>Empresa</strong><div class="secondary">Entidade associada ao utilizador.</div></div><span>{{ empresa.nome|default:empresa.razao_social|default:"Não identificada" }}</span></div><div class="list-item"><div><strong>NIF</strong></div><span>{{ empresa.nif|default:empresa.nif_contribuinte|default:"—" }}</span></div><div class="list-item"><div><strong>Ambiente</strong></div>{% if debug %}<span class="badge warning">Desenvolvimento</span>{% else %}<span class="badge success">Produção</span>{% endif %}</div><div class="list-item"><div><strong>Isolamento de dados</strong></div><span class="badge info">Esquema/empresa</span></div></div></div></section>
-<section class="card"><div class="card-head"><h2>Componentes</h2></div><div class="card-body"><div class="list"><div class="list-item"><div><strong>Assinatura digital</strong><div class="secondary">Chaves e assinatura de documentos.</div></div><a href="{% url 'fiscal:assinatura_digital' %}">Consultar →</a></div><div class="list-item"><div><strong>SAF-T (AO)</strong><div class="secondary">Geração e validação de ficheiros.</div></div><a href="{% url 'fiscal:saft_exportar' %}">Abrir →</a></div><div class="list-item"><div><strong>Serviço AGT</strong><div class="secondary">Estado da comunicação e homologação.</div></div><a href="{% url 'fiscal:homologacao' %}">Consultar →</a></div><div class="list-item"><div><strong>Integridade documental</strong><div class="secondary">Cadeia criptográfica e assinatura.</div></div><a href="{% url 'fiscal:integridade' %}">Verificar →</a></div></div></div></section></div>
-{% if alertas %}<section class="card" style="margin-top:18px"><div class="card-head"><h2>Alertas de configuração</h2></div><div class="card-body"><div class="list">{% for alerta in alertas %}<div class="list-item"><div><strong>{{ alerta.titulo|default:"Verificação" }}</strong><div class="secondary">{{ alerta.mensagem|default:alerta }}</div></div><span class="badge warning">Atenção</span></div>{% endfor %}</div></div></section>{% endif %}
+<div class="page-head"><div>
+    <p class="eyebrow">Sistema</p>
+    <h1>Configurações fiscais</h1>
+    <p>Consulte os principais parâmetros da área fiscal e o estado dos componentes de integração.</p>
+</div>
+</div>
+<div class="grid grid-2">
+    <section class="card">
+        <div class="card-head">
+            <h2>Empresa e ambiente</h2>
+        </div>
+        <div class="card-body">
+            <div class="list">
+                <div class="list-item">
+                    <div>
+                        <strong>Empresa</strong>
+                        <div class="secondary">Entidade associada ao utilizador.</div>
+                    </div>
+                    <span>{{ empresa_nome|default:"Não identificada" }}</span>
+                </div>
+                <div class="list-item">
+                    <div>
+                        <strong>NIF</strong>
+                    </div>
+                    <span>{{ empresa_nif|default:"—" }}</span>
+                </div>
+                <div class="list-item">
+                    <div>
+                        <strong>Ambiente</strong>
+                    </div>
+                    {% if debug %}
+                    <span class="badge warning">Desenvolvimento</span>
+                    {% else %}
+                    <span class="badge success">Produção</span>
+                    {% endif %}
+                </div>
+                <div class="list-item"><div>
+                    <strong>Isolamento de dados</strong>
+                </div>
+                <span class="badge info">Esquema/empresa</span>
+            </div>
+        </div>
+    </div>
+</section>
+<section class="card">
+    <div class="card-head">
+        <h2>Componentes</h2>
+    </div>
+    <div class="card-body">
+        <div class="list">
+            <div class="list-item">
+                <div>
+                    <strong>Assinatura digital</strong>
+                    <div class="secondary">Chaves e assinatura de documentos.</div>
+                </div>
+                <a href="{% url 'fiscal:assinatura-digital' %}">Consultar →</a>
+            </div>
+            <div class="list-item"><div>
+                <strong>SAF-T (AO)</strong>
+                <div class="secondary">Geração e validação de ficheiros.</div>
+            </div>
+            <a href="{% url 'fiscal:saft_exportar' %}">Abrir →</a>
+        </div>
+        <div class="list-item"><div>
+            <strong>Serviço AGT</strong>
+            <div class="secondary">Estado da comunicação e homologação.</div>
+        </div>
+        <a href="{% url 'fiscal:homologacao' %}">Consultar →</a>
+    </div>
+    <div class="list-item"><div>
+        <strong>Integridade documental</strong>
+        <div class="secondary">Cadeia criptográfica e assinatura.</div>
+    </div>
+    <a href="{% url 'fiscal:integridade' %}">Verificar →</a>
+</div>
+</div>
+</div>
+</section>
+</div>
+{% if alertas %}
+<section class="card" style="margin-top:18px">
+    <div class="card-head">
+        <h2>Alertas de configuração</h2>
+    </div>
+    <div class="card-body">
+        <div class="list">
+            {% for alerta in alertas %}
+            <div class="list-item">
+                <div>
+                    <strong>{{ alerta.titulo|default:"Verificação" }}</strong>
+                    <div class="secondary">{{ alerta.mensagem|default:alerta }}</div>
+                </div>
+                <span class="badge warning">Atenção</span>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+</section>
+{% endif %}
 {% endblock %}

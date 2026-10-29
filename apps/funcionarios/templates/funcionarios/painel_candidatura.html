@@ -1,14 +1,57 @@
 {% extends "funcionarios/_rh_base.html" %}
 {% block title %}Candidaturas do site{% endblock %}
+
 {% block rh_content %}
 <h1 class="text-2xl font-bold mb-4">Candidaturas recebidas pelo site</h1>
-<div class="rh-card p-0 overflow-x-auto"><table class="rh-table"><thead><tr><th>Candidato</th><th>Vaga</th><th>Contacto</th><th>Data</th><th>Estado</th><th></th></tr></thead><tbody>
-  {% for c in candidatos %}<tr><td>{{ c.nome }}</td><td>{{ c.concurso.titulo }}</td><td>{{ c.email }}<br><span class="rh-muted">{{ c.telefone }}</span></td><td>{{ c.created_at|date:"d/m/Y" }}</td>
-    <td><span class="rh-badge {% if c.status == 'aceita' %}rh-ok{% elif c.status == 'rejeitada' %}rh-bad{% else %}rh-warn{% endif %}">{{ c.status }}</span></td>
-    <td class="text-right whitespace-nowrap">
-      {% if c.status != 'aceita' and c.status != 'rejeitada' %}
-      <form method="post" action="{% url 'funcionarios:admitir_candidato' candidato_id=c.pk %}" class="inline" onsubmit="return confirm('Admitir {{ c.nome|escapejs }} como funcionário?')">{% csrf_token %}<a class="rh-btn rh-btn-ok" href="{% url 'funcionarios:admitir_candidato' candidato_id=c.pk %}">Admitir</a></form>
-      <form method="post" action="{% url 'funcionarios:rejeitar_candidato' candidato_id=c.pk %}" class="inline" onsubmit="return confirm('Rejeitar candidatura?')">{% csrf_token %}<button class="rh-btn rh-btn-d">Rejeitar</button></form>
-      {% endif %}</td></tr>
-  {% empty %}<tr><td colspan="6" class="text-center py-6 rh-muted">Nenhuma candidatura.</td></tr>{% endfor %}</tbody></table></div>
+
+<div class="rh-card p-0 overflow-x-auto">
+  <table class="rh-table">
+    <thead>
+      <tr>
+        <th scope="col">Candidato</th>
+        <th scope="col">Vaga</th>
+        <th scope="col">Contacto</th>
+        <th scope="col">Data</th>
+        <th scope="col">Estado</th>
+        <th scope="col"><span class="sr-only">Ações</span></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for c in candidatos %}
+      <tr>
+        <td>{{ c.nome }}</td>
+        <td>{{ c.concurso.titulo }}</td>
+        <td>
+          {{ c.email }}
+          {% if c.telefone %}<br><span class="rh-muted">{{ c.telefone }}</span>{% endif %}
+        </td>
+        <td>{{ c.created_at|date:"d/m/Y" }}</td>
+        <td>
+          <span class="rh-badge {% if c.status == 'aceita' %}rh-ok{% elif c.status == 'rejeitada' %}rh-bad{% else %}rh-warn{% endif %}">{{ c.get_status_display }}</span>
+        </td>
+        <td class="text-right whitespace-nowrap">
+          <div class="flex flex-wrap justify-end items-center gap-2">
+            {% if c.cv %}
+              <a class="rh-btn" href="{{ c.cv.url }}" target="_blank" rel="noopener">CV</a>
+            {% endif %}
+            {% if c.status != 'aceita' and c.status != 'rejeitada' %}
+              {# Admitir abre o formulário de admissão (GET); a criação do funcionário é feita no POST desse formulário. #}
+              <a class="rh-btn rh-btn-ok" href="{% url 'funcionarios:admitir_candidato' candidato_id=c.pk %}">Admitir</a>
+              <form method="post"
+                    action="{% url 'funcionarios:rejeitar_candidato' candidato_id=c.pk %}"
+                    class="inline"
+                    onsubmit="return confirm('Rejeitar a candidatura de {{ c.nome|escapejs }}?')">
+                {% csrf_token %}
+                <button type="submit" class="rh-btn rh-btn-d">Rejeitar</button>
+              </form>
+            {% endif %}
+          </div>
+        </td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="6" class="text-center py-6 rh-muted">Nenhuma candidatura.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
 {% endblock %}

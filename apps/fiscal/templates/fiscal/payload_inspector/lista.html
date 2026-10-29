@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block title %}Inspector de Payloads AGT{% endblock %}
+{% block content %}
+<div class="container-fluid py-4">
+  <div class="d-flex flex-wrap align-items-center justify-content-between gap-3 mb-4">
+    <div>
+      <h1 class="h3 mb-1">Inspector de Payloads AGT</h1>
+      <p class="text-muted mb-0">JSON capturados durante a preparação de pedidos fiscais deste tenant.</p>
+    </div>
+    <span class="badge bg-secondary">{{ total_payloads }} registo(s)</span>
+  </div>
+
+  <div class="card shadow-sm mb-4">
+    <div class="card-body">
+      <form method="get" class="row g-3 align-items-end">
+        <div class="col-12 col-md-4">
+          <label class="form-label" for="q">Pesquisa</label>
+          <input class="form-control" id="q" name="q" value="{{ filtros.q }}" placeholder="Número, UUID ou requestID">
+        </div>
+        <div class="col-6 col-md-2">
+          <label class="form-label" for="tipo">Tipo</label>
+          <input class="form-control" id="tipo" name="tipo" value="{{ filtros.tipo }}" placeholder="AC, FT, FR…">
+        </div>
+        <div class="col-6 col-md-3">
+          <label class="form-label" for="status">Estado</label>
+          <select class="form-select" id="status" name="status">
+            <option value="">Todos</option>
+            {% for value, label in status_choices %}<option value="{{ value }}" {% if filtros.status == value %}selected{% endif %}>{{ label }}</option>{% endfor %}
+          </select>
+        </div>
+        <div class="col-6 col-md-2">
+          <label class="form-label" for="ambiente">Ambiente</label>
+          <select class="form-select" id="ambiente" name="ambiente">
+            <option value="">Todos</option>
+            {% for value, label in ambiente_choices %}<option value="{{ value }}" {% if filtros.ambiente == value %}selected{% endif %}>{{ label }}</option>{% endfor %}
+          </select>
+        </div>
+        <div class="col-6 col-md-1 d-grid"><button class="btn btn-primary" type="submit">Filtrar</button></div>
+      </form>
+    </div>
+  </div>
+
+  <div class="card shadow-sm">
+    <div class="table-responsive">
+      <table class="table table-hover align-middle mb-0">
+        <thead><tr><th>Data</th><th>Documento</th><th>Ambiente</th><th>Assinaturas presentes</th><th>Estado</th><th>HTTP</th><th></th></tr></thead>
+        <tbody>
+        {% for item in payloads %}
+          <tr>
+            <td class="text-nowrap">{{ item.created_at|date:"d/m/Y H:i:s" }}</td>
+            <td><strong>{{ item.tipo_documento|default:"—" }}</strong><br><small class="text-muted">{{ item.numero_documento|default:item.submission_uuid|default:"Sem referência" }}</small><br><small class="text-muted">{{ item.quantidade_documentos }} documento(s)</small></td>
+            <td>{{ item.get_ambiente_display }}</td>
+            <td><small>Pedido: {% if item.assinatura_pedido_presente %}sim{% else %}não{% endif %}<br>Software: {% if item.assinatura_software_presente %}sim{% else %}não{% endif %}<br>Documentos: {% if item.assinaturas_documentos_presentes %}sim{% else %}não{% endif %}</small></td>
+            <td><span class="badge bg-secondary">{{ item.get_status_display }}</span>{% if item.erro %}<div class="small text-danger mt-1">{{ item.erro|truncatechars:100 }}</div>{% endif %}</td>
+            <td>{{ item.http_status|default:"—" }}</td>
+            <td class="text-end text-nowrap"><a class="btn btn-sm btn-outline-primary" href="{% url 'fiscal:payload-agt-detail' item.pk %}">Ver JSON</a> <a class="btn btn-sm btn-outline-secondary" href="{% url 'fiscal:payload-agt-download' item.pk %}">.json</a></td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="7" class="text-center text-muted py-5">Ainda não existem payloads registados. Serão criados quando o fluxo fiscal preparar um pedido para a AGT.</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% if is_paginated %}<div class="card-footer d-flex justify-content-between align-items-center"><span class="small text-muted">Página {{ page_obj.number }} de {{ page_obj.paginator.num_pages }}</span><div class="btn-group">
+      {% if page_obj.has_previous %}<a class="btn btn-sm btn-outline-secondary" href="?page={{ page_obj.previous_page_number }}&q={{ filtros.q|urlencode }}&tipo={{ filtros.tipo|urlencode }}&status={{ filtros.status|urlencode }}&ambiente={{ filtros.ambiente|urlencode }}">Anterior</a>{% endif %}
+      {% if page_obj.has_next %}<a class="btn btn-sm btn-outline-secondary" href="?page={{ page_obj.next_page_number }}&q={{ filtros.q|urlencode }}&tipo={{ filtros.tipo|urlencode }}&status={{ filtros.status|urlencode }}&ambiente={{ filtros.ambiente|urlencode }}">Seguinte</a>{% endif %}
+    </div></div>{% endif %}
+  </div>
+  <p class="small text-muted mt-3">A presença de uma assinatura no JSON não confirma a sua validade criptográfica nem a aceitação do documento pela AGT.</p>
+</div>
+{% endblock %}

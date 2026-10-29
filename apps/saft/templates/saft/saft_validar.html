@@ -1,9 +1,161 @@
 {% extends "base.html" %}
 {% block title %}Validar SAF-T{% endblock %}
+
 {% block content %}
-<section class="mx-auto max-w-4xl space-y-6 px-4 py-6 sm:px-6 lg:px-8"><div><p class="text-sm font-semibold uppercase tracking-wider text-blue-600">Fiscalidade · Controlo de qualidade</p><h1 class="mt-1 text-3xl font-bold text-slate-900 dark:text-white">Validar ficheiro SAF-T</h1><p class="mt-2 text-sm text-slate-500 dark:text-slate-400">Valide o XML antes de o entregar à AGT.</p></div>
-{% if upload_error %}<div role="alert" class="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">{{ upload_error }}</div>{% endif %}
-<div class="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-700 dark:bg-slate-900"><form method="post" enctype="multipart/form-data" class="space-y-5">{% csrf_token %}<div><label for="saft_file" class="mb-2 block text-sm font-semibold text-slate-700 dark:text-slate-200">Ficheiro XML</label><input id="saft_file" name="saft_file" type="file" accept=".xml,application/xml,text/xml" required class="block w-full rounded-lg border border-slate-300 bg-white px-3 py-3 text-sm file:mr-4 file:rounded-md file:border-0 file:bg-blue-50 file:px-4 file:py-2 file:font-semibold file:text-blue-700 dark:border-slate-600 dark:bg-slate-800 dark:text-white"><p class="mt-2 text-xs text-slate-500">Formato permitido: XML · Tamanho máximo: {{ max_file_size_mb|default:50 }} MB.</p></div><button type="submit" class="rounded-lg bg-blue-700 px-5 py-2.5 text-sm font-semibold text-white hover:bg-blue-800">Validar ficheiro</button></form></div>
-{% if validation_result %}<div class="rounded-2xl border {% if validation_result.valid %}border-emerald-200 bg-emerald-50 dark:border-emerald-900 dark:bg-emerald-950/30{% elif validation_result.valid == False %}border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950/30{% else %}border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/30{% endif %} p-6"><div class="flex items-start gap-3"><span class="text-2xl">{% if validation_result.valid %}✓{% elif validation_result.valid == False %}×{% else %}⚠{% endif %}</span><div><h2 class="text-lg font-bold {% if validation_result.valid %}text-emerald-900 dark:text-emerald-200{% elif validation_result.valid == False %}text-red-900 dark:text-red-200{% else %}text-amber-900 dark:text-amber-200{% endif %}">{{ validation_result.title|default:'Resultado da validação' }}</h2><p class="mt-1 text-sm">{{ validation_result.message|default:validation_result.error }}</p>{% if validation_result.validation_level %}<p class="mt-2 text-xs">Nível de validação: {{ validation_result.validation_level }}</p>{% endif %}</div></div>{% if validation_result.errors %}<h3 class="mt-5 font-semibold">Erros encontrados</h3><ul class="mt-2 list-inside list-disc space-y-1 text-sm">{% for item in validation_result.errors %}<li>{{ item }}</li>{% endfor %}</ul>{% endif %}{% if validation_result.warnings %}<h3 class="mt-5 font-semibold">Avisos</h3><ul class="mt-2 list-inside list-disc space-y-1 text-sm">{% for item in validation_result.warnings %}<li>{{ item }}</li>{% endfor %}</ul>{% endif %}</div>{% endif %}
-<div class="rounded-xl bg-amber-50 p-4 text-sm text-amber-900 dark:bg-amber-950/40 dark:text-amber-100"><strong>Nota:</strong> uma verificação XML/estrutural preliminar não substitui a validação contra o XSD oficial da versão SAF-T (AO) aceite pela AGT. O pacote tenta usar um validador público quando disponível.</div><a href="{% url 'saft:historico' %}" class="inline-flex text-sm font-semibold text-blue-700 hover:underline dark:text-blue-300">Voltar ao histórico</a></section>
+{% with r=validation_result %}
+<div class="container-fluid py-3" style="max-width: 920px;">
+
+  <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+    <div>
+      <h1 class="h4 mb-1"><i class="bi bi-patch-check me-2"></i>Validar ficheiro SAF-T</h1>
+      <p class="text-muted small mb-0">{{ saft_version }}</p>
+    </div>
+    <a href="{% url 'saft:historico' %}" class="btn btn-outline-secondary btn-sm">
+      <i class="bi bi-clock-history me-1"></i>Histórico
+    </a>
+  </div>
+
+  {% if upload_error and not r.success %}
+    <div class="alert alert-danger d-flex align-items-start gap-2" role="alert">
+      <i class="bi bi-exclamation-octagon-fill"></i>
+      <div>{{ upload_error }}{% if r.debug %}<pre class="small mb-0 mt-2">{{ r.debug }}</pre>{% endif %}</div>
+    </div>
+  {% endif %}
+
+  {# ───────── Formulário de envio ───────── #}
+  <div class="card shadow-sm mb-4">
+    <div class="card-body">
+      <form method="post" enctype="multipart/form-data" id="saft-form" novalidate>
+        {% csrf_token %}
+        <label for="saft_file" id="saft-drop"
+               class="d-flex flex-column align-items-center justify-content-center text-center rounded-3 p-4 w-100"
+               style="border:2px dashed var(--bs-border-color,#ced4da); cursor:pointer;">
+          <i class="bi bi-file-earmark-code fs-1 text-muted"></i>
+          <span class="fw-semibold mt-2" id="saft-drop-title">Seleccione ou arraste o ficheiro XML</span>
+          <span class="text-muted small" id="saft-drop-sub">Apenas .xml, UTF-8, até {{ max_file_size_mb }} MB</span>
+        </label>
+        <input type="file" class="visually-hidden" name="saft_file" id="saft_file" accept=".xml,application/xml,text/xml" required>
+
+        <div class="d-flex justify-content-end mt-3">
+          <button type="submit" class="btn btn-primary" id="saft-submit" disabled>
+            <span class="spinner-border spinner-border-sm me-2 d-none" id="saft-spin" aria-hidden="true"></span>
+            <span id="saft-submit-label">Validar ficheiro</span>
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  {# ───────── Resultado ───────── #}
+  {% if r %}
+    {% if r.success %}
+      {% if r.valid is True %}
+        <div class="card border-success shadow-sm mb-3">
+          <div class="card-body d-flex gap-3">
+            <i class="bi bi-check-circle-fill text-success fs-2"></i>
+            <div>
+              <h2 class="h5 mb-1">{{ r.title|default:"Ficheiro válido" }}</h2>
+              <p class="mb-0">{{ r.message|default:"Nenhum erro encontrado." }}</p>
+            </div>
+          </div>
+        </div>
+      {% elif r.valid is False %}
+        <div class="card border-danger shadow-sm mb-3">
+          <div class="card-body d-flex gap-3">
+            <i class="bi bi-x-octagon-fill text-danger fs-2"></i>
+            <div>
+              <h2 class="h5 mb-1">{{ r.title|default:"Ficheiro inválido" }}</h2>
+              <p class="mb-0">{{ r.message|default:"Foram encontrados erros." }}</p>
+            </div>
+          </div>
+        </div>
+      {% else %}
+        <div class="card border-warning shadow-sm mb-3">
+          <div class="card-body d-flex gap-3">
+            <i class="bi bi-question-circle-fill text-warning fs-2"></i>
+            <div>
+              <h2 class="h5 mb-1">{{ r.title|default:"Resultado inconclusivo" }}</h2>
+              <p class="mb-0">{{ r.message }}</p>
+            </div>
+          </div>
+        </div>
+      {% endif %}
+
+      {% if r.errors %}
+        <div class="card shadow-sm mb-3">
+          <div class="card-header bg-transparent fw-semibold text-danger">
+            Erros <span class="badge text-bg-danger ms-1">{{ r.errors|length }}</span>
+          </div>
+          <ul class="list-group list-group-flush small" style="max-height:340px; overflow:auto;">
+            {% for e in r.errors %}<li class="list-group-item font-monospace">{{ e }}</li>{% endfor %}
+          </ul>
+        </div>
+      {% endif %}
+
+      {% if r.warnings %}
+        <div class="card shadow-sm mb-3">
+          <div class="card-header bg-transparent fw-semibold text-warning-emphasis">
+            Avisos <span class="badge text-bg-warning ms-1">{{ r.warnings|length }}</span>
+          </div>
+          <ul class="list-group list-group-flush small">
+            {% for w in r.warnings %}<li class="list-group-item">{{ w }}</li>{% endfor %}
+          </ul>
+        </div>
+      {% endif %}
+
+      {% if r.details %}
+        <div class="card shadow-sm">
+          <div class="card-header bg-transparent fw-semibold">Detalhes</div>
+          <dl class="row small mb-0 p-3">
+            <dt class="col-sm-4">Ficheiro</dt><dd class="col-sm-8">{{ r.details.filename }}</dd>
+            <dt class="col-sm-4">Tamanho</dt><dd class="col-sm-8">{{ r.details.file_size_bytes|filesizeformat }}</dd>
+            <dt class="col-sm-4">Validado em</dt><dd class="col-sm-8">{{ r.details.validation_date }}</dd>
+            {% if r.validation_level %}
+              <dt class="col-sm-4">Nível</dt><dd class="col-sm-8"><code>{{ r.validation_level }}</code></dd>
+            {% endif %}
+          </dl>
+        </div>
+      {% endif %}
+    {% endif %}
+  {% endif %}
+
+</div>
+{% endwith %}
+
+<script>
+(function () {
+  var input = document.getElementById('saft_file');
+  var drop = document.getElementById('saft-drop');
+  var title = document.getElementById('saft-drop-title');
+  var sub = document.getElementById('saft-drop-sub');
+  var btn = document.getElementById('saft-submit');
+  var form = document.getElementById('saft-form');
+  var max = {{ max_file_size_mb|default:50 }} * 1024 * 1024;
+
+  function show(file) {
+    if (!file) { btn.disabled = true; return; }
+    var okName = /\.xml$/i.test(file.name), okSize = file.size > 0 && file.size <= max;
+    title.textContent = file.name;
+    sub.textContent = (file.size / 1048576).toFixed(2) + ' MB' +
+      (!okName ? ' — não é um ficheiro .xml' : (!okSize ? ' — tamanho inválido' : ''));
+    sub.className = (okName && okSize) ? 'text-muted small' : 'text-danger small';
+    btn.disabled = !(okName && okSize);
+  }
+  input.addEventListener('change', function () { show(input.files[0]); });
+  ['dragover', 'dragenter'].forEach(function (ev) {
+    drop.addEventListener(ev, function (e) { e.preventDefault(); drop.classList.add('bg-body-tertiary'); });
+  });
+  ['dragleave', 'drop'].forEach(function (ev) {
+    drop.addEventListener(ev, function (e) { e.preventDefault(); drop.classList.remove('bg-body-tertiary'); });
+  });
+  drop.addEventListener('drop', function (e) {
+    if (e.dataTransfer.files.length) { input.files = e.dataTransfer.files; show(input.files[0]); }
+  });
+  form.addEventListener('submit', function () {
+    btn.disabled = true;
+    document.getElementById('saft-spin').classList.remove('d-none');
+    document.getElementById('saft-submit-label').textContent = 'A validar…';
+  });
+})();
+</script>
 {% endblock %}

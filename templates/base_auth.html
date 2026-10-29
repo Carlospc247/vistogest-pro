@@ -1,73 +1,128 @@
 {% load static %}
 <!DOCTYPE html>
-<html lang="pt-BR">
+<html lang="pt-AO">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}vistoGEST{% endblock %}</title>
-    
-    <!-- Tailwind CSS -->
-    <script src="https://cdn.tailwindcss.com"></script>
-    
-    <!-- Font Awesome -->
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" rel="stylesheet">
-    
+    <meta name="description" content="vistoGEST - Vistoria e Gestão Estratégica">
+    <meta name="csrf-token" content="{{ csrf_token }}">
+
+    <!-- Favicon -->
+    <link rel="icon" type="image/png" href="{% static 'img/logo.png' %}?v=2">
+    <link rel="apple-touch-icon" href="{% static 'img/logo.png' %}">
+
+    <!-- PWA (igual ao base.html). `as` evita erro se a rota não existir neste urlconf. -->
+    {% url 'core:pwa_manifest' as PWA_MANIFEST_URL %}
+    {% if PWA_MANIFEST_URL %}<link rel="manifest" href="{{ PWA_MANIFEST_URL }}">{% endif %}
+    <meta name="theme-color" content="{{ interface_prefs.cor_primaria|default:'#5D5CDE' }}">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="VistoGEST">
+
+    <!-- CSS e ícones LOCAIS (nada depende de CDN, por isso a interface abre offline) -->
+    <link rel="preload" href="{% static 'vendor/fontawesome/webfonts/fa-solid-900.woff2' %}" as="font" type="font/woff2" crossorigin>
+    <link rel="stylesheet" href="{% static 'css/tailwind.css' %}">
+    <link rel="stylesheet" href="{% static 'vendor/fontawesome/css/all.min.css' %}">
+
     <style>
         body {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             min-height: 100vh;
+            min-height: 100dvh; /* telemóveis: não corta atrás da barra do navegador */
         }
-        
+
         .auth-card {
+            -webkit-backdrop-filter: blur(10px);
             backdrop-filter: blur(10px);
             background: rgba(255, 255, 255, 0.95);
             box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
         }
-        
-        .input-field {
-            transition: all 0.3s ease;
+
+        /* Logótipo: 208px em ecrãs largos, encolhe em ecrãs pequenos (antes: 208px fixos). */
+        .auth-logo {
+            display: block;
+            margin: 0 auto 1rem;
+            width: min(13rem, 55vw);
+            height: auto;
+            object-fit: contain;
         }
-        
+
+        .input-field { transition: all 0.3s ease; }
         .input-field:focus {
             transform: translateY(-2px);
             box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
         }
-        
+
         .btn-primary {
             background: linear-gradient(135deg, #2E7D32, #4CAF50);
             transition: all 0.3s ease;
         }
-        
         .btn-primary:hover {
             transform: translateY(-2px);
             box-shadow: 0 10px 15px -3px rgba(46, 125, 50, 0.3);
         }
-    </style>
-    
-    <script>
-        tailwind.config = {
-            theme: {
-                extend: {
-                    colors: {
-                        primary: '#2E7D32',
-                        secondary: '#4CAF50'
-                    }
-                }
-            }
+        .btn-primary:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
         }
-    </script>
+
+        @media (prefers-reduced-motion: reduce) {
+            .input-field, .btn-primary { transition: none; }
+            .input-field:focus, .btn-primary:hover { transform: none; }
+        }
+
+        /* Cores da marca. Antes vinham do tailwind.config do CDN; sem o CDN passam a viver aqui. */
+        .text-primary { color: #2E7D32; }
+        .bg-primary { background-color: #2E7D32; }
+        .border-primary { border-color: #2E7D32; }
+        .text-secondary { color: #4CAF50; }
+        .bg-secondary { background-color: #4CAF50; }
+        .border-secondary { border-color: #4CAF50; }
+        .hover\:text-primary:hover { color: #2E7D32; }
+        .focus\:border-primary:focus { border-color: #2E7D32; }
+        .focus\:ring-primary:focus { --tw-ring-color: #2E7D32; }
+
+        /* Aviso de falta de ligação */
+        .auth-offline-notice {
+            margin: 0 0 1rem;
+            padding: 0.75rem 1rem;
+            border-radius: 0.5rem;
+            background: #fef3c7;
+            color: #92400e;
+            font-size: 0.875rem;
+            line-height: 1.4;
+            text-align: center;
+        }
+        .auth-offline-notice[hidden] { display: none; }
+
+        .auth-install {
+            margin-top: 0.75rem;
+            background: none;
+            border: 0;
+            cursor: pointer;
+        }
+        .auth-install[hidden] { display: none; }
+    </style>
+
+    {% block extra_head %}{% endblock %}
 </head>
 
 <body class="min-h-screen flex items-center justify-center p-4">
-    <div class="auth-card w-full max-w-md p-4 rounded-2xl">
+    <main class="auth-card w-full max-w-md p-4 rounded-2xl">
         <!-- Logo -->
         <div class="text-center mb-0">
-            <div class="inline-flex items-center justify-center w-52 h-52 transparent from-primary to-secondary rounded-xl mb-4">
-                <img src="{% static 'img/logovisto.png' %}" alt="VistoGEST" class="w-52 h-52 object-contain">
-            </div>
-            
-            
+            <img src="{% static 'img/logovisto.png' %}" alt="VistoGEST" class="auth-logo" width="208" height="208">
         </div>
+
+        <!-- Sem ligação: a interface abre (vem da cache), mas autenticar exige o servidor -->
+        <p id="auth-offline-notice" class="auth-offline-notice" role="alert" hidden>
+            <i class="fas fa-wifi" aria-hidden="true"></i>
+            Sem ligação à internet. Pode ver esta página, mas para entrar precisa de estar online.
+        </p>
 
         <!-- Content -->
         {% block content %}{% endblock %}
@@ -77,10 +132,79 @@
             <p class="text-xs text-gray-500">
                 © {% now "Y" %} VistoGEST. Todos os direitos reservados.
             </p>
+            <button type="button" id="pwa-install-btn" class="auth-install text-xs text-gray-500 hover:underline" hidden>
+                <i class="fas fa-download" aria-hidden="true"></i> Instalar aplicação
+            </button>
         </div>
-    </div>
+    </main>
 
-    <!-- Scripts -->
+    <!-- Scripts da página -->
     {% block scripts %}{% endblock %}
+
+    <!-- PWA: Service Worker, aviso offline e instalação -->
+    {% url 'core:pwa_service_worker' as PWA_SW_URL %}
+    <script>
+    (function () {
+        'use strict';
+
+        /* 1) Service Worker — o mesmo do base.html, para o login ficar em cache desde a primeira visita. */
+        var SW_URL = '{{ PWA_SW_URL|default:""|escapejs }}';
+        if ('serviceWorker' in navigator && SW_URL) {
+            window.addEventListener('load', function () {
+                navigator.serviceWorker.register(SW_URL, { scope: '/' })
+                    .catch(function (err) { console.warn('[PWA] Falha ao registar Service Worker:', err); });
+            });
+        }
+
+        /* 2) Sem ligação: mostra o aviso e bloqueia o envio (o servidor é que autentica). */
+        var notice = document.getElementById('auth-offline-notice');
+        function submitButtons() {
+            return document.querySelectorAll('form button[type="submit"], form input[type="submit"]');
+        }
+        function refreshConnection() {
+            var offline = navigator.onLine === false;
+            if (notice) notice.hidden = !offline;
+            Array.prototype.forEach.call(submitButtons(), function (btn) {
+                if (offline) {
+                    if (btn.getAttribute('data-offline-locked') !== '1') {
+                        btn.setAttribute('data-offline-was', btn.disabled ? '1' : '0');
+                        btn.setAttribute('data-offline-locked', '1');
+                        btn.disabled = true;
+                    }
+                } else if (btn.getAttribute('data-offline-locked') === '1') {
+                    btn.disabled = btn.getAttribute('data-offline-was') === '1';
+                    btn.removeAttribute('data-offline-locked');
+                    btn.removeAttribute('data-offline-was');
+                }
+            });
+        }
+        window.addEventListener('online', refreshConnection);
+        window.addEventListener('offline', refreshConnection);
+        refreshConnection();
+
+        /* 3) Instalar a aplicação a partir do login (é a primeira página que o utilizador vê). */
+        var deferredPrompt = null;
+        var installBtn = document.getElementById('pwa-install-btn');
+        var isStandalone = window.matchMedia && window.matchMedia('(display-mode: standalone)').matches;
+
+        window.addEventListener('beforeinstallprompt', function (event) {
+            event.preventDefault();
+            deferredPrompt = event;
+            if (installBtn && !isStandalone) installBtn.hidden = false;
+        });
+        if (installBtn) {
+            installBtn.addEventListener('click', function () {
+                if (!deferredPrompt) return;
+                installBtn.hidden = true;
+                deferredPrompt.prompt();
+                deferredPrompt.userChoice.then(function () { deferredPrompt = null; });
+            });
+        }
+        window.addEventListener('appinstalled', function () {
+            if (installBtn) installBtn.hidden = true;
+            deferredPrompt = null;
+        });
+    })();
+    </script>
 </body>
 </html>

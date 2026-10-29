@@ -18,12 +18,15 @@ BASE_DIR = Path(__file__).resolve().parent.parent.parent
 AGT_SOFTWARE_PRIVATE_KEY_PEM     = os.getenv('AGT_SOFTWARE_PRIVATE_KEY_PEM')
 AGT_SOFTWARE_PRIVATE_KEY_PATH    = os.getenv('AGT_SOFTWARE_PRIVATE_KEY_PATH')
 AGT_SOFTWARE_PRODUCT_ID          = os.getenv('AGT_SOFTWARE_PRODUCT_ID')
+ERP_PRODUCT_VERSION              = os.getenv('ERP_PRODUCT_VERSION')
 AGT_SOFTWARE_PRODUCT_VERSION     = os.getenv('AGT_SOFTWARE_PRODUCT_VERSION')
 AGT_SOFTWARE_VALIDATION_NUMBER   = os.getenv('AGT_SOFTWARE_VALIDATION_NUMBER')
 AGT_SOFTWARE_NAME                = os.getenv('AGT_SOFTWARE_NAME')
+AGT_PRODUCT_ID                   = os.getenv('AGT_PRODUCT_ID')
+ERP_PRODUCT_ID                   = os.getenv('ERP_PRODUCT_ID')
 AGT_ENVIRONMENT                  = os.getenv('AGT_ENVIRONMENT')
-AGT_BASE_URL_HOMOLOGACAO         = os.getenv('AGT_BASE_URL_HOMOLOGACAO')
-AGT_BASE_URL_PRODUCAO            = os.getenv('AGT_BASE_URL_PRODUCAO')
+AGT_BASE_URL_HOMOLOGACAO         = os.getenv('AGT_BASE_URL_HOMOLOGACAO', 'https://sifphml.minfin.gov.ao/sigt/fe/v1')
+AGT_BASE_URL_PRODUCAO            = os.getenv('AGT_BASE_URL_PRODUCAO', 'https://sifp.minfin.gov.ao/sigt/fe/v1')
 AGT_QR_CODE_BASE_URL             = os.getenv('AGT_QR_CODE_BASE_URL')
 AGT_CERTIFICATE_NUMBER           = os.getenv('AGT_CERTIFICATE_NUMBER')
 AGT_PRODUCER_NIF                 = os.getenv('AGT_PRODUCER_NIF')
@@ -43,7 +46,7 @@ AES_KEY = os.getenv('AES_KEY')
 ENCRYPTION_KEY = os.getenv('ENCRYPTION_KEY')
 
 # Alias legado Fernet (compatibilidade)
-ASSINATURA_FERNET_KEY = os.getenv('ASSINATURA_FERNET_KEY')
+#ASSINATURA_FERNET_KEY = os.getenv('ASSINATURA_FERNET_KEY')
 
 # ──────────────────────────────────────────────────────────────────────────────
 # DATABASE ROUTER (django-tenants)
@@ -258,34 +261,6 @@ MEDIA_ROOT = BASE_DIR / "media"
 # CACHE — Redis
 # ──────────────────────────────────────────────────────────────────────────────
 REDIS_URL = os.getenv('REDIS_URL')
-
-CACHES = {
-    "default": {
-        "BACKEND": "django_redis.cache.RedisCache",
-        "LOCATION": REDIS_URL or "redis://127.0.0.1:6379/1",
-        "OPTIONS": {
-            "CLIENT_CLASS": "django_redis.client.DefaultClient",
-            "IGNORE_EXCEPTIONS": True,
-        },
-        "KEY_PREFIX": "vistogest",
-        "TIMEOUT": 300,
-    },
-    # Cache do BI (usado por _invalidar_cache_bi em apps/vendas/views.py)
-    "B_I": {
-        "BACKEND": "django_redis.cache.RedisCache",
-        "LOCATION": REDIS_URL or "redis://127.0.0.1:6379/1",
-        "OPTIONS": {
-            "CLIENT_CLASS": "django_redis.client.DefaultClient",
-            "IGNORE_EXCEPTIONS": True,
-        },
-        "KEY_PREFIX": "vistogest-bi",
-        "TIMEOUT": 300,
-        # Isola as chaves por schema: sem isto, os dados de BI de uma
-        # empresa podem aparecer noutra.
-        "KEY_FUNCTION": "django_tenants.cache.make_key",
-        "REVERSE_KEY_FUNCTION": "django_tenants.cache.reverse_key",
-    },
-}
 
 # ──────────────────────────────────────────────────────────────────────────────
 # RATE LIMITING & BRUTE-FORCE PROTECTION

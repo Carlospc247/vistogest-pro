@@ -2,71 +2,79 @@
 """
 Serviço de submissão de facturas à API AGT — endpoint /registarFactura.
 
-Regras críticas:
-- jwsDocumentSignature: assina os campos fiscais do documento com a chave DO CONTRIBUINTE
-  via AssinaturaDigitalService.assinar_documento().
-- jwsSignature: assina o payload da requisição (taxRegistrationNumber + submissionUUID)
-  via AssinaturaDigitalService.assinar_requisicao().
-- softwareInfo + jwsSoftwareSignature: montado por AssinaturaSoftwareService.montar_software_info()
-  com a chave DA SOTARQ (nunca do contribuinte).
-- Basic Auth: lida de AssinaturaDigital.api_username / api_password (decifrado via AESService).
-- lineNumber: contador sequencial 1, 2, 3... por documento (nunca o ID do BD).
-- Submissão é assíncrona: devolve requestID imediatamente; validação fiscal é diferida.
+A comunicação HTTP (Basic Auth do produtor lido do .env, softwareInfo,
+jwsSignature, timeouts) está no AGTClient. Este serviço:
+  * monta o nó `document` (Decreto Executivo 683/25 — Anexo I);
+  * assina os campos do documento com a chave DO CONTRIBUINTE
+    (AssinaturaDigitalService.assinar_documento → jwsDocumentSignature);
+  * persiste em `metadados` do DocumentoFiscal o submissionUUID ANTES de
+    enviar (para repetir a mesma submissão sem duplicar) e o requestID depois.
+
+Submissão é assíncrona: devolve requestID; a validação fiscal vem depois via
+obterEstado (FiscalPollingService).
+
+Campos usados de DocumentoFiscalLinha: codigo_produto, descricao, unidade,
+quantidade, preco_unitario, valor_desconto_linha (TOTAL da linha),
+valor_liquido (qtd x preço - desconto), taxa_iva, valor_iva_linha.
 """
-import requests
-import uuid
 import logging
+import uuid
 from decimal import Decimal
+
 from django.conf import settings
 from django.utils import timezone
+import requests
 
-from apps.fiscal.services.assinatura_service import (
-    AssinaturaDigitalService,
-    AssinaturaSoftwareService,
-)
-from apps.fiscal.utility.crypto import AESService
 from apps.fiscal.models import AssinaturaDigital
+from apps.fiscal.services.agt_client import AGTClient, AGTError
+from apps.fiscal.services.assinatura_service import AssinaturaDigitalService, AssinaturaSoftwareService
 from .utils import FiscalServiceError
 
 logger = logging.getLogger('fiscal.submissao')
+
+_CENTIMO = Decimal("0.01")
+
+
+def _f2(valor) -> float:
+    return float(Decimal(valor or 0).quantize(_CENTIMO))
 
 
 class SubmissaoFaturaService:
     """
     Submete documentos fiscais à API AGT (/registarFactura).
-    Isolamento físico: não recebe `empresa` como parâmetro — lê AssinaturaDigital
-    do tenant activo (schema corrente).
+    Isolamento físico: não recebe `empresa` — lê AssinaturaDigital do tenant activo.
     """
 
-    def __init__(self):
-        if settings.AGT_ENVIRONMENT == 'PRODUCTION':
-            self.url = f"{settings.AGT_BASE_URL_PRODUCAO}/registarFactura"
-        else:
-            self.url = f"{settings.AGT_BASE_URL_HOMOLOGACAO}/registarFactura"
+    def __init__(self, client: AGTClient = None):
+        self.client = client or AGTClient()
 
     # ------------------------------------------------------------------
     # Ponto de entrada principal
     # ------------------------------------------------------------------
 
+    # Substitua APENAS o método SubmissaoFaturaService.submeter_documento pelo método abaixo.
+# Os restantes métodos da classe permanecem intactos.
+
     def submeter_documento(self, documento_fiscal):
-        """
-        Submete um DocumentoFiscal à AGT.
-        `documento_fiscal` é uma instância de apps.fiscal.models.DocumentoFiscal.
-        Devolve dict: {'success': True, 'requestID': '...'} ou {'success': False, 'error': '...'}.
-        """
-        config = AssinaturaDigital.obter_configuracao()
-        if not config or not config.esta_configurada:
-            raise FiscalServiceError(
-                "Chave do contribuinte não configurada para este tenant. "
-                "Configure-a em Configurações Fiscais."
-            )
+        """Prepara/captura o payload e submete o documento à AGT."""
+        from apps.fiscal.services.payload_inspector import PayloadInspectorService
+
+        captura = None
+        tentativa_http = False
+        ambiente = getattr(settings, "AGT_ENVIRONMENT", "HOMOLOGACAO")
+        config = None
 
         try:
-            document_node = self._montar_document_node(documento_fiscal, config)
+            config = AssinaturaDigital.obter_configuracao()
+            if not config or not config.esta_configurada:
+                raise FiscalServiceError(
+                    "Chave do contribuinte não configurada para este tenant. "
+                    "Configure-a em Configurações Fiscais."
+                )
 
+            document_node = self._montar_document_node(documento_fiscal, config)
             submission_uuid = str(uuid.uuid4())
 
-            # Payload de assinatura da requisição: taxRegistrationNumber + submissionUUID
             payload_assinatura_req = {
                 "taxRegistrationNumber": config.nif_contribuinte,
                 "submissionUUID": submission_uuid,
@@ -84,30 +92,92 @@ class SubmissaoFaturaService:
                 "jwsSignature": jws_signature,
             }
 
+            # Capturar o corpo exacto do pedido antes de tentar obter Basic Auth.
+            # A falha do Inspector nunca deve bloquear o fluxo normal de submissão.
+            try:
+                captura = PayloadInspectorService.registar_payload(
+                    payload=payload,
+                    endpoint=self.url,
+                    ambiente=ambiente,
+                )
+            except Exception:
+                logger.exception(
+                    "Não foi possível guardar o payload AGT do documento %s no Inspector.",
+                    documento_fiscal.numero_documento,
+                )
+
+            # As credenciais ainda podem não ter sido emitidas/configuradas pela AGT.
             credenciais = self._obter_credenciais(config)
+
+            if captura:
+                try:
+                    PayloadInspectorService.marcar_enviado(captura)
+                except Exception:
+                    logger.exception("Falha ao actualizar o estado do payload AGT #%s.", captura.pk)
+
+            # Depois deste ponto o pedido pode ter saído do processo, mesmo se ocorrer timeout.
+            tentativa_http = True
             response = requests.post(
                 self.url,
                 json=payload,
-                auth=(credenciais['username'], credenciais['password']),
+                auth=(credenciais["username"], credenciais["password"]),
                 timeout=45,
             )
+
+            if captura:
+                try:
+                    PayloadInspectorService.registar_resposta(captura, response)
+                except Exception:
+                    logger.exception("Falha ao guardar a resposta do payload AGT #%s.", captura.pk)
+
             return self._tratar_resposta(response, documento_fiscal)
 
-        except FiscalServiceError:
+        except FiscalServiceError as exc:
+            if captura:
+                try:
+                    PayloadInspectorService.marcar_falha(captura, exc, pedido_enviado=tentativa_http)
+                except Exception:
+                    logger.exception("Falha ao registar erro do payload AGT #%s.", captura.pk)
+            else:
+                # Regista que a preparação falhou; payload={} significa que não existia JSON completo.
+                try:
+                    PayloadInspectorService.registar_erro_preparacao(
+                        documento=documento_fiscal,
+                        erro=exc,
+                        endpoint=self.url,
+                        ambiente=ambiente,
+                    )
+                except Exception:
+                    logger.exception("Falha ao registar erro de preparação do payload AGT.")
             raise
-        except Exception as e:
-            logger.exception(f"Falha na submissão do documento {documento_fiscal.numero_documento}: {e}")
-            return {"success": False, "error": str(e)}
 
-    # ------------------------------------------------------------------
-    # Compatibilidade retroactiva — aceita Venda directamente
-    # ------------------------------------------------------------------
+        except Exception as exc:
+            logger.exception(
+                "Falha na submissão do documento %s: %s",
+                getattr(documento_fiscal, "numero_documento", "(sem número)"),
+                exc,
+            )
+            if captura:
+                try:
+                    PayloadInspectorService.marcar_falha(captura, exc, pedido_enviado=tentativa_http)
+                except Exception:
+                    logger.exception("Falha ao registar erro do payload AGT #%s.", captura.pk)
+            else:
+                try:
+                    PayloadInspectorService.registar_erro_preparacao(
+                        documento=documento_fiscal,
+                        erro=exc,
+                        endpoint=self.url,
+                        ambiente=ambiente,
+                    )
+                except Exception:
+                    logger.exception("Falha ao registar erro de preparação do payload AGT.")
+            return {"success": False, "error": str(exc)}
+
+
 
     def submeter_venda(self, venda):
-        """
-        Wrapper de compatibilidade para código que ainda usa a Venda directamente.
-        Delega para submeter_documento usando o DocumentoFiscal ligado.
-        """
+        """Compatibilidade: delega para submeter_documento via DocumentoFiscal ligado."""
         doc_fiscal = getattr(venda, 'documento_fiscal', None)
         if not doc_fiscal:
             raise FiscalServiceError(
@@ -116,32 +186,70 @@ class SubmissaoFaturaService:
             )
         return self.submeter_documento(doc_fiscal)
 
+    @staticmethod
+    def _registar_sucesso(doc, resultado, estado_envio):
+        meta = doc.metadados if isinstance(doc.metadados, dict) else {}
+        meta["request_id_agt"] = resultado["requestID"]
+        meta["submission_uuid_agt"] = resultado["submissionUUID"]
+        meta["estado_submetido"] = estado_envio
+        meta["submetido_em"] = timezone.now().isoformat()
+        doc.metadados = meta
+        doc.save(update_fields=['metadados'])
+        logger.info("Documento %s aceite pela AGT. RequestID: %s",
+                    doc.numero_documento, resultado["requestID"])
+        return {"success": True, "requestID": resultado["requestID"]}
+
     # ------------------------------------------------------------------
     # Montagem do nó "document"
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def _totais(doc) -> dict:
+        return {
+            "taxPayable": _f2(doc.valor_iva),
+            "netTotal": _f2(doc.valor_base),
+            "grossTotal": _f2(doc.valor_total),
+        }
+
+    def _verificar_coerencia(self, doc, totais):
+        """Avisa (não bloqueia) se as linhas não somam os totais do documento."""
+        try:
+            linhas = list(doc.linhas.all())
+        except Exception:
+            return
+        if not linhas:
+            return
+        net = sum((l.valor_liquido or 0) for l in linhas)
+        iva = sum((l.valor_iva_linha or 0) for l in linhas)
+        if abs(float(net) - totais["netTotal"]) > 0.05 or abs(float(iva) - totais["taxPayable"]) > 0.05:
+            logger.warning(
+                "Documento %s: totais incoerentes com as linhas "
+                "(linhas net=%.2f iva=%.2f | documento net=%.2f iva=%.2f). "
+                "A AGT pode rejeitar.", doc.numero_documento, net, iva,
+                totais["netTotal"], totais["taxPayable"],
+            )
+
     def _montar_document_node(self, doc, config):
-        """
-        Constrói o objecto `document` conforme Decreto Executivo 683/25 — Anexo I.
-        """
-        # --- Campos para jwsDocumentSignature (Decreto, Anexo I) ---
+        """Constrói o objecto `document` — Decreto Executivo 683/25, Anexo I."""
+        totais = self._totais(doc)
+        self._verificar_coerencia(doc, totais)
+
+        nif_cliente = doc.cliente_nif or "999999999"
+        nome_cliente = doc.cliente_nome or "Consumidor Final"
+
+        # Campos de jwsDocumentSignature, NA ORDEM do Anexo I.
         campos_assinatura = {
             "documentNo": doc.numero_documento,
             "taxRegistrationNumber": config.nif_contribuinte,
             "documentType": doc.tipo_documento,
             "documentDate": doc.data_emissao.isoformat(),
-            "customerTaxID": doc.cliente_nif or "999999999",
+            "customerTaxID": nif_cliente,
             "customerCountry": "AO",
-            "companyName": doc.cliente_nome or "Consumidor Final",
-            "documentTotals": {
-                "taxPayable": float(doc.valor_iva),
-                "netTotal": float(doc.valor_base),
-                "grossTotal": float(doc.valor_total),
-            },
+            "companyName": nome_cliente,
+            "documentTotals": dict(totais),
         }
         jws_doc_signature = AssinaturaDigitalService.assinar_documento(campos_assinatura)
 
-        # --- Estado do documento ---
         document_status = "A" if doc.status == "cancelled" else "N"
 
         node = {
@@ -154,46 +262,33 @@ class SubmissaoFaturaService:
                 settings, 'AGT_DEFAULT_EAC_CODE', '47110'),
             "systemEntryDate": doc.created_at.isoformat(),
             "customerCountry": "AO",
-            "customerTaxID": doc.cliente_nif or "999999999",
-            "companyName": doc.cliente_nome or "Consumidor Final",
-            "documentTotals": {
-                "taxPayable": float(doc.valor_iva),
-                "netTotal": float(doc.valor_base),
-                "grossTotal": float(doc.valor_total),
-            },
+            "customerTaxID": nif_cliente,
+            "companyName": nome_cliente,
+            "documentTotals": dict(totais),
         }
 
-        # --- documentCancelReason (obrigatório quando anulado) ---
         if document_status == "A":
-            motivo = getattr(doc, 'motivo_cancelamento_codigo', None) or "N"
-            node["documentCancelReason"] = motivo
+            node["documentCancelReason"] = (
+                getattr(doc, 'motivo_cancelamento_codigo', None) or "N")
 
-        # --- Currency (só quando moeda ≠ AOA) ---
         if doc.moeda and doc.moeda != "AOA":
+            taxa = doc.taxa_cambio or Decimal("1")
             node["documentTotals"]["currency"] = {
                 "currencyCode": doc.moeda,
-                "currencyAmount": float(
-                    doc.valor_total / doc.taxa_cambio if doc.taxa_cambio else doc.valor_total
-                ),
-                "exchangeRate": float(doc.taxa_cambio or 1),
+                "currencyAmount": _f2(Decimal(doc.valor_total or 0) / taxa),
+                "exchangeRate": float(taxa),
             }
 
-        # --- Linhas (obrigatório excepto para AR, RC, RG) ---
         tipos_sem_linhas = {"AR", "RC", "RG"}
-        if doc.tipo_documento not in tipos_sem_linhas:
-            node["lines"] = self._montar_linhas(doc)
-
-        # --- paymentReceipt (só para AR, RC, RG) ---
         if doc.tipo_documento in tipos_sem_linhas:
             node["paymentReceipt"] = self._montar_payment_receipt(doc)
+        else:
+            node["lines"] = self._montar_linhas(doc)
 
-        # --- withholdingTaxList ---
         retencoes = self._montar_retencoes(doc)
         if retencoes:
             node["withholdingTaxList"] = retencoes
-
         return node
-
 
     @staticmethod
     def _tax_code_api(taxa):
@@ -206,14 +301,10 @@ class SubmissaoFaturaService:
     
 
     def _montar_linhas(self, doc):
-        """Constrói o array `lines` a partir das linhas do DocumentoFiscal."""
-        from apps.fiscal.services.saft_mapping import mapear_withholding_tax_saft  # noqa — usado só para retenções
+        """Constrói `lines` a partir das DocumentoFiscalLinha."""
+        linhas_qs = list(doc.linhas.all().order_by('numero_linha')) if hasattr(doc, 'linhas') else []
 
-        linhas = []
-        # Tentar obter as linhas a partir do relacionamento correcto (DocumentoFiscalLinha)
-        linhas_qs = doc.linhas.all().order_by('numero_linha') if hasattr(doc, 'linhas') else []
-
-        # Fallback: se não há linhas directas, tentar via Venda ligada
+        # Fallback: documento sem linhas próprias -> Venda / FaturaCredito ligadas.
         if not linhas_qs:
             venda = getattr(doc, 'venda', None)
             if venda:
@@ -223,26 +314,28 @@ class SubmissaoFaturaService:
                 return self._montar_linhas_de_fatura(fatura, doc)
             return []
 
+        linhas = []
         for idx, linha in enumerate(linhas_qs, start=1):
+            qtd = Decimal(linha.quantidade or 0)
+            desconto_total = Decimal(linha.valor_desconto_linha or 0)
+            preco = Decimal(linha.preco_unitario or 0)
+            desconto_unit = (desconto_total / qtd) if qtd else Decimal("0")
+
             line_node = {
                 "lineNumber": idx,
                 "productCode": linha.codigo_produto,
                 "productDescription": linha.descricao,
-                "quantity": float(linha.quantidade),
+                "quantity": float(qtd),
                 "unitOfMeasure": getattr(linha, 'unidade', 'UN') or 'UN',
-                "unitPriceBase": round(float(linha.valor_unitario), 4),
-                "unitPrice": round(
-                    float(linha.valor_unitario - (linha.desconto_linha or 0)), 4
-                ),
-                "creditAmount": float(linha.valor_sem_iva),
-                "settlementAmount": float(self._calcular_settlement(linha, doc)),
+                "unitPriceBase": round(float(preco), 4),
+                "unitPrice": round(float(preco - desconto_unit), 4),
+                "creditAmount": _f2(linha.valor_liquido),
+                "settlementAmount": _f2(desconto_total),
                 "taxes": self._montar_impostos_linha(linha),
             }
-            # operationType (Decreto 683/25 — obrigatório)
-            if hasattr(linha, 'operation_type') and linha.operation_type:
+            if getattr(linha, 'operation_type', None):
                 line_node["operationType"] = linha.operation_type
 
-            # referenceInfo por linha (NC)
             if doc.tipo_documento == "NC":
                 ref = getattr(linha, 'referencia_documento_origem', None)
                 if ref:
@@ -250,9 +343,7 @@ class SubmissaoFaturaService:
                         "reference": ref,
                         "reason": getattr(linha, 'motivo_referencia', None) or "",
                     }
-
             linhas.append(line_node)
-
         return linhas
 
     def _montar_linhas_de_venda(self, venda, doc):
@@ -335,7 +426,7 @@ class SubmissaoFaturaService:
         return linhas
 
     def _montar_impostos_linha(self, linha):
-        """Constrói o array `taxes` de uma DocumentoFiscalLinha."""
+        """Constrói `taxes` de uma DocumentoFiscalLinha."""
         taxa = getattr(linha, 'taxa_iva', None)
         if not taxa:
             return []
@@ -344,26 +435,11 @@ class SubmissaoFaturaService:
             "taxCountryRegion": "AO",
             "taxCode": self._tax_code_api(taxa),
             "taxPercentage": float(taxa.tax_percentage or 0),
-            "taxContribution": float(getattr(linha, 'valor_iva', 0) or 0),
+            "taxContribution": _f2(getattr(linha, 'valor_iva_linha', 0)),
         }
         if float(taxa.tax_percentage or 0) == 0 and taxa.exemption_reason:
             tax_node["taxExemptionCode"] = taxa.exemption_reason
         return [tax_node]
-
-    def _calcular_settlement(self, linha, doc):
-        """
-        SettlementAmount por linha = desconto de linha +
-        proporção do desconto global (desconto_global * peso_linha_no_subtotal).
-        """
-        desconto_linha = float(getattr(linha, 'desconto_linha', 0) or 0)
-        subtotal_doc = float(getattr(doc, 'valor_base', 0) or 0)
-        desconto_global = float(getattr(doc, 'valor_desconto', 0) or 0)
-
-        if subtotal_doc > 0 and desconto_global > 0:
-            subtotal_linha = float(getattr(linha, 'valor_sem_iva', 0) or 0)
-            proporcao = subtotal_linha / subtotal_doc
-            return round(desconto_linha + desconto_global * proporcao, 4)
-        return round(desconto_linha, 4)
 
     def _calcular_settlement_venda(self, item, venda):
         """SettlementAmount para linhas de Venda."""
@@ -406,73 +482,21 @@ class SubmissaoFaturaService:
         return {"sourceDocuments": source_docs}
 
     def _montar_retencoes(self, doc):
-        """Constrói withholdingTaxList a partir das retenções do documento."""
+        """Constrói withholdingTaxList a partir das retenções da Venda ligada."""
         from apps.fiscal.services.saft_mapping import SAFT_WITHHOLDING_TAX_TYPE_MAP
 
-        retencoes = []
-        # Tenta obter retenções via Venda ligada
         venda = getattr(doc, 'venda', None)
-        if venda:
-            for ret in getattr(venda, 'retencoes', []):
-                tipo = SAFT_WITHHOLDING_TAX_TYPE_MAP.get(ret.tipo_retencao, ret.tipo_retencao)
-                retencoes.append({
-                    "withholdingTaxType": tipo,
-                    "withholdingTaxDescription": ret.codigo_tributario or "",
-                    "withholdingTaxAmount": float(ret.valor_retido),
-                })
+        if not venda:
+            return []
+        origem = getattr(venda, 'retencoes', None)
+        itens = origem.all() if hasattr(origem, 'all') else (origem or [])
+
+        retencoes = []
+        for ret in itens:
+            tipo = SAFT_WITHHOLDING_TAX_TYPE_MAP.get(ret.tipo_retencao, ret.tipo_retencao)
+            retencoes.append({
+                "withholdingTaxType": tipo,
+                "withholdingTaxDescription": ret.codigo_tributario or "",
+                "withholdingTaxAmount": _f2(ret.valor_retido),
+            })
         return retencoes
-
-    # ------------------------------------------------------------------
-    # Credenciais Basic Auth
-    # ------------------------------------------------------------------
-
-    def _obter_credenciais(self, config):
-        """
-        Lê as credenciais Basic Auth da AGT a partir de AssinaturaDigital.
-        A password está cifrada com AESService — decifrar antes de usar.
-        """
-        username = config.api_username
-        if not username:
-            raise FiscalServiceError(
-                "Username da API AGT não configurado. "
-                "Aceda a Configurações Fiscais e insira as credenciais emitidas pela AGT."
-            )
-        password_cifrada = config.api_password
-        if not password_cifrada:
-            raise FiscalServiceError(
-                "Password da API AGT não configurada. "
-                "Aceda a Configurações Fiscais e insira as credenciais emitidas pela AGT."
-            )
-        password = AESService.decrypt(password_cifrada)
-        return {"username": username, "password": password}
-
-    # ------------------------------------------------------------------
-    # Tratamento da resposta
-    # ------------------------------------------------------------------
-
-    def _tratar_resposta(self, response, doc):
-        if response.status_code == 200:
-            data = response.json()
-            request_id = data.get('requestID')
-            logger.info(f"Documento {doc.numero_documento} aceite pela AGT. RequestID: {request_id}")
-            # Guardar requestID nos metadados do DocumentoFiscal
-            if not doc.metadados:
-                doc.metadados = {}
-            doc.metadados['request_id_agt'] = request_id
-            doc.metadados['submetido_em'] = timezone.now().isoformat()
-            doc.save(update_fields=['metadados'])
-            return {"success": True, "requestID": request_id}
-        else:
-            logger.error(
-                f"Erro AGT na submissão de {doc.numero_documento}: "
-                f"HTTP {response.status_code} — {response.text[:500]}"
-            )
-            try:
-                erro_json = response.json()
-            except Exception:
-                erro_json = {"raw": response.text}
-            return {
-                "success": False,
-                "error": erro_json,
-                "code": response.status_code,
-            }

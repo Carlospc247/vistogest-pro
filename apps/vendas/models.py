@@ -1420,7 +1420,7 @@ class Recibo(TimeStampedModel):
 
         documento = service.criar_documento(
             empresa=connection.tenant,
-            tipo_documento="REC",
+            tipo_documento="RC",
             cliente=self.cliente,
             usuario=usuario,
             linhas=[],

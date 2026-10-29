@@ -58,8 +58,6 @@ def _backup_config():
 
 
 
-# apps/configuracoes/views.py
-
 from django.views.generic import TemplateView
 
 from .models import (

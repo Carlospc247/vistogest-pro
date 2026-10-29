@@ -1,49 +1,38 @@
 # apps/fiscal/services/saft_xml_generator_service.py
-"""
-Gerador de SAF-T AO 1.01_01 conforme:
-  - XSD: apps/fiscal/schemas/SAFTAO1.01_01.xsd
-  - Decreto Executivo 683/25 (Anexos I/II/III)
-  - Notificação AGT Ref: 0000497/01180000/AGT/2026
+"""Geração do SAF-T AO 1.01_01 usando os modelos reais do VistoGest Pro.
 
-Correcções aplicadas (vs. versão anterior):
-  5.1  SpecialRegimes obrigatório em cada Invoice/StockMovement/WorkDocument
-  5.2  Period (mês 1-12) obrigatório em todos os documentos
-  5.3  HashControl usa settings.AGT_SOFTWARE_VALIDATION_NUMBER
-  5.4  InvoiceType dinâmico (não hardcoded "FR")
-  5.5  Roteamento correcto por secção SAF-T
-  5.6  OrderReferences em faturas com pró-forma de origem
-  5.7  References em Notas de Crédito
-  5.8  TaxExemptionReason/Code correcto (a partir do modelo, não hardcoded)
-  5.9  _build_clientes com CustomerTaxID, SelfBillingIndicator, BillingAddress
-  5.10 Header: ProductCompanyTaxID, SoftwareValidationNumber, ProductID de settings
-  11   WithholdingTax exportado; SourceBilling correcto; TotalDebit/Credit correcto
+O ficheiro é produzido como bytes UTF-8; a vista chama SaftValidacaoService
+antes de permitir o download. Identificadores fiscais nunca são inventados
+para forçar a passagem no XSD.
 """
+import logging
+import re
 import xml.etree.ElementTree as ET
+from datetime import date, datetime
 from decimal import Decimal, ROUND_UP, ROUND_HALF_UP
+
 from django.conf import settings
 from django.db.models import Sum
 from django.utils import timezone
 
-from apps.fiscal.models import (
-    TaxaIVAAGT, AssinaturaDigital, DocumentoFiscal, RetencaoFonte,
-)
-from apps.vendas.models import (
-    Venda, FaturaCredito, Recibo, FaturaProforma,
-    NotaCredito, NotaDebito, DocumentoTransporte,
-)
+from apps.fiscal.models import TaxaIVAAGT, DocumentoFiscal, RetencaoFonte
 from apps.clientes.models import Cliente
 from apps.produtos.models import Produto
 from apps.servicos.models import Servico
 from .saft_mapping import mapear_withholding_tax_saft
 
+logger = logging.getLogger("fiscal.saft_xml_generator")
 
-# ---------------------------------------------------------------------------
-# Mapeamento tipo_documento → secção SAF-T
-# ---------------------------------------------------------------------------
-SALES_INVOICES_TYPES = {"FT", "FR", "GF", "FG", "AC", "AR", "AF", "TV", "ND", "NC", "FA", "RP", "RE", "CS", "LD", "RA"}
-MOVEMENT_TYPES       = {"DT", "GT"}   # Guias de remessa / transporte
-WORKING_DOC_TYPES    = {"FP", "OR"}   # Pró-formas / orçamentos
-PAYMENT_TYPES        = {"RC", "RG"}   # Recibos
+
+SALES_INVOICES_TYPES = {
+    "FT", "FR", "GF", "FG", "AC", "AR", "AF", "TV",
+    "ND", "NC", "FA", "RP", "RE", "CS", "LD", "RA",
+}
+MOVEMENT_TYPES = {"DT", "GT"}
+WORKING_DOC_TYPES = {"FP", "OR"}
+PAYMENT_TYPES = {"RC", "RG"}
+
+
 
 
 class SaftXmlGeneratorService:
@@ -56,11 +45,75 @@ class SaftXmlGeneratorService:
     """
 
     def __init__(self, empresa, data_inicio, data_fim):
+        if empresa is None:
+            raise ValueError("A empresa é obrigatória para gerar o SAF-T.")
+
         self.empresa = empresa
-        self.data_inicio = data_inicio
-        self.data_fim = data_fim
+        self.data_inicio = self._as_date(data_inicio, "data_inicio")
+        self.data_fim = self._as_date(data_fim, "data_fim")
+
+        if self.data_inicio > self.data_fim:
+            raise ValueError("A data inicial não pode ser posterior à data final.")
+
         self.ns = "urn:OECD:StandardAuditFile-Tax:AO_1.01_01"
         ET.register_namespace('', self.ns)
+
+    @staticmethod
+    def _as_date(value, field_name):
+        """Normaliza date/datetime sem perder datas nem horas de forma ambígua."""
+        if isinstance(value, datetime):
+            if timezone.is_aware(value):
+                return timezone.localtime(value).date()
+            return value.date()
+        if isinstance(value, date):
+            return value
+        raise TypeError(f"{field_name} deve ser datetime.date ou datetime.datetime.")
+
+    @staticmethod
+    def _validar_nif_ao(valor, descricao):
+        """Valida um NIF angolano sem fabricar dígitos para completar o valor."""
+        nif = str(valor or "").strip()
+        if not re.fullmatch(r"\d{10}", nif):
+            comprimento = len(nif)
+            raise ValueError(
+                f"{descricao} inválido: deve conter exactamente 10 dígitos; "
+                f"foram encontrados {comprimento}. Corrija o cadastro/configuração "
+                "antes de gerar o SAF-T."
+            )
+        return nif
+
+    def _obter_nif_produtor_software(self):
+        """Obtém o NIF fiscal real do produtor de software a partir das settings."""
+        valor = (
+            getattr(settings, "AGT_PRODUCT_COMPANY_TAX_ID", None)
+            or getattr(settings, "AGT_PRODUCER_NIF", None)
+            or getattr(settings, "PRODUCT_COMPANY_TAX_ID", None)
+        )
+        if not valor:
+            raise ValueError(
+                "Configure AGT_PRODUCER_NIF (NIF do produtor do software) "
+                "nas definições do Django antes de gerar o SAF-T."
+            )
+        return self._validar_nif_ao(valor, "NIF do produtor do software")
+
+    def _documentos_periodo(self):
+        """Filtra pelo período completo, incluindo o último dia quando há horas."""
+        from django.db.models import DateTimeField
+
+        try:
+            field = DocumentoFiscal._meta.get_field("data_emissao")
+        except Exception as exc:
+            raise RuntimeError(
+                "O modelo DocumentoFiscal não possui o campo data_emissao esperado."
+            ) from exc
+
+        qs = DocumentoFiscal.objects.all()
+        if isinstance(field, DateTimeField):
+            return qs.filter(
+                data_emissao__date__gte=self.data_inicio,
+                data_emissao__date__lte=self.data_fim,
+            )
+        return qs.filter(data_emissao__range=(self.data_inicio, self.data_fim))
 
     # ------------------------------------------------------------------
     # Helpers de formatação
@@ -129,42 +182,102 @@ class SaftXmlGeneratorService:
     def _build_header(self, parent):
         h = ET.SubElement(parent, self._e("Header"))
 
-        self._sub(h, "AuditFileVersion", "1.01_01")
-        self._sub(h, "CompanyID", self.empresa.nif or "")
-        self._sub(h, "TaxRegistrationNumber", self.empresa.nif or "")
-        self._sub(h, "TaxAccountingBasis", "F")   # F = Facturação
-        self._sub(h, "CompanyName", self.empresa.nome or "")
+        nif_empresa = self._validar_nif_ao(
+            getattr(self.empresa, "nif", None),
+            "NIF da empresa emitente (Empresa.nif)",
+        )
+        nif_produtor = self._obter_nif_produtor_software()
+        nome_empresa = str(getattr(self.empresa, "nome", "") or "").strip()
+        if not nome_empresa:
+            raise ValueError("A empresa emitente não tem nome cadastrado.")
 
-        # Endereço (AddressStructureAO: Country fixo "AO")
+        self._sub(h, "AuditFileVersion", "1.01_01")
+        self._sub(h, "CompanyID", nif_empresa)
+        self._sub(h, "TaxRegistrationNumber", nif_empresa)
+        self._sub(h, "TaxAccountingBasis", "F")
+        self._sub(h, "CompanyName", nome_empresa[:200])
+
+        # O modelo Empresa contém endereco, numero, bairro, cidade e provincia.
+        partes_endereco = [
+            getattr(self.empresa, "endereco", ""),
+            getattr(self.empresa, "numero", ""),
+            getattr(self.empresa, "bairro", ""),
+        ]
+        endereco = ", ".join(str(parte).strip() for parte in partes_endereco if str(parte or "").strip())
         addr = ET.SubElement(h, self._e("CompanyAddress"))
-        self._sub(addr, "AddressDetail", getattr(self.empresa, 'endereco', '') or "Luanda")
-        self._sub(addr, "City", getattr(self.empresa, 'cidade', '') or "Luanda")
+        self._sub(addr, "AddressDetail", endereco or "Luanda")
+        self._sub(addr, "City", getattr(self.empresa, "cidade", "") or "Luanda")
         self._sub(addr, "Country", "AO")
 
         self._sub(h, "FiscalYear", str(self.data_inicio.year))
-        self._sub(h, "StartDate", self.data_inicio.strftime("%Y-%m-%d"))
-        self._sub(h, "EndDate", self.data_fim.strftime("%Y-%m-%d"))
+        self._sub(h, "StartDate", self.data_inicio.isoformat())
+        self._sub(h, "EndDate", self.data_fim.isoformat())
         self._sub(h, "CurrencyCode", "AOA")
-        self._sub(h, "DateCreated", timezone.now().strftime("%Y-%m-%d"))
-        self._sub(h, "TaxEntity", "Global")
+        self._sub(h, "DateCreated", timezone.localdate().isoformat())
+        self._sub(h, "TaxEntity", getattr(self.empresa, "estabelecimento", None) or "Global")
 
-        # Dados do produtor de software (SOTARQ)
+        self._sub(h, "ProductCompanyTaxID", nif_produtor)
+        
+        # Número de validação do software.
         self._sub(
-            h, "ProductCompanyTaxID",
-            getattr(settings, "AGT_PRODUCT_COMPANY_TAX_ID", "5002764377"),
+            h,
+            "SoftwareValidationNumber",
+            getattr(settings, "AGT_SOFTWARE_VALIDATION_NUMBER", None)
+            or getattr(settings, "SOFTWARE_VALIDATION_NUMBER", None)
+            or "0",
         )
+
+        # ProductID: nome do software / nome do produtor.
+        product_id = (
+            getattr(settings, "AGT_PRODUCT_ID", None)
+            or getattr(settings, "AGT_SOFTWARE_PRODUCT_ID", None)
+            or getattr(settings, "ERP_PRODUCT_ID", None)
+        )
+
+        # Valores predefinidos utilizados apenas se não houver configuração.
+        if not product_id:
+            nome_software = (
+                getattr(settings, "AGT_SOFTWARE_NAME", None)
+                or "VistoGest Pro"
+            )
+            nome_produtor = (
+                getattr(settings, "AGT_PRODUCT_COMPANY_NAME", None)
+                or "SOTARQ SOFTWARE"
+            )
+            product_id = f"{nome_software}/{nome_produtor}"
+
+        product_id = str(product_id).strip()
+        partes_product_id = product_id.split("/")
+
+        if (
+            len(partes_product_id) != 2
+            or not partes_product_id[0].strip()
+            or not partes_product_id[1].strip()
+            or not 3 <= len(product_id) <= 255
+        ):
+            raise ValueError(
+                "ProductID SAF-T inválido. Configure AGT_PRODUCT_ID "
+                "no formato 'Nome do software/Nome do produtor'. "
+                "Exemplo: 'VistoGest Pro/SOTARQ SOFTWARE'."
+            )
+
+        self._sub(h, "ProductID", product_id)
+
+        # Versão do software.
         self._sub(
-            h, "SoftwareValidationNumber",
-            getattr(settings, "AGT_SOFTWARE_VALIDATION_NUMBER", "0"),
+            h,
+            "ProductVersion",
+            getattr(settings, "AGT_SOFTWARE_PRODUCT_VERSION", None)
+            or getattr(settings, "ERP_PRODUCT_VERSION", None)
+            or "1.0.0",
         )
-        self._sub(
-            h, "ProductID",
-            getattr(settings, "AGT_PRODUCT_ID", "VistoGest Pro/SOTARQ Software"),
-        )
-        self._sub(
-            h, "ProductVersion",
-            getattr(settings, "AGT_SOFTWARE_PRODUCT_VERSION", "1.0.0"),
-        )
+
+        telefone = str(getattr(self.empresa, "telefone", "") or "").strip()
+        email = str(getattr(self.empresa, "email", "") or "").strip()
+        if telefone:
+            self._sub(h, "Telephone", telefone[:20])
+        if email:
+            self._sub(h, "Email", email[:255])
 
     # ------------------------------------------------------------------
     # MasterFiles — Clientes
@@ -226,22 +339,40 @@ class SaftXmlGeneratorService:
     # ------------------------------------------------------------------
 
     def _build_fornecedores(self, parent):
-        try:
-            from apps.fornecedores.models import Fornecedor
-            fornecedores = Fornecedor.objects.all()[:200]
-            for forn in fornecedores:
-                s = ET.SubElement(parent, self._e("Supplier"))
-                self._sub(s, "SupplierID", str(forn.id))
-                self._sub(s, "AccountID", "Desconhecido")
-                self._sub(s, "SupplierTaxID", (forn.nif or "000000000")[:20])
-                self._sub(s, "CompanyName", str(forn)[:200])
-                addr = ET.SubElement(s, self._e("BillingAddress"))
-                self._sub(addr, "AddressDetail", "Luanda")
-                self._sub(addr, "City", "Luanda")
-                self._sub(addr, "Country", "AO")
-                self._sub(s, "SelfBillingIndicator", "0")
-        except Exception:
-            pass  # Fornecedores são opcionais no SAF-T de facturação
+        """Exporta fornecedores com os campos reais do modelo Fornecedor."""
+        from apps.fornecedores.models import Fornecedor
+
+        fornecedores = Fornecedor.objects.all().order_by("pk")[:200]
+        for forn in fornecedores:
+            # O modelo usa nif_bi (não existe um campo forn.nif).
+            tax_id = str(getattr(forn, "nif_bi", "") or "").strip()
+            if not tax_id:
+                # Não inventar NIFs nem criar nós Supplier incompletos.
+                logger.warning(
+                    "Fornecedor %s omitido do SAF-T: NIF/BI não preenchido.",
+                    getattr(forn, "pk", "desconhecido"),
+                )
+                continue
+
+            supplier = ET.SubElement(parent, self._e("Supplier"))
+            self._sub(supplier, "SupplierID", str(forn.pk))
+            self._sub(supplier, "AccountID", "Desconhecido")
+            self._sub(supplier, "SupplierTaxID", tax_id[:20])
+            self._sub(
+                supplier,
+                "CompanyName",
+                str(getattr(forn, "nome_exibicao", None) or getattr(forn, "razao_social", None) or forn)[:200],
+            )
+
+            address = ET.SubElement(supplier, self._e("BillingAddress"))
+            self._sub(
+                address,
+                "AddressDetail",
+                str(getattr(forn, "endereco_completo", None) or getattr(forn, "endereco", "") or "Luanda")[:250],
+            )
+            self._sub(address, "City", str(getattr(forn, "cidade", "") or "Luanda")[:50])
+            self._sub(address, "Country", "AO")
+            self._sub(supplier, "SelfBillingIndicator", "0")
 
     # ------------------------------------------------------------------
     # MasterFiles — Produtos
@@ -292,8 +423,7 @@ class SaftXmlGeneratorService:
 
     def _build_sales_invoices(self, parent):
         # Recolhe todos os DocumentoFiscal do período cujo tipo vai nesta secção
-        docs = DocumentoFiscal.objects.filter(
-            data_emissao__range=(self.data_inicio, self.data_fim),
+        docs = self._documentos_periodo().filter(
             tipo_documento__in=SALES_INVOICES_TYPES,
         ).order_by("tipo_documento", "serie", "numero")
 
@@ -417,7 +547,7 @@ class SaftXmlGeneratorService:
             self._sub(ln, "ProductDescription", (linha.descricao or "")[:200])
             self._sub(ln, "Quantity", str(linha.quantidade))
             self._sub(ln, "UnitOfMeasure", getattr(linha, "unidade", "UN") or "UN")
-            self._sub(ln, "UnitPrice", self._fmt_unit(linha.valor_unitario))
+            self._sub(ln, "UnitPrice", self._fmt_unit(linha.preco_unitario))
             self._sub(ln, "TaxPointDate", doc.data_emissao.strftime("%Y-%m-%d"))
 
             # References (ponto 5.7 — só em NC)
@@ -428,15 +558,15 @@ class SaftXmlGeneratorService:
 
             # DebitAmount / CreditAmount
             if doc.tipo_documento in {"NC", "ND"}:
-                self._sub(ln, "DebitAmount", self._fmt(linha.valor_sem_iva))
+                self._sub(ln, "DebitAmount", self._fmt(linha.valor_liquido))
             else:
-                self._sub(ln, "CreditAmount", self._fmt(linha.valor_sem_iva))
+                self._sub(ln, "CreditAmount", self._fmt(linha.valor_liquido))
 
             # Tax
             self._build_tax_linha(ln, linha)
 
             # SettlementAmount (desconto de linha + proporção do global)
-            self._sub(ln, "SettlementAmount", self._fmt_unit(
+            self._sub(ln, "SettlementAmount", self._fmt(
                 self._settlement_linha(linha, doc)
             ))
 
@@ -487,7 +617,7 @@ class SaftXmlGeneratorService:
                 if float(item.taxa_iva.tax_percentage or 0) == 0:
                     code = item.taxa_iva.exemption_reason or "M02"
                     self._sub(ln, "TaxExemptionReason",
-                               dict(item.taxa_iva.TAX_EXEMPTION_REASON_CHOICES).get(code, code))
+                               dict(getattr(item.taxa_iva, "TAX_EXEMPTION_REASON_CHOICES", [])).get(code, code))
                     self._sub(ln, "TaxExemptionCode", code)
 
             # SettlementAmount
@@ -495,7 +625,7 @@ class SaftXmlGeneratorService:
             subtotal_linha = float(item.subtotal_sem_iva or (item.preco_unitario * item.quantidade))
             proporcao = subtotal_linha / subtotal_doc if subtotal_doc > 0 else 0
             settlement = desconto_linha + desconto_global * proporcao
-            self._sub(ln, "SettlementAmount", self._fmt_unit(settlement))
+            self._sub(ln, "SettlementAmount", self._fmt(settlement))
 
     def _build_lines_from_fatura(self, parent, fatura, doc):
         desconto_global = float(fatura.desconto_valor or 0)
@@ -535,13 +665,13 @@ class SaftXmlGeneratorService:
                 if float(item.taxa_iva.tax_percentage or 0) == 0:
                     code = item.taxa_iva.exemption_reason or "M02"
                     self._sub(ln, "TaxExemptionReason",
-                               dict(item.taxa_iva.TAX_EXEMPTION_REASON_CHOICES).get(code, code))
+                               dict(getattr(item.taxa_iva, "TAX_EXEMPTION_REASON_CHOICES", [])).get(code, code))
                     self._sub(ln, "TaxExemptionCode", code)
 
             desconto_linha = float(item.desconto_item or 0)
             subtotal_linha = float(item.subtotal or (item.preco_unitario * item.quantidade))
             proporcao = subtotal_linha / subtotal_doc if subtotal_doc > 0 else 0
-            self._sub(ln, "SettlementAmount", self._fmt_unit(
+            self._sub(ln, "SettlementAmount", self._fmt(
                 desconto_linha + desconto_global * proporcao
             ))
 
@@ -562,7 +692,7 @@ class SaftXmlGeneratorService:
         if float(taxa.tax_percentage or 0) == 0:
             code = taxa.exemption_reason or "M02"
             self._sub(parent, "TaxExemptionReason",
-                       dict(taxa.TAX_EXEMPTION_REASON_CHOICES).get(code, code))
+                       dict(getattr(taxa, "TAX_EXEMPTION_REASON_CHOICES", [])).get(code, code))
             self._sub(parent, "TaxExemptionCode", code)
 
     def _build_order_references(self, parent, doc):
@@ -611,30 +741,34 @@ class SaftXmlGeneratorService:
                 self._sub(ref_el, "Reason", str(motivo)[:50])
 
     def _settlement_linha(self, linha, doc):
-        """SettlementAmount = desconto linha + proporção desconto global."""
-        desconto_linha = float(getattr(linha, "desconto_linha", 0) or 0)
-        desconto_global = float(getattr(doc, "valor_desconto", 0) or 0)
-        subtotal_doc = float(getattr(doc, "valor_base", 1) or 1)
-        subtotal_linha = float(getattr(linha, "valor_sem_iva", 0) or 0)
-        proporcao = subtotal_linha / subtotal_doc if subtotal_doc > 0 else 0
-        return desconto_linha + desconto_global * proporcao
+        """Retorna o desconto real da linha usando os nomes do modelo fiscal."""
+        desconto = getattr(linha, "valor_desconto_linha", None)
+        if desconto is None:
+            desconto = getattr(linha, "desconto_linha", None)
+        return Decimal(str(desconto or "0.00"))
 
     def _build_withholding_tax(self, parent, doc):
         """WithholdingTax: exporta retenções via saft_mapping."""
-        # Tenta via RetencaoFonte relacionada com a venda
-        venda = getattr(doc, "venda", None)
-        if not venda:
-            return
-        for ret in RetencaoFonte.objects.filter(fornecedor__isnull=True)[:0]:
-            # Placeholder — retenções de venda não têm modelo directo ainda
-            pass
-        # Se a venda tiver retenções anotadas nos metadados do DocumentoFiscal:
-        retencoes = (doc.metadados or {}).get("retencoes", [])
+        # As retenções exportáveis são as que estão registadas nos metadados
+        # do documento. Não assumir que todos os documentos têm relação Venda.
+        metadados = getattr(doc, "metadados", None) or {}
+        retencoes = metadados.get("retencoes", []) if isinstance(metadados, dict) else []
         for ret in retencoes:
+            if not isinstance(ret, dict):
+                logger.warning(
+                    "Entrada de retenção ignorada no documento %s: formato inválido.",
+                    getattr(doc, "pk", "desconhecido"),
+                )
+                continue
             tipo = ret.get("tipo_retencao", "")
             try:
                 tipo_saft = mapear_withholding_tax_saft(tipo)
-            except Exception:
+            except (ValueError, KeyError) as exc:
+                logger.warning(
+                    "Retenção omitida do SAF-T: tipo de retenção %r não mapeado (%s).",
+                    tipo,
+                    exc,
+                )
                 continue
             wt = ET.SubElement(parent, self._e("WithholdingTax"))
             self._sub(wt, "WithholdingTaxType", tipo_saft)
@@ -647,8 +781,7 @@ class SaftXmlGeneratorService:
     # ------------------------------------------------------------------
 
     def _build_movement_of_goods(self, parent):
-        docs = DocumentoFiscal.objects.filter(
-            data_emissao__range=(self.data_inicio, self.data_fim),
+        docs = self._documentos_periodo().filter(
             tipo_documento__in=MOVEMENT_TYPES,
         ).order_by("data_emissao", "numero")
 
@@ -717,9 +850,9 @@ class SaftXmlGeneratorService:
             self._sub(ln, "ProductDescription", (linha.descricao or "")[:200])
             self._sub(ln, "Quantity", str(linha.quantidade))
             self._sub(ln, "UnitOfMeasure", getattr(linha, "unidade", "UN") or "UN")
-            self._sub(ln, "UnitPrice", self._fmt_unit(linha.valor_unitario))
+            self._sub(ln, "UnitPrice", self._fmt_unit(linha.preco_unitario))
             self._sub(ln, "Description", (linha.descricao or "")[:200])
-            self._sub(ln, "CreditAmount", self._fmt(linha.valor_sem_iva))
+            self._sub(ln, "CreditAmount", self._fmt(linha.valor_liquido))
 
         # DocumentTotals
         totals = ET.SubElement(sm, self._e("DocumentTotals"))
@@ -732,8 +865,7 @@ class SaftXmlGeneratorService:
     # ------------------------------------------------------------------
 
     def _build_working_documents(self, parent):
-        docs = DocumentoFiscal.objects.filter(
-            data_emissao__range=(self.data_inicio, self.data_fim),
+        docs = self._documentos_periodo().filter(
             tipo_documento__in=WORKING_DOC_TYPES,
         ).order_by("data_emissao", "numero")
 
@@ -785,13 +917,13 @@ class SaftXmlGeneratorService:
             self._sub(ln, "ProductDescription", (linha.descricao or "")[:200])
             self._sub(ln, "Quantity", str(linha.quantidade))
             self._sub(ln, "UnitOfMeasure", getattr(linha, "unidade", "UN") or "UN")
-            self._sub(ln, "UnitPrice", self._fmt_unit(linha.valor_unitario))
+            self._sub(ln, "UnitPrice", self._fmt_unit(linha.preco_unitario))
             self._sub(ln, "TaxPointDate", doc.data_emissao.strftime("%Y-%m-%d"))
             self._sub(ln, "Description", (linha.descricao or "")[:200])
-            self._sub(ln, "CreditAmount", self._fmt(linha.valor_sem_iva))
+            self._sub(ln, "CreditAmount", self._fmt(linha.valor_liquido))
             self._build_tax_linha(ln, linha)
             self._sub(ln, "SettlementAmount",
-                      self._fmt_unit(self._settlement_linha(linha, doc)))
+                      self._fmt(self._settlement_linha(linha, doc)))
 
         # DocumentTotals
         totals = ET.SubElement(wd, self._e("DocumentTotals"))
@@ -804,8 +936,7 @@ class SaftXmlGeneratorService:
     # ------------------------------------------------------------------
 
     def _build_payments(self, parent):
-        docs = DocumentoFiscal.objects.filter(
-            data_emissao__range=(self.data_inicio, self.data_fim),
+        docs = self._documentos_periodo().filter(
             tipo_documento__in=PAYMENT_TYPES,
         ).order_by("data_emissao", "numero")
 

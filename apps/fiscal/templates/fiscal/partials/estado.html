@@ -1,6 +1,17 @@
-{% with estado=estado|default:obj.estado|default:obj.status|default:"—" %}
-  {% if estado == "confirmado" or estado == "confirmada" or estado == "CONFIRMED" or estado == "posted" or estado == "enviado" %}<span class="badge success">{{ estado|capfirst }}</span>
-  {% elif estado == "rascunho" or estado == "draft" or estado == "pendente" or estado == "PROCESSING" %}<span class="badge warning">{{ estado|capfirst }}</span>
-  {% elif estado == "cancelado" or estado == "cancelada" or estado == "cancelled" or estado == "falhou" or estado == "falha" %}<span class="badge danger">{{ estado|capfirst }}</span>
-  {% else %}<span class="badge info">{{ estado|capfirst }}</span>{% endif %}
-{% endwith %}
+{% firstof estado obj.status obj.estado "Não definido" as estado_visual %}
+
+{% if estado_visual == "confirmed" or estado_visual == "confirmado" or estado_visual == "confirmada" or estado_visual == "posted" or estado_visual == "enviado" or estado_visual == "paid" or estado_visual == "pago" or estado_visual == "paga" %}
+    <span class="badge success">{{ estado_visual|capfirst }}</span>
+
+{% elif estado_visual == "draft" or estado_visual == "rascunho" or estado_visual == "pendente" or estado_visual == "PROCESSING" %}
+    <span class="badge warning">{{ estado_visual|capfirst }}</span>
+
+{% elif estado_visual == "cancelled" or estado_visual == "cancelado" or estado_visual == "cancelada" or estado_visual == "falhou" or estado_visual == "falha" %}
+    <span class="badge danger">{{ estado_visual|capfirst }}</span>
+
+{% elif estado_visual == "rectified" or estado_visual == "retificado" or estado_visual == "rectificada" %}
+    <span class="badge info">{{ estado_visual|capfirst }}</span>
+
+{% else %}
+    <span class="badge info">{{ estado_visual|capfirst }}</span>
+{% endif %}

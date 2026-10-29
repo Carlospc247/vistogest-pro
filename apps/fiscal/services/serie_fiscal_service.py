@@ -2,12 +2,16 @@
 """
 SerieFiscalService — gestão das séries de numeração junto da AGT.
 
-Implementa os dois serviços do Decreto Executivo 683/25 / Portal do Parceiro:
+Implementa os dois serviços do Portal do Parceiro:
   - solicitarSerie  → criar série na AGT e persistir em SerieFiscalAGT
   - listarSeries    → sincronizar séries da AGT com o modelo local
 
 Isolamento físico: não recebe `empresa` como parâmetro — lê AssinaturaDigital
 do schema/tenant activo.
+
+Toda a comunicação HTTP (Basic Auth do produtor, envelope, assinatura e retry)
+está no AGTClient; este serviço só persiste o resultado em SerieFiscalAGT /
+ContadorDocumento.
 
 Regras críticas (Portal do Parceiro AGT):
   - De 1 Jan a 15 Dez: só pode criar série para o ano corrente.
@@ -15,25 +19,26 @@ Regras críticas (Portal do Parceiro AGT):
   - seriesCode deve conter o ano com 2 ou 4 dígitos.
   - establishmentNumber: estabelecimento registado no Portal do Contribuinte.
   - O mesmo software (softwareValidationNumber) que cria a série deve usá-la.
+
+AGT_BASE_URL_* deve terminar em /sigt/fe/v1, por exemplo:
+  https://sifphml.minfin.gov.ao/sigt/fe/v1   (homologação)
+  https://sifp.minfin.gov.ao/sigt/fe/v1      (produção)
 """
 
 import logging
-import re
-import uuid
-from datetime import date
+from datetime import date, datetime
 from typing import Any, Dict, List, Optional, Tuple
 
-import requests
-from django.conf import settings
 from django.db import transaction
-from django.utils import timezone
+from django.db.models import Max
 
-from apps.fiscal.models import AssinaturaDigital, ContadorDocumento, SerieFiscalAGT
-from apps.fiscal.services.assinatura_service import (
-    AssinaturaDigitalService,
-    AssinaturaSoftwareService,
+from apps.fiscal.models import (
+    AssinaturaDigital,
+    ContadorDocumento,
+    DocumentoFiscal,
+    SerieFiscalAGT,
 )
-from apps.fiscal.utility.crypto import AESService
+from apps.fiscal.services.agt_client import AGTClient
 from .utils import FiscalServiceError
 
 logger = logging.getLogger('fiscal.serie')
@@ -44,123 +49,112 @@ class SerieFiscalService:
     Gere séries de numeração junto da API da AGT e no modelo local.
     """
 
-    def __init__(self):
-        if settings.AGT_ENVIRONMENT == 'PRODUCTION':
-            self._url_solicitar = f"{settings.AGT_BASE_URL_PRODUCAO}/solicitarSerie"
-            self._url_listar    = f"{settings.AGT_BASE_URL_PRODUCAO}/listarSeries"
-        else:
-            self._url_solicitar = f"{settings.AGT_BASE_URL_HOMOLOGACAO}/solicitarSerie"
-            self._url_listar    = f"{settings.AGT_BASE_URL_HOMOLOGACAO}/listarSeries"
+    def __init__(self, client: Optional[AGTClient] = None):
+        # AGTClient valida o ambiente (HOMOLOGACAO/PRODUCTION) e a URL HTTPS.
+        self.client = client or AGTClient()
+        self.ambiente = self.client.ambiente
+        self.base_url = self.client.base_url
 
     # ─────────────────────────────────────────────────────────────────────
     # API pública
     # ─────────────────────────────────────────────────────────────────────
 
-    @transaction.atomic
     def solicitar_serie(
         self,
         document_type: str,
         series_year: int,
-        series_code: str,
-        establishment_number: str = 'SEDE',
+        establishment_number: str = "SEDE",
         contingency: bool = False,
     ) -> SerieFiscalAGT:
-        """
-        Cria uma nova série junto da AGT e persiste o resultado.
+        """Solicita uma série à AGT e guarda o código efectivamente devolvido."""
+        document_type = (document_type or "").strip().upper()
+        establishment_number = (establishment_number or "").strip()
 
-        Args:
-            document_type:        Código do tipo de documento (ex.: 'FT', 'NC').
-            series_year:          Ano da série (ex.: 2025).
-            series_code:          Código proposto (deve conter o ano).
-            establishment_number: Estabelecimento registado no Portal.
-            contingency:          True para série de contingência.
+        tipos_agt = {
+            "FA", "FT", "FR", "FG", "GF", "AC", "AR", "TV", "RC",
+            "RG", "RE", "ND", "NC", "AF", "RP", "RA", "CS", "LD",
+        }
+        if document_type not in tipos_agt:
+            raise FiscalServiceError(
+                f"Tipo de documento AGT inválido: {document_type or '(vazio)'}."
+            )
+        if not establishment_number:
+            raise FiscalServiceError(
+                "Indique o estabelecimento que está registado no Portal do Contribuinte AGT."
+            )
 
-        Returns:
-            SerieFiscalAGT criada/actualizada.
-
-        Raises:
-            FiscalServiceError: erro de validação ou de comunicação com a AGT.
-        """
-        # 1. Validações locais antes de chamar a API
         SerieFiscalAGT.validar_ano_serie(series_year)
+        contingency_indicator = "C" if contingency else "N"
+
+        resultado = self.client.solicitar_serie(
+            document_type=document_type,
+            series_year=series_year,
+            establishment_number=establishment_number,
+            contingency=contingency,
+        )
+        # O código oficial vem da resposta AGT, nunca do formulário local.
+        series_code = str(resultado.get("seriesCode") or "").strip()
+        if not series_code:
+            raise FiscalServiceError(
+                "A AGT respondeu sem seriesFEResult.seriesCode. A série não foi guardada."
+            )
         self._validar_series_code(series_code, series_year)
 
-        config = self._obter_config()
-
-        # 2. Montar payload de assinatura da requisição
-        contingency_indicator = 'C' if contingency else 'N'
-        payload_assinatura = {
-            "taxRegistrationNumber": config.nif_contribuinte,
-            "seriesYear": str(series_year),
-            "documentType": document_type,
-            "establishmentNumber": establishment_number,
-            "seriesContingencyIndicator": contingency_indicator,
-        }
-        jws_signature = AssinaturaDigitalService.assinar_requisicao(payload_assinatura)
-
-        # 3. Montar payload completo
-        submission_uuid = str(uuid.uuid4())
-        payload = {
-            "schemaVersion": "2.0",
-            "submissionUUID": submission_uuid,
-            "taxRegistrationNumber": config.nif_contribuinte,
-            "submissionTimeStamp": timezone.now().isoformat(),
-            "softwareInfo": AssinaturaSoftwareService.montar_software_info(),
-            "seriesYear": series_year,
-            "documentType": document_type,
-            "establishmentNumber": establishment_number,
-            "jwsSignature": jws_signature,
-            "seriesContingencyIndicator": contingency_indicator,
-        }
-
-        # 4. Chamada à API AGT
-        credenciais = self._obter_credenciais(config)
-        logger.info(
-            "Solicitando série à AGT: type=%s, year=%s, code=%s",
-            document_type, series_year, series_code,
-        )
         try:
-            resp = requests.post(
-                self._url_solicitar,
-                json=payload,
-                auth=(credenciais['username'], credenciais['password']),
-                timeout=45,
+            primeiro = int(str(resultado.get("firstDocumentNo", "")).strip())
+            quantidade = int(str(resultado.get("authorizedQuantity", "")).strip())
+            ultimo_raw = resultado.get("lastDocumentNo")
+            ultimo = (
+                int(str(ultimo_raw).strip())
+                if ultimo_raw not in (None, "")
+                else primeiro + quantidade - 1
             )
-        except requests.RequestException as e:
-            raise FiscalServiceError(f"Falha de rede ao contactar AGT (solicitarSerie): {e}")
+        except (TypeError, ValueError) as exc:
+            raise FiscalServiceError(
+                "A resposta da AGT não contém firstDocumentNo/authorizedQuantity válidos."
+            ) from exc
 
-        resultado = self._tratar_resposta_solicitar(resp, series_code)
+        if primeiro < 1 or quantidade < 1 or ultimo < primeiro:
+            raise FiscalServiceError(
+                "A AGT devolveu limites de numeração inválidos; a série não foi guardada."
+            )
 
-        # 5. Persistir em SerieFiscalAGT
-        serie, created = SerieFiscalAGT.objects.update_or_create(
-            series_code=series_code,
-            series_year=series_year,
-            document_type=document_type,
-            defaults={
-                'series_status': SerieFiscalAGT.STATUS_ABERTA,
-                'invoicing_method': SerieFiscalAGT.METODO_FESF,
-                'contingency_indicator': contingency_indicator,
-                'establishment_number': establishment_number,
-                'first_document_no': resultado.get('firstDocumentNo', '1'),
-                'last_document_no': resultado.get('lastDocumentNo', ''),
-                'authorized_quantity': str(resultado.get('authorizedQuantity', '')),
-                'series_creation_date': date.today(),
-            },
-        )
+        with transaction.atomic():
+            serie, criada = SerieFiscalAGT.objects.update_or_create(
+                series_code=series_code,
+                series_year=series_year,
+                document_type=document_type,
+                defaults={
+                    "series_status": SerieFiscalAGT.STATUS_ABERTA,
+                    "invoicing_method": SerieFiscalAGT.METODO_FESF,
+                    "contingency_indicator": contingency_indicator,
+                    "establishment_number": establishment_number,
+                    "first_document_no": str(primeiro),
+                    "last_document_no": str(ultimo),
+                    "authorized_quantity": str(quantidade),
+                    "series_creation_date": date.today(),
+                },
+            )
 
-        # 6. Criar / ligar ContadorDocumento local
-        contador, _ = ContadorDocumento.objects.get_or_create(
-            tipo_documento=document_type,
-            ano=series_year,
-            serie=series_code,
-            defaults={'ultimo_numero': 0},
-        )
-        serie.contador = contador
-        serie.save(update_fields=['contador'])
+            contador, _ = ContadorDocumento.objects.get_or_create(
+                tipo_documento=document_type,
+                ano=series_year,
+                serie=series_code,
+                defaults={"ultimo_numero": max(0, primeiro - 1)},
+            )
+            # Nunca andar o contador para trás. Se a primeira gama autorizada
+            # começar acima de 1, o contador começa antes desse primeiro número.
+            minimo_contador = max(0, primeiro - 1)
+            if contador.ultimo_numero < minimo_contador:
+                contador.ultimo_numero = minimo_contador
+                contador.save(update_fields=["ultimo_numero"])
+
+            serie.contador = contador
+            serie.save(update_fields=["contador"])
 
         logger.info(
-            "Série %s criada (AGT). first_doc=%s, action=%s",
-            series_code, resultado.get('firstDocumentNo'), 'created' if created else 'updated',
+            "Série AGT persistida: tipo=%s ano=%s criada=%s",
+            document_type, series_year, criada,
         )
         return serie
 
@@ -169,68 +163,38 @@ class SerieFiscalService:
         series_year: Optional[int] = None,
         document_type: Optional[str] = None,
         series_status: Optional[str] = None,
+        establishment_number: str = "SEDE",
     ) -> List[SerieFiscalAGT]:
         """
         Chama listarSeries na AGT e sincroniza o resultado com os registos locais.
 
         Args:
-            series_year:   Filtrar por ano (opcional).
-            document_type: Filtrar por tipo de documento (opcional).
-            series_status: Filtrar por estado A/U/F (opcional).
+            series_year:          Filtrar por ano (opcional).
+            document_type:        Filtrar por tipo de documento (opcional).
+            series_status:        Filtrar por estado A/U/F (opcional).
+            establishment_number: Estabelecimento registado no Portal do Contribuinte.
 
         Returns:
             Lista de SerieFiscalAGT criadas ou actualizadas.
         """
-        config = self._obter_config()
-
-        payload_assinatura = {"taxRegistrationNumber": config.nif_contribuinte}
-        jws_signature = AssinaturaDigitalService.assinar_requisicao(payload_assinatura)
-
-        payload: Dict[str, Any] = {
-            "schemaVersion": "2.0",
-            "taxRegistrationNumber": config.nif_contribuinte,
-            "submissionTimeStamp": timezone.now().isoformat(),
-            "softwareInfo": AssinaturaSoftwareService.montar_software_info(),
-            "jwsSignature": jws_signature,
-            "establishmentNumber": "SEDE",
-        }
-        if series_year:
-            payload["seriesYear"] = series_year
-        if document_type:
-            payload["documentType"] = document_type
-        if series_status:
-            payload["seriesStatus"] = series_status
-
-        credenciais = self._obter_credenciais(config)
         logger.info("Sincronizando séries com a AGT (listarSeries).")
-        try:
-            resp = requests.post(
-                self._url_listar,
-                json=payload,
-                auth=(credenciais['username'], credenciais['password']),
-                timeout=45,
-            )
-        except requests.RequestException as e:
-            raise FiscalServiceError(f"Falha de rede ao contactar AGT (listarSeries): {e}")
+        series_info = self.client.listar_series(
+            series_year=series_year,
+            document_type=document_type,
+            series_status=series_status,
+            establishment_number=establishment_number,
+        )
 
-        if resp.status_code not in (200, 422):
-            raise FiscalServiceError(
-                f"Erro inesperado da AGT (listarSeries): HTTP {resp.status_code} — {resp.text[:300]}"
-            )
-
-        try:
-            data = resp.json()
-        except Exception:
-            raise FiscalServiceError(f"Resposta não-JSON da AGT (listarSeries): {resp.text[:300]}")
-
-        series_info = data.get('seriesInfo') or data.get('seriresInfo', [])
-        series_actualizadas = []
+        series_actualizadas: List[SerieFiscalAGT] = []
 
         with transaction.atomic():
             for info in series_info:
-                code  = info.get('seriesCode', '')
-                year  = int(info.get('seriesYear', 0))
+                code = info.get('seriesCode', '')
                 dtype = info.get('documentType', '')
+                try:
+                    year = int(info.get('seriesYear', 0))
+                except (TypeError, ValueError):
+                    year = 0
                 if not (code and year and dtype):
                     continue
 
@@ -243,12 +207,38 @@ class SerieFiscalService:
                         'invoicing_method':       info.get('invoicingMethod', SerieFiscalAGT.METODO_FESF),
                         'contingency_indicator':  info.get('seriesContingencyIndicator', 'N'),
                         'first_document_no':      info.get('firstDocumentApproved') or info.get('firstDocumentCreated', ''),
-                        'last_document_no':       info.get('lastDocumentApproved')  or info.get('lastDocumentCreated', ''),
+                        'last_document_no':       info.get('lastDocumentApproved') or info.get('lastDocumentCreated', ''),
                         'first_document_created': info.get('firstDocumentCreated', ''),
                         'last_document_created':  info.get('lastDocumentCreated', ''),
                         'series_creation_date':   self._parse_date(info.get('seriesCreationDate')),
                     },
                 )
+
+                try:
+                    primeiro_autorizado = int(str(serie.first_document_no or "1").strip())
+                except (TypeError, ValueError):
+                    primeiro_autorizado = 1
+
+                maior_documento_local = (
+                    DocumentoFiscal.objects.filter(
+                        tipo_documento=dtype,
+                        serie=code,
+                    ).aggregate(maior=Max("numero"))["maior"] or 0
+                )
+
+                minimo_contador = max(0, primeiro_autorizado - 1, maior_documento_local)
+                contador, _ = ContadorDocumento.objects.get_or_create(
+                    tipo_documento=dtype,
+                    ano=year,
+                    serie=code,
+                    defaults={"ultimo_numero": minimo_contador},
+                )
+                if contador.ultimo_numero < minimo_contador:
+                    contador.ultimo_numero = minimo_contador
+                    contador.save(update_fields=["ultimo_numero"])
+
+                serie.contador = contador
+                serie.save(update_fields=["contador"])
                 series_actualizadas.append(serie)
 
         logger.info("Sincronização concluída: %d série(s) actualizadas.", len(series_actualizadas))
@@ -331,18 +321,6 @@ class SerieFiscalService:
         return config
 
     @staticmethod
-    def _obter_credenciais(config: AssinaturaDigital) -> Dict[str, str]:
-        if not config.api_username or not config.api_password:
-            raise FiscalServiceError(
-                "Credenciais da API AGT não configuradas. "
-                "Aceda a Configurações Fiscais e insira username/password emitidos pela AGT."
-            )
-        return {
-            'username': config.api_username,
-            'password': AESService.decrypt(config.api_password),
-        }
-
-    @staticmethod
     def _validar_series_code(series_code: str, series_year: int) -> None:
         """
         O seriesCode deve:
@@ -353,8 +331,8 @@ class SerieFiscalService:
             raise FiscalServiceError(
                 f"seriesCode '{series_code}' inválido: deve ter entre 3 e 60 caracteres."
             )
-        ano_2  = str(series_year)[-2:]  # ex.: "25"
-        ano_4  = str(series_year)       # ex.: "2025"
+        ano_2 = str(series_year)[-2:]  # ex.: "25"
+        ano_4 = str(series_year)       # ex.: "2025"
         if ano_2 not in series_code and ano_4 not in series_code:
             raise FiscalServiceError(
                 f"seriesCode '{series_code}' não contém o ano {series_year} "
@@ -362,43 +340,11 @@ class SerieFiscalService:
             )
 
     @staticmethod
-    def _tratar_resposta_solicitar(resp: requests.Response, series_code: str) -> Dict[str, Any]:
-        """Trata a resposta de solicitarSerie e devolve seriesFEResult."""
-        try:
-            data = resp.json()
-        except Exception:
-            raise FiscalServiceError(
-                f"Resposta não-JSON da AGT (solicitarSerie): {resp.text[:300]}"
-            )
-
-        if resp.status_code == 200:
-            result_code = data.get('resultCode')
-            if str(result_code) == '1':
-                return data.get('seriesFEResult', {})
-            erros = data.get('errorList', [])
-            detalhe = '; '.join(
-                f"E{e.get('idError','?')}: {e.get('descriptionError','')}" for e in erros
-            )
-            raise FiscalServiceError(
-                f"AGT recusou a criação da série '{series_code}': {detalhe or 'sem detalhe'}"
-            )
-
-        erros = data.get('errorList', [])
-        detalhe = '; '.join(
-            f"E{e.get('idError','?')}: {e.get('descriptionError','')}" for e in erros
-        )
-        raise FiscalServiceError(
-            f"Erro da AGT HTTP {resp.status_code} ao criar série '{series_code}': "
-            f"{detalhe or resp.text[:200]}"
-        )
-
-    @staticmethod
     def _parse_date(valor: Optional[str]) -> Optional[date]:
         if not valor:
             return None
         for fmt in ('%Y-%m-%d', '%d/%m/%Y', '%Y%m%d'):
             try:
-                from datetime import datetime
                 return datetime.strptime(valor, fmt).date()
             except (ValueError, TypeError):
                 continue

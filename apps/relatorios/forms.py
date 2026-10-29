@@ -353,7 +353,6 @@ class DashboardConfigForm(BaseRelatoriosForm, forms.ModelForm):
             existing = DashboardConfig.objects.filter(
                 codigo=codigo,
                 usuario=self.usuario,
-                empresa=self.empresa
             )
             
             if self.instance.pk:
@@ -686,7 +685,6 @@ class TemplateRelatorioForm(BaseRelatoriosForm, forms.ModelForm):
             # Verificar duplicatas na empresa
             existing = TemplateRelatorio.objects.filter(
                 nome__iexact=nome,
-                empresa=self.empresa
             )
             
             if self.instance.pk:

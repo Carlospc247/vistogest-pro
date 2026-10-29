@@ -1,3 +1,4 @@
+# apps/configuracoes/management/commands/executar_backup.py
 import os
 import subprocess
 import zipfile

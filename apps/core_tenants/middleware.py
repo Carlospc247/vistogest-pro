@@ -6,7 +6,7 @@ from django.core.exceptions import PermissionDenied
 from django.db import connection
 from django.http import HttpResponseForbidden
 from django.shortcuts import redirect, render
-from django.urls import reverse
+from django.urls import Resolver404, resolve, reverse
 from django.utils.deprecation import MiddlewareMixin
 
 from apps.core.models import IPConhecido
@@ -42,6 +42,13 @@ class ModuloAcessMiddleware:
     1. Garantir que o usuário pertence ao Tenant (Schema) actual.
     2. Garantir que o Tenant possui licença para aceder ao módulo da URL.
 
+    O módulo de uma URL é o seu primeiro segmento (/vendas/... -> 'vendas').
+    EXCEPÇÃO: tudo o que é servido por views da app core_tenants (dashboard,
+    notificações, segurança, verificação de dispositivo, AJAX do núcleo) está
+    disponível em QUALQUER plano, pois é a base do sistema.
+    Só contam módulos com `ativo=True` (igual ao context processor
+    modules_context): desactivar um módulo no admin corta mesmo o acesso.
+
     100% aderente ao isolamento físico do django-tenants.
     """
 
@@ -60,8 +67,22 @@ class ModuloAcessMiddleware:
         'favicon.ico',
     }
 
+    # Apps cujas views nunca dependem do plano.
+    APPS_SEM_LICENCA = ('apps.core_tenants.',)
+
     def __init__(self, get_response):
         self.get_response = get_response
+
+    def _view_do_nucleo(self, request) -> bool:
+        """True se a URL resolve para uma view de core_tenants (livre em qualquer plano)."""
+        try:
+            match = resolve(request.path_info, getattr(request, 'urlconf', None))
+        except Resolver404:
+            return False
+        func = match.func
+        view_cls = getattr(func, 'view_class', None)
+        modulo = getattr(view_cls, '__module__', None) or getattr(func, '__module__', '') or ''
+        return modulo.startswith(self.APPS_SEM_LICENCA)
 
     def __call__(self, request):
         if connection.schema_name == 'public':
@@ -74,13 +95,15 @@ class ModuloAcessMiddleware:
         path_segments = [seg for seg in request.path.strip("/").split("/") if seg]
         path_module = path_segments[0] if path_segments else ""
 
-        if path_module in self.EXEMPT_PREFIXES:
+        if path_module in self.EXEMPT_PREFIXES or self._view_do_nucleo(request):
             return self.get_response(request)
 
         licenca = getattr(request.tenant, "licenca", None)
 
         if licenca and hasattr(licenca, "plano"):
-            modulos_ativos = set(licenca.plano.modulos.values_list("slug", flat=True))
+            modulos_ativos = set(
+                licenca.plano.modulos.filter(ativo=True).values_list("slug", flat=True)
+            )
         else:
             modulos_ativos = set()
 

@@ -18,7 +18,7 @@ class ConfiguracaoFiscal(TimeStampedModel):
     endereco = models.CharField(max_length=255)
     cidade = models.CharField(max_length=100)
     provincia = models.CharField(max_length=50)
-    postal = models.CharField(max_length=4)
+    postal = models.CharField(max_length=9) # era 4; Empresa.postal tem 9
     REGIME_CHOICES = [("geral", "Regime Geral"), ("simplificado", "Regime Simplificado (IVA)"), ("exclusao", "Regime de Não Sujeição (Exclusão)"), ("outros", "Outros (regimes especiais)")]
     regime_tributario = models.CharField(max_length=20, choices=REGIME_CHOICES, default="geral")
     impressora_cupom = models.CharField("Impressora de Talões", max_length=200, blank=True)
@@ -42,6 +42,11 @@ class ConfiguracaoFiscal(TimeStampedModel):
         ]
     def __str__(self):
         return f"Configuração Fiscal - {self.nome_fantasia or self.razao_social or 'Por configurar'}"
+    
+    def save(self, *args, **kwargs):
+       from apps.configuracoes.services.identidade import aplicar_identidade  # evita import circular
+       aplicar_identidade(self)
+       super().save(*args, **kwargs)
 
 class DadosBancarios(TimeStampedModel):
     configuracao_fiscal = models.ForeignKey(ConfiguracaoFiscal, on_delete=models.CASCADE, related_name="dados_bancarios")

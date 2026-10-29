@@ -1,118 +1,351 @@
-from django.core.management.base import BaseCommand
-from apps.licenca.models import PlanoLicenca, Modulo
 from decimal import Decimal
 
+from django.core.management.base import BaseCommand, CommandError
+from django.db import transaction
+
+from apps.licenca.management.commands.setup_modulos import SLUGS_TODOS
+from apps.licenca.models import Modulo, PlanoLicenca
+
+# ═══════════════════════════════════════════════════════════════════════════
+# CATÁLOGO DE PLANOS — fonte única. Cada plano lista os seus módulos
+# EXPLICITAMENTE (sem herança calculada). validar_catalogo() corre antes de
+# gravar e bloqueia inconsistências que deixariam um cliente usar o que não
+# pagou. Os módulos disponíveis vêm do setup_modulos.py (SLUGS_TODOS).
+#
+# Limites: None = ilimitado. "core_tenants" entra SEMPRE (base do sistema).
+# preco None = AINDA POR DEFINIR: o dry-run funciona, mas --aplicar recusa.
+# ═══════════════════════════════════════════════════════════════════════════
+
+_DEMO = [
+    "apps.produtos", "apps.analytics", "apps.fornecedores", "apps.estoque",
+    "apps.clientes", "apps.vendas", "apps.funcionarios", "apps.servicos",
+    "apps.financeiro", "apps.relatorios", "apps.configuracoes", "apps.integracoes",
+    "apps.fiscal", "apps.saft", "apps.compras", "apps.site", "apps.comunicacao",
+]
+_COMERCIO = [
+    "apps.produtos", "apps.analytics", "apps.fornecedores", "apps.estoque",
+    "apps.clientes", "apps.vendas", "apps.funcionarios", "apps.financeiro",
+    "apps.relatorios", "apps.configuracoes", "apps.integracoes", "apps.fiscal",
+    "apps.saft",
+]
+_SERVICO = [
+    "apps.analytics", "apps.fornecedores", "apps.estoque", "apps.clientes",
+    "apps.vendas", "apps.funcionarios", "apps.servicos", "apps.financeiro",
+    "apps.relatorios", "apps.configuracoes", "apps.integracoes", "apps.fiscal",
+    "apps.saft",
+]
+_MISTO = [
+    "apps.produtos", "apps.analytics", "apps.fornecedores", "apps.estoque",
+    "apps.clientes", "apps.vendas", "apps.funcionarios", "apps.servicos",
+    "apps.financeiro", "apps.relatorios", "apps.configuracoes", "apps.integracoes",
+    "apps.fiscal", "apps.saft", "apps.compras",
+]
+_PRO_COMERCIO = [
+    "apps.produtos", "apps.analytics", "apps.fornecedores", "apps.estoque",
+    "apps.clientes", "apps.vendas", "apps.funcionarios", "apps.financeiro",
+    "apps.relatorios", "apps.configuracoes", "apps.integracoes", "apps.fiscal",
+    "apps.saft", "apps.compras", "apps.site", "apps.comunicacao",
+]
+_PRO_SERVICO = [
+    "apps.analytics", "apps.fornecedores", "apps.estoque", "apps.clientes",
+    "apps.vendas", "apps.funcionarios", "apps.servicos", "apps.financeiro",
+    "apps.relatorios", "apps.configuracoes", "apps.integracoes", "apps.fiscal",
+    "apps.saft", "apps.compras", "apps.site", "apps.comunicacao",
+]
+_PRO_MISTO = [
+    "apps.produtos", "apps.analytics", "apps.fornecedores", "apps.estoque",
+    "apps.clientes", "apps.vendas", "apps.funcionarios", "apps.servicos",
+    "apps.financeiro", "apps.relatorios", "apps.configuracoes", "apps.integracoes",
+    "apps.fiscal", "apps.saft", "apps.compras", "apps.site", "apps.comunicacao",
+]
+
+
+def _slugs(lista):
+    """'apps.vendas' -> 'vendas'; junta core_tenants e remove repetidos."""
+    out = ["core_tenants"]
+    for item in lista:
+        slug = item.split(".")[-1]
+        if slug not in out:
+            out.append(slug)
+    return out
+
+
+PLANOS = [
+    {"nome": "Demo", "preco": Decimal("0.00"), "demo": True,
+     "usuarios": 2, "produtos": 10, "clientes": 10,
+     "desc": "Plano de teste gratuito para avaliação.",
+     "modulos": _slugs(_DEMO)},
+    {"nome": "Comércio", "preco": Decimal("10000.00"),
+     "usuarios": 4, "produtos": 600, "clientes": None,
+     "desc": "Plano específico para regime de Comércio.",
+     "modulos": _slugs(_COMERCIO)},
+    {"nome": "Serviços", "preco": Decimal("10000.00"),
+     "usuarios": 4, "produtos": 0, "clientes": None,   # serviços: sem limite
+     "desc": "Plano específico para prestadores de Serviços.",
+     "modulos": _slugs(_SERVICO)},
+    {"nome": "Misto", "preco": Decimal("20000.00"),
+     "usuarios": 6, "produtos": 1200, "clientes": None,  # serviços: sem limite
+     "desc": "Ideal para empresas com regime Misto.",
+     "modulos": _slugs(_MISTO)},
+    {"nome": "Pro Comércio", "preco": Decimal("19000.00"),
+     "usuarios": 7, "produtos": 1200, "clientes": None,
+     "desc": "Comércio avançado, com compras, site e comunicação.",
+     "modulos": _slugs(_PRO_COMERCIO)},
+    {"nome": "Pro Serviços", "preco": Decimal("21000.00"),
+     "usuarios": 7, "produtos": 0, "clientes": None,
+     "desc": "Serviços avançado, com compras, site e comunicação.",
+     "modulos": _slugs(_PRO_SERVICO)},
+    {"nome": "Pro Misto", "preco": Decimal("30000.00"),
+     "usuarios": 12, "produtos": 2500, "clientes": None,
+     "desc": "Misto avançado, com site e comunicação.",
+     "modulos": _slugs(_PRO_MISTO)},
+    {"nome": "Enterprise", "preco": Decimal("0.00"), "negociado": True,
+     "usuarios": None, "produtos": None, "clientes": None,
+     "desc": "Sem limites. Para grandes operações, sob negociação.",
+     "modulos": list(SLUGS_TODOS)},
+    {"nome": "Elite Bypass", "preco": Decimal("0.00"), "negociado": True,
+     "usuarios": None, "produtos": None, "clientes": None,
+     "desc": "Acesso Total SOTARQ. Sem mensalidade. Comissão de 2% sobre faturação.",
+     "modulos": list(SLUGS_TODOS)},
+]
+
+
+def _cap(v):
+    return float("inf") if v is None else v
+
+
+def validar_catalogo(planos=PLANOS, slugs_validos=SLUGS_TODOS):
+    """Devolve (erros, avisos). Erros bloqueiam a gravação."""
+    erros, avisos = [], []
+    validos = set(slugs_validos)
+    nomes = [p["nome"] for p in planos]
+    if len(nomes) != len(set(nomes)):
+        erros.append("Há planos com nome duplicado.")
+
+    for p in planos:
+        mods = p["modulos"]
+        s = set(mods)
+        if len(mods) != len(s):
+            erros.append(f"{p['nome']}: módulos repetidos.")
+        desconhecidos = s - validos
+        if desconhecidos:
+            erros.append(f"{p['nome']}: módulos inexistentes em setup_modulos: {sorted(desconhecidos)}")
+        if "core_tenants" not in s:
+            erros.append(f"{p['nome']}: falta 'core_tenants' (dashboard base).")
+        if "saft" in s and "fiscal" not in s:
+            erros.append(f"{p['nome']}: tem 'saft' sem 'fiscal' (exporta o que não pode emitir).")
+        if "fiscal" in s and not {"clientes", "vendas"} <= s:
+            avisos.append(f"{p['nome']}: tem 'fiscal' sem 'clientes'/'vendas' — confirmar se emite documentos.")
+        if "produtos" not in s and p.get("produtos") not in (0, None):
+            avisos.append(f"{p['nome']}: limite de produtos {p['produtos']} mas sem o módulo 'produtos'.")
+        if p["preco"] is None:
+            avisos.append(f"{p['nome']}: preço por definir (--aplicar recusará).")
+        elif p["preco"] == 0 and not p.get("negociado") and not p.get("demo"):
+            erros.append(f"{p['nome']}: preço 0 sem negociado=True.")
+
+    # Comparações só entre planos pagos com preço definido (Demo/negociados ficam de fora).
+    pagos = [p for p in planos
+             if p["preco"] is not None and not p.get("negociado") and not p.get("demo")]
+    for a in pagos:
+        for b in pagos:
+            if a is b or not a["preco"] < b["preco"]:
+                continue
+            dá_tudo = set(a["modulos"]) >= set(b["modulos"])
+            limites_ge = (_cap(a["usuarios"]) >= _cap(b["usuarios"])
+                          and _cap(a["produtos"]) >= _cap(b["produtos"]))
+            if dá_tudo and limites_ge:
+                erros.append(
+                    f"{a['nome']} ({a['preco']} Kz) dá o mesmo ou mais que "
+                    f"{b['nome']} ({b['preco']} Kz): módulos e limites não inferiores.")
+            elif (_cap(a["produtos"]) > _cap(b["produtos"]) or _cap(a["usuarios"]) > _cap(b["usuarios"])) \
+                    and set(b["modulos"]) >= set(a["modulos"]):
+                erros.append(
+                    f"{a['nome']} ({a['preco']} Kz) tem limites superiores a "
+                    f"{b['nome']} ({b['preco']} Kz), que inclui todos os seus módulos.")
+            elif set(a["modulos"]) > set(b["modulos"]):
+                extra = sorted(set(a["modulos"]) - set(b["modulos"]))
+                avisos.append(
+                    f"{a['nome']} ({a['preco']} Kz) tem MAIS módulos que {b['nome']} "
+                    f"({b['preco']} Kz): {extra}. Confirme que é intencional.")
+
+    # Cada versão Pro tem de ser superconjunto da base e dar mais (quando o preço existe).
+    por_nome = {p["nome"]: p for p in planos}
+    for base, pro in (("Comércio", "Pro Comércio"), ("Serviços", "Pro Serviços"), ("Misto", "Pro Misto")):
+        if base in por_nome and pro in por_nome:
+            b, q = por_nome[base], por_nome[pro]
+            if not set(q["modulos"]) >= set(b["modulos"]):
+                erros.append(f"{pro} deve incluir todos os módulos de {base}: "
+                             f"faltam {sorted(set(b['modulos']) - set(q['modulos']))}.")
+            if q["preco"] is not None and b["preco"] is not None and q["preco"] <= b["preco"]:
+                erros.append(f"{pro} ({q['preco']} Kz) tem de custar mais que {base} ({b['preco']} Kz).")
+    return erros, avisos
+
+
+def _campo(model, nome):
+    try:
+        return model._meta.get_field(nome)
+    except Exception:
+        return None
+
+
 class Command(BaseCommand):
-    help = 'Cria os planos de licença com herança progressiva de módulos e regimes específicos'
+    help = (
+        "Sincroniza os planos a partir da lista PLANOS deste ficheiro. Por omissão só "
+        "MOSTRA o que mudaria (dry-run); use --aplicar para gravar."
+    )
 
-    def handle(self, *args, **options):
-        self.stdout.write(self.style.MIGRATE_HEADING('Sincronizando Módulos e Planos...'))
+    def add_arguments(self, parser):
+        parser.add_argument("--aplicar", action="store_true", help="Grava as alterações.")
+        parser.add_argument(
+            "--forcar-remocao", action="store_true",
+            help="Permite retirar módulos/baixar limites de planos que já têm licenças activas.",
+        )
+        parser.add_argument(
+            "--desativar-orfaos", action="store_true",
+            help="Com --aplicar: marca como inactivos os planos fora do catálogo SEM licenças "
+                 "(nunca apaga; os que têm licenças são só assinalados).",
+        )
 
-        # 1. Definição das listas de módulos por perfil (Base para herança)
-        # ----------------------------------------------------------------
-        modulos_comercio = ['vendas', 'produtos', 'clientes', 'fiscal', 'saft']
-        modulos_servicos = ['servicos', 'relatorios', 'estoque', 'fornecedores', 'compras', 'site']
-        
-        # Herança progressiva para os planos de nível
-        modulos_demo = modulos_comercio # Demo foca no básico de comércio
-        modulos_basic = list(set(modulos_demo + ['financeiro', 'funcionarios']))
-        modulos_pro = list(set(modulos_basic + modulos_servicos))
-        
-        # Misto e Enterprise
-        modulos_mistos = list(set(modulos_comercio + modulos_servicos))
-        modulos_enterprise = list(Modulo.objects.all().values_list('slug', flat=True))
+    # Limite do catálogo -> valor gravável (usuarios None pode não ser aceite pela BD).
+    def _limite(self, campo, valor):
+        f = _campo(PlanoLicenca, campo)
+        if valor is None and f is not None and not f.null:
+            self.stdout.write(self.style.WARNING(
+                f"AVISO: '{campo}' não aceita NULL na BD; 'ilimitado' gravado como 9999."))
+            return 9999
+        return valor
 
-        # 2. Estrutura de dados unificada dos planos
-        # ----------------------------------------------------------------
-        planos_config = [
-            {
-                'nome': 'Demo',
-                'preco': Decimal('0.00'),
-                'usuarios': 2,
-                'produtos': 10,
-                'desc': 'Plano de teste gratuito para avaliação.',
-                'slugs': modulos_demo
-            },
-            {
-                'nome': 'Basic',
-                'preco': Decimal('5000.00'),
-                'usuarios': 5,
-                'produtos': 350,
-                'desc': 'Essencial para pequenos negócios em crescimento.',
-                'slugs': modulos_basic
-            },
-            {
-                'nome': 'Professional',
-                'preco': Decimal('35000.00'),
-                'usuarios': 15,
-                'produtos': 2000,
-                'desc': 'Gestão completa e avançada para empresas.',
-                'slugs': modulos_pro
-            },
-            {
-                'nome': 'Enterprise',
-                'preco': Decimal('0.00'), # Sob negociação
-                'usuarios': 9999,
-                'produtos': None, # Ilimitado
-                'desc': 'Solução personalizada para grandes operações.',
-                'slugs': modulos_enterprise
-            },
-            {
-                'nome': 'Comércio',
-                'preco': Decimal('10000.00'),
-                'usuarios': 5,
-                'produtos': 600,
-                'desc': 'Plano específico para regime de Comércio.',
-                'slugs': modulos_comercio
-            },
-            {
-                'nome': 'Serviços',
-                'preco': Decimal('10000.00'),
-                'usuarios': 20,
-                'produtos': None,
-                'desc': 'Plano específico para prestadores de Serviços.',
-                'slugs': modulos_servicos
-            },
-            {
-                'nome': 'Misto',
-                'preco': Decimal('20000.00'),
-                'usuarios': 5,
-                'produtos': 2000,
-                'desc': 'Ideal para empresas com regime Misto.',
-                'slugs': modulos_mistos
-            },
-            {
-                'nome': 'Elite Bypass',
-                'preco': Decimal('0.00'), # 0.00 fixo, pois a receita vem dos 2%
-                'usuarios': 9999,
-                'produtos': None, 
-                'desc': 'Acesso Total SOTARQ. Sem mensalidade. Comissão de 2% sobre faturação.',
-                'slugs': modulos_enterprise #
-            },
-        ]
+    def handle(self, *args, **opts):
+        aplicar, forcar = opts["aplicar"], opts["forcar_remocao"]
 
-        # 3. Execução da persistência no banco de dados
-        # ----------------------------------------------------------------
-        for p_data in planos_config:
-            plano, created = PlanoLicenca.objects.update_or_create(
-                nome=p_data['nome'],
-                defaults={
-                    'preco_mensal': p_data['preco'],
-                    'limite_usuarios': p_data['usuarios'],
-                    'limite_produtos': p_data['produtos'],
-                    'descricao': p_data['desc'],
-                    'ativo': True
-                }
+        erros, avisos = validar_catalogo()
+        for a in avisos:
+            self.stdout.write(self.style.WARNING(f"AVISO: {a}"))
+        if erros:
+            for e in erros:
+                self.stderr.write(self.style.ERROR(f"ERRO: {e}"))
+            raise CommandError("Catálogo inconsistente; nada foi gravado.")
+
+        existentes = {m.slug: m for m in Modulo.objects.all()}
+        em_falta = sorted({s for p in PLANOS for s in p["modulos"]} - set(existentes))
+        if em_falta:
+            raise CommandError(
+                f"Módulos inexistentes na base: {em_falta}. Corra primeiro setup_modulos.")
+
+        tem_limite_clientes = _campo(PlanoLicenca, "limite_clientes") is not None
+        if not tem_limite_clientes:
+            self.stdout.write(self.style.WARNING(
+                "AVISO: PlanoLicenca não tem o campo 'limite_clientes' — o limite de clientes "
+                "do catálogo (Demo: 10) NÃO será gravado nem imposto até criar o campo."))
+
+        try:
+            from apps.licenca.models import Licenca
+        except ImportError:
+            Licenca = None
+
+        if aplicar:
+            sem_preco = [p["nome"] for p in PLANOS if p["preco"] is None]
+            if sem_preco:
+                raise CommandError(
+                    f"Defina o preço de {sem_preco} em PLANOS antes de usar --aplicar.")
+
+        plano_perigoso = False
+        mudancas = []
+        for p in PLANOS:
+            atual = PlanoLicenca.objects.filter(nome=p["nome"]).first()
+            novos = set(p["modulos"])
+            if atual is None:
+                mudancas.append((p, None, novos, set()))
+            else:
+                antigos = set(atual.modulos.values_list("slug", flat=True))
+                mudancas.append((p, atual, novos - antigos, antigos - novos))
+
+        self.stdout.write(self.style.MIGRATE_HEADING(
+            "Plano de alterações" + ("" if aplicar else " (DRY-RUN — nada será gravado)")))
+        for p, atual, adicionar, remover in mudancas:
+            preco_txt = "A DEFINIR" if p["preco"] is None else f"{p['preco']} Kz"
+            if atual is None:
+                self.stdout.write(self.style.SUCCESS(
+                    f"[NOVO] {p['nome']}: {len(p['modulos'])} módulos, {preco_txt}, "
+                    f"utilizadores {p['usuarios']}, produtos {p['produtos']}, clientes {p['clientes']}"))
+                continue
+            linhas = []
+            if p["preco"] is not None and atual.preco_mensal != p["preco"]:
+                linhas.append(f"preço {atual.preco_mensal} -> {p['preco']} Kz")
+            alvo_u = self._limite_sem_aviso("limite_usuarios", p["usuarios"])
+            if atual.limite_usuarios != alvo_u:
+                linhas.append(f"utilizadores {atual.limite_usuarios} -> {alvo_u}")
+            if atual.limite_produtos != p["produtos"]:
+                linhas.append(f"produtos {atual.limite_produtos} -> {p['produtos']}")
+            if tem_limite_clientes and getattr(atual, "limite_clientes", None) != p["clientes"]:
+                linhas.append(f"clientes {getattr(atual, 'limite_clientes', None)} -> {p['clientes']}")
+            if adicionar:
+                linhas.append(f"+ módulos {sorted(adicionar)}")
+            if remover:
+                linhas.append(f"- módulos {sorted(remover)}")
+            n_lic = Licenca.objects.filter(plano=atual).count() if Licenca else None
+            if not linhas:
+                self.stdout.write(f"[IGUAL] {p['nome']}")
+                continue
+            sufixo = f" | licenças neste plano: {n_lic}" if n_lic is not None else ""
+            self.stdout.write(self.style.WARNING(f"[ALTERA] {p['nome']}: " + "; ".join(linhas) + sufixo))
+            reduz = bool(remover) or (
+                atual.limite_usuarios is not None
+                and (alvo_u is not None and alvo_u < atual.limite_usuarios)
+            ) or (
+                p["produtos"] is not None
+                and (atual.limite_produtos is None or p["produtos"] < atual.limite_produtos)
             )
-            
-            # Vinculação dos módulos
-            modulos_qs = Modulo.objects.filter(slug__in=p_data['slugs'])
-            plano.modulos.set(modulos_qs)
-            
-            acao = "CRIADO" if created else "ATUALIZADO"
-            self.stdout.write(self.style.SUCCESS(
-                f'[{acao}] Plano: {plano.nome.ljust(15)} | Módulos: {str(modulos_qs.count()).zfill(2)} | Preço: {plano.preco_mensal:>8} Kz'
-            ))
+            if reduz and (n_lic is None or n_lic > 0):
+                plano_perigoso = True
 
-        # CORREÇÃO AQUI: De MIGRATE_SUCCESS para SUCCESS
-        self.stdout.write(self.style.SUCCESS('Todos os planos SOTARQ foram sincronizados com sucesso.'))
+        nomes_catalogo = {p["nome"] for p in PLANOS}
+        orfaos = list(PlanoLicenca.objects.exclude(nome__in=nomes_catalogo))
+        for extra in orfaos:
+            n = Licenca.objects.filter(plano=extra).count() if Licenca else "?"
+            self.stdout.write(self.style.WARNING(
+                f"[FORA DO CATÁLOGO] {extra.nome}: {extra.preco_mensal} Kz | "
+                f"{extra.limite_usuarios} utilizadores | produtos {extra.limite_produtos} | "
+                f"{extra.modulos.count()} módulos | activo={extra.ativo} | licenças: {n}"))
+
+        if not aplicar:
+            self.stdout.write("\nNada gravado. Reveja e corra com --aplicar.")
+            return
+        if plano_perigoso and not forcar:
+            raise CommandError(
+                "Há planos em uso a perder módulos ou limites. Reveja a lista e corra com "
+                "--aplicar --forcar-remocao se for intencional (os clientes perdem acesso).")
+
+        with transaction.atomic():
+            for p in PLANOS:
+                defaults = {
+                    "preco_mensal": p["preco"],
+                    "limite_usuarios": self._limite("limite_usuarios", p["usuarios"]),
+                    "limite_produtos": self._limite("limite_produtos", p["produtos"]),
+                    "descricao": p["desc"],
+                    "ativo": True,
+                }
+                if tem_limite_clientes:
+                    defaults["limite_clientes"] = self._limite("limite_clientes", p["clientes"])
+                plano, criado = PlanoLicenca.objects.update_or_create(nome=p["nome"], defaults=defaults)
+                plano.modulos.set([existentes[s] for s in p["modulos"]])
+                self.stdout.write(self.style.SUCCESS(
+                    f"[{'CRIADO' if criado else 'ATUALIZADO'}] {plano.nome.ljust(15)} | "
+                    f"Módulos: {len(p['modulos']):02d} | {plano.preco_mensal:>9} Kz"))
+
+            if opts["desativar_orfaos"]:
+                for extra in orfaos:
+                    n = Licenca.objects.filter(plano=extra).count() if Licenca else 1
+                    if n == 0 and extra.ativo:
+                        extra.ativo = False
+                        extra.save(update_fields=["ativo"])
+                        self.stdout.write(self.style.SUCCESS(f"[DESATIVADO] {extra.nome} (sem licenças)"))
+                    elif n:
+                        self.stdout.write(self.style.WARNING(
+                            f"[MANTIDO] {extra.nome}: tem {n} licença(s); migre-as antes de o desactivar."))
+        self.stdout.write(self.style.SUCCESS("Todos os planos foram sincronizados."))
+
+    @staticmethod
+    def _limite_sem_aviso(campo, valor):
+        f = _campo(PlanoLicenca, campo)
+        return 9999 if (valor is None and f is not None and not f.null) else valor

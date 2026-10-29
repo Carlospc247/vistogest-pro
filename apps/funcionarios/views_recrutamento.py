@@ -34,7 +34,7 @@ class PainelCandidaturaView(LoginRequiredMixin, PermissaoAcaoMixin, ListView):
 
     def get_queryset(self):
         # Filtra candidaturas vinculadas à empresa do usuário logado
-        return Candidatura.objects.select_related('concurso', 'concurso__pagina').all().order_by('-created_at')
+        return Candidatura.objects.select_related('concurso').all().order_by('-created_at')
 
 
 class AdmitirCandidatoView(

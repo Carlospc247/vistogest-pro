@@ -1,8 +1,1078 @@
-{% extends "fiscal/base_fiscal.html" %}
-{% block title %}Assinatura digital{% endblock %}
-{% block topbar_title %}Assinatura digital{% endblock %}
+{% extends "base.html" %}
+
+{% block title %}Assinatura Digital{% endblock %}
+{% block page_header %}{% endblock %}
+
+{% block breadcrumbs %}
+{{ block.super }}
+{% url 'fiscal:dashboard' as fiscal_dashboard_url %}
+<li class="sig-breadcrumb-item">
+    <i class="fas fa-chevron-right" aria-hidden="true"></i>
+    {% if fiscal_dashboard_url %}
+        <a href="{{ fiscal_dashboard_url }}">Área Fiscal</a>
+    {% else %}
+        <span>Área Fiscal</span>
+    {% endif %}
+</li>
+<li class="sig-breadcrumb-item" aria-current="page">
+    <i class="fas fa-chevron-right" aria-hidden="true"></i>
+    <span>Assinatura Digital</span>
+</li>
+{% endblock %}
+
+{% block extra_css %}
+<style>
+  .sig-page {
+    --sig-accent: #265d97;
+    --sig-accent-hover: #174272;
+    --sig-surface: #fff;
+    --sig-soft: #f3f6fa;
+    --sig-text: #172033;
+    --sig-muted: #687386;
+    --sig-border: #dfe5ed;
+    --sig-ok-bg: #d9f3e5;
+    --sig-ok-text: #146c43;
+    --sig-warn-bg: #fff0c2;
+    --sig-warn-text: #795600;
+    --sig-info-bg: #e7f1fb;
+    --sig-info-text: #174b78;
+    --sig-danger: #b42318;
+    color: var(--sig-text);
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+  }
+
+  .dark .sig-page,
+  [data-theme="dark"] .sig-page {
+    --sig-accent: #8bb8e8;
+    --sig-accent-hover: #b5d5f3;
+    --sig-surface: #1f2937;
+    --sig-soft: #111827;
+    --sig-text: #f3f4f6;
+    --sig-muted: #aab4c3;
+    --sig-border: #374151;
+    --sig-ok-bg: #123b2e;
+    --sig-ok-text: #a7f3d0;
+    --sig-warn-bg: #493b13;
+    --sig-warn-text: #fde68a;
+    --sig-info-bg: #102a43;
+    --sig-info-text: #c4e0fb;
+    --sig-danger: #fca5a5;
+  }
+
+  .sig-breadcrumb-item {
+    display: inline-flex;
+    align-items: center;
+    gap: .75rem;
+    font-size: .875rem;
+  }
+
+  .sig-breadcrumb-item > i {
+    font-size: .65rem;
+    opacity: .7;
+  }
+
+  .sig-breadcrumb-item a {
+    color: inherit;
+    text-decoration: none;
+  }
+
+  .sig-breadcrumb-item a:hover {
+    text-decoration: underline;
+  }
+
+  .sig-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: .65rem;
+  }
+
+  .sig-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: .5rem;
+    padding: .65rem .95rem;
+    border: 1px solid transparent;
+    border-radius: .65rem;
+    font-size: .875rem;
+    font-weight: 650;
+    line-height: 1.25;
+    text-decoration: none;
+    cursor: pointer;
+  }
+
+  .sig-btn--primary {
+    background: #265d97;
+    color: #fff;
+  }
+
+  .sig-btn--primary:hover {
+    background: #174272;
+    color: #fff;
+  }
+
+  .sig-btn--secondary {
+    background: var(--sig-surface);
+    color: var(--sig-text);
+    border-color: var(--sig-border);
+  }
+
+  .sig-btn--secondary:hover {
+    background: var(--sig-soft);
+  }
+
+  .sig-btn--block {
+    width: 100%;
+  }
+
+  .sig-btn:focus-visible,
+  .sig-action:focus-visible {
+    outline: 2px solid var(--sig-accent);
+    outline-offset: 3px;
+  }
+
+  .sig-hero {
+    position: relative;
+    overflow: hidden;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 1rem;
+    align-items: center;
+    padding: 1.6rem;
+    border-radius: 1.1rem;
+    color: #fff;
+    background: linear-gradient(
+      125deg,
+      #163b63 0%,
+      #265d97 62%,
+      #3a7bb5 100%
+    );
+  }
+
+  .sig-hero::after {
+    content: "";
+    position: absolute;
+    width: 230px;
+    height: 230px;
+    right: -65px;
+    top: -100px;
+    border: 32px solid rgba(255, 255, 255, .08);
+    border-radius: 50%;
+    pointer-events: none;
+  }
+
+  .sig-hero > * {
+    position: relative;
+    z-index: 1;
+  }
+
+  .sig-eyebrow {
+    margin: 0 0 .45rem;
+    font-size: .75rem;
+    font-weight: 700;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    opacity: .85;
+  }
+
+  .sig-title {
+    margin: 0 0 .55rem;
+    font-size: clamp(1.55rem, 3vw, 2rem);
+    line-height: 1.2;
+    font-weight: 750;
+  }
+
+  .sig-lead {
+    max-width: 48rem;
+    margin: 0;
+    line-height: 1.6;
+    opacity: .94;
+  }
+
+  @media (min-width: 900px) {
+    .sig-hero {
+      grid-template-columns: minmax(0, 1fr) auto;
+    }
+  }
+
+  .sig-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: .45rem;
+    padding: .4rem .75rem;
+    border-radius: 999px;
+    font-size: .8rem;
+    font-weight: 750;
+    white-space: nowrap;
+  }
+
+  .sig-chip--ok {
+    color: var(--sig-ok-text);
+    background: var(--sig-ok-bg);
+  }
+
+  .sig-chip--warn {
+    color: var(--sig-warn-text);
+    background: var(--sig-warn-bg);
+  }
+
+  .sig-metrics {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 13rem), 1fr));
+    gap: .9rem;
+  }
+
+  .sig-main {
+    display: grid;
+    gap: 1rem;
+    align-items: start;
+  }
+
+  @media (min-width: 980px) {
+    .sig-main {
+      grid-template-columns: minmax(0, 1.05fr) minmax(0, .95fr);
+    }
+  }
+
+  .sig-card,
+  .sig-metric {
+    min-width: 0;
+    border: 1px solid var(--sig-border);
+    border-radius: 1rem;
+    background: var(--sig-surface);
+    box-shadow: 0 5px 18px rgba(22, 45, 75, .045);
+  }
+
+  .sig-card {
+    overflow: hidden;
+  }
+
+  .sig-card-header {
+    display: flex;
+    align-items: center;
+    gap: .8rem;
+    padding: 1rem 1.15rem;
+    border-bottom: 1px solid var(--sig-border);
+  }
+
+  .sig-card-body {
+    padding: 1.15rem;
+  }
+
+  .sig-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    width: 2.65rem;
+    height: 2.65rem;
+    border-radius: .8rem;
+    background: color-mix(in srgb, var(--sig-accent) 13%, transparent);
+    color: var(--sig-accent);
+    font-size: 1.05rem;
+  }
+
+  .sig-h2 {
+    margin: 0;
+    font-size: 1.05rem;
+    font-weight: 750;
+  }
+
+  .sig-section-title {
+    margin: 0 0 .3rem;
+    font-size: 1.25rem;
+    font-weight: 750;
+  }
+
+  .sig-muted {
+    color: var(--sig-muted);
+  }
+
+  .sig-small {
+    font-size: .86rem;
+    line-height: 1.5;
+  }
+
+  .sig-metric {
+    padding: 1rem;
+  }
+
+  .sig-metric-label {
+    margin-bottom: .4rem;
+    color: var(--sig-muted);
+    font-size: .82rem;
+  }
+
+  .sig-metric-value {
+    font-size: 1rem;
+    font-weight: 750;
+    overflow-wrap: anywhere;
+  }
+
+  .sig-dl {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: .2rem 1.25rem;
+    margin: 0;
+  }
+
+  .sig-dl dt {
+    color: var(--sig-muted);
+    font-weight: 650;
+  }
+
+  .sig-dl dd {
+    min-width: 0;
+    margin: 0 0 .9rem;
+    overflow-wrap: anywhere;
+  }
+
+  .sig-dl dd:last-child {
+    margin-bottom: 0;
+  }
+
+  @media (min-width: 600px) {
+    .sig-dl {
+      grid-template-columns: minmax(10rem, .45fr) minmax(0, 1fr);
+    }
+  }
+
+  .sig-code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: .83rem;
+    overflow-wrap: anywhere;
+  }
+
+  .sig-note {
+    display: flex;
+    align-items: flex-start;
+    gap: .65rem;
+    margin-top: 1.1rem;
+    padding: .85rem 1rem;
+    border-radius: .7rem;
+    background: var(--sig-info-bg);
+    color: var(--sig-info-text);
+    font-size: .875rem;
+    line-height: 1.5;
+  }
+
+  .sig-check {
+    display: flex;
+    align-items: flex-start;
+    gap: .7rem;
+    margin-bottom: 1rem;
+  }
+
+  .sig-check i {
+    margin-top: .2rem;
+  }
+
+  .sig-check .is-ok {
+    color: #198754;
+  }
+
+  .sig-check .is-pending {
+    color: #bd7900;
+  }
+
+  .dark .sig-check .is-ok,
+  [data-theme="dark"] .sig-check .is-ok {
+    color: #34d399;
+  }
+
+  .dark .sig-check .is-pending,
+  [data-theme="dark"] .sig-check .is-pending {
+    color: #fbbf24;
+  }
+
+  .sig-empty {
+    padding: 2rem 1.25rem;
+    text-align: center;
+    border: 1px dashed var(--sig-border);
+    border-radius: 1rem;
+    background: var(--sig-surface);
+  }
+
+  .sig-empty .sig-icon {
+    margin: 0 auto .8rem;
+  }
+
+  .sig-empty p {
+    max-width: 38rem;
+    margin: 0 auto 1rem;
+  }
+
+  .sig-actions {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr));
+    gap: .9rem;
+    margin-top: 1rem;
+  }
+
+  .sig-action {
+    display: flex;
+    align-items: flex-start;
+    gap: .85rem;
+    min-width: 0;
+    padding: 1rem;
+    border: 1px solid var(--sig-border);
+    border-radius: .9rem;
+    background: var(--sig-surface);
+    color: inherit;
+    text-decoration: none;
+    transition: transform .15s ease, border-color .15s ease, box-shadow .15s ease;
+  }
+
+  .sig-action:hover {
+    transform: translateY(-2px);
+    border-color: #8db3d8;
+    box-shadow: 0 7px 20px rgba(22, 45, 75, .08);
+  }
+
+  .sig-action-content {
+    min-width: 0;
+  }
+
+  .sig-action-title {
+    display: block;
+    margin: 0 0 .25rem;
+    font-weight: 750;
+  }
+
+  .sig-action-desc {
+    display: block;
+    color: var(--sig-muted);
+    font-size: .875rem;
+    line-height: 1.5;
+  }
+
+  .sig-foot {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: .6rem;
+    padding-top: .25rem;
+    color: var(--sig-muted);
+    font-size: .82rem;
+  }
+
+  .sig-foot a {
+    color: var(--sig-accent);
+    text-decoration: none;
+  }
+
+  .sig-foot a:hover {
+    text-decoration: underline;
+  }
+
+  @media (max-width: 575.98px) {
+    .sig-hero {
+      padding: 1.2rem;
+    }
+
+    .sig-toolbar {
+      justify-content: stretch;
+    }
+
+    .sig-toolbar .sig-btn {
+      flex: 1 1 100%;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .sig-action {
+      transition: none;
+    }
+
+    .sig-action:hover {
+      transform: none;
+    }
+  }
+</style>
+{% endblock %}
+
 {% block content %}
-<div class="page-head"><div><p class="eyebrow">Segurança criptográfica</p><h1>Assinatura digital</h1><p>Consulte a configuração das chaves de assinatura e das credenciais da integração fiscal.</p></div></div>
-<div class="grid grid-2"><section class="card"><div class="card-head"><h2>Estado da configuração</h2>{% if configuracao.configurada or configurado %}<span class="badge success">Configurada</span>{% else %}<span class="badge warning">Pendente</span>{% endif %}</div><div class="card-body"><div class="list"><div class="list-item"><div><strong>NIF do contribuinte</strong><div class="secondary">Identificação fiscal associada às chaves.</div></div><span>{{ configuracao.nif_contribuinte|default:"Não definido" }}</span></div><div class="list-item"><div><strong>Chave privada</strong><div class="secondary">Armazenada de forma protegida.</div></div>{% if configuracao.chave_contribuinte_privada %}<span class="badge success">Presente</span>{% else %}<span class="badge warning">Em falta</span>{% endif %}</div><div class="list-item"><div><strong>Chave pública</strong><div class="secondary">Certificado/chave pública PEM.</div></div>{% if configuracao.chave_contribuinte_publica %}<span class="badge success">Presente</span>{% else %}<span class="badge warning">Em falta</span>{% endif %}</div><div class="list-item"><div><strong>Última configuração</strong><span>{{ configuracao.configurada_em|date:"d/m/Y H:i"|default:"—" }}</span></div></div></div></div></section>
-<section class="card"><div class="card-head"><h2>Credenciais e gestão de chaves</h2></div><div class="card-body"><div class="notice warning"><strong>Protecção:</strong> não cole chaves privadas ou palavras-passe em mensagens, logs ou relatórios. Esta página mostra o estado actual; a alteração de chaves deve passar pelo fluxo seguro do serviço de assinatura.</div><p style="margin:18px 0 6px">Para alterar ou renovar as chaves, utilize a operação segura autorizada na aplicação.</p><div class="detail-grid"><div class="detail"><small>Utilizador de configuração</small><strong>{{ configuracao.configurado_por|default:"—" }}</strong></div><div class="detail"><small>Último hash</small><strong class="code">{{ configuracao.ultimo_hash|default:"—"|truncatechars:24 }}</strong></div><div class="detail"><small>Chaves por série</small><strong>{{ configuracao.dados_series_fiscais|length|default:0 }}</strong></div></div>{% if url_configurar_chaves %}<div class="actions" style="margin-top:18px"><a class="btn btn-primary" href="{{ url_configurar_chaves }}">Abrir gestão segura de chaves</a></div>{% endif %}</div></section></div>
+{% url 'fiscal:assinatura-configurar' as configurar_url %}
+{% url 'fiscal:saft' as saft_panel_url %}
+{% url 'fiscal:baixar_chave_publica' as chave_publica_url %}
+{% url 'fiscal:baixar_pdf_submissao' as pdf_submissao_url %}
+{% url 'fiscal:download_pdf_agt' as pdf_declaracao_url %}
+{% url 'fiscal:integridade' as integridade_url %}
+{% url 'saft:validar' as saft_validar_url %}
+
+<div class="sig-page">
+
+  <!-- BARRA DE ACÇÕES -->
+  <div class="sig-toolbar">
+    {% if saft_panel_url %}
+      <a href="{{ saft_panel_url }}" class="sig-btn sig-btn--secondary">
+        <i class="fas fa-file-code" aria-hidden="true"></i>
+        Painel SAF-T
+      </a>
+    {% endif %}
+
+    {% if configurar_url %}
+      <a href="{{ configurar_url }}" class="sig-btn sig-btn--primary">
+        <i class="fas fa-shield-alt" aria-hidden="true"></i>
+        Configurar assinatura
+      </a>
+    {% endif %}
+  </div>
+
+  <!-- ESTADO GERAL -->
+  <section class="sig-hero" aria-labelledby="sig-title">
+    <div>
+      <p class="sig-eyebrow">VistoGest Pro · Conformidade fiscal</p>
+
+      <h1 id="sig-title" class="sig-title">
+        Assinatura Digital
+      </h1>
+
+      <p class="sig-lead">
+        Consulte a identificação fiscal, o estado das chaves do contribuinte
+        e a integridade da configuração no tenant activo.
+        O conteúdo das chaves privadas nunca é apresentado.
+      </p>
+    </div>
+
+    <div>
+      {% if assinatura_integra %}
+
+        <span class="sig-chip sig-chip--ok">
+          <i class="fas fa-check-circle" aria-hidden="true"></i>
+          Integridade verificada
+        </span>
+
+      {% elif configurado %}
+
+        <span class="sig-chip sig-chip--warn">
+          <i class="fas fa-exclamation-triangle" aria-hidden="true"></i>
+          Chaves registadas, com inconsistências
+        </span>
+
+      {% elif tem_chave_privada or tem_chave_publica %}
+
+        <span class="sig-chip sig-chip--warn">
+          <i class="fas fa-exclamation-triangle" aria-hidden="true"></i>
+          Configuração incompleta
+        </span>
+
+      {% else %}
+
+        <span class="sig-chip sig-chip--warn">
+          <i class="fas fa-exclamation-triangle" aria-hidden="true"></i>
+          Assinatura não configurada
+        </span>
+
+      {% endif %}
+    </div>
+  </section>
+
+  <!-- RESUMO -->
+  {% if configurado or tem_chave_privada or tem_chave_publica %}
+
+    <section class="sig-metrics" aria-label="Resumo da assinatura digital">
+
+      <article class="sig-metric">
+        <div class="sig-metric-label">
+          NIF oficial do contribuinte
+        </div>
+
+        <div class="sig-metric-value">
+          {{ empresa.nif|default:"Não definido" }}
+        </div>
+
+        <div class="sig-small sig-muted">
+          Origem: registo principal da empresa.
+        </div>
+      </article>
+
+      <article class="sig-metric">
+        <div class="sig-metric-label">
+          Chave privada do contribuinte
+        </div>
+
+        {% if tem_chave_privada %}
+          <div class="sig-metric-value">
+            Registada e protegida
+          </div>
+
+          <div class="sig-small sig-muted">
+            A presença da chave foi detectada; a sua validade
+            depende das verificações de integridade.
+          </div>
+        {% else %}
+          <div class="sig-metric-value">
+            Não registada
+          </div>
+
+          <div class="sig-small sig-muted">
+            Não foi detectada uma chave privada armazenada.
+          </div>
+        {% endif %}
+      </article>
+
+      <article class="sig-metric">
+        <div class="sig-metric-label">
+          Chave pública do contribuinte
+        </div>
+
+        {% if tem_chave_publica %}
+          <div class="sig-metric-value">
+            Registada
+          </div>
+        {% else %}
+          <div class="sig-metric-value">
+            Não registada
+          </div>
+        {% endif %}
+      </article>
+
+      <article class="sig-metric">
+        <div class="sig-metric-label">
+          Última configuração
+        </div>
+
+        <div class="sig-metric-value">
+          {% if assinatura.data_configuracao_chave %}
+            {{ assinatura.data_configuracao_chave|date:"d/m/Y H:i" }}
+          {% else %}
+            Não registada
+          {% endif %}
+        </div>
+      </article>
+
+    </section>
+
+    <!-- DETALHES E INTEGRIDADE -->
+    <div class="sig-main">
+
+      <section class="sig-card" aria-labelledby="sig-state-title">
+
+        <header class="sig-card-header">
+          <span class="sig-icon">
+            <i class="fas fa-shield-alt" aria-hidden="true"></i>
+          </span>
+
+          <div>
+            <h2 id="sig-state-title" class="sig-h2">
+              Estado da configuração
+            </h2>
+
+            <p class="sig-small sig-muted" style="margin:.2rem 0 0">
+              Estado das chaves e verificações do tenant activo
+            </p>
+          </div>
+        </header>
+
+        <div class="sig-card-body">
+
+          <dl class="sig-dl">
+
+            <dt>Configuração</dt>
+            <dd>
+              {% if configurado %}
+                <span class="sig-chip sig-chip--ok">
+                  Duas chaves registadas
+                </span>
+              {% else %}
+                <span class="sig-chip sig-chip--warn">
+                  Incompleta
+                </span>
+              {% endif %}
+            </dd>
+
+            <dt>Integridade das chaves</dt>
+            <dd>
+              {% if assinatura_integra %}
+                <span class="sig-chip sig-chip--ok">
+                  <i class="fas fa-check-circle" aria-hidden="true"></i>
+                  Verificada
+                </span>
+              {% else %}
+                <span class="sig-chip sig-chip--warn">
+                  <i class="fas fa-exclamation-triangle" aria-hidden="true"></i>
+                  Não confirmada
+                </span>
+              {% endif %}
+            </dd>
+
+            <dt>Chave privada</dt>
+            <dd>
+              {% if tem_chave_privada %}
+                Registada
+              {% else %}
+                Não registada
+              {% endif %}
+            </dd>
+
+            <dt>Chave pública</dt>
+            <dd>
+              {% if tem_chave_publica %}
+                Registada
+              {% else %}
+                Não registada
+              {% endif %}
+            </dd>
+
+            <dt>Último hash conhecido</dt>
+            <dd class="sig-code">
+              {% if assinatura.ultimo_hash %}
+                {{ assinatura.ultimo_hash }}
+              {% else %}
+                <span class="sig-muted">
+                  Ainda não existe hash registado.
+                </span>
+              {% endif %}
+            </dd>
+
+            <dt>Séries fiscais</dt>
+            <dd>
+              {% if assinatura.dados_series_fiscais %}
+                {{ assinatura.dados_series_fiscais|length }}
+                série(s) registada(s)
+              {% else %}
+                <span class="sig-muted">
+                  Sem dados de séries disponíveis.
+                </span>
+              {% endif %}
+            </dd>
+
+            <dt>Configurada por</dt>
+            <dd>
+              {{ assinatura.configurada_por_nome|default:"Não registado" }}
+            </dd>
+
+            <dt>Schema associado</dt>
+            <dd class="sig-code">
+              {{ assinatura.schema_vinculado|default:"Não registado" }}
+            </dd>
+
+            <dt>Fingerprint da chave pública</dt>
+            <dd class="sig-code">
+              {{ assinatura.chave_publica_fingerprint|default:"Não disponível" }}
+            </dd>
+
+          </dl>
+
+          {% if problemas_integridade %}
+            <div class="sig-note" role="alert">
+              <i class="fas fa-exclamation-triangle" aria-hidden="true"></i>
+
+              <div>
+                <strong>Problemas detectados na configuração</strong>
+
+                <ul style="margin:.5rem 0 0; padding-left:1.2rem;">
+                  {% for problema in problemas_integridade %}
+                    <li>{{ problema }}</li>
+                  {% endfor %}
+                </ul>
+              </div>
+            </div>
+          {% else %}
+            <div class="sig-note" role="note">
+              <i class="fas fa-info-circle" aria-hidden="true"></i>
+
+              <span>
+                As verificações de integridade não substituem um teste
+                efectivo de assinatura nem a validação do SAF-T.
+              </span>
+            </div>
+          {% endif %}
+
+        </div>
+      </section>
+
+      <!-- VERIFICAÇÕES -->
+      <section class="sig-card" aria-labelledby="sig-checks-title">
+
+        <header class="sig-card-header">
+          <span class="sig-icon">
+            <i class="fas fa-tasks" aria-hidden="true"></i>
+          </span>
+
+          <div>
+            <h2 id="sig-checks-title" class="sig-h2">
+              Verificações recomendadas
+            </h2>
+
+            <p class="sig-small sig-muted" style="margin:.2rem 0 0">
+              Antes de assinar documentos fiscais
+            </p>
+          </div>
+        </header>
+
+        <div class="sig-card-body">
+
+          <div class="sig-check">
+            {% if empresa.nif %}
+              <i class="fas fa-check-circle is-ok" aria-label="Concluído"></i>
+            {% else %}
+              <i class="fas fa-exclamation-circle is-pending" aria-label="Pendente"></i>
+            {% endif %}
+
+            <div>
+              <strong>Identificação fiscal</strong>
+
+              <div class="sig-small sig-muted">
+                O NIF deve estar definido no registo oficial da empresa.
+              </div>
+            </div>
+          </div>
+
+          <div class="sig-check">
+            {% if tem_chave_privada %}
+              <i class="fas fa-check-circle is-ok" aria-label="Registada"></i>
+            {% else %}
+              <i class="fas fa-exclamation-circle is-pending" aria-label="Em falta"></i>
+            {% endif %}
+
+            <div>
+              <strong>Chave privada do contribuinte</strong>
+
+              <div class="sig-small sig-muted">
+                A chave tem de estar armazenada e ser legível pelo serviço
+                de assinatura.
+              </div>
+            </div>
+          </div>
+
+          <div class="sig-check">
+            {% if tem_chave_publica %}
+              <i class="fas fa-check-circle is-ok" aria-label="Registada"></i>
+            {% else %}
+              <i class="fas fa-exclamation-circle is-pending" aria-label="Em falta"></i>
+            {% endif %}
+
+            <div>
+              <strong>Chave pública do contribuinte</strong>
+
+              <div class="sig-small sig-muted">
+                Deve corresponder à chave privada armazenada.
+              </div>
+            </div>
+          </div>
+
+          <div class="sig-check" style="margin-bottom:0">
+            {% if assinatura_integra %}
+              <i class="fas fa-check-circle is-ok" aria-label="Verificada"></i>
+            {% else %}
+              <i class="fas fa-exclamation-circle is-pending" aria-label="Não verificada"></i>
+            {% endif %}
+
+            <div>
+              <strong>Integridade da configuração</strong>
+
+              <div class="sig-small sig-muted">
+                Verifica a associação ao tenant, o NIF, a legibilidade
+                da chave privada e a correspondência criptográfica do par.
+              </div>
+            </div>
+          </div>
+
+          {% if configurar_url and not assinatura_integra %}
+            <a
+              href="{{ configurar_url }}"
+              class="sig-btn sig-btn--primary sig-btn--block"
+              style="margin-top:1.25rem"
+            >
+              <i class="fas fa-key" aria-hidden="true"></i>
+              Configurar ou substituir chaves
+            </a>
+          {% endif %}
+
+        </div>
+      </section>
+
+    </div>
+
+  {% else %}
+
+    <!-- NENHUMA DAS CHAVES ESTÁ REGISTADA -->
+    <section class="sig-empty" aria-labelledby="sig-empty-title">
+
+      <span class="sig-icon">
+        <i class="fas fa-shield-alt" aria-hidden="true"></i>
+      </span>
+
+      <h2 id="sig-empty-title" class="sig-h2">
+        Assinatura digital ainda não configurada
+      </h2>
+
+      <p class="sig-muted">
+        Não foram detectadas chaves registadas para este tenant.
+        Inicie a configuração com as chaves correspondentes ao contribuinte.
+      </p>
+
+      {% if configurar_url %}
+        <a href="{{ configurar_url }}" class="sig-btn sig-btn--primary">
+          <i class="fas fa-key" aria-hidden="true"></i>
+          Configurar assinatura digital
+        </a>
+      {% endif %}
+
+    </section>
+
+    {% if problemas_integridade %}
+      <div class="sig-note" role="status">
+        <i class="fas fa-info-circle" aria-hidden="true"></i>
+
+        <div>
+          <strong>Estado da verificação</strong>
+
+          <ul style="margin:.5rem 0 0; padding-left:1.2rem;">
+            {% for problema in problemas_integridade %}
+              <li>{{ problema }}</li>
+            {% endfor %}
+          </ul>
+        </div>
+      </div>
+    {% endif %}
+
+  {% endif %}
+
+  <!-- ACÇÕES RÁPIDAS -->
+  <section aria-labelledby="sig-actions-title">
+
+    <h2 id="sig-actions-title" class="sig-section-title">
+      Acções rápidas
+    </h2>
+
+    <p class="sig-muted" style="margin:0">
+      Atalhos para configuração, integridade e documentação fiscal.
+    </p>
+
+    <div class="sig-actions">
+
+      {% if configurar_url %}
+        <a href="{{ configurar_url }}" class="sig-action">
+          <span class="sig-icon">
+            <i class="fas fa-key" aria-hidden="true"></i>
+          </span>
+
+          <span class="sig-action-content">
+            <span class="sig-action-title">
+              Configurar chaves do contribuinte
+            </span>
+
+            <span class="sig-action-desc">
+              Registar ou substituir o par de chaves do contribuinte.
+            </span>
+          </span>
+        </a>
+      {% endif %}
+
+      {% if chave_publica_url %}
+        <a href="{{ chave_publica_url }}" class="sig-action">
+          <span class="sig-icon">
+            <i class="fas fa-file-download" aria-hidden="true"></i>
+          </span>
+
+          <span class="sig-action-content">
+            <span class="sig-action-title">
+              Descarregar chave pública
+            </span>
+
+            <span class="sig-action-desc">
+              Descarregar a chave pública registada neste tenant.
+            </span>
+          </span>
+        </a>
+      {% endif %}
+
+      {% if pdf_submissao_url %}
+        <a href="{{ pdf_submissao_url }}" class="sig-action">
+          <span class="sig-icon">
+            <i class="fas fa-file-pdf" aria-hidden="true"></i>
+          </span>
+
+          <span class="sig-action-content">
+            <span class="sig-action-title">
+              PDF de submissão à AGT
+            </span>
+
+            <span class="sig-action-desc">
+              Gerar o documento de apoio à submissão fiscal.
+            </span>
+          </span>
+        </a>
+      {% endif %}
+
+      {% if pdf_declaracao_url %}
+        <a href="{{ pdf_declaracao_url }}" class="sig-action">
+          <span class="sig-icon">
+            <i class="fas fa-file-contract" aria-hidden="true"></i>
+          </span>
+
+          <span class="sig-action-content">
+            <span class="sig-action-title">
+              Declaração fiscal AGT
+            </span>
+
+            <span class="sig-action-desc">
+              Gerar a declaração fiscal em PDF.
+            </span>
+          </span>
+        </a>
+      {% endif %}
+
+      {% if integridade_url %}
+        <a href="{{ integridade_url }}" class="sig-action">
+          <span class="sig-icon">
+            <i class="fas fa-fingerprint" aria-hidden="true"></i>
+          </span>
+
+          <span class="sig-action-content">
+            <span class="sig-action-title">
+              Verificar integridade
+            </span>
+
+            <span class="sig-action-desc">
+              Consultar as verificações da integridade fiscal.
+            </span>
+          </span>
+        </a>
+      {% endif %}
+
+      {% if saft_validar_url %}
+        <a href="{{ saft_validar_url }}" class="sig-action">
+          <span class="sig-icon">
+            <i class="fas fa-check-circle" aria-hidden="true"></i>
+          </span>
+
+          <span class="sig-action-content">
+            <span class="sig-action-title">
+              Validar XML SAF-T
+            </span>
+
+            <span class="sig-action-desc">
+              Validar a estrutura do SAF-T contra o XSD.
+            </span>
+          </span>
+        </a>
+      {% endif %}
+
+    </div>
+  </section>
+
+  <!-- RODAPÉ -->
+  <footer class="sig-foot">
+    <span>
+      <i class="fas fa-lock" aria-hidden="true"></i>
+      A informação apresentada pertence ao tenant activo.
+    </span>
+
+    {% if saft_panel_url %}
+      <a href="{{ saft_panel_url }}">
+        Voltar ao painel SAF-T
+        <i class="fas fa-arrow-right" aria-hidden="true"></i>
+      </a>
+    {% endif %}
+  </footer>
+
+</div>
+
 {% endblock %}

@@ -24,6 +24,14 @@ from typing import Dict, Optional, Tuple
 from apps.empresas.models import Empresa
 from django.db import transaction
 from django.utils import timezone
+from django.core.exceptions import ValidationError
+from django.db import connection, models
+from django.utils import timezone
+from django_tenants.utils import get_public_schema_name
+
+from apps.core.models import TimeStampedModel
+from apps.empresas.services import obter_empresa_do_schema
+from apps.fiscal.utility import chaves
 
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding, rsa
@@ -248,8 +256,8 @@ class ContadorDocumento(models.Model):
     """
     tipo_documento = models.CharField(max_length=5) 
     ano = models.IntegerField()
-    serie = models.CharField(max_length=10, default='A')
-    ultimo_numero = models.IntegerField(default=0)
+    serie = models.CharField(max_length=60, default='A')
+    ultimo_numero = models.PositiveBigIntegerField(default=0)
 
     class Meta:
         # Essencial para garantir que a combinação nunca se repita no banco
@@ -424,91 +432,33 @@ class SerieFiscalAGT(TimeStampedModel):
 
 
 
+
+
 class AssinaturaDigital(TimeStampedModel):
     """
-    Configuração da assinatura digital do CONTRIBUINTE (a empresa deste
-    tenant) para a Faturação Eletrónica da AGT.
+    Chaves do CONTRIBUINTE (emitidas pela AGT). Uma linha por schema: usa get_solo().
 
-    ARQUITETURA DE CHAVES (duas chaves distintas — não confundir):
+    Não vive aqui nada que seja do SISTEMA: nem a chave do software
+    (jwsSoftwareSignature) nem a Basic Auth da AGT (AGT_API_USERNAME /
+    AGT_API_PASSWORD). Tudo isso é lido directamente de settings/.env.
 
-    1) Chave do SOFTWARE (jwsSoftwareSignature): gerada LOCALMENTE pela
-       SOTARQ (nunca pela AGT), uma só para TODO o sistema — igual para
-       todos os tenants. Vive em `settings.AGT_SOFTWARE_PRIVATE_KEY`
-       (variável de ambiente), NÃO fica guardada neste modelo nem em
-       nenhuma tabela do banco. A chave pública correspondente é
-       submetida manualmente no registo do produtor de software no
-       Portal do Parceiro (homologação/produção).
-
-    2) Chave do CONTRIBUINTE (jwsDocumentSignature, jwsSignature): emitida
-       PELA AGT, uma por empresa/NIF, disponibilizada no portal do
-       contribuinte de cada cliente. É essa que fica guardada aqui,
-       inserida manualmente pelo admin da empresa ao configurar o tenant
-       (ver `definir_chaves`).
-
-    Isolamento físico (django-tenants): este modelo NÃO tem FK para
-    Empresa — o schema já isola por empresa, então só pode (e deve)
-    existir UMA linha por tenant. Use sempre `AssinaturaDigital.get_solo()`
-    para obter/criar essa linha; nunca faça `.objects.create()` diretamente
-    nem filtre por `empresa=`.
+    O NIF vem sempre da Empresa; as chaves são inseridas pelo superuser global
+    no admin e carimbadas com o schema e a impressão digital da pública.
     """
 
-    # --- NIF do contribuinte deste tenant ---
-    nif_contribuinte = models.CharField(
-        max_length=20,
-        blank=True,
-        verbose_name="NIF do Contribuinte",
-        help_text="NIF da empresa (tenant) tal como consta na chave emitida pela AGT."
-    )
-
-    # --- Chaves do CONTRIBUINTE, emitidas pela AGT ---
-    # ATENÇÃO: os nomes abaixo seguem a convenção do assinatura_service.py
-    # (chave_contribuinte_privada / chave_contribuinte_publica) para evitar
-    # confusão com campos de outras iterações do modelo.
+    nif_contribuinte = models.CharField(max_length=20, blank=True, editable=False)
     chave_contribuinte_privada = models.TextField(
-        blank=True, null=True,
-        help_text="Chave privada RSA do CONTRIBUINTE (emitida pela AGT), armazenada cifrada via AESService. "
-                   "Usada para assinar jwsDocumentSignature e jwsSignature."
-    )
+        blank=True, null=True, help_text="PEM da chave privada, cifrado via AESService.")
     chave_contribuinte_publica = models.TextField(
-        blank=True, null=True,
-        help_text="Chave pública RSA do CONTRIBUINTE (emitida pela AGT), em PEM."
-    )
-    data_configuracao_chave = models.DateTimeField(
-        null=True, blank=True,
-        verbose_name="Data de Configuração das Chaves"
-    )
-    configurada_por = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
-        on_delete=models.SET_NULL,
-        null=True, blank=True,
-        related_name='assinaturas_fiscais_configuradas',
-        verbose_name="Configurado por"
-    )
+        blank=True, null=True, help_text="PEM da chave pública.")
+    chave_publica_fingerprint = models.CharField(max_length=64, blank=True, editable=False)
+    schema_vinculado = models.CharField(max_length=63, blank=True, editable=False)
+    data_configuracao_chave = models.DateTimeField(null=True, blank=True)
+    # Sem FK: o superuser global vive no public e não existe neste schema.
+    configurada_por_nome = models.CharField(max_length=150, blank=True, editable=False)
 
-    # --- Credenciais Basic Auth para a API AGT ---
-    api_username = models.CharField(
-        max_length=100, blank=True,
-        verbose_name="Username API AGT",
-        help_text="Usuário da Basic Auth emitido pela AGT (email produtores)."
-    )
-    api_password = models.TextField(
-        blank=True,
-        verbose_name="Password API AGT (cifrada)",
-        help_text="Password da Basic Auth cifrada via AESService."
-    )
-
-    # --- Cadeia de integridade (hash chain) do SAF-T, por série ---
-    ultimo_hash = models.CharField(
-        max_length=256,
-        blank=True,
-        null=True,
-        verbose_name="Último Hash em Cadeia (SAF-T)"
-    )
-    dados_series_fiscais = models.JSONField(
-        default=dict, blank=True,
-        verbose_name="Dados de Hash e Código AGT por Série"
-    )
-
+    ultimo_hash = models.CharField(max_length=256, blank=True, null=True)
+    dados_series_fiscais = models.JSONField(default=dict, blank=True)
     data_geracao = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -516,53 +466,120 @@ class AssinaturaDigital(TimeStampedModel):
         verbose_name_plural = "Assinatura Fiscal do Contribuinte"
 
     def save(self, *args, **kwargs):
-        # Singleton: força sempre a mesma linha (pk=1) dentro deste schema/tenant.
-        self.pk = 1
+        self.pk = 1  # singleton por schema
         super().save(*args, **kwargs)
 
     def delete(self, *args, **kwargs):
-        # Não permitir apagar a configuração singleton — só editar.
         raise ValidationError("A configuração de Assinatura Fiscal não pode ser apagada, apenas editada.")
 
     @classmethod
     def get_solo(cls):
-        """Obtém (ou cria, vazia) a única linha de configuração deste tenant."""
-        obj, _ = cls.objects.get_or_create(pk=1)
-        return obj
+        return cls.objects.get_or_create(pk=1)[0]
 
-    @classmethod
-    def obter_configuracao(cls):
-        """Alias de get_solo() — compatível com chamadas no service e nas views."""
-        return cls.get_solo()
-
-    def definir_chaves(self, nif: str, chave_privada_pem: str, chave_publica_pem: str = None, usuario=None):
-        """
-        Recebe as chaves do CONTRIBUINTE emitidas pela AGT (coladas pelo
-        admin da empresa a partir do portal do contribuinte) e guarda a
-        privada cifrada (AES) e a pública em claro.
-        """
-        from apps.fiscal.utility.crypto import AESService
-
-        self.nif_contribuinte = nif
-        self.chave_contribuinte_privada = AESService.encrypt(chave_privada_pem)
-        if chave_publica_pem:
-            self.chave_contribuinte_publica = chave_publica_pem
-        self.data_configuracao_chave = timezone.now()
-        self.configurada_por = usuario
-        self.save()
+    obter_configuracao = get_solo  # nome usado pelo serviço e pelas views
 
     @property
-    def esta_configurada(self):
-        """True se as chaves do contribuinte já foram inseridas para este tenant."""
-        return bool(self.chave_contribuinte_privada and self.chave_contribuinte_publica)
+    def tem_chave_privada(self) -> bool:
+        """
+        Indica apenas se existe uma chave privada armazenada.
+        Nunca devolve o conteúdo da chave.
+        """
+        return bool(
+            (self.chave_contribuinte_privada or "").strip()
+            )
+
+
+    @property
+    def tem_chave_publica(self) -> bool:
+        """
+        Indica apenas se existe uma chave pública armazenada.
+        """
+        return bool(
+            (self.chave_contribuinte_publica or "").strip()
+        )
+
+
+    @property
+    def esta_configurada(self) -> bool:
+        """
+        Indica se ambas as chaves do contribuinte estão registadas.
+
+        Esta propriedade verifica a presença das chaves,
+        não a respectiva validade criptográfica.
+        """
+        return (
+            self.tem_chave_privada
+            and self.tem_chave_publica
+        )
+    def ler_par(self):
+        """Devolve (privada, pública) já validadas. Levanta ValueError se o par falhar."""
+        from apps.fiscal.utility.crypto import AESService
+
+        priv = chaves.carregar_privada(AESService.decrypt(self.chave_contribuinte_privada))
+        pub = chaves.carregar_publica(self.chave_contribuinte_publica)
+        chaves.validar_par(priv, pub)
+        return priv, pub
+
+    def definir_chaves(self, chave_privada_pem, chave_publica_pem=None, autor=""):
+        """Grava as chaves no schema activo. O NIF é o da Empresa, nunca digitado."""
+        from apps.fiscal.utility.crypto import AESService
+
+        empresa = obter_empresa_do_schema()  # levanta ValidationError no public
+        try:
+            priv = chaves.carregar_privada(chave_privada_pem)
+            pub = chaves.carregar_publica(chave_publica_pem) if chave_publica_pem else priv.public_key()
+            chaves.validar_par(priv, pub)
+        except ValueError as exc:
+            raise ValidationError(str(exc)) from exc
+
+        self.nif_contribuinte = empresa.nif
+        self.chave_contribuinte_privada = AESService.encrypt(chaves.pem_privada(priv))
+        self.chave_contribuinte_publica = chaves.pem_publica(pub)
+        self.chave_publica_fingerprint = chaves.fingerprint(pub)
+        self.schema_vinculado = connection.schema_name
+        self.data_configuracao_chave = timezone.now()
+        self.configurada_por_nome = autor[:150]
+        self.save()
+
+    def verificar_integridade(self) -> list:
+        """Lista de problemas no schema activo; vazia quando está tudo certo."""
+        if not self.esta_configurada:
+            return ["Chaves do contribuinte não configuradas."]
+        try:
+            empresa = obter_empresa_do_schema()
+        except ValidationError as exc:
+            return exc.messages
+
+        problemas = []
+        schema = connection.schema_name
+        if not self.schema_vinculado:
+            problemas.append("Chaves sem carimbo de schema (volte a inseri-las no admin).")
+        elif self.schema_vinculado != schema:
+            problemas.append(f"Chaves carimbadas para o schema '{self.schema_vinculado}', não '{schema}'.")
+        if self.nif_contribuinte != empresa.nif:
+            problemas.append("O NIF das chaves difere do NIF da empresa.")
+
+        try:
+            _, pub = self.ler_par()
+        except ValueError as exc:
+            problemas.append(f"Par de chaves inválido: {exc}")
+        except Exception:
+            problemas.append("Chave privada ilegível (AES_KEY alterada?).")
+        else:
+            if chaves.fingerprint(pub) != self.chave_publica_fingerprint:
+                problemas.append("A impressão digital da chave pública não coincide com a guardada.")
+        return problemas
+
+    def obter_chave_privada(self):
+        """ÚNICA porta para assinar: só devolve a chave se tudo estiver consistente."""
+        problemas = self.verificar_integridade()
+        if problemas:
+            raise ValidationError(problemas)
+        return self.ler_par()[0]
 
     def __str__(self):
-        status = "configurada" if self.esta_configurada else "NÃO configurada"
-        nif = f" NIF {self.nif_contribuinte}" if self.nif_contribuinte else ""
-        return f"Assinatura Fiscal do Contribuinte{nif} ({status})"
-
-
-
+        estado = "configurada" if self.esta_configurada else "NÃO configurada"
+        return f"Assinatura Fiscal do Contribuinte {self.nif_contribuinte} ({estado})".replace("  ", " ")
 
 
 
@@ -723,11 +740,11 @@ class DocumentoFiscal(TimeStampedModel):
     # IDENTIFICAÇÃO DO DOCUMENTO
     # ==========================================
     
-    empresa = models.ForeignKey(
-        'empresas.Empresa',
-        on_delete=models.CASCADE,
-        related_name='documentos_fiscais'
-    )
+    #empresa = models.ForeignKey(
+    #    'empresas.Empresa',
+    #    on_delete=models.CASCADE,
+    #    related_name='documentos_fiscais'
+    #)
     
     # Numeração Sequencial Obrigatória (SAF-T)
     tipo_documento = models.CharField(
@@ -737,20 +754,20 @@ class DocumentoFiscal(TimeStampedModel):
     )
     
     serie = models.CharField(
-        max_length=10,
+        max_length=60,
         default='A',
         help_text="Série do documento (ex: A, B, C, 2024A)"
     )
     
-    numero = models.PositiveIntegerField(
+    numero = models.PositiveBigIntegerField(
         verbose_name="Número do Documento",
         help_text="Número sequencial dentro da série"
     )
     
     numero_documento = models.CharField(
-        max_length=50,
+        max_length=60,
         verbose_name="Número Completo",
-        help_text="Formato: TIPO SERIE/NUMERO (ex: FT A/1234)",
+        help_text="Formato: TIPO seriesCode/SEQUÊNCIA.",
         editable=False
     )
     
@@ -1148,11 +1165,6 @@ class DocumentoFiscal(TimeStampedModel):
         """
         super().clean()
 
-        # As linhas/documentos são tenant-local; a FK Empresa aponta para o
-        # registo global em public e tem de corresponder ao schema activo.
-        if self.empresa_id:
-            _validar_empresa_no_schema(self.empresa)
-
         # Validar datas
         if self.data_vencimento and self.data_emissao and self.data_vencimento < self.data_emissao:
             raise ValidationError({
@@ -1198,9 +1210,6 @@ class DocumentoFiscal(TimeStampedModel):
         _skip_immutability_check continua reservado às transições internas.
         """
         is_new = self._state.adding
-
-        # Não permitir gravações fiscais no public nem associação cruzada entre tenants.
-        _validar_empresa_no_schema(self.empresa if self.empresa_id else None)
 
         if is_new:
             if not self.data_emissao:
@@ -1249,14 +1258,11 @@ class DocumentoFiscal(TimeStampedModel):
         """Obtém um número do motor central e valida o formato devolvido."""
         if self.numero and self.numero_documento:
             return
-        if not self.empresa_id:
-            raise ValidationError({"empresa": "Associe o documento à empresa do tenant antes de numerar."})
 
         from apps.fiscal.services.utils import gerar_numero_documento
 
         try:
             dados = gerar_numero_documento(
-                empresa=self.empresa,
                 tipo_documento=self.tipo_documento,
                 serie=self.serie,
             )
@@ -1264,7 +1270,6 @@ class DocumentoFiscal(TimeStampedModel):
             raise ValidationError({
                 "numero_documento": f"O motor de numeração falhou: {exc}"
             }) from exc
-
         if not isinstance(dados, dict):
             raise ValidationError({"numero_documento": "O motor de numeração devolveu um resultado inválido."})
 
@@ -1301,11 +1306,10 @@ class DocumentoFiscal(TimeStampedModel):
         from django.utils import timezone
         
         # O NIF vem do registo global da empresa do tenant activo.
-        if not self.empresa_id:
-            raise ValidationError({"empresa": "A empresa é obrigatória para gerar o ATCUD."})
-        nif = (getattr(self.empresa, "nif", "") or "").strip()
+
+        nif = (obter_empresa_do_schema().nif or "").strip()
         if not nif:
-            raise ValidationError({"empresa": "Configure o NIF da empresa antes de gerar o ATCUD."})
+            raise ValidationError({"atcud": "Configure o NIF da empresa antes de gerar o ATCUD."})
         timestamp = int(timezone.now().timestamp())
         self.atcud = f"{nif}_{self.tipo_documento}_{self.serie}_{self.numero}_{timestamp}"
 
@@ -1537,7 +1541,6 @@ class DocumentoFiscal(TimeStampedModel):
             tipo_documento=tipo_rectificativo,
             serie=self.serie,
             documento_original=self,
-            empresa=self.empresa,
             cliente=self.cliente,
             cliente_nome=self.cliente_nome,
             cliente_nif=self.cliente_nif,
@@ -1621,8 +1624,6 @@ class DocumentoFiscal(TimeStampedModel):
 
     def __str__(self):
         return f"{self.numero_documento} - {self.cliente_nome} - {self.valor_total} {self.moeda}"
-
-
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1899,12 +1900,12 @@ class SAFTExport(TimeStampedModel):
         ('falhou', 'Falhou'),
     ]
 
-    empresa = models.ForeignKey(
-        'empresas.Empresa',
-        on_delete=models.CASCADE,
-        related_name='saft_exports',
-        verbose_name="Empresa"
-    )
+    #empresa = models.ForeignKey(
+    #    'empresas.Empresa',
+    #    on_delete=models.CASCADE,
+    #    related_name='saft_exports',
+    #    verbose_name="Empresa"
+    #)
 
     # Identificação do arquivo
     periodo_tributacao = models.CharField(
@@ -1976,19 +1977,17 @@ class SAFTExport(TimeStampedModel):
         verbose_name_plural = "Exportações SAF-T"
         ordering = ['-periodo_tributacao', '-created_at']
 
+
         indexes = [
-            models.Index(fields=['empresa', 'periodo_tributacao']),
+            models.Index(fields=['periodo_tributacao']),
             models.Index(fields=['status']),
             models.Index(fields=['hash_arquivo']),
         ]
 
-    def save(self, *args, **kwargs):
-        _validar_empresa_no_schema(self.empresa if self.empresa_id else None)
-        return super().save(*args, **kwargs)
-
+    
     def __str__(self):
-        return f"SAFT {self.periodo_tributacao} - {self.empresa.nome} ({self.status})"
-
+        return f"SAFT {self.periodo_tributacao} ({self.status})"
+    
     def marcar_gerado(self, hash_val):
         """Marca o arquivo como gerado e salva o hash."""
         self.status = 'gerado'
@@ -2018,3 +2017,4 @@ class SAFTExport(TimeStampedModel):
 # Catálogos legais por tenant: Tabelas 1, 2 e 3 do Decreto Executivo n.º 683/25.
 from .models_referencia import CAE, ImpostoSelo, ImpostoEspecialConsumo  # noqa: F401
 
+from .models_payload_agt import PayloadAGT

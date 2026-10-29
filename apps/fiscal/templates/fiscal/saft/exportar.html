@@ -1,10 +1,236 @@
 {% extends "fiscal/base_fiscal.html" %}
+
 {% block title %}Exportar SAF-T (AO){% endblock %}
 {% block topbar_title %}Exportação SAF-T (AO){% endblock %}
+
 {% block content %}
-<div class="page-head"><div><p class="eyebrow">Conformidade fiscal</p><h1>Exportar SAF-T (AO)</h1><p>Gere e valide o ficheiro de auditoria tributária para o período pretendido.</p></div></div>
-{% if erro %}<div class="notice danger" style="margin-bottom:18px"><strong>Não foi possível gerar o ficheiro.</strong><div>{{ erro }}</div></div>{% endif %}
-{% if resultado %}<div class="notice{% if valido %}{% else %} warning{% endif %}" style="margin-bottom:18px"><strong>{% if valido %}Ficheiro gerado e validado.{% else %}Ficheiro gerado com alertas de validação.{% endif %}</strong><div>{{ resultado }}</div>{% if ficheiro_url %}<p><a class="btn btn-primary btn-small" href="{{ ficheiro_url }}">Transferir SAF-T</a></p>{% endif %}</div>{% endif %}
-<div class="grid grid-2"><section class="card"><div class="card-head"><h2>Parâmetros de exportação</h2></div><div class="card-body"><form method="post" novalidate>{% csrf_token %}{% if form.non_field_errors %}<div class="form-errors">{{ form.non_field_errors }}</div>{% endif %}<div class="form-grid">{% for field in form %}<div class="form-row"><label for="{{ field.id_for_label }}">{{ field.label }}{% if field.field.required %} *{% endif %}</label>{{ field }}{% if field.help_text %}<span class="helptext">{{ field.help_text }}</span>{% endif %}{% if field.errors %}{{ field.errors }}{% endif %}</div>{% endfor %}</div><div class="form-actions"><button class="btn btn-primary" type="submit">Gerar e validar</button></div></form></div></section><section class="card"><div class="card-head"><h2>Antes de exportar</h2></div><div class="card-body"><div class="list"><div class="list-item"><div><strong>1. Confirme os dados da empresa</strong><div class="secondary">NIF, morada e dados de identificação devem estar actualizados.</div></div></div><div class="list-item"><div><strong>2. Verifique os documentos</strong><div class="secondary">Corrija documentos incompletos ou com totais incoerentes.</div></div></div><div class="list-item"><div><strong>3. Valide o XSD</strong><div class="secondary">O ficheiro deve respeitar a versão aplicável do esquema SAF-T (AO).</div></div></div><div class="list-item"><div><strong>4. Guarde o resultado</strong><div class="secondary">Mantenha registo do período, da validação e do ficheiro exportado.</div></div></div></div></div></section></div>
-<section class="card" style="margin-top:18px"><div class="card-head"><h2>Exportações recentes</h2></div>{% if exportacoes %}<div class="table-wrap"><table><thead><tr><th>Ficheiro</th><th>Período</th><th>Estado</th><th>Criado em</th><th></th></tr></thead><tbody>{% for ex in exportacoes %}<tr><td class="primary-cell">{{ ex.nome_ficheiro|default:ex.nome|default:ex.pk }}</td><td>{{ ex.data_inicio|date:"d/m/Y"|default:"—" }} – {{ ex.data_fim|date:"d/m/Y"|default:"—" }}</td><td>{% include "fiscal/partials/estado.html" with obj=ex %}</td><td>{{ ex.created_at|date:"d/m/Y H:i"|default:"—" }}</td><td>{% if ex.caminho_arquivo %}<a class="btn btn-light btn-small" href="{{ ex.caminho_arquivo.url }}">Transferir</a>{% endif %}</td></tr>{% endfor %}</tbody></table></div>{% else %}<div class="card-body"><p class="muted">Ainda não existem exportações registadas.</p></div>{% endif %}</section>
+
+<div class="page-head">
+    <div>
+        <p class="eyebrow">Conformidade fiscal</p>
+        <h1>Exportar SAF-T (AO)</h1>
+        <p>
+            Gere e valide o ficheiro de auditoria tributária
+            para o período pretendido.
+        </p>
+    </div>
+</div>
+
+{% if erro %}
+<div class="notice danger" style="margin-bottom: 18px" role="alert">
+    <strong>Não foi possível concluir a operação.</strong>
+    <div>{{ erro }}</div>
+
+    {% if detalhe_erro %}
+    <details>
+        <summary>Detalhes técnicos</summary>
+        <pre>{{ detalhe_erro }}</pre>
+    </details>
+    {% endif %}
+</div>
+{% endif %}
+
+{% if resultado %}
+<div
+    class="notice{% if not valido %} warning{% endif %}"
+    style="margin-bottom: 18px"
+    role="status"
+>
+    <strong>
+        {% if valido %}
+            Ficheiro gerado e validado.
+        {% else %}
+            Validação SAF-T não confirmada ou com erros.
+        {% endif %}
+    </strong>
+
+    <div>{{ resultado }}</div>
+
+    {% if erros_validacao %}
+    <details style="margin-top: 10px">
+        <summary>Consultar erros de validação</summary>
+        <ul>
+            {% for detalhe in erros_validacao %}
+            <li>{{ detalhe }}</li>
+            {% endfor %}
+        </ul>
+    </details>
+    {% endif %}
+</div>
+{% endif %}
+
+<div class="grid grid-2">
+
+    <section class="card">
+        <div class="card-head">
+            <h2>Parâmetros de exportação</h2>
+        </div>
+
+        <div class="card-body">
+            <form method="post">
+                {% csrf_token %}
+
+                {% if form.non_field_errors %}
+                <div class="form-errors" role="alert">
+                    {{ form.non_field_errors }}
+                </div>
+                {% endif %}
+
+                <div class="form-grid">
+                    {% for field in form %}
+                    <div class="form-row">
+                        <label for="{{ field.id_for_label }}">
+                            {{ field.label }}
+                            {% if field.field.required %}*{% endif %}
+                        </label>
+
+                        {{ field }}
+
+                        {% if field.help_text %}
+                        <span class="helptext">
+                            {{ field.help_text }}
+                        </span>
+                        {% endif %}
+
+                        {% if field.errors %}
+                        <div class="form-errors" role="alert">
+                            {{ field.errors }}
+                        </div>
+                        {% endif %}
+                    </div>
+                    {% endfor %}
+                </div>
+
+                <div class="form-actions">
+                    <button class="btn btn-primary" type="submit">
+                        Gerar e validar
+                    </button>
+                </div>
+            </form>
+        </div>
+    </section>
+
+    <section class="card">
+        <div class="card-head">
+            <h2>Antes de exportar</h2>
+        </div>
+
+        <div class="card-body">
+            <div class="list">
+
+                <div class="list-item">
+                    <div>
+                        <strong>1. Confirme os dados da empresa</strong>
+                        <div class="secondary">
+                            NIF, morada e dados de identificação devem
+                            estar actualizados.
+                        </div>
+                    </div>
+                </div>
+
+                <div class="list-item">
+                    <div>
+                        <strong>2. Verifique os documentos</strong>
+                        <div class="secondary">
+                            Corrija documentos incompletos ou com
+                            totais incoerentes.
+                        </div>
+                    </div>
+                </div>
+
+                <div class="list-item">
+                    <div>
+                        <strong>3. Valide o XSD</strong>
+                        <div class="secondary">
+                            O ficheiro deve respeitar a versão aplicável
+                            do esquema SAF-T (AO).
+                        </div>
+                    </div>
+                </div>
+
+                <div class="list-item">
+                    <div>
+                        <strong>4. Guarde o resultado</strong>
+                        <div class="secondary">
+                            Mantenha registo do período, da validação
+                            e do ficheiro exportado.
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+    </section>
+
+</div>
+
+<section class="card" style="margin-top: 18px">
+
+    <div class="card-head">
+        <h2>Exportações recentes</h2>
+    </div>
+
+    {% if exportacoes %}
+
+    <div class="table-wrap">
+        <table>
+            <thead>
+                <tr>
+                    <th scope="col">Ficheiro</th>
+                    <th scope="col">Período</th>
+                    <th scope="col">Estado</th>
+                    <th scope="col">Criado em</th>
+                    <th scope="col">Acção</th>
+                </tr>
+            </thead>
+
+            <tbody>
+                {% for ex in exportacoes %}
+                <tr>
+                    <td class="primary-cell">
+                        {{ ex.nome_arquivo|default:ex.pk }}
+                    </td>
+
+                    <td>
+                        {{ ex.periodo_tributacao|default:"—" }}
+                    </td>
+
+                    <td>
+                        {% include "fiscal/partials/estado.html" with obj=ex %}
+                    </td>
+
+                    <td>
+                        {{ ex.created_at|date:"d/m/Y H:i"|default:"—" }}
+                    </td>
+
+                    <td>
+                        {% if ex.caminho_arquivo and ex.caminho_arquivo.name %}
+                        <a
+                            class="btn btn-light btn-small"
+                            href="{% url 'fiscal:download-saft-file' ex.pk %}"
+                        >
+                            Transferir
+                        </a>
+                        {% else %}
+                        <span class="muted">Indisponível</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    {% else %}
+
+    <div class="card-body">
+        <p class="muted">
+            Ainda não existem exportações SAF-T registadas.
+        </p>
+    </div>
+
+    {% endif %}
+
+</section>
+
 {% endblock %}
