@@ -1,23 +1,4 @@
 # apps/vendas/models.py
-"""
-Módulo de Vendas.
-
-REGRA DE ARQUITETURA (isolamento físico via django-tenants):
-- `vendas` é um TENANT_APP. Cada schema pertence a exatamente UMA empresa.
-- Por isso NENHUM modelo aqui tem FK para `empresas.Empresa` (SHARED_APP).
-  A empresa "atual" já está implícita pela conexão/schema — quando for
-  necessário algum dado da empresa (NIF, nome, regime fiscal, etc.), usa-se
-  `connection.tenant` (dentro de models/services) ou `request.user.empresa`
-  (dentro de views, já que `Usuario` é SHARED e carrega essa FK legitimamente).
-- FKs para `funcionarios.Funcionario`, `clientes.Cliente`, `produtos.Produto`,
-  `servicos.Servico`, `fiscal.TaxaIVAAGT`, `financeiro.*` são tenant->tenant:
-  permitidas, pois todas essas tabelas vivem no mesmo schema.
-- FKs para `settings.AUTH_USER_MODEL` (Usuario) são tenant->shared: permitidas
-  (mesmo padrão já usado em apps.financeiro e apps.fiscal).
-- O modelo `Loja` foi removido do sistema por completo: não existe mais em
-  lugar nenhum, então toda referência a ele foi eliminada.
-"""
-
 from decimal import Decimal
 
 from django.conf import settings
@@ -147,7 +128,7 @@ class Venda(TimeStampedModel):
 
     data_venda = models.DateTimeField(auto_now_add=True)
 
-    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='finalizada')
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='rascunho')
 
     tem_fatura = models.BooleanField(default=False)
     tem_recibo = models.BooleanField(default=False)
@@ -386,8 +367,7 @@ class Venda(TimeStampedModel):
 
     def calcular_saldo_e_atualizar_status(self):
         """Recalcula valor_pago/troco da venda a partir dos pagamentos não estornados."""
-        total_pago = self.pagamentos.exclude(status='estornado').aggregate(
-            total=models.Sum('valor_pago'))['total'] or Decimal('0.00')
+        total_pago = self.pagamentos.filter(status='aprovado').aggregate(total=models.Sum('valor_pago'))['total'] or Decimal('0.00')
         self.valor_pago = total_pago
         self.troco = max(total_pago - self.total, Decimal('0.00'))
         self.save(update_fields=['valor_pago', 'troco'])
@@ -941,7 +921,12 @@ class MetaVenda(models.Model):
         vendas = Venda.objects.filter(
             data_venda__gte=self.data_inicio,
             data_venda__lte=self.data_fim,
-            status='finalizada'
+            status='finalizada',
+            documento_fiscal__status__in=(
+                'confirmed',
+                'posted',
+                'paid',
+            ),
         )
         if self.vendedor:
             vendas = vendas.filter(vendedor=self.vendedor)

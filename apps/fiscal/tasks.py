@@ -1,27 +1,12 @@
 # apps/fiscal/tasks.py
-"""
-Tarefas Celery para o módulo fiscal — Faturação Electrónica AGT.
-
-Fase 10 do PLANO_IMPLEMENTACAO.md:
-  - submeter_fatura_agt: submete um DocumentoFiscal à API AGT.
-  - polling_estado_agt: consulta o estado de documentos pendentes.
-  - sincronizar_series_agt: sincroniza as séries com a AGT.
-
-Execução assíncrona (design do Decreto 683/25, Modelo Validação a Posteriori):
-  1. O documento é emitido e assinado localmente de forma síncrona.
-  2. A submissão à AGT é assíncrona — vai para fila Celery.
-  3. O polling verifica o resultado diferido a cada 15 minutos.
-
-Contexto multi-tenant: cada tarefa recebe o `schema_name` do tenant e
-activa o schema correcto antes de executar — sem que a fila de mensagens
-misture dados de tenants diferentes.
-"""
 import logging
 from datetime import timedelta
 
 from celery import shared_task
 from django.utils import timezone
 from django_tenants.utils import schema_context
+from apps.fiscal.services.agt_client import AGTClient, AGTError
+from apps.fiscal.services.submissao_documento_agt import submeter_documento_agt
 
 logger = logging.getLogger('fiscal.tasks')
 
@@ -30,12 +15,7 @@ logger = logging.getLogger('fiscal.tasks')
 # Task 1 — Submeter fatura à AGT
 # ─────────────────────────────────────────────────────────────────────────────
 
-@shared_task(
-    bind=True,
-    max_retries=3,
-    default_retry_delay=300,   # 5 minutos entre retentativas
-    name='fiscal.submeter_fatura_agt',
-)
+@shared_task(bind=True, max_retries=0, name="fiscal.submeter_fatura_agt",)
 def submeter_fatura_agt(self, schema_name: str, documento_fiscal_id: int):
     """
     Submete um DocumentoFiscal à API AGT (/registarFactura).
@@ -82,14 +62,96 @@ def submeter_fatura_agt(self, schema_name: str, documento_fiscal_id: int):
             )
             return {'success': False, 'error': f"Status inválido para submissão: {doc.status}"}
 
+
+        meta = doc.metadados if isinstance(doc.metadados, dict) else {}
+
+        if meta.get("request_id_agt"):
+            return {
+                "success": True,
+                "already_submitted": True,
+                "requestID": meta["request_id_agt"],
+            }
+
+        if doc.status not in ("confirmed", "posted", "paid"):
+            return {
+                "success": False,
+                "error": f"Estado não elegível para submissão: {doc.status}",
+            }
+
         try:
-            service = SubmissaoFaturaService()
-            resultado = service.submeter_documento(doc)
-            logger.info(
-                "[%s] DocumentoFiscal #%d submetido. RequestID: %s",
-                schema_name, documento_fiscal_id, resultado.get('requestID'),
+            resultado = submeter_documento_agt(
+                documento=doc,
+                cliente_agt=AGTClient(),
             )
+
+            request_id = resultado.get("requestID")
+
+            if request_id:
+                # Não substituir metadados possivelmente actualizados entretanto.
+                from django.db import transaction
+
+                with transaction.atomic():
+                    doc_locked = (
+                        DocumentoFiscal.objects
+                        .select_for_update()
+                        .get(pk=doc.pk)
+                    )
+
+                    dados = (
+                        dict(doc_locked.metadados)
+                        if isinstance(doc_locked.metadados, dict)
+                        else {}
+                    )
+
+                    dados["request_id_agt"] = request_id
+                    dados["agt_submission_state"] = "AGT_EM_PROCESSAMENTO"
+                    dados["agt_submission_at"] = timezone.now().isoformat()
+
+                    doc_locked.metadados = dados
+                    doc_locked.save(update_fields=["metadados"])
+
             return resultado
+
+        except AGTError as exc:
+            # Nunca repetir registarFactura automaticamente.
+            logger.error(
+                "[%s] Falha AGT no DocumentoFiscal #%d: %s",
+                schema_name,
+                documento_fiscal_id,
+                exc,
+            )
+
+            return {
+                "success": False,
+                "indeterminado": bool(exc.rede),
+                "http_status": exc.http_status,
+                "error": str(exc),
+            }
+
+        except FiscalServiceError as exc:
+            logger.error(
+                "[%s] Submissão bloqueada para DocumentoFiscal #%d: %s",
+                schema_name,
+                documento_fiscal_id,
+                exc,
+            )
+
+            return {
+                "success": False,
+                "error": str(exc),
+            }
+
+        except Exception as exc:
+            logger.exception(
+                "[%s] Erro inesperado na submissão do documento #%d.",
+                schema_name,
+                documento_fiscal_id,
+            )
+
+            return {
+                "success": False,
+                "error": str(exc),
+            }
 
         except requests.exceptions.RequestException as exc:
             # Erro de rede — retentar
@@ -99,6 +161,36 @@ def submeter_fatura_agt(self, schema_name: str, documento_fiscal_id: int):
                 self.request.retries + 1, self.max_retries,
             )
             raise self.retry(exc=exc)
+
+        except AGTError as exc:
+            doc.refresh_from_db()
+
+            metadados = dict(doc.metadados or {})
+
+            metadados["agt_submission_state"] = (
+                "RESULTADO_INDETERMINADO"
+                if exc.rede
+                else "FALHA_SUBMISSAO"
+            )
+
+            metadados["agt_submission_error"] = str(exc)[:1500]
+            metadados["agt_submission_error_at"] = timezone.now().isoformat()
+
+            doc.metadados = metadados
+            doc.save(update_fields=["metadados"])
+
+            logger.error(
+                "[%s] Erro AGT no DocumentoFiscal #%d: %s",
+                schema_name,
+                documento_fiscal_id,
+                exc,
+            )
+
+            return {
+                "success": False,
+                "indeterminado": bool(exc.rede),
+                "error": str(exc),
+            }
 
         except FiscalServiceError as exc:
             # Erro de negócio — não retentar, registar nos metadados
@@ -118,32 +210,16 @@ def submeter_fatura_agt(self, schema_name: str, documento_fiscal_id: int):
                 "[%s] Erro inesperado ao submeter #%d: %s",
                 schema_name, documento_fiscal_id, exc,
             )
-            raise self.retry(exc=exc)
+            raise
+            #raise self.retry(exc=exc)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Task 2 — Polling do estado de validação AGT
 # ─────────────────────────────────────────────────────────────────────────────
 
-@shared_task(
-    bind=True,
-    max_retries=5,
-    default_retry_delay=900,   # 15 minutos
-    name='fiscal.polling_estado_agt',
-)
+@shared_task(bind=True, max_retries=5, default_retry_delay=900, name='fiscal.polling_estado_agt',)
 def polling_estado_agt(self, schema_name: str, documento_fiscal_id: int):
-    """
-    Consulta o estado de validação de um DocumentoFiscal junto da AGT
-    (/obterEstado) e actualiza o status local.
-
-    Deve ser agendado ~5 minutos após submeter_fatura_agt ter registado
-    o requestID, e repetido a cada 15 minutos enquanto o estado for
-    'PROCESSING' (resultCode=8).
-
-    Args:
-        schema_name:         Schema PostgreSQL do tenant.
-        documento_fiscal_id: PK do DocumentoFiscal a consultar.
-    """
     with schema_context(schema_name):
         from apps.fiscal.models import DocumentoFiscal
         from apps.fiscal.services.polling_service import FiscalPollingService
@@ -215,21 +291,32 @@ def polling_estado_agt(self, schema_name: str, documento_fiscal_id: int):
             )
             raise self.retry(exc=exc)
 
-        except Exception as exc:
-            logger.exception(
-                "[%s] Erro inesperado no polling de #%d: %s",
-                schema_name, documento_fiscal_id, exc,
+        meta = doc.metadados if isinstance(doc.metadados, dict) else {}
+
+        if (
+            doc.status in ("posted", "cancelled", "rectified")
+            or meta.get("estado_agt") in ("validado", "rejeitado")
+        ):
+            logger.info(
+                "[%s] Documento #%d já possui resultado final AGT. Polling ignorado.",
+                schema_name,
+                documento_fiscal_id,
             )
-            raise self.retry(exc=exc)
+            return
+
+        #except Exception as exc:
+         #   logger.exception(
+          #      "[%s] Erro inesperado no polling de #%d: %s",
+           #     schema_name, documento_fiscal_id, exc,
+            #)
+            #raise self.retry(exc=exc)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Task 3 — Sincronizar séries com a AGT (periódica)
 # ─────────────────────────────────────────────────────────────────────────────
 
-@shared_task(
-    name='fiscal.sincronizar_series_agt',
-)
+@shared_task(name='fiscal.sincronizar_series_agt',)
 def sincronizar_series_agt(schema_name: str):
     """
     Sincroniza as séries de numeração com a AGT (/listarSeries) para um tenant.
@@ -268,40 +355,57 @@ def sincronizar_series_agt(schema_name: str):
 # Helpers de agendamento — usados pelas views quando um doc é confirmado
 # ─────────────────────────────────────────────────────────────────────────────
 
-def agendar_submissao(schema_name: str, documento_fiscal_id: int, atraso_minutos: int = 5):
-    """
-    Agenda a submissão de um documento à AGT com um atraso (default: 5 minutos).
-    Regra AGT: prazo de 24 horas sem penalização.
+from django.conf import settings
 
-    Chame esta função após confirmar o DocumentoFiscal:
-        from apps.fiscal.tasks import agendar_submissao
-        agendar_submissao(connection.schema_name, doc.pk)
+
+from django.conf import settings
+
+
+def agendar_submissao(
+    schema_name: str,
+    documento_fiscal_id: int,
+    atraso_minutos: int = 0,
+):
     """
-    submeter_fatura_agt.apply_async(
+    Agenda somente a submissão.
+
+    O polling global descobre posteriormente os documentos
+    que já possuem request_id_agt.
+    """
+
+    if not getattr(settings, "AGT_SUBMISSAO_AUTOMATICA", False):
+        logger.info(
+            "[%s] Submissão automática desactivada para #%d.",
+            schema_name,
+            documento_fiscal_id,
+        )
+        return None
+
+    if not schema_name or schema_name == "public":
+        raise ValueError(
+            "Não é permitido agendar submissões AGT no schema public."
+        )
+
+    resultado = submeter_fatura_agt.apply_async(
         args=[schema_name, documento_fiscal_id],
-        countdown=atraso_minutos * 60,
+        countdown=max(0, int(atraso_minutos)) * 60,
     )
-    # Agendar polling 5 minutos depois da submissão
-    polling_estado_agt.apply_async(
-        args=[schema_name, documento_fiscal_id],
-        countdown=(atraso_minutos + 5) * 60,
-    )
+
     logger.info(
-        "[%s] DocumentoFiscal #%d agendado para submissão em %d min.",
-        schema_name, documento_fiscal_id, atraso_minutos,
+        "[%s] Submissão agendada: DocumentoFiscal #%d, task=%s.",
+        schema_name,
+        documento_fiscal_id,
+        resultado.id,
     )
+
+    return resultado.id
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Task 4 — Processar assinatura de documento fiscal (chamada pelo signal)
 # ─────────────────────────────────────────────────────────────────────────────
 
-@shared_task(
-    bind=True,
-    max_retries=3,
-    default_retry_delay=60,
-    name='fiscal.processar_assinatura_documento',
-)
+@shared_task(bind=True, max_retries=3, default_retry_delay=60, name='fiscal.processar_assinatura_documento',)
 def processar_assinatura_documento(
     self,
     schema_name: str,
@@ -393,3 +497,66 @@ def processar_assinatura_documento(
                 schema_name, documento_type, documento_id, exc,
             )
             raise self.retry(exc=exc)
+
+
+@shared_task(
+    name="fiscal.reconciliar_payloads_agt_tenant",
+    ignore_result=True,
+)
+def reconciliar_payloads_agt_tenant(
+    schema_name: str,
+    grace_minutes: int = 10,
+):
+    """
+    Reconciliação automática dentro de um tenant.
+    """
+
+    if not schema_name or schema_name == "public":
+        logger.error(
+            "Reconciliação rejeitada: schema inválido."
+        )
+        return
+
+    with schema_context(schema_name):
+        from apps.fiscal.services.payload_reconciliation_service import (
+            PayloadReconciliationService,
+        )
+
+        return PayloadReconciliationService.reconciliar(
+            dry_run=False,
+            grace_minutes=grace_minutes,
+        )
+
+
+@shared_task(
+    name="fiscal.reconciliar_payloads_agt_global",
+    ignore_result=True,
+)
+def reconciliar_payloads_agt_global():
+    from django_tenants.utils import schema_context
+    from apps.empresas.models import Empresa
+
+    with schema_context("public"):
+        schemas = list(
+            Empresa.objects
+            .exclude(schema_name="public")
+            .values_list("schema_name", flat=True)
+        )
+
+    total = 0
+
+    for schema_name in schemas:
+        reconciliar_payloads_agt_tenant.delay(
+            schema_name,
+            10,
+        )
+        total += 1
+
+    logger.info(
+        "Reconciliação AGT agendada para %d tenants.",
+        total,
+    )
+
+    return {
+        "tenants_agendados": total,
+    }

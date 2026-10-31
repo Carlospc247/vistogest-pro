@@ -86,7 +86,7 @@ def _fmt_kz(valor, casas: int = 2) -> str:
 
 def _fmt_unit(valor) -> str:
     """Preço unitário apresentado com quatro casas decimais."""
-    return _fmt_numero(valor, 4)
+    return _fmt_numero(valor, 2)
 
 
 def _fmt_quantidade(valor) -> str:
@@ -118,20 +118,26 @@ def _p_text(value) -> str:
 
 def _get_validation_number() -> str:
     val = getattr(settings, "AGT_SOFTWARE_VALIDATION_NUMBER", "") or ""
-    return str(val).strip() or "0"
+    return str(val).strip()
 
 
 def _get_4_char_hash(hash_documento: str) -> str:
-    """Extrai as posições 0, 10, 20 e 30 do hash SHA-256, quando disponíveis."""
-    h = str(hash_documento or "")
-    if len(h) >= 31:
-        return f"{h[0]}{h[10]}{h[20]}{h[30]}".upper()
-    return "0000"
+    """Extrai literalmente as posições AGT 1, 11, 21 e 31; sem hash fictício."""
+    h = str(hash_documento or "").strip()
+    return f"{h[0]}{h[10]}{h[20]}{h[30]}" if len(h) >= 31 else ""
 
 
 def _rodape_legal(p, width: float, y: float, hash_documento: str) -> None:
     """Linha curta de identificação do software e do hash para o rodapé."""
-    msg = f"{_get_4_char_hash(hash_documento)} - Processado por programa válido n{_get_validation_number()}"
+    hash4 = _get_4_char_hash(hash_documento)
+    cert = _get_validation_number()
+    cert_text = cert if "/AGT" in cert.upper() else (f"{cert}/AGT" if cert else "")
+    if hash4 and cert_text:
+        msg = f"{hash4}-Processado por programa validado n.º {cert_text}"
+    elif cert_text:
+        msg = f"Emitido por programa validado n.º {cert_text}"
+    else:
+        msg = "Número de validação AGT não configurado; verificar o documento antes de entregar."
     p.saveState()
     p.setFillColor(COR_TEXTO_SEC)
     p.setFont("Helvetica", 6)
@@ -160,55 +166,74 @@ def _marca_dagua_texto(p, width: float, height: float, texto: str, cor) -> None:
 
 
 def _static_logo_agt_path():
-    """Localiza o logótipo de consulta AGT sem depender apenas de STATIC_ROOT."""
+    """Procura o logótipo AGT nos locais estáticos padrão de Django e da app."""
+    nomes = ("img/fiscal/logo_agt_qr.png", "fiscal/logo_agt_qr.png", "logo_agt_qr.png")
     try:
         from django.contrib.staticfiles import finders
-        encontrado = finders.find("img/fiscal/logo_agt_qr.png")
-        if encontrado and os.path.isfile(encontrado):
-            return encontrado
-    except Exception:
-        pass
+        for nome in nomes:
+            encontrado = finders.find(nome)
+            if encontrado and os.path.isfile(encontrado):
+                return os.path.abspath(encontrado)
+    except Exception as exc:
+        logger.debug("Staticfiles finders indisponível ao localizar logo AGT: %s", exc)
 
-    raiz = getattr(settings, "STATIC_ROOT", "") or ""
-    candidato = os.path.join(raiz, "img", "fiscal", "logo_agt_qr.png")
-    return candidato if os.path.isfile(candidato) else None
+    base_dir = str(getattr(settings, "BASE_DIR", "") or "")
+    static_root = str(getattr(settings, "STATIC_ROOT", "") or "")
+    static_dirs = list(getattr(settings, "STATICFILES_DIRS", []) or [])
+    module_dir = os.path.dirname(os.path.abspath(__file__))
+    roots = ([static_root] if static_root else []) + [str(x) for x in static_dirs if x]
+    if base_dir:
+        roots.append(base_dir)
+    roots.append(module_dir)
+    relatives = (
+        os.path.join("img", "fiscal", "logo_agt_qr.png"),
+        os.path.join("static", "img", "fiscal", "logo_agt_qr.png"),
+        os.path.join("assets", "static", "img", "fiscal", "logo_agt_qr.png"),
+        os.path.join("apps", "fiscal", "static", "img", "fiscal", "logo_agt_qr.png"),
+        os.path.join("..", "static", "img", "fiscal", "logo_agt_qr.png"),
+    )
+    seen = set()
+    for root in roots:
+        for rel in relatives:
+            candidate = os.path.abspath(os.path.join(root, rel))
+            if candidate not in seen:
+                seen.add(candidate)
+                if os.path.isfile(candidate):
+                    return candidate
+    logger.error("Logótipo AGT não encontrado. Coloque o PNG oficial em apps/fiscal/static/img/fiscal/logo_agt_qr.png.")
+    return None
 
 
 def _gerar_qr_com_logo_agt(url: str, box_size: int = 8) -> io.BytesIO:
-    """Gera QR legível; o logótipo central, se existir, ocupa uma área pequena."""
-    qr = qrcode.QRCode(
-        version=4,
-        error_correction=qrcode.constants.ERROR_CORRECT_H,
-        box_size=box_size,
-        border=3,
-    )
-    qr.add_data(url)
-    # O QR pode subir automaticamente de versão se o URL for maior que a capacidade
-    # da versão 4; é preferível manter um código funcional a truncar a consulta.
+    """Gera QR e coloca o logótipo AGT no centro, com fundo branco para contraste."""
+    qr = qrcode.QRCode(version=4, error_correction=qrcode.constants.ERROR_CORRECT_M, box_size=box_size, border=3)
+    qr.add_data(str(url).encode("utf-8"))
+    # Preserva a consulta funcional se o URL exigir uma versão superior a 4.
     qr.make(fit=True)
     qr_img = qr.make_image(fill_color="black", back_color="white").convert("RGB")
-
     logo_path = _static_logo_agt_path()
     if logo_path:
         try:
             with Image.open(logo_path) as original:
                 logo = original.convert("RGBA")
             qr_w, qr_h = qr_img.size
-            logo_size = max(1, int(min(qr_w, qr_h) * 0.18))
+            logo_size = max(1, int(min(qr_w, qr_h) * 0.16))
             resampling = getattr(Image, "Resampling", Image)
-            lanczos = getattr(resampling, "LANCZOS", 1)
-            logo.thumbnail((logo_size, logo_size), lanczos)
-            pos = ((qr_w - logo.width) // 2, (qr_h - logo.height) // 2)
-            # Placa branca para manter o contraste e a leitura do QR.
+            logo.thumbnail((logo_size, logo_size), getattr(resampling, "LANCZOS", 1))
             padding = max(2, int(logo_size * 0.10))
-            placa = Image.new("RGB", (logo.width + 2 * padding, logo.height + 2 * padding), "white")
-            px = max(0, (qr_w - placa.width) // 2)
-            py = max(0, (qr_h - placa.height) // 2)
-            qr_img.paste(placa, (px, py))
-            qr_img.paste(logo, (px + padding, py + padding), logo)
-        except Exception as exc:
-            logger.warning("Não foi possível aplicar o logótipo AGT ao QR: %s", exc)
-
+            plate_w = min(qr_w, logo.width + 2 * padding)
+            plate_h = min(qr_h, logo.height + 2 * padding)
+            px, py = (qr_w - plate_w) // 2, (qr_h - plate_h) // 2
+            plate = Image.new("RGB", (plate_w, plate_h), "white")
+            qr_img.paste(plate, (px, py))
+            logo_x = px + (plate_w - logo.width) // 2
+            logo_y = py + (plate_h - logo.height) // 2
+            qr_img.paste(logo, (logo_x, logo_y), logo)
+            logger.info("Logótipo AGT aplicado ao centro do QR: %s", logo_path)
+        except Exception:
+            logger.exception("Não foi possível aplicar o logótipo AGT ao QR: %s", logo_path)
+    else:
+        logger.error("QR gerado sem logótipo AGT: não foi encontrado o ficheiro PNG oficial.")
     buf = io.BytesIO()
     qr_img.save(buf, format="PNG")
     buf.seek(0)
@@ -421,10 +446,13 @@ class PDFDocumentoService:
         tamanho: str = "a4",
         configuracao_fiscal=None,
     ):
-        self.doc_fiscal = documento_fiscal
-        self.venda = venda_obj or documento_fiscal
+        # Quando a chamada chega pela Venda, usar o DocumentoFiscal ligado.
+        # DocumentoFiscal é a fonte de verdade para hash, ATCUD, número e estado.
+        documento_ligado = documento_fiscal or getattr(venda_obj, "documento_fiscal", None)
+        self.doc_fiscal = documento_ligado
+        self.venda = venda_obj or documento_ligado
         self._empresa_documento = (
-            getattr(documento_fiscal, "empresa", None)
+            getattr(documento_ligado, "empresa", None)
             or getattr(venda_obj, "empresa", None)
         )
         self.empresa = self._resolver_empresa_oficial()
@@ -883,17 +911,22 @@ class PDFDocumentoService:
         return valor.strftime("%d/%m/%Y") if valor and hasattr(valor, "strftime") else ""
 
     def _hash(self) -> str:
-        return str(
-            self._campo(self.doc_fiscal, "hash_documento", "hash_integridade", default="")
-            or self._campo(self.venda, "hash_documento", "hash_integridade", default="")
-            or ""
-        ).strip()
+        """Obtém o hash persistido no DocumentoFiscal; não cria nem altera o hash."""
+        documento = self.doc_fiscal
+        if documento is None:
+            documento = self._campo(self.venda, "documento_fiscal", default=None)
+        valor = self._campo(documento, "hash_documento", "hash_integridade", default="")
+        if not valor:
+            # Compatibilidade com registos antigos que só têm a cache na Venda.
+            valor = self._campo(self.venda, "hash_documento", "hash_integridade", default="")
+        return str(valor or "").strip()
 
     @staticmethod
     def _hash4(hash_documento: str) -> str:
-        """Devolve os 4 caracteres derivados do hash; nunca inventa '0000'."""
+        """Extrai literalmente os caracteres AGT nas posições 1, 11, 21 e 31."""
         h = str(hash_documento or "").strip()
-        return f"{h[0]}{h[10]}{h[20]}{h[30]}".upper() if len(h) >= 31 else ""
+        # Preservar maiúsculas/minúsculas: os caracteres do hash são sensíveis à caixa.
+        return f"{h[0]}{h[10]}{h[20]}{h[30]}" if len(h) >= 31 else ""
 
     def _atcud(self) -> str:
         return str(self._campo(self.doc_fiscal, "atcud", default="") or "").strip()
@@ -1897,28 +1930,37 @@ class PDFDocumentoService:
         png = None
         if url:
             try:
-                qr_io = _gerar_qr_com_logo_agt(url, box_size=4 if compact else 6,)
+                qr_io = _gerar_qr_com_logo_agt(url, box_size=6 if compact else 8,)
                 png = qr_io.getvalue()
             except Exception:
                 logger.exception("Não foi possível gerar o QR do documento %s", self._numero())
 
-        software = str(getattr(settings, "AGT_SOFTWARE_NAME", "VistoGest Pro") or "VistoGest Pro").strip()
-        versao = str(getattr(settings, "AGT_SOFTWARE_VERSION", "") or "").strip()
         certificacao = str(getattr(settings, "AGT_SOFTWARE_VALIDATION_NUMBER", "") or "").strip()
         hash4 = self._hash4(self._hash())
-        linhas_texto = [f"Processado por software validado nº: {certificacao}" if certificacao else "Software validado nº: não configurado"]
-        
-        if hash4:
-            linhas_texto.append(f"Hash (4 caracteres): {hash4}")
-        elif not self._proforma and not self._rascunho:
-            linhas_texto.append("Hash do documento não disponível")
+        certificado_exibicao = certificacao
+        if certificacao and "/AGT" not in certificacao.upper():
+            certificado_exibicao = f"{certificacao}/AGT"
+
+        if self._proforma or self._rascunho:
+            linhas_texto = ["Este documento não serve de factura."]
+        elif hash4 and certificado_exibicao:
+            # Formato legal: 4 caracteres, hífen e menção de software validado.
+            linhas_texto = [f"{hash4}-Processado por programa validado n.º {certificado_exibicao}"]
+        elif hash4:
+            linhas_texto = [f"{hash4}-Número de validação do software não configurado"]
+            logger.error("Hash fiscal disponível, mas AGT_SOFTWARE_VALIDATION_NUMBER não está configurado. documento=%s", self._numero())
+        elif self._tipo == "RC" and certificado_exibicao:
+            # Recibo simples não susceptível de assinatura: menção legal própria.
+            linhas_texto = [f"Emitido por programa validado n.º {certificado_exibicao}"]
+        else:
+            linhas_texto = ["HASH FISCAL NÃO DISPONÍVEL — verificar a assinatura antes de entregar o documento."]
+            logger.error("PDF fiscal emitido sem hash para impressão. documento=%s; tipo=%s; status=%s", self._numero(), self._tipo, self._status)
+
         if self._atcud() and not self._proforma and not self._rascunho:
             linhas_texto.append(f"ATCUD: {self._atcud()}")
         motivos = self._motivos_isencao()
         if motivos:
             linhas_texto.append("Isenções: " + "; ".join(motivos))
-        if self._proforma or self._rascunho:
-            linhas_texto.append("Este documento não serve de factura.")
         if self._anulado:
             linhas_texto.append("DOCUMENTO ANULADO")
 
@@ -1937,7 +1979,7 @@ class PDFDocumentoService:
         largura, _ = pdf_canvas._pagesize
         margem_esquerda = getattr(pdf_canvas, "_pdf_left_margin", 15 * mm)
         margem_direita = getattr(pdf_canvas, "_pdf_right_margin", 15 * mm)
-        lado_qr = 18 * mm if self.tamanho == "80mm" else 24 * mm
+        lado_qr = 22 * mm if self.tamanho == "80mm" else 30 * mm
         x_qr = largura - margem_direita - lado_qr
         y_qr = 16 * mm
 
@@ -2059,14 +2101,14 @@ class PDFDocumentoService:
     def _gerar_a4(self) -> io.BytesIO:
         return self._construir_pdf(
             pagesize=A4,
-            margens=(15 * mm, 15 * mm, 12 * mm, 45 * mm),
+            margens=(15 * mm, 15 * mm, 12 * mm, 52 * mm),
             compacto=False,
         )
 
     def _gerar_termico(self) -> io.BytesIO:
         linhas = self._linhas_doc()
         comentarios = self._comentarios()
-        estimativa_mm = 210 + sum(
+        estimativa_mm = 226 + sum(
             12 + min(26, math.ceil(len(linha.get("desc", "")) / 28) * 2.8)
             for linha in linhas
         )
@@ -2076,23 +2118,9 @@ class PDFDocumentoService:
         altura = max(250 * mm, estimativa_mm * mm)
         return self._construir_pdf(
             pagesize=(80 * mm, altura),
-            margens=(4 * mm, 4 * mm, 4 * mm, 28 * mm),
+            margens=(4 * mm, 4 * mm, 4 * mm, 44 * mm),
             compacto=True,
         )
-
-
-########
-# Recibos de vencimento/Salário — PDF para entrega ao colaborador/funcionário
-########
-# ─────────────────────────────────────────────────────────────────────────────
-# PDFReciboVencimentoService — Recibo de Vencimento (documento laboral, não fiscal AGT)
-# ─────────────────────────────────────────────────────────────────────────────
-from xml.sax.saxutils import escape as _esc
-
-from reportlab.platypus import (
-    HRFlowable, Image as RLImage, KeepTogether, Paragraph, SimpleDocTemplate, Spacer,
-    Table as RLTable, TableStyle as RLTableStyle,
-)
 
 
 def _fmt_valor(v, casas: int = 2) -> str:

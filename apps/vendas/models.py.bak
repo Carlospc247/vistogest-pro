@@ -1,23 +1,4 @@
 # apps/vendas/models.py
-"""
-Módulo de Vendas.
-
-REGRA DE ARQUITETURA (isolamento físico via django-tenants):
-- `vendas` é um TENANT_APP. Cada schema pertence a exatamente UMA empresa.
-- Por isso NENHUM modelo aqui tem FK para `empresas.Empresa` (SHARED_APP).
-  A empresa "atual" já está implícita pela conexão/schema — quando for
-  necessário algum dado da empresa (NIF, nome, regime fiscal, etc.), usa-se
-  `connection.tenant` (dentro de models/services) ou `request.user.empresa`
-  (dentro de views, já que `Usuario` é SHARED e carrega essa FK legitimamente).
-- FKs para `funcionarios.Funcionario`, `clientes.Cliente`, `produtos.Produto`,
-  `servicos.Servico`, `fiscal.TaxaIVAAGT`, `financeiro.*` são tenant->tenant:
-  permitidas, pois todas essas tabelas vivem no mesmo schema.
-- FKs para `settings.AUTH_USER_MODEL` (Usuario) são tenant->shared: permitidas
-  (mesmo padrão já usado em apps.financeiro e apps.fiscal).
-- O modelo `Loja` foi removido do sistema por completo: não existe mais em
-  lugar nenhum, então toda referência a ele foi eliminada.
-"""
-
 from decimal import Decimal
 
 from django.conf import settings
@@ -147,7 +128,7 @@ class Venda(TimeStampedModel):
 
     data_venda = models.DateTimeField(auto_now_add=True)
 
-    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='finalizada')
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='rascunho')
 
     tem_fatura = models.BooleanField(default=False)
     tem_recibo = models.BooleanField(default=False)
@@ -354,8 +335,8 @@ class Venda(TimeStampedModel):
         # os campos locais de consulta da venda.
         self.documento_fiscal = documento
         self.numero_documento = documento.numero_documento
-        self.hash_documento = documento.hash_documento
-        self.atcud = documento.atcud
+        self.hash_documento = documento.hash_documento or None
+        self.atcud = documento.atcud or None
 
         self.save(
             update_fields=[
@@ -1286,8 +1267,8 @@ class FaturaCredito(TimeStampedModel):
         # DocumentoFiscal é a fonte de verdade fiscal.
         self.documento_fiscal = documento
         self.numero_documento = documento.numero_documento
-        self.hash_documento = documento.hash_documento
-        self.atcud = documento.atcud
+        self.hash_documento = documento.hash_documento or None
+        self.atcud = documento.atcud or None
 
         self.save(
             update_fields=[
@@ -1420,7 +1401,7 @@ class Recibo(TimeStampedModel):
 
         documento = service.criar_documento(
             empresa=connection.tenant,
-            tipo_documento="REC",
+            tipo_documento="RC",
             cliente=self.cliente,
             usuario=usuario,
             linhas=[],
@@ -1432,8 +1413,8 @@ class Recibo(TimeStampedModel):
 
         self.documento_fiscal = documento
         self.numero_recibo = documento.numero_documento
-        self.hash_documento = documento.hash_documento
-        self.atcud = documento.atcud
+        self.hash_documento = documento.hash_documento or None
+        self.atcud = documento.atcud or None
 
         self.save(
             update_fields=[
@@ -1811,8 +1792,8 @@ class FaturaProforma(TimeStampedModel):
             # Fase 2: guardar a FK para DocumentoFiscal (fonte de verdade)
             self.documento_fiscal = documento
             self.numero_documento = documento.numero_documento
-            self.hash_documento = documento.hash_documento
-            self.atcud = documento.atcud
+            self.hash_documento = documento.hash_documento or None
+            self.atcud = documento.atcud or None
             super().save(update_fields=['documento_fiscal', 'numero_documento', 'hash_documento', 'atcud'])
 
     def __str__(self):
@@ -1968,8 +1949,8 @@ class NotaCredito(TimeStampedModel):
             # Fase 2: guardar a FK para DocumentoFiscal (fonte de verdade)
             self.documento_fiscal = documento
             self.numero_nota = documento.numero_documento
-            self.hash_documento = documento.hash_documento
-            self.atcud = documento.atcud
+            self.hash_documento = documento.hash_documento or None
+            self.atcud = documento.atcud or None
             super().save(update_fields=['documento_fiscal', 'numero_nota', 'hash_documento', 'atcud'])
 
     def __str__(self):
@@ -2194,8 +2175,8 @@ class NotaDebito(TimeStampedModel):
             # Fase 2: guardar a FK para DocumentoFiscal (fonte de verdade)
             self.documento_fiscal = documento
             self.numero_nota = documento.numero_documento
-            self.hash_documento = documento.hash_documento
-            self.atcud = documento.atcud
+            self.hash_documento = documento.hash_documento or None
+            self.atcud = documento.atcud or None
             super().save(update_fields=['documento_fiscal', 'numero_nota', 'hash_documento', 'atcud'])
 
     def __str__(self):
@@ -2461,8 +2442,8 @@ class DocumentoTransporte(TimeStampedModel):
             # Fase 2: guardar a FK para DocumentoFiscal (fonte de verdade)
             self.documento_fiscal = documento
             self.numero_documento = documento.numero_documento
-            self.hash_documento = documento.hash_documento
-            self.atcud = documento.atcud
+            self.hash_documento = documento.hash_documento or None
+            self.atcud = documento.atcud or None
             super().save(update_fields=['documento_fiscal', 'numero_documento', 'hash_documento', 'atcud'])
 
     def __str__(self):

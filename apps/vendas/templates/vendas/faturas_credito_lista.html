@@ -142,6 +142,23 @@
                                     <i class="fas fa-money-check-alt text-lg"></i>
                                 </button>
                                 {% endif %}
+                                {% if pode_converter_faturas and fatura.status != 'cancelada' %}
+                                    {% if fatura.ja_convertida %}
+                                        <span class="text-green-600 dark:text-green-400" title="Esta FT já está ligada a uma venda">
+                                            <i class="fas fa-check-circle text-lg"></i>
+                                        </span>
+                                    {% else %}
+                                        <button type="button"
+                                                onclick="abrirModalConversaoFatura(this)"
+                                                data-url="{% url 'vendas:converter_fatura_credito_para_venda_api' fatura.id %}"
+                                                data-numero="{{ fatura.numero_documento|escape }}"
+                                                data-forma="{{ fatura.forma_pagamento_id|default:'' }}"
+                                                class="text-purple-600 hover:text-purple-900 dark:text-purple-400 dark:hover:text-purple-300"
+                                                title="Converter para registo de venda">
+                                            <i class="fas fa-exchange-alt text-lg"></i>
+                                        </button>
+                                    {% endif %}
+                                {% endif %}
                                 <a href="#"
                                    class="text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-300"
                                    title="Detalhes">
@@ -166,7 +183,110 @@
     </div>
 </div>
 
+<!-- Modal para escolher a forma de pagamento do registo comercial.
+     A conversão não regista um pagamento nem cria outra factura fiscal. -->
+<div id="modalConverterFatura" class="fixed inset-0 bg-black bg-opacity-50 z-50 hidden items-center justify-center p-4"
+     role="dialog" aria-modal="true" aria-labelledby="modalConverterFaturaTitulo">
+    <div class="bg-white dark:bg-gray-800 rounded-xl shadow-xl max-w-lg w-full p-6">
+        <h2 id="modalConverterFaturaTitulo" class="text-lg font-semibold text-gray-900 dark:text-white mb-2">
+            Converter FT para registo de venda
+        </h2>
+        <p id="modalConverterFaturaTexto" class="text-sm text-gray-600 dark:text-gray-300 mb-4"></p>
+        <label for="conversaoFormaPagamento" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+            Forma de pagamento associada
+        </label>
+        <select id="conversaoFormaPagamento"
+                class="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 mb-5 dark:bg-gray-700 dark:text-white">
+            <option value="">Seleccione uma forma de pagamento</option>
+            {% for forma in formas_pagamento %}
+                <option value="{{ forma.id }}">{{ forma.nome }}</option>
+            {% endfor %}
+        </select>
+        <p class="text-xs text-gray-500 dark:text-gray-400 mb-5">
+            A operação cria o registo comercial e liga-o ao DocumentoFiscal FT existente. Não emite outra factura,
+            não regista recebimentos e não volta a baixar o stock.
+        </p>
+        <div class="flex justify-end gap-3">
+            <button type="button" onclick="fecharModalConversaoFatura()"
+                    class="px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200">
+                Cancelar
+            </button>
+            <button type="button" id="confirmarConversaoFaturaBtn" onclick="confirmarConversaoFatura()"
+                    class="px-4 py-2 rounded-lg bg-purple-600 hover:bg-purple-700 text-white">
+                Converter
+            </button>
+        </div>
+    </div>
+</div>
+
 <script>
+let faturaCreditoConversao = { id: null, url: null, numero: null };
+
+function abrirModalConversaoFatura(botao) {
+    faturaCreditoConversao = {
+        id: botao.dataset.id || null,
+        url: botao.dataset.url,
+        numero: botao.dataset.numero || 'documento sem número'
+    };
+    const select = document.getElementById('conversaoFormaPagamento');
+    select.value = botao.dataset.forma || '';
+    document.getElementById('modalConverterFaturaTexto').textContent =
+        `Confirma a criação do registo de venda para a fatura ${faturaCreditoConversao.numero}?`;
+    const modal = document.getElementById('modalConverterFatura');
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
+}
+
+function fecharModalConversaoFatura() {
+    const modal = document.getElementById('modalConverterFatura');
+    modal.classList.add('hidden');
+    modal.classList.remove('flex');
+}
+
+async function confirmarConversaoFatura() {
+    if (!faturaCreditoConversao.url) {
+        showAlert('Não foi possível identificar o endereço da operação. Verifique a rota em urls.py.', 'error');
+        return;
+    }
+    const formaId = document.getElementById('conversaoFormaPagamento').value;
+    if (!formaId) {
+        showAlert('Seleccione uma forma de pagamento para o registo comercial.', 'error');
+        return;
+    }
+
+    const botao = document.getElementById('confirmarConversaoFaturaBtn');
+    botao.disabled = true;
+    botao.textContent = 'A converter…';
+    try {
+        const response = await fetch(faturaCreditoConversao.url, {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': getCookie('csrftoken'),
+                'X-Requested-With': 'XMLHttpRequest'
+            },
+            body: JSON.stringify({ forma_pagamento_id: formaId })
+        });
+        const data = await response.json().catch(() => ({
+            success: false,
+            message: `O servidor não devolveu JSON válido (HTTP ${response.status}). Verifique a rota e os logs Django.`
+        }));
+        if (!response.ok || !data.success) {
+            throw new Error(data.message || `A conversão falhou (HTTP ${response.status}).`);
+        }
+        fecharModalConversaoFatura();
+        showAlert(data.message || 'Fatura convertida com sucesso.', 'success');
+        setTimeout(() => window.location.reload(), 1000);
+    } catch (error) {
+        console.error('Erro ao converter FaturaCredito para Venda:', error);
+        showAlert(error.message || 'Não foi possível converter a fatura. Consulte os logs do servidor.', 'error');
+    } finally {
+        botao.disabled = false;
+        botao.textContent = 'Converter';
+    }
+}
+
 document.addEventListener('DOMContentLoaded', function() {
     const searchInput = document.getElementById('searchInput');
     const statusFilter = document.getElementById('statusFilter');

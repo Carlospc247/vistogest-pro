@@ -84,6 +84,10 @@ _agendar("fiscal-polling-varredura", "fiscal.polling_global_agt",
 _agendar("parceiros-expirar-licencas", "parceiros.expirar_licencas_global",
          crontab(hour=0, minute=30))
 
+_agendar(
+    "fiscal-payload-reconciliacao", "fiscal.reconciliar_payloads_agt_global",
+         crontab(minute=35),)
+
 # Relatórios (as tasks não têm name=; confirma com `inspect registered`).
 # executar_agendamentos_relatorios compara hora:minuto exactos: tem de correr de minuto a minuto.
 _agendar("relatorios-agendamentos", "apps.relatorios.tasks.executar_agendamentos_relatorios",
@@ -115,11 +119,13 @@ def polling_global_agt():
             from apps.fiscal.models import DocumentoFiscal
             from apps.fiscal.tasks import polling_estado_agt
             docs = DocumentoFiscal.objects.filter(
-                status="confirmed", metadados__has_key="request_id_agt"
-            ).exclude(metadados__has_key="polling_max_retries")
-            for doc in docs:
-                polling_estado_agt.delay(schema_name, doc.pk)
-                total += 1
+                status="confirmed",
+                metadados__has_key="request_id_agt",
+            ).exclude(
+                metadados__has_key="polling_max_retries"
+            ).exclude(
+                metadados__estado_agt="rejeitado"
+            )
     return {"total_agendados": total}
 
 

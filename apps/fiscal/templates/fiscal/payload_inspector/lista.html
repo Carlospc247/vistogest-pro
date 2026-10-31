@@ -1,71 +1,700 @@
 {% extends "base.html" %}
+
 {% block title %}Inspector de Payloads AGT{% endblock %}
+
+{% block extra_css %}
+<style>
+    .pagt-wrap {
+        max-width: 1600px;
+        margin: 0 auto;
+        padding: 24px;
+        color: #172033;
+    }
+
+    .dark .pagt-wrap { color: #e5e7eb; }
+
+    .pagt-heading {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        flex-wrap: wrap;
+        gap: 16px;
+        margin-bottom: 22px;
+    }
+
+    .pagt-heading h1 {
+        font-size: 25px;
+        font-weight: 800;
+        letter-spacing: -.5px;
+        margin: 0;
+    }
+
+    .pagt-subtitle {
+        margin-top: 6px;
+        color: #64748b;
+        font-size: 13px;
+    }
+
+    .dark .pagt-subtitle { color: #9ca3af; }
+
+    .pagt-readonly {
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        border: 1px solid #bfdbfe;
+        background: #eff6ff;
+        color: #1d4ed8;
+        border-radius: 999px;
+        padding: 7px 12px;
+        font-size: 11px;
+        font-weight: 800;
+    }
+
+    .dark .pagt-readonly {
+        background: #172554;
+        color: #bfdbfe;
+        border-color: #1e40af;
+    }
+
+    .pagt-grid {
+        display: grid;
+        grid-template-columns: repeat(6, minmax(0, 1fr));
+        gap: 12px;
+        margin-bottom: 22px;
+    }
+
+    .pagt-card {
+        background: #fff;
+        border: 1px solid #e2e8f0;
+        border-radius: 13px;
+        padding: 15px;
+        min-width: 0;
+    }
+
+    .dark .pagt-card {
+        background: #111827;
+        border-color: #374151;
+    }
+
+    .pagt-card-label {
+        color: #64748b;
+        font-size: 11px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: .04em;
+    }
+
+    .dark .pagt-card-label { color: #9ca3af; }
+
+    .pagt-card-value {
+        font-size: 25px;
+        line-height: 1.2;
+        margin-top: 7px;
+        font-weight: 800;
+        font-variant-numeric: tabular-nums;
+    }
+
+    .pagt-card-note {
+        color: #94a3b8;
+        font-size: 11px;
+        margin-top: 5px;
+    }
+
+    .pagt-panel {
+        background: #fff;
+        border: 1px solid #e2e8f0;
+        border-radius: 14px;
+        overflow: hidden;
+    }
+
+    .dark .pagt-panel {
+        background: #111827;
+        border-color: #374151;
+    }
+
+    .pagt-panel-head {
+        padding: 17px 19px;
+        border-bottom: 1px solid #e2e8f0;
+    }
+
+    .dark .pagt-panel-head {
+        border-color: #374151;
+    }
+
+    .pagt-panel-head h2 {
+        margin: 0;
+        font-size: 15px;
+        font-weight: 800;
+    }
+
+    .pagt-filters {
+        display: grid;
+        grid-template-columns: minmax(180px, 2fr) repeat(3, minmax(130px, 1fr)) auto;
+        gap: 10px;
+        margin-top: 15px;
+    }
+
+    .pagt-input,
+    .pagt-select {
+        width: 100%;
+        min-width: 0;
+        border: 1px solid #cbd5e1;
+        border-radius: 9px;
+        padding: 10px 11px;
+        background: #fff;
+        color: #1e293b;
+        font-size: 13px;
+        outline: none;
+    }
+
+    .pagt-input:focus,
+    .pagt-select:focus {
+        border-color: #2563eb;
+        box-shadow: 0 0 0 3px rgba(37, 99, 235, .12);
+    }
+
+    .dark .pagt-input,
+    .dark .pagt-select {
+        background: #1f2937;
+        color: #e5e7eb;
+        border-color: #4b5563;
+    }
+
+    .pagt-button {
+        display: inline-flex;
+        justify-content: center;
+        align-items: center;
+        gap: 7px;
+        padding: 10px 14px;
+        border: 0;
+        border-radius: 9px;
+        background: #1d4ed8;
+        color: #fff !important;
+        font-size: 12px;
+        font-weight: 800;
+        text-decoration: none;
+        cursor: pointer;
+        white-space: nowrap;
+    }
+
+    .pagt-button:hover { background: #1e40af; }
+
+    .pagt-button-secondary {
+        background: #f1f5f9;
+        color: #334155 !important;
+        border: 1px solid #cbd5e1;
+    }
+
+    .pagt-button-secondary:hover { background: #e2e8f0; }
+
+    .dark .pagt-button-secondary {
+        background: #1f2937;
+        color: #e5e7eb !important;
+        border-color: #4b5563;
+    }
+
+    .pagt-table-scroll { overflow-x: auto; }
+
+    .pagt-table {
+        width: 100%;
+        border-collapse: collapse;
+        min-width: 1050px;
+    }
+
+    .pagt-table th {
+        background: #f8fafc;
+        color: #64748b;
+        text-align: left;
+        font-size: 10px;
+        text-transform: uppercase;
+        letter-spacing: .05em;
+        padding: 12px 14px;
+        font-weight: 800;
+        white-space: nowrap;
+    }
+
+    .dark .pagt-table th {
+        background: #1f2937;
+        color: #9ca3af;
+    }
+
+    .pagt-table td {
+        padding: 14px;
+        border-top: 1px solid #e2e8f0;
+        font-size: 12px;
+        vertical-align: middle;
+    }
+
+    .dark .pagt-table td { border-color: #374151; }
+
+    .pagt-table tbody tr:hover { background: #f8fafc; }
+    .dark .pagt-table tbody tr:hover { background: #1f2937; }
+
+    .pagt-primary {
+        color: #0f172a;
+        font-weight: 800;
+        text-decoration: none;
+    }
+
+    .dark .pagt-primary { color: #f9fafb; }
+
+    .pagt-primary:hover { color: #2563eb; }
+
+    .pagt-muted {
+        color: #64748b;
+        font-size: 11px;
+        margin-top: 4px;
+        overflow-wrap: anywhere;
+    }
+
+    .dark .pagt-muted { color: #9ca3af; }
+
+    .pagt-mono {
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 11px;
+        overflow-wrap: anywhere;
+    }
+
+    .pagt-badge {
+        display: inline-flex;
+        align-items: center;
+        border-radius: 999px;
+        padding: 5px 9px;
+        font-size: 10px;
+        font-weight: 800;
+        white-space: nowrap;
+        background: #f1f5f9;
+        color: #475569;
+    }
+
+    .pagt-badge.preparado {
+        background: #eff6ff;
+        color: #1d4ed8;
+    }
+
+    .pagt-badge.enviado {
+        background: #f5f3ff;
+        color: #6d28d9;
+    }
+
+    .pagt-badge.resposta {
+        background: #ecfeff;
+        color: #0e7490;
+    }
+
+    .pagt-badge.erro {
+        background: #fef2f2;
+        color: #b91c1c;
+    }
+
+    .pagt-badge.pendente {
+        background: #fffbeb;
+        color: #92400e;
+    }
+
+    .dark .pagt-badge.preparado {
+        background: #172554;
+        color: #bfdbfe;
+    }
+
+    .dark .pagt-badge.enviado {
+        background: #2e1065;
+        color: #ddd6fe;
+    }
+
+    .dark .pagt-badge.resposta {
+        background: #164e63;
+        color: #a5f3fc;
+    }
+
+    .dark .pagt-badge.erro {
+        background: #450a0a;
+        color: #fecaca;
+    }
+
+    .dark .pagt-badge.pendente {
+        background: #451a03;
+        color: #fde68a;
+    }
+
+    .pagt-alert {
+        border: 1px solid #fcd34d;
+        background: #fffbeb;
+        color: #92400e;
+        border-radius: 10px;
+        padding: 8px 10px;
+        font-size: 11px;
+        font-weight: 800;
+        line-height: 1.5;
+    }
+
+    .dark .pagt-alert {
+        background: #451a03;
+        border-color: #92400e;
+        color: #fde68a;
+    }
+
+    .pagt-empty {
+        text-align: center;
+        padding: 50px 20px;
+        color: #64748b;
+    }
+
+    .pagt-empty strong {
+        display: block;
+        color: #334155;
+        font-size: 14px;
+        margin-bottom: 5px;
+    }
+
+    .dark .pagt-empty strong { color: #e5e7eb; }
+
+    .pagt-pagination {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        flex-wrap: wrap;
+        gap: 12px;
+        padding: 15px 18px;
+        border-top: 1px solid #e2e8f0;
+        color: #64748b;
+        font-size: 12px;
+    }
+
+    .dark .pagt-pagination { border-color: #374151; }
+
+    .pagt-pagination-links {
+        display: flex;
+        gap: 7px;
+    }
+
+    .pagt-pagination-links a {
+        padding: 7px 11px;
+        border: 1px solid #cbd5e1;
+        border-radius: 8px;
+        color: #334155;
+        text-decoration: none;
+        font-weight: 700;
+    }
+
+    .dark .pagt-pagination-links a {
+        border-color: #4b5563;
+        color: #e5e7eb;
+    }
+
+    @media (max-width: 1100px) {
+        .pagt-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+        .pagt-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+
+    @media (max-width: 640px) {
+        .pagt-wrap { padding: 14px; }
+        .pagt-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        .pagt-filters { grid-template-columns: 1fr; }
+        .pagt-heading h1 { font-size: 21px; }
+    }
+</style>
+{% endblock %}
+
+
 {% block content %}
-<div class="container-fluid py-4">
-  <div class="d-flex flex-wrap align-items-center justify-content-between gap-3 mb-4">
-    <div>
-      <h1 class="h3 mb-1">Inspector de Payloads AGT</h1>
-      <p class="text-muted mb-0">JSON capturados durante a preparação de pedidos fiscais deste tenant.</p>
-    </div>
-    <span class="badge bg-secondary">{{ total_payloads }} registo(s)</span>
-  </div>
+<div class="pagt-wrap">
 
-  <div class="card shadow-sm mb-4">
-    <div class="card-body">
-      <form method="get" class="row g-3 align-items-end">
-        <div class="col-12 col-md-4">
-          <label class="form-label" for="q">Pesquisa</label>
-          <input class="form-control" id="q" name="q" value="{{ filtros.q }}" placeholder="Número, UUID ou requestID">
+    <div class="pagt-heading">
+        <div>
+            <h1>Inspector de Payloads AGT</h1>
+            <p class="pagt-subtitle">
+                Consulta técnica dos envelopes JSON, respostas, assinaturas,
+                estados de submissão e reconciliação.
+            </p>
+            <p class="pagt-muted">
+                Schema activo: <strong>{{ schema_tenant }}</strong>
+            </p>
         </div>
-        <div class="col-6 col-md-2">
-          <label class="form-label" for="tipo">Tipo</label>
-          <input class="form-control" id="tipo" name="tipo" value="{{ filtros.tipo }}" placeholder="AC, FT, FR…">
-        </div>
-        <div class="col-6 col-md-3">
-          <label class="form-label" for="status">Estado</label>
-          <select class="form-select" id="status" name="status">
-            <option value="">Todos</option>
-            {% for value, label in status_choices %}<option value="{{ value }}" {% if filtros.status == value %}selected{% endif %}>{{ label }}</option>{% endfor %}
-          </select>
-        </div>
-        <div class="col-6 col-md-2">
-          <label class="form-label" for="ambiente">Ambiente</label>
-          <select class="form-select" id="ambiente" name="ambiente">
-            <option value="">Todos</option>
-            {% for value, label in ambiente_choices %}<option value="{{ value }}" {% if filtros.ambiente == value %}selected{% endif %}>{{ label }}</option>{% endfor %}
-          </select>
-        </div>
-        <div class="col-6 col-md-1 d-grid"><button class="btn btn-primary" type="submit">Filtrar</button></div>
-      </form>
-    </div>
-  </div>
 
-  <div class="card shadow-sm">
-    <div class="table-responsive">
-      <table class="table table-hover align-middle mb-0">
-        <thead><tr><th>Data</th><th>Documento</th><th>Ambiente</th><th>Assinaturas presentes</th><th>Estado</th><th>HTTP</th><th></th></tr></thead>
-        <tbody>
-        {% for item in payloads %}
-          <tr>
-            <td class="text-nowrap">{{ item.created_at|date:"d/m/Y H:i:s" }}</td>
-            <td><strong>{{ item.tipo_documento|default:"—" }}</strong><br><small class="text-muted">{{ item.numero_documento|default:item.submission_uuid|default:"Sem referência" }}</small><br><small class="text-muted">{{ item.quantidade_documentos }} documento(s)</small></td>
-            <td>{{ item.get_ambiente_display }}</td>
-            <td><small>Pedido: {% if item.assinatura_pedido_presente %}sim{% else %}não{% endif %}<br>Software: {% if item.assinatura_software_presente %}sim{% else %}não{% endif %}<br>Documentos: {% if item.assinaturas_documentos_presentes %}sim{% else %}não{% endif %}</small></td>
-            <td><span class="badge bg-secondary">{{ item.get_status_display }}</span>{% if item.erro %}<div class="small text-danger mt-1">{{ item.erro|truncatechars:100 }}</div>{% endif %}</td>
-            <td>{{ item.http_status|default:"—" }}</td>
-            <td class="text-end text-nowrap"><a class="btn btn-sm btn-outline-primary" href="{% url 'fiscal:payload-agt-detail' item.pk %}">Ver JSON</a> <a class="btn btn-sm btn-outline-secondary" href="{% url 'fiscal:payload-agt-download' item.pk %}">.json</a></td>
-          </tr>
-        {% empty %}
-          <tr><td colspan="7" class="text-center text-muted py-5">Ainda não existem payloads registados. Serão criados quando o fluxo fiscal preparar um pedido para a AGT.</td></tr>
-        {% endfor %}
-        </tbody>
-      </table>
+        <span class="pagt-readonly">
+            <i class="fas fa-lock"></i>
+            Consulta e auditoria — apenas leitura
+        </span>
     </div>
-    {% if is_paginated %}<div class="card-footer d-flex justify-content-between align-items-center"><span class="small text-muted">Página {{ page_obj.number }} de {{ page_obj.paginator.num_pages }}</span><div class="btn-group">
-      {% if page_obj.has_previous %}<a class="btn btn-sm btn-outline-secondary" href="?page={{ page_obj.previous_page_number }}&q={{ filtros.q|urlencode }}&tipo={{ filtros.tipo|urlencode }}&status={{ filtros.status|urlencode }}&ambiente={{ filtros.ambiente|urlencode }}">Anterior</a>{% endif %}
-      {% if page_obj.has_next %}<a class="btn btn-sm btn-outline-secondary" href="?page={{ page_obj.next_page_number }}&q={{ filtros.q|urlencode }}&tipo={{ filtros.tipo|urlencode }}&status={{ filtros.status|urlencode }}&ambiente={{ filtros.ambiente|urlencode }}">Seguinte</a>{% endif %}
-    </div></div>{% endif %}
-  </div>
-  <p class="small text-muted mt-3">A presença de uma assinatura no JSON não confirma a sua validade criptográfica nem a aceitação do documento pela AGT.</p>
+
+
+    <!-- Indicadores gerais -->
+    <section class="pagt-grid">
+
+        <div class="pagt-card">
+            <div class="pagt-card-label">Total de payloads</div>
+            <div class="pagt-card-value">{{ total_payloads }}</div>
+            <div class="pagt-card-note">Registos deste tenant</div>
+        </div>
+
+        <div class="pagt-card">
+            <div class="pagt-card-label">Preparados</div>
+            <div class="pagt-card-value">{{ total_preparados }}</div>
+            <div class="pagt-card-note">Envelopes capturados</div>
+        </div>
+
+        <div class="pagt-card">
+            <div class="pagt-card-label">Respostas recebidas</div>
+            <div class="pagt-card-value">{{ total_respostas }}</div>
+            <div class="pagt-card-note">Resposta HTTP registada</div>
+        </div>
+
+        <div class="pagt-card">
+            <div class="pagt-card-label">Falhas</div>
+            <div class="pagt-card-value">{{ total_falhados }}</div>
+            <div class="pagt-card-note">Pedidos com falha registada</div>
+        </div>
+
+        <div class="pagt-card">
+            <div class="pagt-card-label">Erros de preparação</div>
+            <div class="pagt-card-value">{{ total_erros_preparacao }}</div>
+            <div class="pagt-card-note">Não representam JSON enviado</div>
+        </div>
+
+        <div class="pagt-card">
+            <div class="pagt-card-label">Resultado indeterminado</div>
+            <div class="pagt-card-value">{{ total_indeterminados }}</div>
+            <div class="pagt-card-note">Não reenviar automaticamente</div>
+        </div>
+
+    </section>
+
+
+    <!-- Lista e filtros -->
+    <section class="pagt-panel">
+
+        <div class="pagt-panel-head">
+            <h2>Histórico de envelopes AGT</h2>
+
+            <form method="get"
+                  action="{% url 'fiscal:payload_agt_list' %}"
+                  class="pagt-filters">
+
+                <input
+                    class="pagt-input"
+                    type="search"
+                    name="q"
+                    value="{{ filtros.q }}"
+                    placeholder="N.º documento, submissionUUID, requestID ou SHA-256">
+
+                <select class="pagt-select" name="tipo">
+                  <option value="">Todos os tipos</option>
+
+                  {% for tipo_disponivel in tipo_choices %}
+                      <option value="{{ tipo_disponivel }}"
+                              {% if filtros.tipo == tipo_disponivel %}selected{% endif %}>
+                          {{ tipo_disponivel }}
+                      </option>
+                  {% endfor %}
+              </select>
+
+                <select class="pagt-select" name="status">
+                    <option value="">Todos os estados</option>
+                    {% for valor, legenda in status_choices %}
+                        <option value="{{ valor }}"
+                                {% if filtros.status == valor %}selected{% endif %}>
+                            {{ legenda }}
+                        </option>
+                    {% endfor %}
+                </select>
+
+                <select class="pagt-select" name="ambiente">
+                    <option value="">Todos os ambientes</option>
+                    {% for valor, legenda in ambiente_choices %}
+                        <option value="{{ valor }}"
+                                {% if filtros.ambiente == valor %}selected{% endif %}>
+                            {{ legenda }}
+                        </option>
+                    {% endfor %}
+                </select>
+
+                <button type="submit" class="pagt-button">
+                    <i class="fas fa-search"></i>
+                    Filtrar
+                </button>
+
+            </form>
+
+            <div style="margin-top:10px;">
+                <a class="pagt-button pagt-button-secondary"
+                   href="{% url 'fiscal:payload_agt_list' %}">
+                    <i class="fas fa-eraser"></i>
+                    Limpar filtros
+                </a>
+            </div>
+        </div>
+
+
+        <div class="pagt-table-scroll">
+            <table class="pagt-table">
+                <thead>
+                    <tr>
+                        <th>Payload / Documento</th>
+                        <th>Tipo</th>
+                        <th>Ambiente</th>
+                        <th>Estado</th>
+                        <th>Documentos</th>
+                        <th>HTTP</th>
+                        <th>Identificação</th>
+                        <th>Data</th>
+                        <th>Consulta</th>
+                    </tr>
+                </thead>
+
+                <tbody>
+                    {% for payload in payloads %}
+                    <tr>
+
+                        <td>
+                            <a class="pagt-primary"
+                               href="{% url 'fiscal:payload_agt_detail' pk=payload.pk %}">
+                                Payload #{{ payload.pk }}
+                            </a>
+
+                            <div class="pagt-muted">
+                                {{ payload.numero_documento|default:"Número não identificado" }}
+                            </div>
+
+                            {% if payload.resultado_indeterminado %}
+                                <div class="pagt-alert" style="margin-top:7px;">
+                                    <i class="fas fa-exclamation-triangle"></i>
+                                    Resultado indeterminado
+                                </div>
+                            {% endif %}
+                        </td>
+
+                        <td>
+                            <strong>{{ payload.tipo_documento|default:"—" }}</strong>
+                        </td>
+
+                        <td>
+                            {{ payload.get_ambiente_display|default:payload.ambiente|default:"—" }}
+                        </td>
+
+                        <td>
+                            {% if payload.status == "falhou" or payload.status == "erro_preparacao" %}
+                                <span class="pagt-badge erro">
+                                    {{ payload.get_status_display|default:payload.status }}
+                                </span>
+                            {% elif payload.status == "nao_enviado" %}
+                                <span class="pagt-badge pendente">
+                                    {{ payload.get_status_display|default:payload.status }}
+                                </span>
+                            {% elif payload.status == "enviado" %}
+                                <span class="pagt-badge enviado">
+                                    {{ payload.get_status_display|default:payload.status }}
+                                </span>
+                            {% elif payload.status == "resposta" %}
+                                <span class="pagt-badge resposta">
+                                    {{ payload.get_status_display|default:payload.status }}
+                                </span>
+                            {% else %}
+                                <span class="pagt-badge preparado">
+                                    {{ payload.get_status_display|default:payload.status }}
+                                </span>
+                            {% endif %}
+                        </td>
+
+                        <td>
+                            <strong>
+                                {{ payload.documentos_total|default:payload.quantidade_documentos|default:"0" }}
+                            </strong>
+                            <div class="pagt-muted">associado(s)</div>
+                        </td>
+
+                        <td>
+                            {% if payload.http_status %}
+                                <span class="pagt-mono">{{ payload.http_status }}</span>
+                            {% else %}
+                                —
+                            {% endif %}
+                        </td>
+
+                        <td>
+                            {% if payload.request_id %}
+                                <div class="pagt-mono">{{ payload.request_id }}</div>
+                            {% elif payload.submission_uuid %}
+                                <div class="pagt-mono">{{ payload.submission_uuid|slice:":18" }}…</div>
+                            {% else %}
+                                <span class="pagt-muted">Sem identificador</span>
+                            {% endif %}
+
+                            {% if payload.hash_payload %}
+                                <div class="pagt-muted">
+                                    SHA-256: {{ payload.hash_payload|slice:":16" }}…
+                                </div>
+                            {% endif %}
+                        </td>
+
+                        <td>
+                            {{ payload.created_at|date:"d/m/Y H:i" }}
+                            {% if payload.enviado_em %}
+                                <div class="pagt-muted">
+                                    Enviado: {{ payload.enviado_em|date:"d/m/Y H:i" }}
+                                </div>
+                            {% endif %}
+                        </td>
+
+                        <td>
+                            <a class="pagt-button"
+                               href="{% url 'fiscal:payload_agt_detail' pk=payload.pk %}">
+                                <i class="fas fa-eye"></i>
+                                Detalhe
+                            </a>
+                        </td>
+
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="9">
+                            <div class="pagt-empty">
+                                <strong>Nenhum payload encontrado</strong>
+                                Não existem registos com os filtros seleccionados.
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+
+        {% if is_paginated %}
+        <div class="pagt-pagination">
+
+            <div>
+                Página {{ page_obj.number }} de {{ page_obj.paginator.num_pages }}
+                — {{ page_obj.paginator.count }} registo(s)
+            </div>
+
+            <div class="pagt-pagination-links">
+
+                {% if page_obj.has_previous %}
+                    <a href="?q={{ filtros.q|urlencode }}&tipo={{ filtros.tipo|urlencode }}&status={{ filtros.status|urlencode }}&ambiente={{ filtros.ambiente|urlencode }}&page=1">
+                        Primeira
+                    </a>
+
+                    <a href="?q={{ filtros.q|urlencode }}&tipo={{ filtros.tipo|urlencode }}&status={{ filtros.status|urlencode }}&ambiente={{ filtros.ambiente|urlencode }}&page={{ page_obj.previous_page_number }}">
+                        Anterior
+                    </a>
+                {% endif %}
+
+                {% if page_obj.has_next %}
+                    <a href="?q={{ filtros.q|urlencode }}&tipo={{ filtros.tipo|urlencode }}&status={{ filtros.status|urlencode }}&ambiente={{ filtros.ambiente|urlencode }}&page={{ page_obj.next_page_number }}">
+                        Seguinte
+                    </a>
+
+                    <a href="?q={{ filtros.q|urlencode }}&tipo={{ filtros.tipo|urlencode }}&status={{ filtros.status|urlencode }}&ambiente={{ filtros.ambiente|urlencode }}&page={{ page_obj.paginator.num_pages }}">
+                        Última
+                    </a>
+                {% endif %}
+
+            </div>
+        </div>
+        {% endif %}
+
+    </section>
+
 </div>
 {% endblock %}

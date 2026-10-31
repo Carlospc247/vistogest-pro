@@ -48,15 +48,9 @@ class SubmissaoFaturaService:
     def __init__(self, client: AGTClient = None):
         self.client = client or AGTClient()
 
-    # ------------------------------------------------------------------
-    # Ponto de entrada principal
-    # ------------------------------------------------------------------
-
-    # Substitua APENAS o método SubmissaoFaturaService.submeter_documento pelo método abaixo.
-# Os restantes métodos da classe permanecem intactos.
-
+    """
     def submeter_documento(self, documento_fiscal):
-        """Prepara/captura o payload e submete o documento à AGT."""
+        #Prepara/captura o payload e submete o documento à AGT.
         from apps.fiscal.services.payload_inspector import PayloadInspectorService
 
         captura = None
@@ -173,9 +167,25 @@ class SubmissaoFaturaService:
                 except Exception:
                     logger.exception("Falha ao registar erro de preparação do payload AGT.")
             return {"success": False, "error": str(exc)}
+    """
+        
+    def submeter_documento(self, documento_fiscal):
+        """
+        Compatibilidade com os módulos antigos.
+        A construção, captura e submissão são encaminhadas para o fluxo central.
+        """
+
+        from apps.fiscal.services.submissao_documento_agt import (
+            submeter_documento_agt,
+        )
+
+        return submeter_documento_agt(
+            documento=documento_fiscal,
+            cliente_agt=self.client,
+        )
 
 
-
+    
     def submeter_venda(self, venda):
         """Compatibilidade: delega para submeter_documento via DocumentoFiscal ligado."""
         doc_fiscal = getattr(venda, 'documento_fiscal', None)

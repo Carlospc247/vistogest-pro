@@ -106,6 +106,10 @@ class Cargo(TimeStampedModel):
         help_text='Pode criar acesso e redefinir a senha de outros funcionários.',
     )
     pode_ver_status_atual_assinatura_digital = models.BooleanField(default=False)
+    # PayloadAGT
+    pode_acessar_payload_agt = models.BooleanField(default=False)
+    pode_baixar_payload_agt = models.BooleanField(default=False)
+    # Fim PayloadAGT
     pode_acessar_financeiro = models.BooleanField(default=False)
     pode_ver_rentabilidade = models.BooleanField(default=False)
     pode_acessar_fornecedores = models.BooleanField(default=False)

@@ -739,13 +739,7 @@ class DocumentoFiscal(TimeStampedModel):
     # ==========================================
     # IDENTIFICAÇÃO DO DOCUMENTO
     # ==========================================
-    
-    #empresa = models.ForeignKey(
-    #    'empresas.Empresa',
-    #    on_delete=models.CASCADE,
-    #    related_name='documentos_fiscais'
-    #)
-    
+
     # Numeração Sequencial Obrigatória (SAF-T)
     tipo_documento = models.CharField(
         max_length=3,
@@ -2015,6 +2009,6 @@ class SAFTExport(TimeStampedModel):
 
 
 # Catálogos legais por tenant: Tabelas 1, 2 e 3 do Decreto Executivo n.º 683/25.
-from .models_referencia import CAE, ImpostoSelo, ImpostoEspecialConsumo  # noqa: F401
+from .models_referencia import CAE, ImpostoSelo, ImpostoEspecialConsumo
 
-from .models_payload_agt import PayloadAGT
+from .models_payload_agt import PayloadAGT, EventoAuditoriaPayloadAGT, AuditoriaPayloadAGT, ControloSubmissaoAGT

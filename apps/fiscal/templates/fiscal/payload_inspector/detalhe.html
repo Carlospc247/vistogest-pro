@@ -1,50 +1,1043 @@
 {% extends "base.html" %}
-{% block title %}Payload AGT — {{ payload_registo.numero_documento|default:payload_registo.pk }}{% endblock %}
+
+{% block title %}Detalhe do Payload AGT #{{ payload_registo.pk }}{% endblock %}
+
+{% block extra_css %}
+<style>
+    .pagt-detail {
+        max-width: 1500px;
+        margin: 0 auto;
+        padding: 24px;
+        color: #172033;
+    }
+
+    .dark .pagt-detail { color: #e5e7eb; }
+
+    .pagt-top {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        flex-wrap: wrap;
+        gap: 15px;
+        margin-bottom: 22px;
+    }
+
+    .pagt-top h1 {
+        font-size: 24px;
+        font-weight: 800;
+        margin: 0;
+    }
+
+    .pagt-muted {
+        color: #64748b;
+        font-size: 12px;
+        margin-top: 5px;
+        overflow-wrap: anywhere;
+    }
+
+    .dark .pagt-muted { color: #9ca3af; }
+
+    .pagt-actions {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .pagt-btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 7px;
+        padding: 9px 13px;
+        border: 1px solid #cbd5e1;
+        border-radius: 9px;
+        background: #fff;
+        color: #334155 !important;
+        font-size: 12px;
+        font-weight: 800;
+        text-decoration: none;
+        cursor: pointer;
+    }
+
+    .pagt-btn:hover { background: #f1f5f9; }
+
+    .pagt-btn-primary {
+        color: #fff !important;
+        background: #1d4ed8;
+        border-color: #1d4ed8;
+    }
+
+    .pagt-btn-primary:hover { background: #1e40af; }
+
+    .dark .pagt-btn {
+        background: #1f2937;
+        color: #e5e7eb !important;
+        border-color: #4b5563;
+    }
+
+    .dark .pagt-btn:hover { background: #374151; }
+
+    .dark .pagt-btn-primary {
+        background: #1d4ed8;
+        border-color: #1d4ed8;
+        color: #fff !important;
+    }
+
+    .pagt-alert {
+        border: 1px solid #fcd34d;
+        background: #fffbeb;
+        color: #92400e;
+        border-radius: 12px;
+        padding: 15px 17px;
+        margin-bottom: 18px;
+        font-size: 13px;
+        line-height: 1.65;
+    }
+
+    .dark .pagt-alert {
+        background: #451a03;
+        border-color: #92400e;
+        color: #fde68a;
+    }
+
+    .pagt-alert-danger {
+        border-color: #fca5a5;
+        background: #fef2f2;
+        color: #991b1b;
+    }
+
+    .dark .pagt-alert-danger {
+        background: #450a0a;
+        border-color: #991b1b;
+        color: #fecaca;
+    }
+
+    .pagt-stats {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 12px;
+        margin-bottom: 18px;
+    }
+
+    .pagt-card,
+    .pagt-section {
+        background: #fff;
+        border: 1px solid #e2e8f0;
+        border-radius: 13px;
+        overflow: hidden;
+    }
+
+    .dark .pagt-card,
+    .dark .pagt-section {
+        background: #111827;
+        border-color: #374151;
+    }
+
+    .pagt-card { padding: 15px; }
+
+    .pagt-card-label {
+        color: #64748b;
+        font-size: 10px;
+        text-transform: uppercase;
+        letter-spacing: .05em;
+        font-weight: 800;
+    }
+
+    .dark .pagt-card-label { color: #9ca3af; }
+
+    .pagt-card-value {
+        font-size: 17px;
+        font-weight: 800;
+        margin-top: 7px;
+        overflow-wrap: anywhere;
+    }
+
+    .pagt-section { margin-bottom: 18px; }
+
+    .pagt-section-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        flex-wrap: wrap;
+        gap: 10px;
+        padding: 15px 18px;
+        border-bottom: 1px solid #e2e8f0;
+    }
+
+    .dark .pagt-section-head { border-color: #374151; }
+
+    .pagt-section-head h2 {
+        font-size: 14px;
+        font-weight: 800;
+        margin: 0;
+    }
+
+    .pagt-section-body { padding: 18px; }
+
+    .pagt-info-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 16px 20px;
+    }
+
+    .pagt-info-label {
+        color: #64748b;
+        font-size: 10px;
+        text-transform: uppercase;
+        letter-spacing: .04em;
+        font-weight: 800;
+        margin-bottom: 5px;
+    }
+
+    .dark .pagt-info-label { color: #9ca3af; }
+
+    .pagt-info-value {
+        font-size: 12px;
+        font-weight: 700;
+        overflow-wrap: anywhere;
+        line-height: 1.6;
+    }
+
+    .pagt-mono {
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 11px;
+        overflow-wrap: anywhere;
+        word-break: break-word;
+    }
+
+    .pagt-badge {
+        display: inline-flex;
+        align-items: center;
+        border-radius: 999px;
+        padding: 5px 9px;
+        background: #f1f5f9;
+        color: #475569;
+        font-size: 10px;
+        font-weight: 800;
+    }
+
+    .pagt-badge.success {
+        background: #ecfdf5;
+        color: #047857;
+    }
+
+    .pagt-badge.warning {
+        background: #fffbeb;
+        color: #92400e;
+    }
+
+    .pagt-badge.danger {
+        background: #fef2f2;
+        color: #b91c1c;
+    }
+
+    .pagt-badge.info {
+        background: #eff6ff;
+        color: #1d4ed8;
+    }
+
+    .dark .pagt-badge.success {
+        background: #064e3b;
+        color: #a7f3d0;
+    }
+
+    .dark .pagt-badge.warning {
+        background: #451a03;
+        color: #fde68a;
+    }
+
+    .dark .pagt-badge.danger {
+        background: #450a0a;
+        color: #fecaca;
+    }
+
+    .dark .pagt-badge.info {
+        background: #172554;
+        color: #bfdbfe;
+    }
+
+    .pagt-table-scroll { overflow-x: auto; }
+
+    .pagt-table {
+        width: 100%;
+        border-collapse: collapse;
+        min-width: 650px;
+    }
+
+    .pagt-table th {
+        background: #f8fafc;
+        color: #64748b;
+        text-align: left;
+        font-size: 10px;
+        font-weight: 800;
+        text-transform: uppercase;
+        letter-spacing: .05em;
+        padding: 11px 13px;
+    }
+
+    .dark .pagt-table th {
+        background: #1f2937;
+        color: #9ca3af;
+    }
+
+    .pagt-table td {
+        border-top: 1px solid #e2e8f0;
+        padding: 12px 13px;
+        font-size: 12px;
+        vertical-align: top;
+    }
+
+    .dark .pagt-table td { border-color: #374151; }
+
+    .pagt-code {
+        display: block;
+        width: 100%;
+        max-height: 480px;
+        overflow: auto;
+        white-space: pre;
+        overflow-wrap: normal;
+        background: #0f172a;
+        color: #d1fae5;
+        padding: 17px;
+        border-radius: 10px;
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 11px;
+        line-height: 1.65;
+        tab-size: 4;
+    }
+
+    .pagt-code-light {
+        background: #f8fafc;
+        color: #334155;
+        border: 1px solid #e2e8f0;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+    }
+
+    .dark .pagt-code-light {
+        background: #0b1220;
+        border-color: #374151;
+        color: #d1d5db;
+    }
+
+    .pagt-code-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 7px;
+        margin-bottom: 9px;
+    }
+
+    .pagt-timeline {
+        position: relative;
+        margin-left: 7px;
+        padding-left: 24px;
+        border-left: 2px solid #e2e8f0;
+    }
+
+    .dark .pagt-timeline { border-color: #374151; }
+
+    .pagt-event {
+        position: relative;
+        padding: 0 0 22px;
+    }
+
+    .pagt-event:last-child { padding-bottom: 0; }
+
+    .pagt-event::before {
+        content: "";
+        position: absolute;
+        left: -32px;
+        top: 3px;
+        width: 13px;
+        height: 13px;
+        border-radius: 50%;
+        background: #2563eb;
+        border: 3px solid #dbeafe;
+    }
+
+    .dark .pagt-event::before {
+        border-color: #1e3a8a;
+    }
+
+    .pagt-event-title {
+        font-size: 12px;
+        font-weight: 800;
+    }
+
+    .pagt-event-time {
+        font-size: 10px;
+        color: #64748b;
+        margin-top: 3px;
+    }
+
+    .dark .pagt-event-time { color: #9ca3af; }
+
+    .pagt-event-description {
+        font-size: 12px;
+        line-height: 1.6;
+        margin-top: 7px;
+        overflow-wrap: anywhere;
+    }
+
+    .pagt-empty {
+        color: #64748b;
+        font-size: 12px;
+        text-align: center;
+        padding: 25px 15px;
+    }
+
+    .dark .pagt-empty { color: #9ca3af; }
+
+    .pagt-copy-status {
+        color: #047857;
+        font-size: 11px;
+        font-weight: 700;
+        align-self: center;
+    }
+
+    @media (max-width: 900px) {
+        .pagt-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        .pagt-info-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+
+    @media (max-width: 600px) {
+        .pagt-detail { padding: 14px; }
+        .pagt-stats { grid-template-columns: 1fr 1fr; }
+        .pagt-info-grid { grid-template-columns: 1fr; }
+        .pagt-top h1 { font-size: 20px; }
+        .pagt-section-body { padding: 13px; }
+    }
+</style>
+{% endblock %}
+
+
 {% block content %}
-<div class="container-fluid py-4">
-  <div class="d-flex flex-wrap align-items-start justify-content-between gap-3 mb-4">
-    <div><a href="{% url 'fiscal:payload-agt-list' %}" class="text-decoration-none">← Voltar ao Inspector</a><h1 class="h3 mt-2 mb-1">Payload AGT #{{ payload_registo.pk }}</h1><p class="text-muted mb-0">{{ payload_registo.tipo_documento|default:"Pedido fiscal" }} · {{ payload_registo.numero_documento|default:payload_registo.submission_uuid|default:"Sem referência" }}</p></div>
-    <div class="d-flex gap-2"><button type="button" class="btn btn-primary" id="copiarPayload">Copiar JSON</button><a class="btn btn-outline-secondary" href="{% url 'fiscal:payload-agt-download' payload_registo.pk %}">Descarregar .json</a></div>
-  </div>
+<div class="pagt-detail">
 
-  <div class="row g-3 mb-4">
-    <div class="col-12 col-md-3"><div class="card h-100"><div class="card-body"><div class="text-muted small">Ambiente</div><strong>{{ payload_registo.get_ambiente_display }}</strong></div></div></div>
-    <div class="col-12 col-md-3"><div class="card h-100"><div class="card-body"><div class="text-muted small">Estado</div><strong>{{ payload_registo.get_status_display }}</strong></div></div></div>
-    <div class="col-12 col-md-3"><div class="card h-100"><div class="card-body"><div class="text-muted small">HTTP</div><strong>{{ payload_registo.http_status|default:"Ainda não enviado" }}</strong></div></div></div>
-    <div class="col-12 col-md-3"><div class="card h-100"><div class="card-body"><div class="text-muted small">Documentos no pedido</div><strong>{{ payload_registo.quantidade_documentos }}</strong></div></div></div>
-  </div>
+    <!-- Cabeçalho -->
+    <div class="pagt-top">
+        <div>
+            <h1>Payload AGT #{{ payload_registo.pk }}</h1>
+            <p class="pagt-muted">
+                Envelope de submissão, resposta HTTP, documentos associados
+                e histórico de auditoria.
+            </p>
+            <p class="pagt-muted">
+                Schema: <strong>{{ schema_tenant }}</strong>
+            </p>
+        </div>
 
-  <div class="alert alert-info" role="note">O painel mostra se os campos de assinatura estão presentes; não verifica criptograficamente as assinaturas nem valida o JSON contra o XSD/regra de negócio da AGT. A cópia é um registo fiel do corpo preparado no momento da captura.</div>
+        <div class="pagt-actions">
+            <a class="pagt-btn"
+               href="{% url 'fiscal:payload_agt_list' %}">
+                <i class="fas fa-arrow-left"></i>
+                Voltar à listagem
+            </a>
 
-  {% if payload_registo.erro %}<div class="alert alert-warning"><strong>Nota:</strong> {{ payload_registo.erro }}</div>{% endif %}
-  <div class="card shadow-sm mb-4"><div class="card-header d-flex justify-content-between align-items-center"><strong>Corpo JSON do pedido</strong><span class="small text-muted">{{ payload_registo.created_at|date:"d/m/Y H:i:s" }}</span></div><div class="card-body"><textarea class="form-control font-monospace" id="payloadJSON" rows="25" spellcheck="false" readonly style="white-space:pre; overflow:auto">{{ payload_pretty }}</textarea></div></div>
+            <a class="pagt-btn pagt-btn-primary"
+               href="{% url 'fiscal:payload_agt_download' pk=payload_registo.pk %}">
+                <i class="fas fa-download"></i>
+                Descarregar JSON
+            </a>
+        </div>
+    </div>
 
-  {% if documentos_associados %}<div class="card shadow-sm mb-4"><div class="card-header"><strong>Documentos associados</strong></div><ul class="list-group list-group-flush">{% for doc in documentos_associados %}<li class="list-group-item d-flex justify-content-between"><span>{{ doc.numero_documento }} — {{ doc.get_tipo_documento_display|default:doc.tipo_documento }}</span><span>{{ doc.valor_total }} {{ doc.moeda }}</span></li>{% endfor %}</ul></div>{% endif %}
-  {% if payload_registo.resposta %}<div class="card shadow-sm"><div class="card-header"><strong>Resposta registada</strong></div><div class="card-body"><pre class="font-monospace small mb-0" style="white-space:pre-wrap;overflow-wrap:anywhere">{{ resposta_pretty }}</pre></div></div>{% endif %}
-  <div id="copyFeedback" class="small mt-2" aria-live="polite"></div>
+
+    <!-- Aviso operacional -->
+    {% if resultado_indeterminado %}
+    <div class="pagt-alert">
+        <strong>
+            <i class="fas fa-exclamation-triangle"></i>
+            RESULTADO INDETERMINADO
+        </strong>
+
+        <p style="margin:7px 0 0;">
+            O sistema não conseguiu confirmar com segurança o resultado remoto
+            deste pedido. O facto de não existir uma resposta conclusiva não
+            significa que a AGT não tenha recebido o documento.
+        </p>
+
+        <p style="margin:7px 0 0;font-weight:800;">
+            Não voltar a submeter automaticamente este payload.
+            Deve ser reconciliado através do requestID, submissionUUID ou
+            consulta do estado na AGT.
+        </p>
+    </div>
+    {% endif %}
+
+
+    {% if payload_registo.erro %}
+    <div class="pagt-alert pagt-alert-danger">
+        <strong>
+            <i class="fas fa-exclamation-circle"></i>
+            Registo de erro
+        </strong>
+        <p style="margin:7px 0 0;white-space:pre-wrap;">
+            {{ payload_registo.erro }}
+        </p>
+    </div>
+    {% endif %}
+
+
+    <!-- Indicadores principais -->
+    <section class="pagt-stats">
+
+        <div class="pagt-card">
+            <div class="pagt-card-label">Estado do Inspector</div>
+            <div class="pagt-card-value">
+                {{ payload_registo.get_status_display|default:payload_registo.status }}
+            </div>
+        </div>
+
+        <div class="pagt-card">
+            <div class="pagt-card-label">Documentos associados</div>
+            <div class="pagt-card-value">
+                {{ documentos_associados_total }}
+            </div>
+        </div>
+
+        <div class="pagt-card">
+            <div class="pagt-card-label">Resposta HTTP</div>
+            <div class="pagt-card-value">
+                {{ payload_registo.http_status|default:"—" }}
+            </div>
+        </div>
+
+        <div class="pagt-card">
+            <div class="pagt-card-label">Request ID AGT</div>
+            <div class="pagt-card-value pagt-mono">
+                {{ payload_registo.request_id|default:"Ainda não atribuído" }}
+            </div>
+        </div>
+
+    </section>
+
+
+    <!-- Identificação e transporte -->
+    <section class="pagt-section">
+        <div class="pagt-section-head">
+            <h2><i class="fas fa-fingerprint"></i> Identificação e transporte</h2>
+        </div>
+
+        <div class="pagt-section-body">
+            <div class="pagt-info-grid">
+
+                <div>
+                    <div class="pagt-info-label">ID do registo</div>
+                    <div class="pagt-info-value">#{{ payload_registo.pk }}</div>
+                </div>
+
+                <div>
+                    <div class="pagt-info-label">Tipo de documento</div>
+                    <div class="pagt-info-value">
+                        {{ payload_registo.tipo_documento|default:"Não identificado" }}
+                    </div>
+                </div>
+
+                <div>
+                    <div class="pagt-info-label">Número do documento</div>
+                    <div class="pagt-info-value">
+                        {{ payload_registo.numero_documento|default:"Não identificado" }}
+                    </div>
+                </div>
+
+                <div>
+                    <div class="pagt-info-label">Ambiente</div>
+                    <div class="pagt-info-value">
+                        {{ payload_registo.get_ambiente_display|default:payload_registo.ambiente|default:"—" }}
+                    </div>
+                </div>
+
+                <div>
+                    <div class="pagt-info-label">Endpoint</div>
+                    <div class="pagt-info-value pagt-mono">
+                        {{ payload_registo.endpoint|default:"—" }}
+                    </div>
+                </div>
+
+                <div>
+                    <div class="pagt-info-label">Quantidade no envelope</div>
+                    <div class="pagt-info-value">
+                        {{ payload_registo.quantidade_documentos|default:"0" }}
+                    </div>
+                </div>
+
+                <div>
+                    <div class="pagt-info-label">Criado em</div>
+                    <div class="pagt-info-value">
+                        {{ payload_registo.created_at|date:"d/m/Y H:i:s"|default:"—" }}
+                    </div>
+                </div>
+
+                <div>
+                    <div class="pagt-info-label">Enviado em</div>
+                    <div class="pagt-info-value">
+                        {{ payload_registo.enviado_em|date:"d/m/Y H:i:s"|default:"—" }}
+                    </div>
+                </div>
+
+                <div>
+                    <div class="pagt-info-label">Resposta recebida em</div>
+                    <div class="pagt-info-value">
+                        {{ payload_registo.resposta_em|date:"d/m/Y H:i:s"|default:"—" }}
+                    </div>
+                </div>
+
+                <div>
+                    <div class="pagt-info-label">Submission UUID</div>
+                    <div class="pagt-info-value pagt-mono">
+                        {{ payload_registo.submission_uuid|default:"—" }}
+                    </div>
+                </div>
+
+                <div>
+                    <div class="pagt-info-label">Request ID</div>
+                    <div class="pagt-info-value pagt-mono">
+                        {{ payload_registo.request_id|default:"—" }}
+                    </div>
+                </div>
+
+                <div>
+                    <div class="pagt-info-label">Resultado indeterminado</div>
+                    <div class="pagt-info-value">
+                        {% if resultado_indeterminado %}
+                            <span class="pagt-badge warning">Sim — requer reconciliação</span>
+                        {% else %}
+                            <span class="pagt-badge success">Não assinalado</span>
+                        {% endif %}
+                    </div>
+                </div>
+
+            </div>
+        </div>
+    </section>
+
+
+    <!-- Integridade e assinaturas -->
+    <section class="pagt-section">
+        <div class="pagt-section-head">
+            <h2><i class="fas fa-shield-alt"></i> Integridade e assinaturas</h2>
+        </div>
+
+        <div class="pagt-section-body">
+            <div style="margin-bottom:15px;">
+                <div class="pagt-info-label">SHA-256 do payload</div>
+
+                {% if hash_payload %}
+                    <div class="pagt-mono" style="margin-top:6px;">
+                        {{ hash_payload }}
+                    </div>
+                {% else %}
+                    <span class="pagt-muted">
+                        Hash não disponível neste registo.
+                    </span>
+                {% endif %}
+            </div>
+
+            <div class="pagt-info-grid">
+
+                <div>
+                    <div class="pagt-info-label">Assinatura do pedido</div>
+                    {% if payload_registo.assinatura_pedido_presente %}
+                        <span class="pagt-badge success">Presente</span>
+                    {% else %}
+                        <span class="pagt-badge danger">Ausente</span>
+                    {% endif %}
+                </div>
+
+                <div>
+                    <div class="pagt-info-label">Assinatura do software</div>
+                    {% if payload_registo.assinatura_software_presente %}
+                        <span class="pagt-badge success">Presente</span>
+                    {% else %}
+                        <span class="pagt-badge danger">Ausente</span>
+                    {% endif %}
+                </div>
+
+                <div>
+                    <div class="pagt-info-label">Assinaturas dos documentos</div>
+                    {% if payload_registo.assinaturas_documentos_presentes %}
+                        <span class="pagt-badge success">Presentes</span>
+                    {% else %}
+                        <span class="pagt-badge danger">Ausentes ou incompletas</span>
+                    {% endif %}
+                </div>
+
+            </div>
+
+            <p class="pagt-muted" style="margin-top:13px;">
+                Estes indicadores confirmam a presença dos campos de assinatura
+                no envelope capturado. Não representam, por si só, validação
+                criptográfica das assinaturas.
+            </p>
+        </div>
+    </section>
+
+
+    <!-- Documentos associados -->
+    <section class="pagt-section">
+        <div class="pagt-section-head">
+            <h2>
+                <i class="fas fa-file-invoice"></i>
+                Documentos fiscais associados
+            </h2>
+            <span class="pagt-badge info">
+                {{ documentos_associados_total }} documento(s)
+            </span>
+        </div>
+
+        {% if documentos_associados %}
+        <div class="pagt-table-scroll">
+            <table class="pagt-table">
+                <thead>
+                    <tr>
+                        <th>Tipo</th>
+                        <th>Número</th>
+                        <th>Data de emissão</th>
+                        <th>Estado local</th>
+                    </tr>
+                </thead>
+
+                <tbody>
+                    {% for documento in documentos_associados %}
+                    <tr>
+                        <td>
+                            <strong>{{ documento.tipo_documento|default:"—" }}</strong>
+                        </td>
+
+                        <td>
+                            <span class="pagt-mono">
+                                {{ documento.numero|default:"—" }}
+                            </span>
+                        </td>
+
+                        <td>
+                            {{ documento.data_emissao|date:"d/m/Y H:i"|default:"—" }}
+                        </td>
+
+                        <td>
+                            {{ documento.get_status_display|default:documento.status|default:"—" }}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+            <div class="pagt-empty">
+                Não existem documentos locais associados a este envelope.
+                A reconciliação poderá identificar associações em falta.
+            </div>
+        {% endif %}
+    </section>
+
+
+    <!-- Controlo de submissão por documento -->
+    <section class="pagt-section">
+        <div class="pagt-section-head">
+            <h2>
+                <i class="fas fa-lock"></i>
+                Controlo de submissão e idempotência
+            </h2>
+        </div>
+
+        {% if controlos_submissao %}
+        <div class="pagt-table-scroll">
+            <table class="pagt-table">
+                <thead>
+                    <tr>
+                        <th>Documento</th>
+                        <th>Estado do controlo</th>
+                        <th>Submission UUID</th>
+                        <th>Request ID</th>
+                        <th>Actualizado em</th>
+                    </tr>
+                </thead>
+
+                <tbody>
+                    {% for controlo in controlos_submissao %}
+                    <tr>
+                        <td>
+                            {{ controlo.documento.tipo_documento }}
+                            —
+                            {{ controlo.documento.numero }}
+                        </td>
+
+                        <td>
+                            {{ controlo.get_estado_display|default:controlo.estado }}
+                        </td>
+
+                        <td class="pagt-mono">
+                            {{ controlo.submission_uuid|default:"—" }}
+                        </td>
+
+                        <td class="pagt-mono">
+                            {{ controlo.request_id|default:"—" }}
+                        </td>
+
+                        <td>
+                            {{ controlo.atualizado_em|date:"d/m/Y H:i:s"|default:"—" }}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+            <div class="pagt-empty">
+                Não foi encontrado um controlo de submissão ligado directamente
+                a este payload.
+            </div>
+        {% endif %}
+    </section>
+
+
+    <!-- JSON original -->
+    <section class="pagt-section">
+        <div class="pagt-section-head">
+            <h2><i class="fas fa-code"></i> JSON original enviado</h2>
+
+            <div class="pagt-code-actions">
+                <button type="button"
+                        class="pagt-btn"
+                        data-copy-target="pagt-json-original">
+                    <i class="fas fa-copy"></i>
+                    Copiar JSON
+                </button>
+
+                <span class="pagt-copy-status" data-copy-status="pagt-json-original"></span>
+            </div>
+        </div>
+
+        <div class="pagt-section-body">
+            <p class="pagt-muted" style="margin:0 0 12px;">
+                Quando disponível, é apresentado o conteúdo persistido em
+                <code>payload_json</code>, sem o reconstruir ou alterar.
+            </p>
+
+            <pre id="pagt-json-original" class="pagt-code">{{ payload_raw_json }}</pre>
+        </div>
+    </section>
+
+
+    <!-- Resposta AGT -->
+    <section class="pagt-section">
+        <div class="pagt-section-head">
+            <h2><i class="fas fa-reply"></i> Resposta recebida da AGT</h2>
+
+            <div class="pagt-code-actions">
+                <button type="button"
+                        class="pagt-btn"
+                        data-copy-target="pagt-json-resposta">
+                    <i class="fas fa-copy"></i>
+                    Copiar resposta
+                </button>
+
+                <span class="pagt-copy-status" data-copy-status="pagt-json-resposta"></span>
+            </div>
+        </div>
+
+        <div class="pagt-section-body">
+            {% if payload_registo.resposta %}
+                <pre id="pagt-json-resposta" class="pagt-code">{{ resposta_pretty }}</pre>
+            {% else %}
+                <div class="pagt-empty">
+                    Ainda não existe resposta registada.
+                </div>
+            {% endif %}
+        </div>
+    </section>
+
+
+    <!-- Resultado de reconciliação -->
+    <section class="pagt-section">
+        <div class="pagt-section-head">
+            <h2>
+                <i class="fas fa-project-diagram"></i>
+                Resultado da reconciliação
+            </h2>
+        </div>
+
+        <div class="pagt-section-body">
+            {% if payload_registo.associacao_resultado %}
+                <pre class="pagt-code pagt-code-light">{{ associacao_resultado_pretty }}</pre>
+            {% else %}
+                <div class="pagt-empty">
+                    Ainda não existe resultado de reconciliação guardado neste payload.
+                </div>
+            {% endif %}
+        </div>
+    </section>
+
+
+    <!-- Auditorias técnicas -->
+    <section class="pagt-section">
+        <div class="pagt-section-head">
+            <h2>
+                <i class="fas fa-clipboard-check"></i>
+                Auditorias técnicas
+            </h2>
+            <span class="pagt-badge info">{{ auditorias|length }} execução(ões)</span>
+        </div>
+
+        <div class="pagt-section-body">
+            {% for auditoria in auditorias %}
+                <div style="padding:14px 0;border-bottom:1px solid #e2e8f0;">
+                    <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+                        <strong>
+                            {{ auditoria.get_estado_display|default:auditoria.estado }}
+                        </strong>
+
+                        <span class="pagt-muted">
+                            {{ auditoria.executado_em|date:"d/m/Y H:i:s" }}
+                        </span>
+                    </div>
+
+                    <div class="pagt-muted">
+                        Versão das regras: {{ auditoria.versao_regras }}
+                    </div>
+
+                    {% if auditoria.resumo %}
+                        <h3 style="font-size:11px;font-weight:800;margin:12px 0 6px;">
+                            Resumo
+                        </h3>
+                        <pre class="pagt-code pagt-code-light">{{ auditoria.resumo|pprint }}</pre>
+                    {% endif %}
+
+                    {% if auditoria.resultados %}
+                        <h3 style="font-size:11px;font-weight:800;margin:12px 0 6px;">
+                            Resultados detalhados
+                        </h3>
+                        <pre class="pagt-code pagt-code-light">{{ auditoria.resultados|pprint }}</pre>
+                    {% endif %}
+                </div>
+            {% empty %}
+                <div class="pagt-empty">
+                    Não existem auditorias técnicas registadas para este payload.
+                </div>
+            {% endfor %}
+        </div>
+    </section>
+
+
+    <!-- Cronologia -->
+    <section class="pagt-section">
+        <div class="pagt-section-head">
+            <h2>
+                <i class="fas fa-history"></i>
+                Cronologia de eventos
+            </h2>
+            <span class="pagt-badge info">{{ eventos_auditoria|length }} evento(s)</span>
+        </div>
+
+        <div class="pagt-section-body">
+
+            {% if eventos_auditoria %}
+            <div class="pagt-timeline">
+
+                {% for evento in eventos_auditoria %}
+                <article class="pagt-event">
+
+                    <div class="pagt-event-title">
+                        {{ evento.get_tipo_evento_display|default:evento.tipo_evento }}
+                    </div>
+
+                    <div class="pagt-event-time">
+                        {{ evento.criado_em|date:"d/m/Y H:i:s" }}
+
+                        {% if evento.documento %}
+                            — Documento:
+                            {{ evento.documento.tipo_documento }}
+                            {{ evento.documento.numero }}
+                        {% endif %}
+                    </div>
+
+                    {% if evento.descricao %}
+                    <div class="pagt-event-description">
+                        {{ evento.descricao }}
+                    </div>
+                    {% endif %}
+
+                    {% if evento.idempotency_key %}
+                    <div class="pagt-muted pagt-mono">
+                        Chave: {{ evento.idempotency_key }}
+                    </div>
+                    {% endif %}
+
+                    {% if evento.dados %}
+                    <details style="margin-top:8px;">
+                        <summary style="cursor:pointer;font-size:11px;font-weight:700;">
+                            Consultar dados do evento
+                        </summary>
+                        <pre class="pagt-code pagt-code-light" style="margin-top:8px;">{{ evento.dados|pprint }}</pre>
+                    </details>
+                    {% endif %}
+
+                </article>
+                {% endfor %}
+
+            </div>
+            {% else %}
+                <div class="pagt-empty">
+                    Ainda não existem eventos de auditoria associados.
+                </div>
+            {% endif %}
+
+        </div>
+    </section>
+
 </div>
+
+
 <script>
 (function () {
-  const button = document.getElementById("copiarPayload");
-  const field = document.getElementById("payloadJSON");
-  const feedback = document.getElementById("copyFeedback");
-  if (!button || !field) return;
-  button.addEventListener("click", async function () {
-    try {
-      if (navigator.clipboard && window.isSecureContext) {
-        await navigator.clipboard.writeText(field.value);
-      } else {
-        field.focus(); field.select();
-        if (!document.execCommand("copy")) throw new Error("Cópia não disponível");
-      }
-      feedback.textContent = "JSON copiado. Podes colá-lo no portal do parceiro.";
-      feedback.className = "small mt-2 text-success";
-    } catch (error) {
-      field.focus(); field.select();
-      feedback.textContent = "A cópia automática falhou. O JSON ficou seleccionado; usa Ctrl+C.";
-      feedback.className = "small mt-2 text-warning";
-    }
-  });
+    "use strict";
+
+    document.addEventListener("click", async function (event) {
+        const button = event.target.closest("[data-copy-target]");
+        if (!button) return;
+
+        const targetId = button.getAttribute("data-copy-target");
+        const target = document.getElementById(targetId);
+        const status = document.querySelector(
+            '[data-copy-status="' + targetId + '"]'
+        );
+
+        if (!target) return;
+
+        const text = target.textContent || "";
+
+        try {
+            if (navigator.clipboard && window.isSecureContext) {
+                await navigator.clipboard.writeText(text);
+            } else {
+                const temporary = document.createElement("textarea");
+                temporary.value = text;
+                temporary.style.position = "fixed";
+                temporary.style.opacity = "0";
+                document.body.appendChild(temporary);
+                temporary.select();
+
+                const copied = document.execCommand("copy");
+                temporary.remove();
+
+                if (!copied) {
+                    throw new Error("Não foi possível copiar o conteúdo.");
+                }
+            }
+
+            if (status) status.textContent = "Copiado.";
+        } catch (error) {
+            if (status) status.textContent = "Falha ao copiar.";
+        }
+
+        if (status) {
+            window.setTimeout(function () {
+                status.textContent = "";
+            }, 2500);
+        }
+    });
 })();
 </script>
 {% endblock %}

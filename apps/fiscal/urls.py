@@ -50,9 +50,10 @@ web_urlpatterns = [
     path("homologacao/", web_views.HomologacaoDashboardView.as_view(), name="homologacao"),
     path("homologacao/", web_views.HomologacaoDashboardView.as_view(), name="homologacao-dashboard"),
 
-    path("payloads-agt/", payload_views.PayloadAGTListView.as_view(), name="payload-agt-list"),
-    path("payloads-agt/<int:pk>/", payload_views.PayloadAGTDetailView.as_view(), name="payload-agt-detail"),
-    path("payloads-agt/<int:pk>/download/", payload_views.PayloadAGTDownloadView.as_view(), name="payload-agt-download"),
+    # Payload /fiscal/payloads-agt/ payloads/agt
+    path("payloads-agt/", payload_views.PayloadAGTListView.as_view(), name="payload_agt_list",),
+    path("payloads-agt/<int:pk>/", payload_views.PayloadAGTDetailView.as_view(), name="payload_agt_detail",),
+    path("payloads-agt/<int:pk>/download/", payload_views.PayloadAGTDownloadView.as_view(), name="payload_agt_download",),
     # /fiscal/payloads-agt/
     # Taxas de imposto. Os aliases preservam reverse() de versões anteriores.
     path("taxas-iva/", web_views.TaxaIVAListView.as_view(), name="taxas_iva"),

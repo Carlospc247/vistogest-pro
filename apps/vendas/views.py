@@ -24,7 +24,7 @@ from django.views.decorators.http import require_GET, require_http_methods, requ
 from django.views.generic import (
     CreateView, DetailView, ListView, TemplateView, UpdateView,
 )
-
+from apps.fiscal.services.documento_fiscal_service import DocumentoFiscalService
 from rest_framework import generics, mixins, serializers, status, viewsets
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -75,6 +75,84 @@ IVA_PADRAO = Decimal('14.00')
 CENTIMO = Decimal('0.01')
 TIPOS_VENDA_PDV = {'fatura_recibo', 'balcao', 'online'}
 
+ESTADOS_DOCUMENTO_EMITIDO = (
+    'confirmed',
+    'posted',
+    'paid',
+)
+
+def _vendas_fiscalmente_concluidas():
+    return Venda.objects.filter(
+        status='finalizada',
+        documento_fiscal__status__in=(
+            'confirmed',
+            'posted',
+            'paid',
+        ),
+    )
+
+def _emitir_documento_vinculado(registo, usuario, *, marcar_pago=False, dados_pagamento=None,):
+    """
+    Emite o DocumentoFiscal associado ao registo comercial.
+
+    A criação e a emissão são operações distintas:
+    - draft -> confirmed, através do serviço fiscal;
+    - confirmed/posted -> paid, apenas quando o pagamento é confirmado.
+
+    Deve ser chamada dentro de transaction.atomic() no fluxo
+    de finalização comercial.
+    """
+    documento = getattr(registo, 'documento_fiscal', None)
+
+    if documento is None:
+        raise ValidationError(
+            'Não é possível finalizar o registo sem DocumentoFiscal associado.'
+        )
+
+    if documento.status == 'draft':
+        documento = DocumentoFiscalService.emitir(
+            documento,
+            usuario,
+        )
+    elif documento.status not in ESTADOS_DOCUMENTO_EMITIDO:
+        raise ValidationError(
+            f'O documento fiscal {documento.numero_documento} '
+            f'não pode ser finalizado no estado {documento.status!r}.'
+        )
+
+    if marcar_pago and documento.status != 'paid':
+        documento = DocumentoFiscalService.registar_pagamento(
+            documento,
+            usuario,
+            dados_pagamento=dados_pagamento or {},
+        )
+
+    # Actualizar a referência e os campos locais de consulta.
+    # DocumentoFiscal continua a ser a fonte da verdade fiscal.
+    registo.documento_fiscal = documento
+
+    campos_existentes = {
+        campo.name
+        for campo in registo._meta.concrete_fields
+    }
+
+    update_fields = ['documento_fiscal']
+
+    for nome in ('numero_documento', 'hash_documento', 'atcud',):
+        if nome in campos_existentes:
+            setattr(
+                registo,
+                nome,
+                getattr(documento, nome) or None,
+            )
+            update_fields.append(nome)
+
+    if 'updated_at' in campos_existentes:
+        update_fields.append('updated_at')
+
+    registo.save(update_fields=update_fields)
+
+    return documento
 
 # =====================================================================
 # 1) PERMISSÕES
@@ -701,7 +779,8 @@ def finalizar_fatura_credito_api(request):
             _reconciliar_totais(fatura)
             _baixar_estoque(linhas)
             fatura.gerar_documento_fiscal(request.user)
-            perfil = _publicar_documento_no_perfil(cliente, 'fatura_credito', fatura, request.user, publicar_perfil)
+            _emitir_documento_vinculado(fatura, request.user,)
+            perfil = _publicar_documento_no_perfil(cliente, 'fatura_credito', fatura, request.user, publicar_perfil,)
             fatura_id = fatura.pk
             transaction.on_commit(_invalidar_cache_bi)
             if notificar:
@@ -733,6 +812,7 @@ def gerar_documento_fatura_credito_api(request, fatura_id):
             if fatura.documento_fiscal_id:
                 raise ValidationError('Esta fatura já tem documento fiscal.')
             fatura.gerar_documento_fiscal(request.user)
+            _emitir_documento_vinculado(fatura, request.user,)
         return JsonResponse({'success': True, 'numero': fatura.numero_documento})
     except Exception as e:
         return _resposta_erro(e)
@@ -756,8 +836,10 @@ def _converter_para_fatura_recibo(proforma, user, forma_pagamento):
         forma_pagamento=forma_pagamento,
         subtotal=proforma.subtotal, desconto_valor=proforma.desconto_valor,
         iva_valor=proforma.iva_valor, total=proforma.total,
-        valor_pago=proforma.total,
-        status='finalizada', tipo_venda='fatura_recibo',
+        #valor_pago=proforma.total,
+        #status='finalizada', tipo_venda='fatura_recibo',
+        valor_pago=Decimal('0.00'),
+        status='rascunho', tipo_venda='fatura_recibo',
         usuario_criacao=user,
         observacoes=f'Convertido da Proforma {proforma.numero_documento}',
     )
@@ -772,9 +854,8 @@ def _converter_para_fatura_recibo(proforma, user, forma_pagamento):
             taxa=_taxa_do_item_proforma(item))
 
     venda.calcular_totais()
-    venda.valor_pago = venda.total
-    venda.save(update_fields=['subtotal', 'iva_valor', 'total', 'valor_pago'])
-    venda.gerar_documento_fiscal(user)
+    venda.save(update_fields=['subtotal', 'desconto_valor', 'iva_valor', 'total', 'valor_pago',])
+    _finalizar_venda_paga(venda, user, forma_pagamento,)
     return venda
 
 
@@ -809,6 +890,8 @@ def _converter_para_fatura_credito(proforma, user):
 
     _reconciliar_totais(fatura)
     fatura.gerar_documento_fiscal(user)
+    _emitir_documento_vinculado(fatura, user,)
+
     return fatura
 
 
@@ -1123,8 +1206,9 @@ class VendasView(BaseMPAView):
         paginator = Paginator(vendas, self.paginate_by)
         vendas_page = paginator.get_page(self.request.GET.get('page'))
 
-        vendas_mes = Venda.objects.filter(
-            data_venda__year=hoje.year, data_venda__month=hoje.month, status='finalizada'
+        vendas_mes = _vendas_fiscalmente_concluidas().filter(
+            data_venda__year=hoje.year,
+            data_venda__month=hoje.month,
         ).aggregate(total=Sum('total'), quantidade=Count('id'))
 
         vendas_hoje_qs = Venda.objects.filter(data_venda__date=hoje)
@@ -1925,6 +2009,64 @@ class PDVView(PermissaoAcaoMixin, LoginRequiredMixin, TemplateView):
         })
         return context
 
+def _finalizar_venda_paga(venda, usuario, forma_pagamento):
+    if not forma_pagamento:
+        raise ValidationError('A forma de pagamento é obrigatória.')
+
+    if forma_pagamento.requer_autorizacao or forma_pagamento.necessita_tef:
+        raise ValidationError(
+            'Esta forma de pagamento exige autorização ou confirmação TEF. '
+            'A venda só pode ser finalizada depois dessa confirmação.'
+        )
+
+    if venda.total <= Decimal('0.00'):
+        raise ValidationError('O total da venda deve ser superior a zero.')
+
+    if venda.status == 'cancelada':
+        raise ValidationError('Não é possível finalizar uma venda cancelada.')
+
+    if venda.documento_fiscal_id:
+        raise ValidationError(
+            'Esta venda já possui um documento fiscal. '
+            'Utilize o fluxo de reconciliação existente.'
+        )
+
+    # 1. Criar o documento fiscal como rascunho.
+    venda.gerar_documento_fiscal(usuario)
+
+    # 2. Registar o recebimento confirmado.
+    # A função de save() de PagamentoVenda calcula o valor líquido.
+    PagamentoVenda.objects.create(
+        venda=venda,
+        forma_pagamento=forma_pagamento,
+        valor_pago=venda.total,
+        valor_parcela=venda.total,
+        numero_parcelas=1,
+        status='aprovado',
+        data_processamento=timezone.now(),
+        observacoes='Pagamento confirmado durante a finalização do PDV.',
+    )
+    # 3. Recalcular o saldo a partir dos pagamentos aprovados.
+    venda.calcular_saldo_e_atualizar_status()
+    # 4. Confirmar a emissão fiscal e, em seguida, registar o pagamento
+    # no documento fiscal. Ambas as transições passam pelo serviço fiscal.
+    _emitir_documento_vinculado(
+        venda,
+        usuario,
+        marcar_pago=True,
+        dados_pagamento={
+            'origem': 'PDV',
+            'forma_pagamento': forma_pagamento.nome,
+            'valor_pago': str(venda.total),
+            'registado_em': timezone.now().isoformat(),
+        },
+    )
+
+    # 5. Finalizar comercialmente só depois de tudo o resto ter passado.
+    venda.status = 'finalizada'
+    venda.save(update_fields=['status'])
+
+    return venda
 
 @login_required
 @require_POST
@@ -1959,9 +2101,13 @@ def finalizar_venda_api(request):
                 cliente=cliente,
                 vendedor=getattr(request.user, 'funcionario', None),
                 forma_pagamento=forma,
-                subtotal=t['subtotal'], desconto_valor=t['desconto'],
-                iva_valor=t['iva'], total=t['total'], valor_pago=t['total'],
-                status='finalizada', tipo_venda=tipo_venda,
+                subtotal=t['subtotal'],
+                desconto_valor=t['desconto'],
+                iva_valor=t['iva'],
+                total=t['total'],
+                valor_pago=Decimal('0.00'),
+                status='rascunho',
+                tipo_venda=tipo_venda,
                 usuario_criacao=request.user,
             )
 
@@ -1971,12 +2117,16 @@ def finalizar_venda_api(request):
                     preco_unitario=l['preco'], desconto_linha=l['desconto'], taxa=l['taxa'])
 
             venda.calcular_totais()
-            venda.valor_pago = venda.total
-            venda.save(update_fields=['subtotal', 'iva_valor', 'total', 'valor_pago'])
+            #venda.valor_pago = venda.total
+            venda.save(update_fields=['subtotal', 'desconto_valor', 'iva_valor', 'total', 'valor_pago',])
             _baixar_estoque(linhas)
-            venda.gerar_documento_fiscal(request.user)
-            perfil = _publicar_documento_no_perfil(cliente, 'venda', venda, request.user, publicar_perfil)
+            # Emite o DocumentoFiscal e regista o recebimento.
+            # Só depois marca a venda como finalizada.
+            _finalizar_venda_paga(venda, request.user, forma,)
+            perfil = _publicar_documento_no_perfil(cliente, 'venda', venda, request.user, publicar_perfil,)
 
+            
+            venda.gerar_documento_fiscal(request.user)
             venda_id = venda.id
             transaction.on_commit(_invalidar_cache_bi)
             if notificar:
@@ -2016,7 +2166,12 @@ class PDVCreateAPIView(PermissaoAcaoMixin, APIView):
         with transaction.atomic():
             venda_serializer = VendaSerializer(data=venda_data)
             venda_serializer.is_valid(raise_exception=True)
-            venda = venda_serializer.save(status='finalizada')
+            venda = venda_serializer.save(
+                status='rascunho',
+                valor_pago=Decimal('0.00'),
+                usuario_criacao=request.user,
+                vendedor=getattr(request.user, 'funcionario', None),
+            )
 
             for item_data in itens_data:
                 item_serializer = ItemVendaSerializer(data=dict(item_data, venda=venda.id))
@@ -3197,19 +3352,4 @@ class RentabilidadeAPIView(PermissaoAcaoMixin, APIView):
         }
         cache.set(cache_key, response_data, timeout=self.CACHE_TTL)
         return Response(response_data)
-
-
-# =====================================================================
-# URLS (apps/vendas/urls.py) — os names têm de bater com os templates
-# =====================================================================
-# path('proforma/nova/',                       views.nova_proforma,                      name='nova_proforma'),
-# path('fatura-credito/nova/',                 views.nova_fatura_credito,                name='nova_fatura_credito'),
-# path('api/proforma/finalizar/',              views.finalizar_proforma_api,             name='api_finalizar_proforma'),
-# path('api/fatura-credito/finalizar/',        views.finalizar_fatura_credito_api,       name='api_finalizar_fatura_credito'),
-# path('api/fatura-credito/<int:fatura_id>/gerar-documento/',
-#                                              views.gerar_documento_fatura_credito_api, name='api_gerar_documento_fatura_credito'),
-# path('api/proforma/<int:proforma_id>/converter/', views.converter_proforma_api,        name='api_converter_proforma'),
-# path('api/proforma/<int:proforma_id>/status/',    views.atualizar_status_proforma_api, name='api_atualizar_status_proforma'),
-# path('proforma/<int:proforma_id>/pdf/',      views.proforma_pdf_view,                  name='proforma_pdf'),
-# path('api/fatura-credito/<int:fatura_id>/a4/', views.fatura_credito_pdf_view,          name='fatura_credito_pdf'),
 

@@ -133,13 +133,27 @@ class AssinaturaSoftwareService:
             "AGT_SOFTWARE_PRIVATE_KEY_PEM ou AGT_SOFTWARE_PRIVATE_KEY_PATH no ambiente."
         )
 
+
     @staticmethod
-    def _software_info_detail() -> Dict[str, str]:
+    def _software_info_detail() -> Dict[str, Any]:
+        try:
+            signature_version = int(settings.AGT_SOFTWARE_SIGNATURE_VERSION)
+        except (AttributeError, TypeError, ValueError) as exc:
+            raise FiscalServiceError(
+                "Defina AGT_SOFTWARE_SIGNATURE_VERSION no ambiente, com o número "
+                "de assinatura confirmado no processo de certificação do software."
+            ) from exc
+        if signature_version < 1:
+            raise FiscalServiceError("AGT_SOFTWARE_SIGNATURE_VERSION deve ser positivo.")
         return {
             "productId": settings.AGT_SOFTWARE_PRODUCT_ID,
             "productVersion": settings.AGT_SOFTWARE_PRODUCT_VERSION,
             "softwareValidationNumber": settings.AGT_SOFTWARE_VALIDATION_NUMBER,
+            "signatureVersion": signature_version,
         }
+
+
+
 
     @classmethod
     def montar_software_info(cls) -> Dict[str, Any]:

@@ -1,3 +1,4 @@
+# apps/fiscal/numero_documento_agt.py
 """Geração centralizada do número de documento fiscal para VistoGest Pro.
 
 Uso recomendado: guardar em apps/fiscal/services/numero_documento_agt.py.

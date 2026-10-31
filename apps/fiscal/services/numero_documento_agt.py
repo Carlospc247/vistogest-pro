@@ -1,3 +1,4 @@
+# apps/fiscal/services/numero_documento_agt.py
 """Motor único de numeração fiscal do VistoGest Pro.
 
 Para documentos electrónicos: usa exclusivamente o seriesCode recebido da AGT

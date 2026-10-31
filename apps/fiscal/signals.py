@@ -1,15 +1,4 @@
 # apps/fiscal/signals.py
-"""
-Signals do módulo fiscal.
-
-ARQUITECTURA MULTI-TENANT (django-tenants):
-  - Modelos de TENANT (Venda, FaturaCredito, etc.) NÃO têm FK para Empresa.
-    O isolamento é feito pelo schema PostgreSQL — connection.tenant é a empresa.
-  - Por isso todos os signals usam `connection.tenant` para obter a empresa
-    activa, nunca `instance.empresa`.
-  - As tasks Celery recebem `schema_name` (string) em vez de `empresa_id`
-    e activam o schema internamente com `schema_context(schema_name)`.
-"""
 import logging
 from decimal import Decimal
 
@@ -18,8 +7,8 @@ from django.db import connection, transaction
 from django.db.models.signals import post_save, pre_save, post_delete, pre_delete
 from django.dispatch import receiver
 from django.utils import timezone
-
-from .models import TaxaIVAAGT, AssinaturaDigital, RetencaoFonte
+from django.conf import settings
+from .models import DocumentoFiscal, TaxaIVAAGT, AssinaturaDigital, RetencaoFonte
 
 logger = logging.getLogger('fiscal.signals')
 
@@ -289,3 +278,182 @@ def disparar_evento_fiscal(evento_type: str, schema_name: str = None, dados: dic
         schema_name=schema_name or _schema_actual(),
         dados=dados or {},
     )
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Inspector AGT — detecção da emissão de DocumentoFiscal
+# ─────────────────────────────────────────────────────────────────────────────
+
+@receiver(
+    pre_save,
+    sender=DocumentoFiscal,
+    dispatch_uid="fiscal.documento_fiscal.capturar_estado_anterior_agt",
+)
+def capturar_estado_anterior_documento_agt(
+    sender,
+    instance,
+    raw=False,
+    **kwargs,
+):
+    """
+    Guarda o estado anterior para identificar uma transição real.
+
+    Assim, uma actualização normal de um documento confirmed não volta
+    a ser interpretada como uma nova emissão.
+    """
+
+    if raw:
+        return
+
+    if not instance.pk:
+        instance._agt_status_anterior = None
+        return
+
+    try:
+        instance._agt_status_anterior = (
+            sender.objects
+            .filter(pk=instance.pk)
+            .values_list("status", flat=True)
+            .first()
+        )
+    except Exception:
+        # A emissão local não deve depender da disponibilidade do Inspector.
+        instance._agt_status_anterior = None
+        logger.exception(
+            "[%s] Não foi possível obter o estado anterior do DocumentoFiscal #%s.",
+            _schema_actual(),
+            instance.pk,
+        )
+
+
+@receiver(
+    post_save,
+    sender=DocumentoFiscal,
+    dispatch_uid="fiscal.documento_fiscal.observar_emissao_agt",
+)
+def observar_emissao_documento_agt(
+    sender,
+    instance,
+    created=False,
+    raw=False,
+    **kwargs,
+):
+    """
+    Detecta a emissão local e, se configurado, agenda a submissão automática.
+
+    A emissão considerada é:
+        draft -> confirmed
+
+    Um documento que passe depois para posted ou paid não deve originar
+    uma segunda submissão.
+    """
+
+    if raw:
+        return
+
+    estado_anterior = getattr(
+        instance,
+        "_agt_status_anterior",
+        None,
+    )
+
+    if hasattr(instance, "_agt_status_anterior"):
+        delattr(instance, "_agt_status_anterior")
+
+    # Só consideramos a primeira emissão.
+    emissao_detectada = (
+        (created and instance.status == "confirmed")
+        or (
+            estado_anterior == "draft"
+            and instance.status == "confirmed"
+        )
+    )
+
+    if not emissao_detectada:
+        return
+
+    schema = _schema_actual()
+
+    if schema == "public":
+        logger.warning(
+            "Tentativa de observar DocumentoFiscal no schema public."
+        )
+        return
+
+    documento_id = instance.pk
+    tipo_documento = instance.tipo_documento
+
+    # Verificar a elegibilidade com a mesma lista do Builder.
+    try:
+        from apps.fiscal.services.agt_payload_builder import (
+            AGT_DOCUMENT_TYPES,
+        )
+
+        elegivel = tipo_documento in AGT_DOCUMENT_TYPES
+
+    except Exception:
+        logger.exception(
+            "[%s] Não foi possível verificar a elegibilidade AGT do documento #%s.",
+            schema,
+            documento_id,
+        )
+        elegivel = False
+
+    def _apos_commit():
+        """
+        Executado apenas depois de a transacção de emissão ser confirmada.
+        """
+
+        # 1. O Inspector regista a emissão independentemente da submissão.
+        try:
+            from apps.fiscal.payload_listener import (
+                PayloadListenerService,
+            )
+
+            PayloadListenerService.registar_emissao(
+                documento_id=documento_id,
+                schema_name=schema,
+            )
+
+        except Exception:
+            logger.exception(
+                "[%s] Falha do Listener Inspector no documento #%s. "
+                "A emissão local permanece válida.",
+                schema,
+                documento_id,
+            )
+
+        # 2. A submissão automática é uma decisão configurável.
+        if not elegivel:
+            return
+
+        if not getattr(
+            settings,
+            "AGT_SUBMISSAO_AUTOMATICA",
+            False,
+        ):
+            logger.info(
+                "[%s] Documento #%s emitido. "
+                "Submissão automática desactivada.",
+                schema,
+                documento_id,
+            )
+            return
+
+        # 3. Agendar a tarefa Celery.
+        try:
+            from apps.fiscal.tasks import agendar_submissao
+
+            agendar_submissao(
+                schema_name=schema,
+                documento_fiscal_id=documento_id,
+                atraso_minutos=0,
+            )
+
+        except Exception:
+            logger.exception(
+                "[%s] Falha ao agendar submissão AGT do documento #%s.",
+                schema,
+                documento_id,
+            )
+
+    transaction.on_commit(_apos_commit)

@@ -1,5 +1,8 @@
 # apps/vendas/urls.py
 from django.urls import path, include
+
+from apps.vendas import views_status_documentos
+
 from . import views
 
 
@@ -156,6 +159,7 @@ urlpatterns = [
     # =====================================
     # DOCUMENTOS DE TRANSPORTE
     # =====================================
+    path("documentos/estados/", views_status_documentos.StatusDocumento.as_view(), name="status_documento"),
     path('documentos-transporte/', views.DocumentoTransporteListView.as_view(), name='documento_transporte_lista'),
     path('documentos-transporte/novo/', views.DocumentoTransporteCreateView.as_view(), name='documento_transporte_create'),
     path('documentos-transporte/<int:pk>/', views.DocumentoTransporteDetailView.as_view(), name='documento_transporte_detail'),

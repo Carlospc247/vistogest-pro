@@ -1,0 +1,417 @@
+--- apps/vendas/views.py (original anexada)
++++ apps/vendas/views.py (rascunhos)
+@@ -31,7 +31,7 @@
+ 
+ from apps.clientes.models import Cliente
+ from apps.core.views import BaseMPAView
+-from apps.fiscal.models import TaxaIVAAGT
++from apps.fiscal.models import DocumentoFiscal, DocumentoFiscalLinha, TaxaIVAAGT
+ from apps.fiscal.services.pdf_agt_service import PDFDocumentoService
+ from apps.funcionarios.models import Funcionario
+ from apps.produtos.models import Produto
+@@ -244,6 +244,303 @@
+     return data
+ 
+ 
++
++# =====================================================================
++# RASCUNHOS FISCAIS CENTRALIZADOS (Ctrl+S)
++# =====================================================================
++
++_RASCUNHO_ACAO_POR_TIPO = {
++    'FR': 'vender', 'TV': 'vender',
++    'FT': 'emitir_faturacredito', 'GF': 'emitir_faturacredito',
++    'FG': 'emitir_faturacredito', 'FA': 'emitir_faturacredito',
++    'AC': 'emitir_faturacredito', 'AR': 'emitir_faturacredito',
++    'AF': 'emitir_faturacredito', 'RP': 'emitir_faturacredito',
++    'CS': 'emitir_faturacredito', 'LD': 'emitir_faturacredito',
++    'RA': 'emitir_faturacredito', 'RG': 'emitir_recibos',
++    'RC': 'emitir_recibos', 'RE': 'aplicar_notacredito',
++    'NC': 'aplicar_notacredito', 'ND': 'aplicar_notadebito',
++    'DT': 'emitir_documentotransporte', 'FP': 'emitir_proforma',
++}
++
++
++def _data_rascunho_iso(valor, campo, *, obrigatorio=False):
++    if valor in (None, ''):
++        if obrigatorio:
++            raise ValidationError(f'{campo} é obrigatória.')
++        return None
++    try:
++        return datetime.strptime(str(valor)[:10], '%Y-%m-%d').date()
++    except (TypeError, ValueError):
++        raise ValidationError(f'{campo} inválida. Use AAAA-MM-DD.')
++
++
++def _payload_rascunho_seguro(data):
++    """Guarda o payload do formulário para continuar depois; não guarda credenciais."""
++    if not isinstance(data, dict):
++        raise ValidationError('Dados do rascunho inválidos.')
++    # Estes campos não são dados de documento e não precisam de persistência.
++    payload = {k: v for k, v in data.items() if k not in {
++        'csrfmiddlewaretoken', 'password', 'senha', 'token', 'authorization'
++    }}
++    try:
++        bruto = json.dumps(payload, ensure_ascii=False, cls=DjangoJSONEncoder)
++    except (TypeError, ValueError) as exc:
++        raise ValidationError('Os dados do rascunho não são serializáveis.') from exc
++    if len(bruto.encode('utf-8')) > 500_000:
++        raise ValidationError('O rascunho excede o limite de 500 KB.')
++    return payload
++
++
++@transaction.atomic
++def _criar_rascunho_documento(tipo_documento, data, usuario, rascunho_id=None):
++    """Cria ou actualiza um DocumentoFiscal em draft, preservando os dados do formulário.
++
++    Este método nunca confirma, paga ou assina o documento. O mesmo rascunho pode
++    ser actualizado repetidamente por Ctrl+S e, ao finalizar, deve ser associado ao
++    registo comercial para evitar criar um segundo DocumentoFiscal.
++    """
++    tipo = str(tipo_documento or '').strip().upper()
++    tipos_validos = dict(DocumentoFiscal.TIPO_DOCUMENTO_CHOICES)
++    if tipo not in tipos_validos:
++        raise ValidationError(f'Tipo de documento fiscal inválido: {tipo or "não indicado"}.')
++
++    schema = getattr(connection, 'schema_name', 'public')
++    if not schema or schema == 'public':
++        raise ValidationError('Os rascunhos fiscais só podem ser guardados dentro do schema de um tenant.')
++
++    payload = _payload_rascunho_seguro(data)
++    cliente = _obter_cliente(data, obrigatorio=False) if data.get('cliente_id') else None
++    data_emissao = _data_rascunho_iso(data.get('data_emissao'), 'Data de emissão') or timezone.localdate()
++    data_vencimento = _data_rascunho_iso(data.get('data_vencimento') or data.get('data_validade'), 'Data de vencimento')
++    data_operacao = _data_rascunho_iso(data.get('data_operacao'), 'Data da operação')
++
++    tipo_cliente = str(data.get('tipo_cliente') or 'particular')
++    if tipo_cliente not in dict(DocumentoFiscal.TIPO_CLIENTE_CHOICES):
++        tipo_cliente = 'particular'
++
++    forma_nome = str(data.get('forma_pagamento_nome') or data.get('forma_pagamento') or '')
++    forma_id = data.get('forma_pagamento_id')
++    if forma_id:
++        forma_obj = FormaPagamento.objects.filter(pk=forma_id, ativa=True).first()
++        if forma_obj:
++            forma_nome = forma_obj.nome
++
++    # Tentar projectar linhas completas no modelo fiscal. Um rascunho pode estar
++    # incompleto; nesse caso o payload original continua guardado no metadados e
++    # as linhas fiscais serão reconstruídas na tentativa de finalização.
++    linhas_fiscais = None
++    itens = data.get('itens')
++    if isinstance(itens, list) and itens:
++        try:
++            linhas_normalizadas, _totais = _montar_linhas(itens, verificar_estoque=False)
++            construidas = []
++            for linha in linhas_normalizadas:
++                taxa = linha.get('taxa')
++                if taxa is None:
++                    raise ValidationError('Uma ou mais linhas não têm uma TaxaIVAAGT activa.')
++                produto = linha.get('produto')
++                servico = linha.get('servico')
++                codigo = (
++                    getattr(produto, 'codigo_produto', None)
++                    or getattr(produto, 'codigo_interno', None)
++                    or f'PROD-{produto.pk}'
++                ) if produto else (
++                    getattr(servico, 'codigo_servico', None)
++                    or getattr(servico, 'codigo_interno', None)
++                    or f'SRV-{servico.pk}'
++                )
++                unidade = getattr(produto, 'unidade', None) if produto else getattr(servico, 'unidade', None)
++                construidas.append({
++                    'produto': produto,
++                    'numero_linha': len(construidas) + 1,
++                    'codigo_produto': str(codigo)[:50],
++                    'descricao': str(linha.get('nome') or 'Item')[:200],
++                    'unidade': str(unidade or 'UN')[:10],
++                    'quantidade': linha['quantidade'],
++                    'preco_unitario': linha['preco'],
++                    'valor_desconto_linha': linha['desconto'],
++                    'taxa_iva': taxa,
++                    'operation_type': linha.get('operacao') or ('TB' if produto else 'SE'),
++                })
++            linhas_fiscais = construidas
++        except (ValidationError, TypeError, ValueError, KeyError) as exc:
++            # O objectivo do Ctrl+S é não perder um formulário ainda incompleto.
++            logger.debug('Rascunho %s guardado sem linhas fiscais completas: %s', tipo, exc)
++            linhas_fiscais = None
++
++    if rascunho_id:
++        try:
++            documento = DocumentoFiscal.objects.select_for_update().get(pk=rascunho_id)
++        except (DocumentoFiscal.DoesNotExist, ValueError, TypeError) as exc:
++            raise ValidationError('O rascunho indicado não existe neste tenant.') from exc
++        if documento.status != 'draft':
++            raise ValidationError('Só é possível actualizar documentos que ainda estejam em rascunho.')
++        if documento.tipo_documento != tipo:
++            raise ValidationError('O tipo do rascunho não corresponde ao tipo deste formulário.')
++        if documento.usuario_criacao_id != getattr(usuario, 'pk', None) and not getattr(usuario, 'is_superuser', False):
++            raise PermissionDenied('Este rascunho pertence a outro utilizador.')
++        schema_guardado = (documento.metadados or {}).get('rascunho_documento', {}).get('schema_name')
++        if schema_guardado and schema_guardado != schema:
++            raise PermissionDenied('Este rascunho pertence a outro tenant.')
++    else:
++        documento = DocumentoFiscal(
++            tipo_documento=tipo,
++            serie=str(data.get('serie') or 'A').strip()[:60] or 'A',
++            cliente=cliente,
++            data_emissao=data_emissao,
++            data_vencimento=data_vencimento,
++            data_operacao=data_operacao,
++            cliente_nome=(getattr(cliente, 'nome_completo', None) or getattr(cliente, 'razao_social', None) or str(cliente)) if cliente else 'Consumidor final',
++            tipo_cliente=tipo_cliente,
++            observacoes=str(data.get('observacoes') or '')[:10000],
++            condicoes_pagamento=str(data.get('condicoes_pagamento') or '')[:100],
++            forma_pagamento=forma_nome[:50],
++            moeda=str(data.get('moeda') or 'AOA').upper()[:3],
++            usuario_criacao=usuario,
++            origem='sistema',
++            status='draft',
++            metadados={},
++        )
++
++    # Actualizar apenas campos de cabeçalho que pertencem ao rascunho.
++    documento.cliente = cliente
++    documento.data_emissao = data_emissao
++    documento.data_vencimento = data_vencimento
++    documento.data_operacao = data_operacao
++    documento.tipo_cliente = tipo_cliente
++    documento.observacoes = str(data.get('observacoes') or '')[:10000]
++    documento.condicoes_pagamento = str(data.get('condicoes_pagamento') or '')[:100]
++    documento.forma_pagamento = forma_nome[:50]
++    documento.moeda = str(data.get('moeda') or 'AOA').upper()[:3]
++    documento.usuario_modificacao = usuario
++    documento.valor_base = Decimal('0.00')
++    documento.valor_iva = Decimal('0.00')
++    documento.valor_desconto = Decimal('0.00')
++    documento.valor_retencao = Decimal('0.00')
++    documento.valor_total = Decimal('0.00')
++
++    metadados = dict(documento.metadados or {})
++    metadados['rascunho_documento'] = {
++        'schema_name': schema,
++        'tipo_documento': tipo,
++        'actualizado_em': timezone.now().isoformat(),
++        'payload': payload,
++        'linhas_fiscais_completas': bool(linhas_fiscais),
++    }
++    documento.metadados = metadados
++
++    # Apaga/reconstrói as linhas só enquanto o documento é rascunho.
++    if documento.pk:
++        documento.linhas.all().delete()
++    documento.save()
++
++    if linhas_fiscais:
++        try:
++            with transaction.atomic():
++                objectos = [DocumentoFiscalLinha(documento=documento, **dados_linha) for dados_linha in linhas_fiscais]
++                for linha_fiscal in objectos:
++                    linha_fiscal.full_clean()
++                for linha_fiscal in objectos:
++                    linha_fiscal.save()
++        except (ValidationError, TypeError, ValueError) as exc:
++            logger.warning('Rascunho %s #%s mantido sem linhas fiscais; a validação será repetida ao finalizar: %s', tipo, documento.pk, exc)
++            documento.linhas.all().delete()
++            DocumentoFiscal.objects.filter(pk=documento.pk).update(
++                valor_base=Decimal('0.00'), valor_iva=Decimal('0.00'),
++                valor_desconto=Decimal('0.00'), valor_retencao=Decimal('0.00'),
++                valor_total=Decimal('0.00'),
++            )
++            documento.refresh_from_db()
++
++    documento.refresh_from_db()
++    return documento
++
++
++def _associar_rascunho_fiscal(registo, documento, tipo_documento, usuario):
++    """Liga um rascunho existente ao registo comercial sem gerar outro documento fiscal."""
++    tipo = str(tipo_documento or '').strip().upper()
++    if documento.tipo_documento != tipo:
++        raise ValidationError(f'O rascunho é {documento.tipo_documento}, mas o registo exige {tipo}.')
++    if documento.status != 'draft':
++        raise ValidationError('O documento ligado já não está em rascunho.')
++    if documento.usuario_criacao_id != getattr(usuario, 'pk', None) and not getattr(usuario, 'is_superuser', False):
++        raise PermissionDenied('Este rascunho pertence a outro utilizador.')
++    if not hasattr(registo, 'documento_fiscal'):
++        raise ValidationError(f'{registo.__class__.__name__} não suporta ligação a DocumentoFiscal.')
++    actual_id = getattr(registo, 'documento_fiscal_id', None)
++    if actual_id and actual_id != documento.pk:
++        raise ValidationError('Este registo comercial já tem outro documento fiscal ligado.')
++
++    total_registo = getattr(registo, 'total', None)
++    if total_registo is not None and Decimal(str(total_registo or 0)) > Decimal('0.00'):
++        if not documento.linhas.exists():
++            raise ValidationError('O rascunho não contém linhas fiscais completas. Prima Ctrl+S novamente com os itens preenchidos antes de finalizar.')
++        if abs(Decimal(str(documento.valor_total or 0)) - Decimal(str(total_registo))) > CENTIMO:
++            raise ValidationError('Os totais do rascunho diferem dos totais comerciais. Guarde novamente o rascunho e tente finalizar.')
++
++    documento.metadados = dict(documento.metadados or {})
++    dados_rascunho = dict(documento.metadados.get('rascunho_documento') or {})
++    dados_rascunho['associado_em'] = timezone.now().isoformat()
++    dados_rascunho['registo_comercial'] = {
++        'modelo': registo.__class__.__name__,
++        'pk': registo.pk,
++    }
++    documento.metadados['rascunho_documento'] = dados_rascunho
++    documento.usuario_modificacao = usuario
++    documento.save()
++
++    registo.documento_fiscal = documento
++    fields_existentes = {campo.name for campo in registo._meta.concrete_fields}
++    update_fields = ['documento_fiscal']
++    for nome in ('numero_documento', 'numero_nota', 'numero_recibo', 'hash_documento', 'atcud'):
++        if nome in fields_existentes:
++            setattr(registo, nome, getattr(documento, nome) or None)
++            update_fields.append(nome)
++    if 'usuario_modificacao' in fields_existentes:
++        registo.usuario_modificacao = usuario
++        update_fields.append('usuario_modificacao')
++    if 'updated_at' in fields_existentes:
++        update_fields.append('updated_at')
++    try:
++        registo.save(update_fields=update_fields, criar_documento=False)
++    except TypeError as exc:
++        if 'criar_documento' not in str(exc):
++            raise
++        registo.save(update_fields=update_fields)
++    return documento
++
++
++@login_required
++@require_POST
++def guardar_rascunho_documento_api(request):
++    """Endpoint único usado pelo Ctrl+S em todos os formulários fiscais."""
++    try:
++        data = _ler_json(request)
++        _regime_do_tenant(request)
++        tipo = str(data.get('tipo_documento') or '').strip().upper()
++        acao = _RASCUNHO_ACAO_POR_TIPO.get(tipo)
++        if not acao:
++            raise ValidationError('Tipo de documento não suportado para rascunhos.')
++        funcionario = getattr(request.user, 'funcionario', None)
++        if not funcionario or not funcionario.pode_realizar_acao(acao):
++            raise PermissionDenied(f'Sem permissão para guardar rascunhos do tipo {tipo}.')
++
++        documento = _criar_rascunho_documento(
++            tipo, data, request.user, rascunho_id=data.get('rascunho_id') or None,
++        )
++        return JsonResponse({
++            'success': True,
++            'message': f'Rascunho {documento.numero_documento} guardado.',
++            'rascunho_id': documento.pk,
++            'numero_documento': documento.numero_documento,
++            'tipo_documento': documento.tipo_documento,
++            'status': documento.status,
++            'linhas_fiscais_completas': bool(documento.linhas.exists()) or not data.get('itens'),
++        })
++    except Exception as exc:
++        return _resposta_erro(exc)
++
++
+ def _dec(valor, campo, minimo=None):
+     try:
+         d = Decimal(str(valor))
+@@ -724,6 +1021,12 @@
+                     desconto_item=l['desconto'], iva_percentual=l['pct'], taxa_iva=l['taxa'],
+                 )
+             _reconciliar_totais(proforma)
++            if data.get('rascunho_id'):
++                rascunho = _criar_rascunho_documento(
++                    'FP', data, request.user, rascunho_id=data.get('rascunho_id'),
++                )
++                _associar_rascunho_fiscal(proforma, rascunho, 'FP', request.user)
++                _emitir_documento_vinculado(proforma, request.user)
+             perfil = _publicar_documento_no_perfil(cliente, 'proforma', proforma, request.user, publicar_perfil)
+             proforma_id = proforma.pk
+             transaction.on_commit(_invalidar_cache_bi)
+@@ -778,6 +1081,11 @@
+                 )
+             _reconciliar_totais(fatura)
+             _baixar_estoque(linhas)
++            if data.get('rascunho_id'):
++                rascunho = _criar_rascunho_documento(
++                    'FT', data, request.user, rascunho_id=data.get('rascunho_id'),
++                )
++                _associar_rascunho_fiscal(fatura, rascunho, 'FT', request.user)
+             fatura.gerar_documento_fiscal(request.user)
+             _emitir_documento_vinculado(fatura, request.user,)
+             perfil = _publicar_documento_no_perfil(cliente, 'fatura_credito', fatura, request.user, publicar_perfil,)
+@@ -2026,13 +2334,14 @@
+         raise ValidationError('Não é possível finalizar uma venda cancelada.')
+ 
+     if venda.documento_fiscal_id:
+-        raise ValidationError(
+-            'Esta venda já possui um documento fiscal. '
+-            'Utilize o fluxo de reconciliação existente.'
+-        )
+-
+-    # 1. Criar o documento fiscal como rascunho.
+-    venda.gerar_documento_fiscal(usuario)
++        if venda.documento_fiscal.status != 'draft':
++            raise ValidationError(
++                'Esta venda já possui um documento fiscal emitido. '
++                'Utilize o fluxo de reconciliação existente.'
++            )
++    else:
++        # 1. Criar o documento fiscal como rascunho, quando não veio de Ctrl+S.
++        venda.gerar_documento_fiscal(usuario)
+ 
+     # 2. Registar o recebimento confirmado.
+     # A função de save() de PagamentoVenda calcula o valor líquido.
+@@ -2120,13 +2429,16 @@
+             #venda.valor_pago = venda.total
+             venda.save(update_fields=['subtotal', 'desconto_valor', 'iva_valor', 'total', 'valor_pago',])
+             _baixar_estoque(linhas)
++            # Se o utilizador guardou com Ctrl+S, reaproveitar o mesmo documento fiscal.
++            if data.get('rascunho_id'):
++                rascunho = _criar_rascunho_documento(
++                    'FR', data, request.user, rascunho_id=data.get('rascunho_id'),
++                )
++                _associar_rascunho_fiscal(venda, rascunho, 'FR', request.user)
+             # Emite o DocumentoFiscal e regista o recebimento.
+             # Só depois marca a venda como finalizada.
+             _finalizar_venda_paga(venda, request.user, forma,)
+             perfil = _publicar_documento_no_perfil(cliente, 'venda', venda, request.user, publicar_perfil,)
+-
+-            
+-            venda.gerar_documento_fiscal(request.user)
+             venda_id = venda.id
+             transaction.on_commit(_invalidar_cache_bi)
+             if notificar:
+@@ -2468,6 +2780,12 @@
+                 )
+             nota.recalcular_total()
+             nota.save()
++            if data.get('rascunho_id'):
++                rascunho = _criar_rascunho_documento(
++                    'NC', data, request.user, rascunho_id=data.get('rascunho_id'),
++                )
++                _associar_rascunho_fiscal(nota, rascunho, 'NC', request.user)
++                _emitir_documento_vinculado(nota, request.user)
+ 
+         return JsonResponse({'success': True, 'nota_id': nota.id})
+     except Exception as e:
+@@ -2478,11 +2796,19 @@
+ @require_POST
+ @requer_permissao('aplicar_notadebito')
+ def finalizar_nota_debito_api(request, nota_id):
+-    """Finaliza Nota de Débito (ND) e gera rastro AGT."""
+-    try:
++    """Finaliza Nota de Débito (ND), reutilizando o rascunho fiscal se fornecido."""
++    try:
++        data = _ler_json(request)
+         with transaction.atomic():
+             nota = get_object_or_404(NotaDebito.objects.select_for_update(), id=nota_id)
+             nota.save()
++            if data.get('rascunho_id'):
++                try:
++                    rascunho = DocumentoFiscal.objects.select_for_update().get(pk=data['rascunho_id'])
++                except (DocumentoFiscal.DoesNotExist, TypeError, ValueError) as exc:
++                    raise ValidationError('O rascunho fiscal indicado não existe neste tenant.') from exc
++                _associar_rascunho_fiscal(nota, rascunho, 'ND', request.user)
++                _emitir_documento_vinculado(nota, request.user)
+         return JsonResponse({'success': True, 'numero': nota.numero_nota})
+     except Exception as e:
+         return _resposta_erro(e)

@@ -5,7 +5,6 @@ from django.utils import timezone
 from decimal import Decimal
 from apps.fiscal.utility import gerar_atcud_documento, gerar_hash_anterior
 from apps.vendas.models import FormaPagamento, Venda, ItemVenda
-from apps.fiscal.services.utils import DocumentoFiscalService
 from django.core.exceptions import ValidationError
 
 

@@ -35,7 +35,10 @@ AGT_API_PASSWORD                 = os.getenv('AGT_API_PASSWORD')
 AGT_JWS_SOFTWARE_SIGNATURE       = os.getenv('AGT_JWS_SOFTWARE_SIGNATURE')
 SOFTWARE_VALIDATION_NUMBER       = os.getenv('SOFTWARE_VALIDATION_NUMBER')
 ASSINATURA_REGENERATE_COOLDOWN_MINUTES = int(os.getenv('ASSINATURA_REGENERATE_COOLDOWN_MINUTES', '60'))
-
+AGT_SUBMISSAO_AUTOMATICA = (
+    os.getenv("AGT_SUBMISSAO_AUTOMATICA", "false").strip().lower()
+    in {"1", "true", "yes", "on", "sim"}
+)
 # ──────────────────────────────────────────────────────────────────────────────
 # CRIPTOGRAFIA
 # ──────────────────────────────────────────────────────────────────────────────

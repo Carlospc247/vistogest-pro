@@ -1,0 +1,219 @@
+{% extends "base.html" %}
+{% load i18n static %}
+
+{% block title %}{% trans "Estados dos Documentos Fiscais" %}{% endblock %}
+
+{% block content %}
+<div class="min-h-screen bg-gray-50 py-8 px-4 sm:px-6 lg:px-8">
+    <div class="max-w-7xl mx-auto">
+        <header class="mb-8 flex flex-col gap-4 border-b border-gray-200 pb-6 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+                <p class="text-xs font-bold uppercase tracking-[0.18em] text-blue-700">VistoGest Pro · Fiscal</p>
+                <h1 class="mt-2 text-2xl font-extrabold tracking-tight text-gray-900 sm:text-3xl">Estados dos Documentos</h1>
+                <p class="mt-2 max-w-3xl text-sm text-gray-600">Consulta documentos por estado e executa apenas transições permitidas pelo fluxo fiscal.</p>
+            </div>
+            <div class="flex flex-wrap gap-2">
+                <a href="{% url 'vendas:status_documento' %}" class="inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-semibold text-gray-700 shadow-sm hover:bg-gray-100">
+                    <i class="fas fa-sync-alt" aria-hidden="true"></i> Actualizar
+                </a>
+            </div>
+        </header>
+
+        {% if messages %}
+            <div class="mb-6 space-y-2" aria-live="polite">
+                {% for message in messages %}
+                    <div class="rounded-lg border px-4 py-3 text-sm {% if message.tags == 'error' %}border-red-200 bg-red-50 text-red-800{% elif message.tags == 'success' %}border-green-200 bg-green-50 text-green-800{% else %}border-blue-200 bg-blue-50 text-blue-800{% endif %}">
+                        {{ message }}
+                    </div>
+                {% endfor %}
+            </div>
+        {% endif %}
+
+        <div class="mb-5 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+            <div class="flex items-start gap-3">
+                <i class="fas fa-info-circle mt-0.5" aria-hidden="true"></i>
+                <p><strong>Importante:</strong> os estados desta página representam o fluxo interno do VistoGest Pro. «Confirmado» não significa que a AGT aceitou ou validou o documento. A submissão electrónica e a resposta final da AGT devem ser verificadas separadamente.</p>
+            </div>
+        </div>
+
+        <section aria-label="Resumo por estado" class="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+            {% for card in cards_estado %}
+            <a href="{{ card.url }}" class="group rounded-xl border bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md {% if card.seleccionado %}border-blue-500 ring-2 ring-blue-100{% else %}border-gray-200{% endif %}">
+                <div class="flex items-start justify-between gap-4">
+                    <div class="flex h-11 w-11 items-center justify-center rounded-xl
+                        {% if card.cor == 'amber' %}bg-amber-50 text-amber-700{% elif card.cor == 'blue' %}bg-blue-50 text-blue-700{% elif card.cor == 'indigo' %}bg-indigo-50 text-indigo-700{% elif card.cor == 'green' %}bg-green-50 text-green-700{% elif card.cor == 'red' %}bg-red-50 text-red-700{% else %}bg-purple-50 text-purple-700{% endif %}">
+                        {% if card.codigo == 'draft' %}<i class="fas fa-file-alt fa-lg" aria-hidden="true"></i>
+                        {% elif card.codigo == 'confirmed' %}<i class="fas fa-check-circle fa-lg" aria-hidden="true"></i>
+                        {% elif card.codigo == 'posted' %}<i class="fas fa-book fa-lg" aria-hidden="true"></i>
+                        {% elif card.codigo == 'paid' %}<i class="fas fa-money-check-alt fa-lg" aria-hidden="true"></i>
+                        {% elif card.codigo == 'cancelled' %}<i class="fas fa-ban fa-lg" aria-hidden="true"></i>
+                        {% else %}<i class="fas fa-file-signature fa-lg" aria-hidden="true"></i>{% endif %}
+                    </div>
+                    <span class="rounded-full px-3 py-1 text-xs font-bold {% if card.cor == 'amber' %}bg-amber-100 text-amber-800{% elif card.cor == 'blue' %}bg-blue-100 text-blue-800{% elif card.cor == 'indigo' %}bg-indigo-100 text-indigo-800{% elif card.cor == 'green' %}bg-green-100 text-green-800{% elif card.cor == 'red' %}bg-red-100 text-red-800{% else %}bg-purple-100 text-purple-800{% endif %}">{{ card.quantidade }}</span>
+                </div>
+                <h2 class="mt-4 text-lg font-bold text-gray-900">{{ card.label }}</h2>
+                <p class="mt-1 text-sm text-gray-500">{{ card.descricao }}</p>
+                <span class="mt-4 inline-flex items-center gap-2 text-sm font-semibold text-blue-700 group-hover:text-blue-900">Ver documentos <i class="fas fa-arrow-right text-xs" aria-hidden="true"></i></span>
+            </a>
+            {% endfor %}
+        </section>
+
+        <section class="mb-6 rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+            <div class="mb-4 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                    <h2 class="text-base font-bold text-gray-900">Pesquisar documentos</h2>
+                    <p class="text-sm text-gray-500">Pesquisa por número, cliente, NIF ou ATCUD.</p>
+                </div>
+                <p class="text-sm text-gray-500">{{ total_global }} documento(s) no tenant</p>
+            </div>
+            <form method="get" class="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5">
+                <div class="xl:col-span-2">
+                    <label class="mb-1 block text-sm font-medium text-gray-700" for="q">Pesquisa</label>
+                    <input class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100" id="q" name="q" value="{{ q }}" placeholder="Nº documento, cliente, NIF, ATCUD">
+                </div>
+                <div>
+                    <label class="mb-1 block text-sm font-medium text-gray-700" for="tipo">Tipo</label>
+                    <select class="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100" id="tipo" name="tipo">
+                        <option value="">Todos os tipos</option>
+                        {% for valor, label in tipo_choices %}<option value="{{ valor }}" {% if tipo == valor %}selected{% endif %}>{{ label }}</option>{% endfor %}
+                    </select>
+                </div>
+                <div>
+                    <label class="mb-1 block text-sm font-medium text-gray-700" for="estado">Estado</label>
+                    <select class="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100" id="estado" name="estado">
+                        <option value="">Todos os estados</option>
+                        {% for valor, label in estado_choices %}<option value="{{ valor }}" {% if estado == valor %}selected{% endif %}>{{ label }}</option>{% endfor %}
+                    </select>
+                </div>
+                <div class="flex items-end gap-2">
+                    <button type="submit" class="inline-flex flex-1 items-center justify-center gap-2 rounded-lg bg-blue-700 px-4 py-2 text-sm font-bold text-white shadow-sm hover:bg-blue-800"><i class="fas fa-filter" aria-hidden="true"></i> Filtrar</button>
+                    <a href="{% url 'vendas:status_documento' %}" class="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50">Limpar</a>
+                </div>
+            </form>
+        </section>
+
+        <section class="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
+            <div class="flex flex-col gap-2 border-b border-gray-200 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                    <h2 class="font-bold text-gray-900">Lista de documentos</h2>
+                    <p class="text-sm text-gray-500">{{ total_filtrado }} resultado(s) · página {{ page_obj.number }} de {{ paginator.num_pages|default:1 }}</p>
+                </div>
+                {% if estado %}<span class="inline-flex w-fit rounded-full bg-blue-50 px-3 py-1 text-xs font-bold text-blue-800">Filtro: {{ page_obj.object_list.0.get_status_display|default:estado }}</span>{% endif %}
+            </div>
+            <div class="overflow-x-auto">
+                <table class="min-w-full divide-y divide-gray-200">
+                    <thead class="bg-gray-50">
+                        <tr>
+                            <th class="px-5 py-3 text-left text-xs font-bold uppercase tracking-wider text-gray-500">Documento</th>
+                            <th class="px-5 py-3 text-left text-xs font-bold uppercase tracking-wider text-gray-500">Cliente</th>
+                            <th class="px-5 py-3 text-left text-xs font-bold uppercase tracking-wider text-gray-500">Data</th>
+                            <th class="px-5 py-3 text-right text-xs font-bold uppercase tracking-wider text-gray-500">Total</th>
+                            <th class="px-5 py-3 text-left text-xs font-bold uppercase tracking-wider text-gray-500">Estado</th>
+                            <th class="min-w-[380px] px-5 py-3 text-left text-xs font-bold uppercase tracking-wider text-gray-500">Acções permitidas</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-gray-100 bg-white">
+                    {% for doc in documentos %}
+                        <tr class="align-top hover:bg-gray-50">
+                            <td class="whitespace-nowrap px-5 py-4">
+                                <div class="font-bold text-blue-700">{{ doc.numero_documento|default:"Sem número" }}</div>
+                                <div class="mt-1 text-xs text-gray-500">{{ doc.get_tipo_documento_display|default:doc.tipo_documento }}</div>
+                                <div class="mt-1 text-xs text-gray-400">ID {{ doc.pk }}</div>
+                            </td>
+                            <td class="px-5 py-4 text-sm text-gray-700">
+                                <div class="font-semibold">{{ doc.cliente_nome|default:"Consumidor final" }}</div>
+                                {% if doc.cliente_nif %}<div class="mt-1 text-xs text-gray-500">NIF: {{ doc.cliente_nif }}</div>{% endif %}
+                            </td>
+                            <td class="whitespace-nowrap px-5 py-4 text-sm text-gray-600">
+                                {{ doc.data_emissao|date:"d/m/Y" }}
+                                {% if doc.data_confirmacao %}<div class="mt-1 text-xs text-gray-400">Confirmado: {{ doc.data_confirmacao|date:"d/m/Y H:i" }}</div>{% endif %}
+                            </td>
+                            <td class="whitespace-nowrap px-5 py-4 text-right text-sm font-bold text-gray-900">{{ doc.valor_total|floatformat:2 }} {{ doc.moeda }}</td>
+                            <td class="whitespace-nowrap px-5 py-4">
+                                {% if doc.status == 'draft' %}<span class="inline-flex rounded-full bg-amber-100 px-2.5 py-1 text-xs font-bold text-amber-800">Rascunho</span>
+                                {% elif doc.status == 'confirmed' %}<span class="inline-flex rounded-full bg-blue-100 px-2.5 py-1 text-xs font-bold text-blue-800">Confirmado</span>
+                                {% elif doc.status == 'posted' %}<span class="inline-flex rounded-full bg-indigo-100 px-2.5 py-1 text-xs font-bold text-indigo-800">Lançado</span>
+                                {% elif doc.status == 'paid' %}<span class="inline-flex rounded-full bg-green-100 px-2.5 py-1 text-xs font-bold text-green-800">Pago</span>
+                                {% elif doc.status == 'cancelled' %}<span class="inline-flex rounded-full bg-red-100 px-2.5 py-1 text-xs font-bold text-red-800">Cancelado</span>
+                                {% elif doc.status == 'rectified' %}<span class="inline-flex rounded-full bg-purple-100 px-2.5 py-1 text-xs font-bold text-purple-800">Retificado</span>
+                                {% else %}<span class="rounded-full bg-gray-100 px-2.5 py-1 text-xs font-bold text-gray-700">{{ doc.get_status_display }}</span>{% endif %}
+                            </td>
+                            <td class="px-5 py-4">
+                                {% if doc.status_actions %}
+                                    <div class="flex min-w-[360px] flex-wrap items-center gap-2">
+                                    {% for acao in doc.status_actions %}
+                                        <form method="post" action="{% url 'vendas:status_documento' %}" class="inline-flex items-center gap-1">
+                                            {% csrf_token %}
+                                            <input type="hidden" name="documento_id" value="{{ doc.pk }}">
+                                            <input type="hidden" name="acao" value="{{ acao.valor }}">
+                                            <input type="hidden" name="motivo" value="">
+                                            <input type="hidden" name="estado_filtro" value="{{ estado }}">
+                                            <input type="hidden" name="q_filtro" value="{{ q }}">
+                                            <input type="hidden" name="tipo_filtro" value="{{ tipo }}">
+                                            {% if acao.valor == 'pagar' %}
+                                                <select name="forma_pagamento" required aria-label="Forma de pagamento para {{ doc.numero_documento }}" class="max-w-[125px] rounded-md border border-gray-300 bg-white px-2 py-1.5 text-xs">
+                                                    <option value="">Forma de pagamento</option>
+                                                    {% for forma, forma_label in formas_pagamento %}<option value="{{ forma }}">{{ forma_label }}</option>{% endfor %}
+                                                </select>
+                                                <input name="referencia_pagamento" placeholder="Referência (opcional)" aria-label="Referência de pagamento" class="max-w-[115px] rounded-md border border-gray-300 px-2 py-1.5 text-xs">
+                                            {% endif %}
+                                            <button type="submit" data-motivo="{% if acao.motivo %}true{% else %}false{% endif %}" data-confirmar="{{ acao.confirmar|default:'' }}" class="rounded-md border px-2.5 py-1.5 text-xs font-bold transition {% if acao.classe == 'blue' %}border-blue-200 bg-blue-50 text-blue-800 hover:bg-blue-100{% elif acao.classe == 'indigo' %}border-indigo-200 bg-indigo-50 text-indigo-800 hover:bg-indigo-100{% elif acao.classe == 'green' %}border-green-200 bg-green-50 text-green-800 hover:bg-green-100{% elif acao.classe == 'red' %}border-red-200 bg-red-50 text-red-800 hover:bg-red-100{% else %}border-purple-200 bg-purple-50 text-purple-800 hover:bg-purple-100{% endif %}">{{ acao.rotulo }}</button>
+                                        </form>
+                                    {% endfor %}
+                                    </div>
+                                {% else %}
+                                    <span class="text-xs text-gray-400">Sem transições disponíveis.</span>
+                                {% endif %}
+                                {% if doc.status == 'draft' %}<p class="mt-2 text-xs text-gray-500">Confirmação exige chave e assinatura válidas; o resultado da AGT é controlado separadamente.</p>{% endif %}
+                            </td>
+                        </tr>
+                    {% empty %}
+                        <tr><td colspan="6" class="px-6 py-14 text-center">
+                            <div class="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-gray-100 text-gray-400"><i class="fas fa-folder-open fa-lg" aria-hidden="true"></i></div>
+                            <h3 class="mt-3 text-sm font-bold text-gray-900">Nenhum documento encontrado</h3>
+                            <p class="mt-1 text-sm text-gray-500">Altera os filtros ou confirma se já existem documentos fiscais neste tenant.</p>
+                        </td></tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% if is_paginated %}
+            <div class="flex items-center justify-between border-t border-gray-200 bg-gray-50 px-5 py-4">
+                <p class="text-sm text-gray-600">Página {{ page_obj.number }} de {{ paginator.num_pages }}</p>
+                <div class="flex gap-2">
+                    {% if anterior_url %}<a href="{{ anterior_url }}" class="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-100">Anterior</a>{% endif %}
+                    {% if seguinte_url %}<a href="{{ seguinte_url }}" class="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-100">Seguinte</a>{% endif %}
+                </div>
+            </div>
+            {% endif %}
+        </section>
+
+        <p class="mt-4 text-xs leading-5 text-gray-500">As operações disponíveis respeitam o estado actual do documento. A correcção de um documento emitido deve ser feita através de documento rectificativo; não se altera directamente o estado para contornar o histórico fiscal.</p>
+    </div>
+</div>
+
+<script>
+(function () {
+    document.querySelectorAll('form').forEach(function (form) {
+        var button = form.querySelector('button[data-motivo]');
+        if (!button) return;
+        button.addEventListener('click', function (event) {
+            var confirmado = button.dataset.confirmar;
+            if (confirmado && !window.confirm(confirmado)) {
+                event.preventDefault();
+                return;
+            }
+            if (button.dataset.motivo === 'true') {
+                var motivo = window.prompt('Indica o motivo da operação:');
+                if (motivo === null || !motivo.trim()) {
+                    event.preventDefault();
+                    return;
+                }
+                var campo = form.querySelector('input[name="motivo"]');
+                if (campo) campo.value = motivo.trim();
+            }
+        });
+    });
+})();
+</script>
+{% endblock %}
